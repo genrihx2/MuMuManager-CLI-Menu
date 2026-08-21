@@ -164,6 +164,7 @@ function Show-Menu {
     Write-Host '  [B] Launch all instances' -ForegroundColor Yellow
     Write-Host '  [D] Shutdown all instances' -ForegroundColor Yellow
     Write-Host '  [R] Restart all instances' -ForegroundColor Yellow
+    Write-Host '  [I] Install APK to all' -ForegroundColor Yellow
     Write-Host ''
     Write-Host '  --- Other ---' -ForegroundColor Green
     Write-Host '  [S] Take screenshot' -ForegroundColor Yellow
@@ -390,6 +391,48 @@ function Restart-All {
     Launch-All
 }
 
+function Install-APK-All {
+    Write-Host ''
+    $apkPath = Read-Host 'Enter APK file path'
+    if (-not (Test-Path $apkPath)) {
+        Write-Host "File not found: $apkPath" -ForegroundColor Red
+        return
+    }
+    $apkName = Split-Path $apkPath -Leaf
+    $apkSize = [math]::Round((Get-Item $apkPath).Length / 1MB, 1)
+
+    $indices = Get-AllIndices
+    Write-Host ''
+    Write-Host "Installing $apkName ($apkSize MB) to $($indices.Count) instance(s)..." -ForegroundColor Cyan
+    Write-Host ''
+
+    $success = 0
+    $failed = 0
+    foreach ($idx in $indices) {
+        $info = & $MumuPath info -v $idx 2>$null | ConvertFrom-Json
+        $name = $info.name
+        $running = $info.is_process_started
+
+        if (-not $running) {
+            Write-Host "  [$idx] $name - skipped (not running)" -ForegroundColor DarkGray
+            continue
+        }
+
+        Write-Host "  [$idx] $name - installing..." -ForegroundColor Yellow
+        try {
+            & $MumuPath control -v $idx app install -apk $apkPath 2>&1 | Out-Null
+            Write-Host "  [$idx] $name - OK" -ForegroundColor Green
+            $success++
+        } catch {
+            Write-Host "  [$idx] $name - FAILED" -ForegroundColor Red
+            $failed++
+        }
+    }
+
+    Write-Host ''
+    Write-Host "Done! Success: $success, Failed: $failed" -ForegroundColor Cyan
+}
+
 function Show-Apps {
     $index = Get-InstanceIndex 'Select instance'
     Write-Host ''
@@ -519,6 +562,8 @@ do {
         'D' { Shutdown-All }
         'r' { Restart-All }
         'R' { Restart-All }
+        'i' { Install-APK-All }
+        'I' { Install-APK-All }
         's' { Take-Screenshot }
         'S' { Take-Screenshot }
         'u' { Update-FromGitHub }
