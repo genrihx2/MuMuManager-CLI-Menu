@@ -80,7 +80,15 @@ function Update-FromGitHub {
         Start-Sleep -Seconds 2
         exit
     } catch {
-        Write-Host "  Update check failed: $($_.Exception.Message)" -ForegroundColor Yellow
+        $statusCode = 0
+        if ($_.Exception.Response) {
+            $statusCode = [int]$_.Exception.Response.StatusCode
+        }
+        if ($statusCode -eq 404) {
+            Write-Host '  Repository not found. Update check skipped.' -ForegroundColor DarkGray
+        } else {
+            Write-Host "  Update check failed: $($_.Exception.Message)" -ForegroundColor Yellow
+        }
     }
 }
 
