@@ -467,7 +467,7 @@ function Security-Audit {
         Write-Host "  Owner: $owner" -ForegroundColor DarkGray
         
         # Check if file is hidden
-        $attr = (Get-Item $tokenFile).Attributes
+        $attr = (Get-Item $tokenFile -Force).Attributes
         if ($attr -band [IO.FileAttributes]::Hidden) {
             Write-Host '  Hidden: YES' -ForegroundColor Green
             $safeCount++
