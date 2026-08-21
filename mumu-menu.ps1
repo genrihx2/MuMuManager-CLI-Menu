@@ -341,7 +341,7 @@ function New-Emulator {
     Write-Host 'Done!' -ForegroundColor Green
 }
 
-function Clone-Emulator {
+function Copy-Emulator {
     $index = Get-InstanceIndex 'Select instance to clone'
     Write-Host ''
     Write-Host "Cloning instance $index..." -ForegroundColor Cyan
@@ -369,7 +369,7 @@ function Clone-Emulator {
     }
 }
 
-function Delete-Emulator {
+function Remove-Emulator {
     $index = Get-InstanceIndex 'Select instance to DELETE'
     Write-Host ''
     Write-Host "WARNING: This will permanently delete instance $index!" -ForegroundColor Red
@@ -451,7 +451,7 @@ function Export-Emulator {
     }
 }
 
-function Security-Audit {
+function Test-Security {
     Write-Host ''
     Write-Host '=== Security Audit ===' -ForegroundColor Cyan
     Write-Host ''
@@ -634,7 +634,7 @@ function Get-AllIndices {
     return $info.PSObject.Properties.Name
 }
 
-function Launch-All {
+function Start-All {
     $indices = Get-AllIndices
     Write-Host ''
     Write-Host "Found $($indices.Count) instances" -ForegroundColor Cyan
@@ -673,7 +673,7 @@ function Launch-All {
     Write-Host '  Timed out. Some instances may still be booting.' -ForegroundColor Yellow
 }
 
-function Shutdown-All {
+function Stop-All {
     $indices = Get-AllIndices
     Write-Host ''
     Write-Host "Found $($indices.Count) instances" -ForegroundColor Cyan
@@ -695,12 +695,12 @@ function Shutdown-All {
 }
 
 function Restart-All {
-    Shutdown-All
+    Stop-All
     Write-Host ''
     Write-Host 'Waiting for main services...' -ForegroundColor Yellow
     Start-Sleep -Seconds 5
     Write-Host ''
-    Launch-All
+    Start-All
 }
 
 function Install-APK-All {
@@ -900,7 +900,7 @@ function Hide-Windows {
     }
 }
 
-function Layout-Windows {
+function Set-WindowLayout {
     Write-Host ''
     Write-Host 'Arranging emulator windows...' -ForegroundColor Cyan
     $output = & $MumuPath control -v all layout_window 2>&1 | Out-String
@@ -913,7 +913,7 @@ function Layout-Windows {
     }
 }
 
-function Take-Screenshot {
+function Save-Screenshot {
     $index = Get-InstanceIndex 'Select instance'
     Write-Host ''
 
@@ -982,10 +982,10 @@ do {
         '3' { Stop-Emulator }
         '4' { Restart-Emulator }
         '5' { New-Emulator }
-        'c' { Clone-Emulator }
-        'C' { Clone-Emulator }
-        'x' { Delete-Emulator }
-        'X' { Delete-Emulator }
+        'c' { Copy-Emulator }
+        'C' { Copy-Emulator }
+        'x' { Remove-Emulator }
+        'X' { Remove-Emulator }
         'n' { Rename-Emulator }
         'N' { Rename-Emulator }
         '6' { Show-Apps }
@@ -1004,14 +1004,14 @@ do {
         'E' { Export-Emulator }
         'k' { Update-Token }
         'K' { Update-Token }
-        'z' { Security-Audit }
-        'Z' { Security-Audit }
+        'z' { Test-Security }
+        'Z' { Test-Security }
         'a' { Invoke-ADBCommand }
         'A' { Invoke-ADBCommand }
-        'b' { Launch-All }
-        'B' { Launch-All }
-        'd' { Shutdown-All }
-        'D' { Shutdown-All }
+        'b' { Start-All }
+        'B' { Start-All }
+        'd' { Stop-All }
+        'D' { Stop-All }
         'r' { Restart-All }
         'R' { Restart-All }
         'i' { Install-APK-All }
@@ -1020,10 +1020,10 @@ do {
         'W' { Show-Windows }
         'h' { Hide-Windows }
         'H' { Hide-Windows }
-        'l' { Layout-Windows }
-        'L' { Layout-Windows }
-        's' { Take-Screenshot }
-        'S' { Take-Screenshot }
+        'l' { Set-WindowLayout }
+        'L' { Set-WindowLayout }
+        's' { Save-Screenshot }
+        'S' { Save-Screenshot }
         'v' { Show-VersionInfo }
         'V' { Show-VersionInfo }
         'u' { Update-FromGitHub }
