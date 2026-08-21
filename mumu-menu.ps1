@@ -154,12 +154,15 @@ function Show-Menu {
     Write-Host '  [4] Restart emulator' -ForegroundColor Yellow
     Write-Host '  [5] Create new emulator' -ForegroundColor Yellow
     Write-Host '  [C] Clone emulator' -ForegroundColor Yellow
+    Write-Host '  [X] Delete emulator' -ForegroundColor Yellow
+    Write-Host '  [N] Rename emulator' -ForegroundColor Yellow
     Write-Host ''
     Write-Host '  --- Apps and Settings ---' -ForegroundColor Green
     Write-Host '  [6] List installed apps' -ForegroundColor Yellow
     Write-Host '  [7] Show settings' -ForegroundColor Yellow
     Write-Host '  [8] Install APK' -ForegroundColor Yellow
     Write-Host '  [9] Uninstall app' -ForegroundColor Yellow
+    Write-Host '  [G] View logs' -ForegroundColor Yellow
     Write-Host ''
     Write-Host '  --- Batch ---' -ForegroundColor Green
     Write-Host '  [B] Launch all instances' -ForegroundColor Yellow
@@ -349,6 +352,58 @@ function Clone-Emulator {
         }
     } catch {
         Write-Host "Clone failed: $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
+
+function Delete-Emulator {
+    $index = Get-InstanceIndex 'Select instance to DELETE'
+    Write-Host ''
+    Write-Host "WARNING: This will permanently delete instance $index!" -ForegroundColor Red
+    $confirm = Read-Host 'Type YES to confirm'
+    if ($confirm -ne 'YES') {
+        Write-Host 'Cancelled.' -ForegroundColor Yellow
+        return
+    }
+    Write-Host "Deleting instance $index..." -ForegroundColor Cyan
+    try {
+        # Shutdown first if running
+        & $MumuPath control -v $index shutdown 2>&1 | Out-Null
+        Start-Sleep -Seconds 2
+        & $MumuPath delete -v $index 2>&1 | Out-Null
+        Write-Host 'Instance deleted!' -ForegroundColor Green
+    } catch {
+        Write-Host "Delete failed: $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
+
+function Rename-Emulator {
+    $index = Get-InstanceIndex 'Select instance to rename'
+    Write-Host ''
+    $info = & $MumuPath info -v $index 2>$null | ConvertFrom-Json
+    $oldName = $info.name
+    Write-Host "Current name: $oldName" -ForegroundColor DarkGray
+    $newName = Read-Host 'Enter new name'
+    if (-not $newName) {
+        Write-Host 'Cancelled.' -ForegroundColor Yellow
+        return
+    }
+    Write-Host "Renaming to '$newName'..." -ForegroundColor Cyan
+    try {
+        & $MumuPath rename -v $index -n $newName 2>&1 | Out-Null
+        Write-Host "Renamed to '$newName'!" -ForegroundColor Green
+    } catch {
+        Write-Host "Rename failed: $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
+
+function Show-Logs {
+    $index = Get-InstanceIndex 'Select instance'
+    Write-Host ''
+    Write-Host "Fetching logs for instance $index..." -ForegroundColor Cyan
+    try {
+        & $MumuPath log -v $index --path 2>&1 | ForEach-Object { Write-Host $_ }
+    } catch {
+        Write-Host "Failed to get logs: $($_.Exception.Message)" -ForegroundColor Red
     }
 }
 
@@ -662,10 +717,16 @@ do {
         '5' { New-Emulator }
         'c' { Clone-Emulator }
         'C' { Clone-Emulator }
+        'x' { Delete-Emulator }
+        'X' { Delete-Emulator }
+        'n' { Rename-Emulator }
+        'N' { Rename-Emulator }
         '6' { Show-Apps }
         '7' { Show-Settings }
         '8' { Install-APK }
         '9' { Uninstall-App }
+        'g' { Show-Logs }
+        'G' { Show-Logs }
         'a' { Invoke-ADBCommand }
         'A' { Invoke-ADBCommand }
         'b' { Launch-All }
