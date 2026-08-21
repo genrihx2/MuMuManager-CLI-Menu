@@ -138,6 +138,7 @@ function Show-Menu {
     Write-Host '  [R] Restart all instances' -ForegroundColor Yellow
     Write-Host ''
     Write-Host '  --- Other ---' -ForegroundColor Green
+    Write-Host '  [S] Take screenshot' -ForegroundColor Yellow
     Write-Host '  [A] Run ADB command' -ForegroundColor Yellow
     Write-Host '  [U] Check for updates' -ForegroundColor Yellow
     Write-Host '  [0] Exit' -ForegroundColor Yellow
@@ -409,6 +410,55 @@ function Uninstall-App {
     Write-Host 'Done!' -ForegroundColor Green
 }
 
+function Take-Screenshot {
+    $index = Get-InstanceIndex 'Select instance'
+    Write-Host ''
+
+    # Get ADB port for this instance
+    $info = & $MumuPath info -v $index 2>$null | ConvertFrom-Json
+    if (-not $info.is_process_started) {
+        Write-Host 'Emulator is not running!' -ForegroundColor Red
+        return
+    }
+
+    $adbPort = $info.adb_port
+    if (-not $adbPort) {
+        Write-Host 'Cannot get ADB port' -ForegroundColor Red
+        return
+    }
+
+    # Create screenshots directory
+    $screenshotsDir = Join-Path $ScriptDir 'screenshots'
+    if (-not (Test-Path $screenshotsDir)) {
+        New-Item -ItemType Directory -Path $screenshotsDir | Out-Null
+    }
+
+    # Generate filename with timestamp
+    $timestamp = Get-Date -Format 'yyyyMMdd_HHmmss'
+    $filename = "screenshot_${index}_${timestamp}.png"
+    $destPath = Join-Path $screenshotsDir $filename
+    $remotePath = '/sdcard/screenshot.png'
+
+    Write-Host "Taking screenshot of instance $index..." -ForegroundColor Cyan
+
+    # Take screenshot via ADB
+    & $MumuPath adb -v $index -c "shell screencap -p $remotePath" 2>&1 | Out-Null
+
+    # Pull file from emulator
+    & $MumuPath adb -v $index -c "pull $remotePath $destPath" 2>&1 | Out-Null
+
+    # Cleanup remote file
+    & $MumuPath adb -v $index -c "shell rm $remotePath" 2>&1 | Out-Null
+
+    if (Test-Path $destPath) {
+        $size = (Get-Item $destPath).Length / 1KB
+        Write-Host "Screenshot saved: $destPath" -ForegroundColor Green
+        Write-Host "Size: $([math]::Round($size, 1)) KB" -ForegroundColor DarkGray
+    } else {
+        Write-Host 'Failed to save screenshot' -ForegroundColor Red
+    }
+}
+
 function Invoke-ADBCommand {
     $index = Get-InstanceIndex 'Select instance'
     Write-Host ''
@@ -441,6 +491,8 @@ do {
         'D' { Shutdown-All }
         'r' { Restart-All }
         'R' { Restart-All }
+        's' { Take-Screenshot }
+        'S' { Take-Screenshot }
         'u' { Update-FromGitHub }
         'U' { Update-FromGitHub }
         '0' {
