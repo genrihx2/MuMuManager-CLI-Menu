@@ -1,7 +1,7 @@
 # MuMuManager CLI - Interactive Menu
 # Launch: .\mumu-menu.ps1
 
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+if ($PSScriptRoot) { $ScriptDir = $PSScriptRoot } else { $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path }
 $GitHubRepo = 'genrihx2/MuMuManager-CLI-Menu'
 $SkillPath = '.'
 $GitHubRaw = 'https://raw.githubusercontent.com'
@@ -28,10 +28,7 @@ function Update-FromGitHub {
     Write-Host 'Checking for updates...' -ForegroundColor Cyan
 
     # Build headers with token if available
-    $headers = @{
-        'Accept' = 'application/vnd.github.v3+json'
-        'User-Agent' = 'MuMuManager-CLI-Menu'
-    }
+    $headers = @{'Accept' = 'application/vnd.github.v3+json'}
     if ($GitHubToken) {
         $headers['Authorization'] = "token $GitHubToken"
     }
@@ -92,7 +89,7 @@ function Update-FromGitHub {
                 } else {
                     # Use raw URL for public repos
                     $url = "$GitHubRaw/$GitHubRepo/main/$SkillPath/$f"
-                    Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing -Headers @{'User-Agent' = 'MuMuManager-CLI-Menu'} -ErrorAction Stop
+                    Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing -ErrorAction Stop
                 }
                 Write-Host '    OK' -ForegroundColor Green
             } catch {
@@ -798,7 +795,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.1.0' -ForegroundColor Green
+    Write-Host 'Script version: 1.6.3' -ForegroundColor Green
 
     # MuMu version
     try {
