@@ -32,6 +32,69 @@ cd MuMuManager-CLI-Menu
 2. Поместите в любую папку
 3. Запустите `.\mumu-menu.ps1`
 
+## Скриншоты
+
+### Главное меню
+```
+======================================
+    MuMuManager CLI Menu
+======================================
+
+  --- Emulator Control ---
+  [1] Show emulator info
+  [2] Launch emulator
+  [3] Shutdown emulator
+  [4] Restart emulator
+  [5] Create new emulator
+
+  --- Apps and Settings ---
+  [6] List installed apps
+  [7] Show settings
+  [8] Install APK
+  [9] Uninstall app
+
+  --- Batch ---
+  [B] Launch all instances
+  [D] Shutdown all instances
+  [R] Restart all instances
+
+  --- Other ---
+  [A] Run ADB command
+  [U] Check for updates
+  [0] Exit
+
+======================================
+Select option (0-9):
+```
+
+### Запуск эмулятора с progress bar
+```
+Launching instance 0...
+current select player index: 0
+player launch: result=0
+
+  [#-----------------------------]  2% [ 3s]  state: starting_vm
+  [##----------------------------]  5% [ 6s]  state: starting_rom
+  [###---------------------------] 10% [12s]  state: starting_rom
+  [####--------------------------] 12% [15s]  state: starting_rom
+  [##############################] 100% Emulator is running! (booted in ~20s)
+```
+
+### Массовый запуск
+```
+Found 3 instance(s)
+  [0] Android Device - launching...
+  [1] Game Phone - launching...
+  [2] Test Device - launching...
+
+All instances launched. Polling boot status...
+  [5 s] still booting...
+  [10 s] still booting...
+  All instances ready in ~15s!
+```
+
+> 💡 Для добавления реальных скриншотов: запустите меню, сделайте скриншот (Win+Shift+S), загрузите в репозиторий и обновите пути в README.
+
 ## Использование
 
 ### Запуск меню
