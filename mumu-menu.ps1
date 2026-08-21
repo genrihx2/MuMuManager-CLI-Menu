@@ -153,6 +153,7 @@ function Show-Menu {
     Write-Host '  [3] Shutdown emulator' -ForegroundColor Yellow
     Write-Host '  [4] Restart emulator' -ForegroundColor Yellow
     Write-Host '  [5] Create new emulator' -ForegroundColor Yellow
+    Write-Host '  [C] Clone emulator' -ForegroundColor Yellow
     Write-Host ''
     Write-Host '  --- Apps and Settings ---' -ForegroundColor Green
     Write-Host '  [6] List installed apps' -ForegroundColor Yellow
@@ -316,6 +317,34 @@ function New-Emulator {
     Write-Host $output
 
     Write-Host 'Done!' -ForegroundColor Green
+}
+
+function Clone-Emulator {
+    $index = Get-InstanceIndex 'Select instance to clone'
+    Write-Host ''
+    Write-Host "Cloning instance $index..." -ForegroundColor Cyan
+
+    $info = & $MumuPath info -v $index 2>$null | ConvertFrom-Json
+    $name = $info.name
+    Write-Host "Source: [$index] $name" -ForegroundColor DarkGray
+
+    try {
+        $output = & $MumuPath clone -v $index 2>&1
+        Write-Host $output
+        Write-Host ''
+        Write-Host 'Clone completed!' -ForegroundColor Green
+        Write-Host ''
+        Write-Host 'Current instances:' -ForegroundColor Yellow
+        $allInfo = & $MumuPath info -v all 2>$null | ConvertFrom-Json
+        foreach ($key in $allInfo.PSObject.Properties.Name) {
+            $inst = $allInfo.$key
+            $state = if ($inst.player_state) { $inst.player_state } else { 'stopped' }
+            $marker = if ($key -eq $index) { ' <-- source' } else { '' }
+            Write-Host "  [$key] $($inst.name) - $state$marker" -ForegroundColor White
+        }
+    } catch {
+        Write-Host "Clone failed: $($_.Exception.Message)" -ForegroundColor Red
+    }
 }
 
 function Get-AllIndices {
@@ -605,6 +634,8 @@ do {
         '3' { Stop-Emulator }
         '4' { Restart-Emulator }
         '5' { New-Emulator }
+        'c' { Clone-Emulator }
+        'C' { Clone-Emulator }
         '6' { Show-Apps }
         '7' { Show-Settings }
         '8' { Install-APK }
