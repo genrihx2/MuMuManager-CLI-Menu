@@ -4,6 +4,9 @@
 # Version file
 .version
 
+# GitHub token
+.github-token
+
 # Logs
 *.log
 

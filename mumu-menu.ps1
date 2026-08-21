@@ -6,6 +6,13 @@ $GitHubRepo = 'genrihx2/MuMuManager-CLI-Menu'
 $SkillPath = '.'
 $GitHubRaw = 'https://raw.githubusercontent.com'
 $VersionFile = Join-Path $ScriptDir '.version'
+$TokenFile = Join-Path $ScriptDir '.github-token'
+
+# Load GitHub token if exists
+$GitHubToken = ''
+if (Test-Path $TokenFile) {
+    $GitHubToken = (Get-Content $TokenFile -ErrorAction SilentlyContinue).Trim()
+}
 
 $MumuPath = 'C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe'
 
@@ -19,9 +26,15 @@ if (-not (Test-Path $MumuPath)) {
 function Update-FromGitHub {
     Write-Host ''
     Write-Host 'Checking for updates...' -ForegroundColor Cyan
+
+    # Build headers with token if available
+    $headers = @{'Accept' = 'application/vnd.github.v3+json'}
+    if ($GitHubToken) {
+        $headers['Authorization'] = "token $GitHubToken"
+    }
+
     try {
         $apiUrl = "https://api.github.com/repos/$GitHubRepo/commits?path=$SkillPath/mumu-menu.ps1&per_page=1"
-        $headers = @{'Accept' = 'application/vnd.github.v3+json'}
         $response = Invoke-RestMethod -Uri $apiUrl -UseBasicParsing -Headers $headers -ErrorAction Stop
 
         if (-not $response -or $response.Count -eq 0) {
@@ -61,14 +74,24 @@ function Update-FromGitHub {
             return
         }
 
+        # Download files (use API for private repos)
         $files = @('mumu-menu.ps1', 'mumu-profile.ps1', 'SKILL.md', 'README.md')
         foreach ($f in $files) {
-            $url = "$GitHubRaw/$GitHubRepo/main/$SkillPath/$f"
             $dest = Join-Path $ScriptDir $f
             Write-Host "  Downloading $f..." -ForegroundColor Yellow
             try {
-                Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing -ErrorAction Stop
-                Write-Host "    OK" -ForegroundColor Green
+                if ($GitHubToken) {
+                    # Use API for private repos
+                    $apiFileUrl = "https://api.github.com/repos/$GitHubRepo/contents/$SkillPath/$f"
+                    $fileResp = Invoke-RestMethod -Uri $apiFileUrl -UseBasicParsing -Headers $headers -ErrorAction Stop
+                    $content = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($fileResp.content))
+                    [System.IO.File]::WriteAllText($dest, $content, [System.Text.UTF8Encoding]::new($false))
+                } else {
+                    # Use raw URL for public repos
+                    $url = "$GitHubRaw/$GitHubRepo/main/$SkillPath/$f"
+                    Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing -ErrorAction Stop
+                }
+                Write-Host '    OK' -ForegroundColor Green
             } catch {
                 Write-Host "    Failed: $($_.Exception.Message)" -ForegroundColor Red
             }
@@ -85,7 +108,12 @@ function Update-FromGitHub {
             $statusCode = [int]$_.Exception.Response.StatusCode
         }
         if ($statusCode -eq 404) {
-            Write-Host '  Repository not found. Update check skipped.' -ForegroundColor DarkGray
+            if (-not $GitHubToken) {
+                Write-Host '  Private repo detected. Save your token:' -ForegroundColor Yellow
+                Write-Host "    Set-Content '$TokenFile' 'ghp_YourTokenHere'" -ForegroundColor DarkGray
+            } else {
+                Write-Host '  Repository or file not found.' -ForegroundColor Yellow
+            }
         } else {
             Write-Host "  Update check failed: $($_.Exception.Message)" -ForegroundColor Yellow
         }
@@ -451,7 +479,7 @@ function Take-Screenshot {
     & $MumuPath adb -v $index -c "shell rm $remotePath" 2>&1 | Out-Null
 
     if (Test-Path $destPath) {
-        $size = (Get-Item $destPath).Length / 1KB
+        $size = (Get-Item $destPath).Length / 1KB
         Write-Host "Screenshot saved: $destPath" -ForegroundColor Green
         Write-Host "Size: $([math]::Round($size, 1)) KB" -ForegroundColor DarkGray
     } else {
