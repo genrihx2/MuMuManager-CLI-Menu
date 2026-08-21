@@ -175,9 +175,16 @@ function Show-Menu {
     Write-Host '  [H] Hide all windows' -ForegroundColor Yellow
     Write-Host '  [L] Layout windows' -ForegroundColor Yellow
     Write-Host ''
-    Write-Host '  --- Other ---' -ForegroundColor Green
+    Write-Host '  --- Tools ---' -ForegroundColor Green
     Write-Host '  [S] Take screenshot' -ForegroundColor Yellow
     Write-Host '  [A] Run ADB command' -ForegroundColor Yellow
+    Write-Host '  [O] Clear app data' -ForegroundColor Yellow
+    Write-Host '  [P] Force stop app' -ForegroundColor Yellow
+    Write-Host '  [T] Start app' -ForegroundColor Yellow
+    Write-Host '  [E] Export emulator data' -ForegroundColor Yellow
+    Write-Host '  [K] Update GitHub token' -ForegroundColor Yellow
+    Write-Host ''
+    Write-Host '  --- Info ---' -ForegroundColor Green
     Write-Host '  [V] Version info' -ForegroundColor Yellow
     Write-Host '  [U] Check for updates' -ForegroundColor Yellow
     Write-Host '  [0] Exit' -ForegroundColor Yellow
@@ -393,6 +400,72 @@ function Rename-Emulator {
         Write-Host "Renamed to '$newName'!" -ForegroundColor Green
     } catch {
         Write-Host "Rename failed: $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
+
+function Clear-AppData {
+    $index = Get-InstanceIndex 'Select instance'
+    Write-Host ''
+    $package = Read-Host 'Enter package name'
+    Write-Host "Clearing data for $package..." -ForegroundColor Cyan
+    & $MumuPath adb -v $index -c "shell pm clear $package" 2>&1 | Out-Null
+    Write-Host 'Done!' -ForegroundColor Green
+}
+
+function Stop-App {
+    $index = Get-InstanceIndex 'Select instance'
+    Write-Host ''
+    $package = Read-Host 'Enter package name'
+    Write-Host "Force stopping $package..." -ForegroundColor Cyan
+    & $MumuPath adb -v $index -c "shell am force-stop $package" 2>&1 | Out-Null
+    Write-Host 'Done!' -ForegroundColor Green
+}
+
+function Start-App {
+    $index = Get-InstanceIndex 'Select instance'
+    Write-Host ''
+    $package = Read-Host 'Enter package name'
+    Write-Host "Starting $package..." -ForegroundColor Cyan
+    & $MumuPath adb -v $index -c "shell monkey -p $package -c android.intent.category.LAUNCHER 1" 2>&1 | Out-Null
+    Write-Host 'Done!' -ForegroundColor Green
+}
+
+function Export-Emulator {
+    $index = Get-InstanceIndex 'Select instance to export'
+    Write-Host ''
+    $exportDir = Read-Host 'Enter export directory (or press Enter for current)'
+    if (-not $exportDir) { $exportDir = $PWD }
+    Write-Host "Exporting instance $index..." -ForegroundColor Cyan
+    try {
+        & $MumuPath export -v $index -p $exportDir 2>&1 | ForEach-Object { Write-Host $_ }
+        Write-Host 'Export completed!' -ForegroundColor Green
+    } catch {
+        Write-Host "Export failed: $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
+
+function Update-Token {
+    Write-Host ''
+    Write-Host 'Update GitHub token' -ForegroundColor Cyan
+    $tokenFile = Join-Path $ScriptDir '.github-token'
+    if (Test-Path $tokenFile) {
+        $old = (Get-Content $tokenFile -Raw).Trim()
+        Write-Host "Current token: $($old.Substring(0, [Math]::Min(10, $old.Length)))..." -ForegroundColor DarkGray
+    }
+    $newToken = Read-Host 'Enter new token (ghp_...)'
+    if (-not $newToken) {
+        Write-Host 'Cancelled.' -ForegroundColor Yellow
+        return
+    }
+    [System.IO.File]::WriteAllText($tokenFile, $newToken, [System.Text.UTF8Encoding]::new($false))
+    Write-Host 'Token updated!' -ForegroundColor Green
+    Write-Host 'Testing...' -ForegroundColor Yellow
+    $headers = @{'Authorization' = "token $newToken"}
+    try {
+        $user = Invoke-RestMethod 'https://api.github.com/user' -Headers $headers -ErrorAction Stop
+        Write-Host "Token valid: $($user.login)" -ForegroundColor Green
+    } catch {
+        Write-Host 'Token invalid!' -ForegroundColor Red
     }
 }
 
@@ -745,6 +818,16 @@ do {
         '9' { Uninstall-App }
         'g' { Show-Logs }
         'G' { Show-Logs }
+        'o' { Clear-AppData }
+        'O' { Clear-AppData }
+        'p' { Stop-App }
+        'P' { Stop-App }
+        't' { Start-App }
+        'T' { Start-App }
+        'e' { Export-Emulator }
+        'E' { Export-Emulator }
+        'k' { Update-Token }
+        'K' { Update-Token }
         'a' { Invoke-ADBCommand }
         'A' { Invoke-ADBCommand }
         'b' { Launch-All }
