@@ -744,10 +744,23 @@ function Install-APK-All {
 function Show-Apps {
     $index = Get-InstanceIndex 'Select instance'
     Write-Host ''
+    
+    # Check if running
+    $info = & $MumuPath info -v $index 2>$null | ConvertFrom-Json
+    if (-not $info.is_process_started) {
+        Write-Host 'Emulator is not running! Start it first.' -ForegroundColor Red
+        return
+    }
+    
     Write-Host 'Fetching installed apps...' -ForegroundColor Cyan
-    $result = Invoke-Mumu control -v $index app info -i
+    $result = & $MumuPath control -v $index app info -i 2>&1 | Out-String
     try {
-        $result | ConvertFrom-Json | ConvertTo-Json -Depth 10
+        $json = $result | ConvertFrom-Json
+        if ($json.errcode -and $json.errcode -ne 0) {
+            Write-Host "Error: $($json.errmsg)" -ForegroundColor Red
+        } else {
+            Write-Host $result
+        }
     } catch {
         Write-Host $result
     }
@@ -756,10 +769,23 @@ function Show-Apps {
 function Show-Settings {
     $index = Get-InstanceIndex 'Select instance'
     Write-Host ''
+    
+    # Check if running
+    $info = & $MumuPath info -v $index 2>$null | ConvertFrom-Json
+    if (-not $info.is_process_started) {
+        Write-Host 'Emulator is not running! Start it first.' -ForegroundColor Red
+        return
+    }
+    
     Write-Host 'Fetching settings...' -ForegroundColor Cyan
-    $result = Invoke-Mumu setting -v $index --all_writable
+    $result = & $MumuPath setting -v $index --all_writable 2>&1 | Out-String
     try {
-        $result | ConvertFrom-Json | ConvertTo-Json -Depth 10
+        $json = $result | ConvertFrom-Json
+        if ($json.errcode -and $json.errcode -ne 0) {
+            Write-Host "Error: $($json.errmsg)" -ForegroundColor Red
+        } else {
+            Write-Host $result
+        }
     } catch {
         Write-Host $result
     }
