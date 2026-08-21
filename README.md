@@ -1,18 +1,21 @@
 # MuMu Manager CLI Menu
 
-Интерактивное PowerShell-меню для управления MuMu Emulator 6.0
+Интерактивное PowerShell-меню для управления MuMu Emulator 6.0.
 
 ## Возможности
 
 - 🚀 Запуск, выключение, перезагрузка эмулятора
+- 🐑 Клонирование инстансов
+- 🗑️ Удаление инстансов
+- ✏️ Переименование инстансов
 - 📦 Установка и удаление приложений (APK)
 - 📱 ADB-команды
-- 🔄 Массовые операции (запуск/выключение всех инстансов)
 - 📸 Скриншоты эмулятора через ADB
-- 🎨 Progress bar с отслеживанием загрузки
+- 🪟 Управление окнами (показать/скрыть/расположить)
+- 🔄 Массовые операции (все инстансы)
+- 📋 Просмотр логов
+- 📊 Информация о версиях
 - ⚡ Автообновление из GitHub
-- 📋 Информация о версиях
-- 🐑 Клонирование инстансов
 
 ## Требования
 
@@ -57,18 +60,26 @@ cd MuMuManager-CLI-Menu
   [4] Restart emulator
   [5] Create new emulator
   [C] Clone emulator
+  [X] Delete emulator
+  [N] Rename emulator
 
   --- Apps and Settings ---
   [6] List installed apps
   [7] Show settings
   [8] Install APK
   [9] Uninstall app
+  [G] View logs
 
   --- Batch ---
   [B] Launch all instances
   [D] Shutdown all instances
   [R] Restart all instances
   [I] Install APK to all
+
+  --- Window ---
+  [W] Show all windows
+  [H] Hide all windows
+  [L] Layout windows
 
   --- Other ---
   [S] Take screenshot
@@ -83,7 +94,8 @@ cd MuMuManager-CLI-Menu
 #### Запуск эмулятора
 ```
 Select option: 2
-Select instance to launch: 0
+
+Select instance to launch (0-9): 0
 
 Launching instance 0...
   [#-----------------------------]  2% [ 3s]  state: starting_vm
@@ -139,6 +151,40 @@ Current instances:
   [1] Android Device (1) - stopped
 ```
 
+#### Удаление инстанса
+```
+Select option: X
+
+Select instance to DELETE (0-9): 1
+
+WARNING: This will permanently delete instance 1!
+Type YES to confirm: YES
+
+Deleting instance 1...
+Instance deleted!
+```
+
+#### Переименование инстанса
+```
+Select option: N
+
+Select instance to rename (0-9): 0
+
+Current name: Android Device
+Enter new name: My Phone
+
+Renaming to 'My Phone'...
+Renamed to 'My Phone'!
+```
+
+#### Управление окнами
+```
+Select option: L
+
+Arranging emulator windows...
+Done! Windows arranged.
+```
+
 #### Скриншот
 ```
 Select option: S
@@ -156,7 +202,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.1.0
+Script version: 1.3.0
 MuMu version: 6.5.2.0
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
