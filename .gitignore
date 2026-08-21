@@ -7,6 +7,9 @@
 # GitHub token
 .github-token
 
+# Screenshots (large files)
+screenshots/*.png
+
 # Logs
 *.log
 
