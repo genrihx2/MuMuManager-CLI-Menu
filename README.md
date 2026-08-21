@@ -8,8 +8,11 @@
 - 📦 Установка и удаление приложений (APK)
 - 📱 ADB-команды
 - 🔄 Массовые операции (запуск/выключение всех инстансов)
+- 📸 Скриншоты эмулятора через ADB
 - 🎨 Progress bar с отслеживанием загрузки
 - ⚡ Автообновление из GitHub
+- 📋 Информация о версиях
+- 🐑 Клонирование инстансов
 
 ## Требования
 
@@ -23,6 +26,7 @@
 ```powershell
 git clone https://github.com/genrihx2/MuMuManager-CLI-Menu.git
 cd MuMuManager-CLI-Menu
+.\mumu-menu.ps1
 ```
 
 ### Вручную
@@ -32,86 +36,6 @@ cd MuMuManager-CLI-Menu
 2. Поместите в любую папку
 3. Запустите `.\mumu-menu.ps1`
 
-## Скриншоты
-
-### Главное меню
-![Главное меню](screenshots/menu-main.png)
-
-### Запуск эмулятора с progress bar
-```
-Launching instance 0...
-current select player index: 0
-player launch: result=0
-
-  [#-----------------------------]  2% [ 3s]  state: starting_vm
-  [##----------------------------]  5% [ 6s]  state: starting_rom
-  [###---------------------------] 10% [12s]  state: starting_rom
-  [####--------------------------] 12% [15s]  state: starting_rom
-  [##############################] 100% Emulator is running! (booted in ~20s)
-```
-
-### Массовый запуск
-```
-Found 3 instance(s)
-  [0] Android Device - launching...
-  [1] Game Phone - launching...
-  [2] Test Device - launching...
-
-All instances launched. Polling boot status...
-  [5 s] still booting...
-  [10 s] still booting...
-  All instances ready in ~15s!
-```
-
-## Как добавить реальные скриншоты
-
-### Способ 1: Быстрый скриншот
-1. Запустите `\mumu-menu.ps1` в PowerShell
-2. Нажмите **Win + Shift + S** (область экрана)
-3. Выделите окно консоли
-4. Сохраните в папку `screenshots/`
-
-### Способ 2: Скриншот через PowerShell
-```powershell
-# Запустите меню и сделайте скриншот программы
-Add-Type -AssemblyName System.Windows.Forms
-[System.Windows.Forms.Screen]::PrimaryScreen | ForEach-Object {
-    $bmp = New-Object System.Drawing.Bitmap($_.Bounds.Width, $_.Bounds.Height)
-    $gfx = [System.Drawing.Graphics]::FromImage($bmp)
-    $gfx.CopyFromScreen($_.Bounds.Location, [System.Drawing.Point]::Empty, $_.Bounds.Size)
-    $bmp.Save "$PWD\screenshots\menu-screenshot.png"
-    $gfx.Dispose()
-    $bmp.Dispose()
-}
-Write-Host "Screenshot saved to screenshots/menu-screenshot.png"
-```
-
-### Способ 3: Через ShareX или Lightshot
-1. Установите [ShareX](https://getsharex.com/) или [Lightshot](https://app.prntscr.com/)
-2. Настройте горячую клавишу
-3. Сделайте скриншот и сохраните в `screenshots/`
-
-### Именование файлов
-```
-screenshots/
-  menu-main.png          # Главное меню
-  menu-launch.png        # Запуск эмулятора
-  menu-progress.png      # Progress bar
-  menu-batch.png         # Массовые операции
-  menu-settings.png      # Настройки
-```
-
-### Обновление README
-После загрузки скриншотов обновите README:
-
-```markdown
-### Главное меню
-![Главное меню](screenshots/menu-main.png)
-
-### Запуск эмулятора
-![Запуск](screenshots/menu-launch.png)
-```
-
 ## Использование
 
 ### Запуск меню
@@ -120,6 +44,7 @@ screenshots/
 ```
 
 ### Меню опций
+
 ```
 ======================================
     MuMuManager CLI Menu
@@ -131,6 +56,7 @@ screenshots/
   [3] Shutdown emulator
   [4] Restart emulator
   [5] Create new emulator
+  [C] Clone emulator
 
   --- Apps and Settings ---
   [6] List installed apps
@@ -142,9 +68,12 @@ screenshots/
   [B] Launch all instances
   [D] Shutdown all instances
   [R] Restart all instances
+  [I] Install APK to all
 
   --- Other ---
+  [S] Take screenshot
   [A] Run ADB command
+  [V] Version info
   [U] Check for updates
   [0] Exit
 ```
@@ -155,6 +84,7 @@ screenshots/
 ```
 Select option: 2
 Select instance to launch: 0
+
 Launching instance 0...
   [#-----------------------------]  2% [ 3s]  state: starting_vm
   [##----------------------------]  5% [ 6s]  state: starting_rom
@@ -164,6 +94,7 @@ Launching instance 0...
 #### Массовый запуск
 ```
 Select option: B
+
 Found 3 instance(s)
   [0] Android Device - launching...
   [1] Game Phone - launching...
@@ -173,6 +104,65 @@ All instances launched. Polling boot status...
   [5 s] still booting...
   [10 s] still booting...
   All instances ready in ~15s!
+```
+
+#### Установка APK на все инстансы
+```
+Select option: I
+
+Enter APK file path: C:\Downloads\game.apk
+
+Installing game.apk (45.2 MB) to 3 instance(s)...
+
+  [0] Android Device - installing...
+  [0] Android Device - OK
+  [1] Game Phone - installing...
+  [1] Game Phone - OK
+  [2] Test Device - skipped (not running)
+
+Done! Success: 2, Failed: 0
+```
+
+#### Клонирование инстанса
+```
+Select option: C
+
+Select instance to clone (0-9): 0
+
+Cloning instance 0...
+Source: [0] Android Device
+
+Clone completed!
+
+Current instances:
+  [0] Android Device - start_finished <-- source
+  [1] Android Device (1) - stopped
+```
+
+#### Скриншот
+```
+Select option: S
+
+Select instance (0-9): 0
+
+Taking screenshot of instance 0...
+Screenshot saved: screenshots\screenshot_0_20260821_153000.png
+Size: 1614.1 KB
+```
+
+#### Информация о версиях
+```
+Select option: V
+
+=== MuMu Manager CLI Menu ===
+
+Script version: 1.1.0
+MuMu version: 6.5.2.0
+PowerShell: 5.1.28000.2704
+OS: Windows 10.0
+Repository: genrihx2/MuMuManager-CLI-Menu
+GitHub token: configured
+Instances: 1 (1 running)
 ```
 
 ## Путь к MuMuManager.exe
@@ -191,7 +181,10 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 - Если есть обновление — спрашивает подтверждение
 - Скачивает обновлённые файлы и перезапускается
 
-Также можно проверить обновления вручную через опцию `[U]` в меню.
+Для приватных репозиториев сохраните токен:
+```powershell
+Set-Content '.github-token' 'ghp_ВашТокенЗдесь'
+```
 
 ## Компоненты
 
@@ -200,6 +193,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 | `mumu-menu.ps1` | Основной скрипт с интерактивным меню |
 | `mumu-profile.ps1` | PowerShell-профиль (опционально) |
 | `SKILL.md` | Документация навыка для AI-агентов |
+| `.github-token` | Токен GitHub (не коммитится) |
 
 ## Лицензия
 
