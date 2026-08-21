@@ -628,22 +628,40 @@ function Show-VersionInfo {
 function Show-Windows {
     Write-Host ''
     Write-Host 'Showing all emulator windows...' -ForegroundColor Cyan
-    & $MumuPath control -v all show_window 2>&1 | Out-Null
-    Write-Host 'Done!' -ForegroundColor Green
+    $output = & $MumuPath control -v all show_window 2>&1 | Out-String
+    if ($output -match 'errcode.*0') {
+        Write-Host 'Done! Windows shown.' -ForegroundColor Green
+    } elseif ($output -match 'not running') {
+        Write-Host 'No running emulators found' -ForegroundColor Yellow
+    } else {
+        Write-Host $output -ForegroundColor DarkGray
+    }
 }
 
 function Hide-Windows {
     Write-Host ''
     Write-Host 'Hiding all emulator windows...' -ForegroundColor Cyan
-    & $MumuPath control -v all hide_window 2>&1 | Out-Null
-    Write-Host 'Done! Windows hidden.' -ForegroundColor Green
+    $output = & $MumuPath control -v all hide_window 2>&1 | Out-String
+    if ($output -match 'errcode.*0') {
+        Write-Host 'Done! Windows hidden.' -ForegroundColor Green
+    } elseif ($output -match 'not running') {
+        Write-Host 'No running emulators found' -ForegroundColor Yellow
+    } else {
+        Write-Host $output -ForegroundColor DarkGray
+    }
 }
 
 function Layout-Windows {
     Write-Host ''
     Write-Host 'Arranging emulator windows...' -ForegroundColor Cyan
-    & $MumuPath control -v all layout_window 2>&1 | Out-Null
-    Write-Host 'Done! Windows arranged.' -ForegroundColor Green
+    $output = & $MumuPath control -v all layout_window 2>&1 | Out-String
+    if ($output -match 'height') {
+        Write-Host 'Done! Windows arranged.' -ForegroundColor Green
+    } elseif ($output -match 'not running') {
+        Write-Host 'No running emulators found' -ForegroundColor Yellow
+    } else {
+        Write-Host $output -ForegroundColor DarkGray
+    }
 }
 
 function Take-Screenshot {
