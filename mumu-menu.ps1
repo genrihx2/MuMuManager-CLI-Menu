@@ -169,6 +169,7 @@ function Show-Menu {
     Write-Host '  --- Other ---' -ForegroundColor Green
     Write-Host '  [S] Take screenshot' -ForegroundColor Yellow
     Write-Host '  [A] Run ADB command' -ForegroundColor Yellow
+    Write-Host '  [V] Version info' -ForegroundColor Yellow
     Write-Host '  [U] Check for updates' -ForegroundColor Yellow
     Write-Host '  [0] Exit' -ForegroundColor Yellow
     Write-Host ''
@@ -481,6 +482,61 @@ function Uninstall-App {
     Write-Host 'Done!' -ForegroundColor Green
 }
 
+function Show-VersionInfo {
+    Write-Host ''
+    Write-Host '=== MuMu Manager CLI Menu ===' -ForegroundColor Cyan
+    Write-Host ''
+
+    # Script version
+    Write-Host 'Script version: 1.1.0' -ForegroundColor Green
+
+    # MuMu version
+    try {
+        $verJson = & $MumuPath version 2>$null | ConvertFrom-Json
+        $ver = $verJson.version
+        $minVer = [version]'4.0.0.3179'
+        $curVer = [version]$ver
+        if ($curVer -ge $minVer) {
+            Write-Host "MuMu version: $ver" -ForegroundColor Green
+        } else {
+            Write-Host "MuMu version: $ver (OLD - minimum: $minVer)" -ForegroundColor Red
+        }
+    } catch {
+        Write-Host 'MuMu version: unknown' -ForegroundColor Yellow
+    }
+
+    # PowerShell version
+    $psVer = $PSVersionTable.PSVersion
+    Write-Host "PowerShell: $psVer" -ForegroundColor $(if ($psVer -ge '5.1') { 'Green' } else { 'Yellow' })
+
+    # OS info
+    $os = [System.Environment]::OSVersion.Version
+    Write-Host "OS: Windows $($os.Major).$($os.Minor)" -ForegroundColor DarkGray
+
+    # GitHub repo
+    Write-Host "Repository: $GitHubRepo" -ForegroundColor DarkGray
+
+    # Token statusn    if ($GitHubToken) {
+        Write-Host 'GitHub token: configured' -ForegroundColor Green
+    } else {
+        Write-Host 'GitHub token: not configured' -ForegroundColor Yellow
+    }
+
+    # Instances
+    try {
+        $info = & $MumuPath info -v all 2>$null | ConvertFrom-Json
+        $count = $info.PSObject.Properties.Count
+        $running = 0
+        foreach ($key in $info.PSObject.Properties.Name) {
+            if ($info.$key.is_process_started) { $running++ }
+        }
+        Write-Host "Instances: $count ($running running)" -ForegroundColor Cyan
+    } catch {
+        Write-Host 'Instances: unknown' -ForegroundColor Yellown    }
+
+    Write-Host ''
+}
+
 function Take-Screenshot {
     $index = Get-InstanceIndex 'Select instance'
     Write-Host ''
@@ -566,6 +622,8 @@ do {
         'I' { Install-APK-All }
         's' { Take-Screenshot }
         'S' { Take-Screenshot }
+        'v' { Show-VersionInfo }
+        'V' { Show-VersionInfo }
         'u' { Update-FromGitHub }
         'U' { Update-FromGitHub }
         '0' {
