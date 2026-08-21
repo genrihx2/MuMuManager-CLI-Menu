@@ -18,7 +18,28 @@ if (Test-Path $TokenFile) {
     }
 }
 
-$MumuPath = 'C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe'
+# Auto-detect MuMuManager.exe path
+$MumuPath = ''
+$PossiblePaths = @(
+    'C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe',
+    'C:\Program Files (x86)\Netease\MuMuPlayer\nx_main\MuMuManager.exe',
+    "$env:LOCALAPPDATA\Netease\MuMuPlayer\nx_main\MuMuManager.exe",
+    "$env:ProgramFiles\Netease\MuMuPlayer-12.0\nx_main\MuMuManager.exe",
+    "$env:ProgramFiles\Netease\MuMuPlayer-12.1\nx_main\MuMuManager.exe"
+)
+foreach ($p in $PossiblePaths) {
+    if (Test-Path $p) { $MumuPath = $p; break }
+}
+# Also check registry
+if (-not $MumuPath) {
+    try {
+        $reg = Get-ItemProperty 'HKLM:\SOFTWARE\Netease\MuMuPlayer' -ErrorAction SilentlyContinue
+        if ($reg.InstallPath) {
+            $regPath = Join-Path $reg.InstallPath 'nx_main\MuMuManager.exe'
+            if (Test-Path $regPath) { $MumuPath = $regPath }
+        }
+    } catch {}
+}
 
 # Check if MuMuManager.exe exists
 if (-not (Test-Path $MumuPath)) {
