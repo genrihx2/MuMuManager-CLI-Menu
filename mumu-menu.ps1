@@ -2,6 +2,7 @@
 # Launch: .\mumu-menu.ps1
 
 if ($PSScriptRoot) { $ScriptDir = $PSScriptRoot } else { $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path }
+if (-not $ScriptDir) { $ScriptDir = $PWD.Path }
 $GitHubRepo = 'genrihx2/MuMuManager-CLI-Menu'
 $SkillPath = '.'
 $GitHubRaw = 'https://raw.githubusercontent.com'
@@ -11,7 +12,10 @@ $TokenFile = Join-Path $ScriptDir '.github-token'
 # Load GitHub token if exists
 $GitHubToken = ''
 if (Test-Path $TokenFile) {
-    $GitHubToken = (Get-Content $TokenFile -ErrorAction SilentlyContinue).Trim()
+    $GitHubToken = (Get-Content $TokenFile -Raw -ErrorAction SilentlyContinue).Trim()
+    if (-not $GitHubToken) {
+        $GitHubToken = [System.IO.File]::ReadAllText($TokenFile).Trim()
+    }
 }
 
 $MumuPath = 'C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe'
@@ -753,16 +757,22 @@ function Show-Apps {
     }
     
     Write-Host 'Fetching installed apps...' -ForegroundColor Cyan
-    $result = & $MumuPath control -v $index app info -i 2>&1 | Out-String
-    try {
-        $json = $result | ConvertFrom-Json
-        if ($json.errcode -and $json.errcode -ne 0) {
-            Write-Host "Error: $($json.errmsg)" -ForegroundColor Red
-        } else {
-            Write-Host $result
+    $output = & $MumuPath adb -v $index -c 'shell pm list packages -3' 2>&1
+    $packages = @()
+    foreach ($line in $output) {
+        $line = $line.ToString().Trim()
+        if ($line -match '^package:(.+)$') {
+            $packages += $matches[1]
         }
-    } catch {
-        Write-Host $result
+    }
+    
+    if ($packages.Count -eq 0) {
+        Write-Host 'No third-party apps found' -ForegroundColor Yellow
+    } else {
+        Write-Host "Found $($packages.Count) third-party apps:`n" -ForegroundColor Green
+        foreach ($pkg in ($packages | Sort-Object)) {
+            Write-Host "  $pkg" -ForegroundColor White
+        }
     }
 }
 
@@ -779,14 +789,9 @@ function Show-Settings {
     
     Write-Host 'Fetching settings...' -ForegroundColor Cyan
     $result = & $MumuPath setting -v $index --all_writable 2>&1 | Out-String
-    try {
-        $json = $result | ConvertFrom-Json
-        if ($json.errcode -and $json.errcode -ne 0) {
-            Write-Host "Error: $($json.errmsg)" -ForegroundColor Red
-        } else {
-            Write-Host $result
-        }
-    } catch {
+    if ($result -match 'errcode.*-1') {
+        Write-Host 'Settings command not supported. Try MuMu settings UI.' -ForegroundColor Yellow
+    } else {
         Write-Host $result
     }
 }
@@ -821,7 +826,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.6.3' -ForegroundColor Green
+    Write-Host 'Script version: 1.6.4' -ForegroundColor Green
 
     # MuMu version
     try {
