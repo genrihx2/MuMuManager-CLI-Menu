@@ -514,9 +514,8 @@ function Show-VersionInfo {
     Write-Host "OS: Windows $($os.Major).$($os.Minor)" -ForegroundColor DarkGray
 
     # GitHub repo
-    Write-Host "Repository: $GitHubRepo" -ForegroundColor DarkGray
-
-    # Token statusn    if ($GitHubToken) {
+    Write-Host "Repository: $GitHubRepo" -ForegroundColor DarkGray    # Token status
+    if ($GitHubToken) {
         Write-Host 'GitHub token: configured' -ForegroundColor Green
     } else {
         Write-Host 'GitHub token: not configured' -ForegroundColor Yellow
