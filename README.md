@@ -1,6 +1,6 @@
 # MuMu Manager CLI Menu
 
-Интерактивное PowerShell-меню для управления MuMu Emulator 12.
+Интерактивное PowerShell-меню для управления MuMu Emulator 6.0.
 
 ## Возможности
 
@@ -18,7 +18,7 @@
 
 - **Windows 10/11**
 - **PowerShell 5.1+** или **PowerShell 7+**
-- **MuMu Emulator 12** (версия 4.0.0.3179 или выше)
+- **MuMu Emulator 6.0** (версия 4.0.0.3179 или выше)
 
 ## Установка
 
