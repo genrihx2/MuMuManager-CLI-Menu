@@ -446,19 +446,35 @@ function Export-Emulator {
 
 function Update-Token {
     Write-Host ''
-    Write-Host 'Update GitHub token' -ForegroundColor Cyan
+    Write-Host 'GitHub Token Manager' -ForegroundColor Cyan
     $tokenFile = Join-Path $ScriptDir '.github-token'
+    
     if (Test-Path $tokenFile) {
-        $old = (Get-Content $tokenFile -Raw).Trim()
+        $old = (Get-Content $TokenFile -Raw).Trim()
         Write-Host "Current token: $($old.Substring(0, [Math]::Min(10, $old.Length)))..." -ForegroundColor DarkGray
+        Write-Host ''
+        Write-Host '  [1] Update token' -ForegroundColor Yellow
+        Write-Host '  [2] Remove token (public repo)' -ForegroundColor Yellow
+        Write-Host '  [0] Cancel' -ForegroundColor Yellow
+        $choice = Read-Host 'Select option'
+        
+        if ($choice -eq '2') {
+            Remove-Item $TokenFile -Force
+            Write-Host 'Token removed! Auto-update works without token for public repos.' -ForegroundColor Green
+            return
+        } elseif ($choice -ne '1') {
+            Write-Host 'Cancelled.' -ForegroundColor Yellow
+            return
+        }
     }
-    $newToken = Read-Host 'Enter new token (ghp_...)'
+    
+    $newToken = Read-Host 'Enter token (ghp_...)'
     if (-not $newToken) {
         Write-Host 'Cancelled.' -ForegroundColor Yellow
         return
     }
-    [System.IO.File]::WriteAllText($tokenFile, $newToken, [System.Text.UTF8Encoding]::new($false))
-    Write-Host 'Token updated!' -ForegroundColor Green
+    [System.IO.File]::WriteAllText($TokenFile, $newToken, [System.Text.UTF8Encoding]::new($false))
+    Write-Host 'Token saved!' -ForegroundColor Green
     Write-Host 'Testing...' -ForegroundColor Yellow
     $headers = @{'Authorization' = "token $newToken"}
     try {
