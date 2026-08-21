@@ -2,8 +2,8 @@
 # Launch: .\mumu-menu.ps1
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$GitHubRepo = 'jasoft/ursoft-skills'
-$SkillPath = 'skills/mumu-manager-cli'
+$GitHubRepo = 'genrihx2/MuMuManager-CLI-Menu'
+$SkillPath = '.'
 $GitHubRaw = 'https://raw.githubusercontent.com'
 $VersionFile = Join-Path $ScriptDir '.version'
 
@@ -21,9 +21,25 @@ function Update-FromGitHub {
     Write-Host 'Checking for updates...' -ForegroundColor Cyan
     try {
         $apiUrl = "https://api.github.com/repos/$GitHubRepo/commits?path=$SkillPath/mumu-menu.ps1&per_page=1"
-        $commit = Invoke-RestMethod -Uri $apiUrl -UseBasicParsing -ErrorAction Stop
-        $remoteHash = $commit[0].sha.Substring(0, 7)
-        $remoteDate = $commit[0].commit.committer.date
+        $headers = @{'Accept' = 'application/vnd.github.v3+json'}
+        $response = Invoke-RestMethod -Uri $apiUrl -UseBasicParsing -Headers $headers -ErrorAction Stop
+
+        if (-not $response -or $response.Count -eq 0) {
+            Write-Host '  No commits found on remote' -ForegroundColor Yellow
+            return
+        }
+
+        $commit = $response[0]
+        if (-not $commit -or -not $commit.sha) {
+            Write-Host '  Invalid response from GitHub' -ForegroundColor Yellow
+            return
+        }
+
+        $remoteHash = $commit.sha.Substring(0, [Math]::Min(7, $commit.sha.Length))
+        $remoteDate = ''
+        if ($commit.commit -and $commit.commit.committer) {
+            $remoteDate = $commit.commit.committer.date
+        }
 
         $localHash = ''
         if (Test-Path $VersionFile) {
@@ -36,14 +52,16 @@ function Update-FromGitHub {
         }
 
         Write-Host "  Update available! ($remoteHash)" -ForegroundColor Yellow
-        Write-Host "  Remote: $remoteDate" -ForegroundColor DarkGray
+        if ($remoteDate) {
+            Write-Host "  Remote: $remoteDate" -ForegroundColor DarkGray
+        }
         $confirm = Read-Host '  Download update? (y/N)'
         if ($confirm -ne 'y' -and $confirm -ne 'Y') {
             Write-Host '  Skipped.' -ForegroundColor DarkGray
             return
         }
 
-        $files = @('mumu-menu.ps1', 'mumu-profile.ps1', 'SKILL.md')
+        $files = @('mumu-menu.ps1', 'mumu-profile.ps1', 'SKILL.md', 'README.md')
         foreach ($f in $files) {
             $url = "$GitHubRaw/$GitHubRepo/main/$SkillPath/$f"
             $dest = Join-Path $ScriptDir $f
