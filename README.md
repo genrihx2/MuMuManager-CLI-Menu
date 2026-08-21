@@ -93,7 +93,54 @@ All instances launched. Polling boot status...
   All instances ready in ~15s!
 ```
 
-> 💡 Для добавления реальных скриншотов: запустите меню, сделайте скриншот (Win+Shift+S), загрузите в репозиторий и обновите пути в README.
+## Как добавить реальные скриншоты
+
+### Способ 1: Быстрый скриншот
+1. Запустите `\mumu-menu.ps1` в PowerShell
+2. Нажмите **Win + Shift + S** (область экрана)
+3. Выделите окно консоли
+4. Сохраните в папку `screenshots/`
+
+### Способ 2: Скриншот через PowerShell
+```powershell
+# Запустите меню и сделайте скриншот программы
+Add-Type -AssemblyName System.Windows.Forms
+[System.Windows.Forms.Screen]::PrimaryScreen | ForEach-Object {
+    $bmp = New-Object System.Drawing.Bitmap($_.Bounds.Width, $_.Bounds.Height)
+    $gfx = [System.Drawing.Graphics]::FromImage($bmp)
+    $gfx.CopyFromScreen($_.Bounds.Location, [System.Drawing.Point]::Empty, $_.Bounds.Size)
+    $bmp.Save "$PWD\screenshots\menu-screenshot.png"
+    $gfx.Dispose()
+    $bmp.Dispose()
+}
+Write-Host "Screenshot saved to screenshots/menu-screenshot.png"
+```
+
+### Способ 3: Через ShareX или Lightshot
+1. Установите [ShareX](https://getsharex.com/) или [Lightshot](https://app.prntscr.com/)
+2. Настройте горячую клавишу
+3. Сделайте скриншот и сохраните в `screenshots/`
+
+### Именование файлов
+```
+screenshots/
+  menu-main.png          # Главное меню
+  menu-launch.png        # Запуск эмулятора
+  menu-progress.png      # Progress bar
+  menu-batch.png         # Массовые операции
+  menu-settings.png      # Настройки
+```
+
+### Обновление README
+После загрузки скриншотов обновите README:
+
+```markdown
+### Главное меню
+![Главное меню](screenshots/menu-main.png)
+
+### Запуск эмулятора
+![Запуск](screenshots/menu-launch.png)
+```
 
 ## Использование
 
