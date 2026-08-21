@@ -847,7 +847,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.6.4' -ForegroundColor Green
+    Write-Host 'Script version: 1.8.0' -ForegroundColor Green
 
     # MuMu version
     try {
@@ -992,6 +992,172 @@ function Invoke-ADBCommand {
     Invoke-Mumu adb -v $index -c $cmd
 }
 
+function Set-FPS {
+    $index = Get-InstanceIndex 'Select instance'
+    Write-Host ''
+    Write-Host 'FPS options:' -ForegroundColor Cyan
+    Write-Host '  [1] 30 FPS (battery saving)' -ForegroundColor White
+    Write-Host '  [2] 60 FPS (default)' -ForegroundColor White
+    Write-Host '  [3] 90 FPS (smooth)' -ForegroundColor White
+    Write-Host '  [4] 120 FPS (high refresh)' -ForegroundColor White
+    Write-Host '  [5] 144 FPS (maximum)' -ForegroundColor White
+    $choice = Read-Host 'Select FPS'
+    
+    $fps = switch ($choice) {
+        '1' { 30 }
+        '2' { 60 }
+        '3' { 90 }
+        '4' { 120 }
+        '5' { 144 }
+        default { 60 }
+    }
+    
+    Write-Host "Setting FPS to $fps..." -ForegroundColor Cyan
+    $result = & $MumuPath setting -v $index -f fps -v $fps 2>&1 | Out-String
+    if ($result -match 'errcode.*0') {
+        Write-Host "FPS set to $fps!" -ForegroundColor Green
+    } else {
+        Write-Host "Failed: $result" -ForegroundColor Red
+    }
+}
+
+function Set-CPU {
+    $index = Get-InstanceIndex 'Select instance'
+    Write-Host ''
+    Write-Host 'CPU cores options:' -ForegroundColor Cyan
+    Write-Host '  [1] 1 core (low power)' -ForegroundColor White
+    Write-Host '  [2] 2 cores' -ForegroundColor White
+    Write-Host '  [3] 3 cores' -ForegroundColor White
+    Write-Host '  [4] 4 cores (default)' -ForegroundColor White
+    Write-Host '  [5] 6 cores' -ForegroundColor White
+    Write-Host '  [6] 8 cores (high performance)' -ForegroundColor White
+    $choice = Read-Host 'Select CPU cores'
+    
+    $cores = switch ($choice) {
+        '1' { 1 }
+        '2' { 2 }
+        '3' { 3 }
+        '4' { 4 }
+        '5' { 6 }
+        '6' { 8 }
+        default { 4 }
+    }
+    
+    Write-Host "Setting CPU to $cores cores..." -ForegroundColor Cyan
+    $result = & $MumuPath setting -v $index -f cpu -v $cores 2>&1 | Out-String
+    if ($result -match 'errcode.*0') {
+        Write-Host "CPU set to $cores cores!" -ForegroundColor Green
+    } else {
+        Write-Host "Failed: $result" -ForegroundColor Red
+    }
+}
+
+function Set-RAM {
+    $index = Get-InstanceIndex 'Select instance'
+    Write-Host ''
+    Write-Host 'RAM options:' -ForegroundColor Cyan
+    Write-Host '  [1] 1024 MB (1 GB)' -ForegroundColor White
+    Write-Host '  [2] 2048 MB (2 GB)' -ForegroundColor White
+    Write-Host '  [3] 3072 MB (3 GB)' -ForegroundColor White
+    Write-Host '  [4] 4096 MB (4 GB, default)' -ForegroundColor White
+    Write-Host '  [5] 6144 MB (6 GB)' -ForegroundColor White
+    Write-Host '  [6] 8192 MB (8 GB)' -ForegroundColor White
+    Write-Host '  [7] Custom' -ForegroundColor White
+    $choice = Read-Host 'Select RAM'
+    
+    $ram = switch ($choice) {
+        '1' { 1024 }
+        '2' { 2048 }
+        '3' { 3072 }
+        '4' { 4096 }
+        '5' { 6144 }
+        '6' { 8192 }
+        '7' { [int](Read-Host 'Enter RAM in MB') }
+        default { 4096 }
+    }
+    
+    Write-Host "Setting RAM to $ram MB..." -ForegroundColor Cyan
+    $result = & $MumuPath setting -v $index -f ram -v $ram 2>&1 | Out-String
+    if ($result -match 'errcode.*0') {
+        Write-Host "RAM set to $ram MB!" -ForegroundColor Green
+    } else {
+        Write-Host "Failed: $result" -ForegroundColor Red
+    }
+}
+
+function Set-Resolution {
+    $index = Get-InstanceIndex 'Select instance'
+    Write-Host ''
+    Write-Host 'Resolution options:' -ForegroundColor Cyan
+    Write-Host '  [1] 1280x720 (HD)' -ForegroundColor White
+    Write-Host '  [2] 1920x1080 (Full HD, default)' -ForegroundColor White
+    Write-Host '  [3] 2560x1440 (2K)' -ForegroundColor White
+    Write-Host '  [4] Custom' -ForegroundColor White
+    $choice = Read-Host 'Select resolution'
+    
+    $res = switch ($choice) {
+        '1' { '1280,720' }
+        '2' { '1920,1080' }
+        '3' { '2560,1440' }
+        '4' {
+            $w = Read-Host 'Width'
+            $h = Read-Host 'Height'
+            "$w,$h"
+        }
+        default { '1920,1080' }
+    }
+    
+    $parts = $res -split ','
+    $w = $parts[0]
+    $h = $parts[1]
+    
+    Write-Host "Setting resolution to ${w}x${h}..." -ForegroundColor Cyan
+    $result = & $MumuPath setting -v $index -f resolution -v "$w,$h" 2>&1 | Out-String
+    if ($result -match 'errcode.*0') {
+        Write-Host "Resolution set to ${w}x${h}!" -ForegroundColor Green
+    } else {
+        Write-Host "Failed: $result" -ForegroundColor Red
+    }
+}
+
+function Toggle-Root {
+    $index = Get-InstanceIndex 'Select instance'
+    Write-Host ''
+    
+    $info = & $MumuPath info -v $index 2>$null | ConvertFrom-Json
+    $currentRoot = $info.root_enable
+    
+    if ($currentRoot) {
+        Write-Host 'Root is currently: ENABLED' -ForegroundColor Green
+        Write-Host '  [1] Disable root' -ForegroundColor Yellow
+        Write-Host '  [0] Cancel' -ForegroundColor Yellow
+        $choice = Read-Host 'Select option'
+        if ($choice -eq '1') {
+            Write-Host 'Disabling root...' -ForegroundColor Cyan
+            $result = & $MumuPath setting -v $index -f root_enable -v false 2>&1 | Out-String
+            if ($result -match 'errcode.*0') {
+                Write-Host 'Root disabled! Restart emulator to apply.' -ForegroundColor Green
+            } else {
+                Write-Host "Failed: $result" -ForegroundColor Red
+            }
+        }
+    } else {
+        Write-Host 'Root is currently: DISABLED' -ForegroundColor Yellow
+        Write-Host '  [1] Enable root (requires restart)' -ForegroundColor Yellow
+        Write-Host '  [0] Cancel' -ForegroundColor Yellow
+        $choice = Read-Host 'Select option'
+        if ($choice -eq '1') {
+            Write-Host 'Enabling root...' -ForegroundColor Cyan
+            $result = & $MumuPath setting -v $index -f root_enable -v true 2>&1 | Out-String
+            if ($result -match 'errcode.*0') {
+                Write-Host 'Root enabled! Restart emulator to apply.' -ForegroundColor Green
+            } else {
+                Write-Host "Failed: $result" -ForegroundColor Red
+            }
+        }
+    }
+}
+
 # Main loop
 do {
     Show-Menu
@@ -1045,6 +1211,16 @@ do {
         'L' { Set-WindowLayout }
         's' { Save-Screenshot }
         'S' { Save-Screenshot }
+        'f' { Set-FPS }
+        'F' { Set-FPS }
+        'y' { Set-CPU }
+        'Y' { Set-CPU }
+        'm' { Set-RAM }
+        'M' { Set-RAM }
+        'q' { Set-Resolution }
+        'Q' { Set-Resolution }
+        'j' { Toggle-Root }
+        'J' { Toggle-Root }
         'v' { Show-VersionInfo }
         'V' { Show-VersionInfo }
         'u' { Update-FromGitHub }
