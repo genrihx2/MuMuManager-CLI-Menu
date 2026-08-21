@@ -114,6 +114,8 @@ function Update-FromGitHub {
             } else {
                 Write-Host '  Repository or file not found.' -ForegroundColor Yellow
             }
+        } elseif ($statusCode -eq 403) {
+            Write-Host '  Rate limit exceeded. Try again later.' -ForegroundColor Yellow
         } else {
             Write-Host "  Update check failed: $($_.Exception.Message)" -ForegroundColor Yellow
         }
