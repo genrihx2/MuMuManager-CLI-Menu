@@ -167,6 +167,11 @@ function Show-Menu {
     Write-Host '  [R] Restart all instances' -ForegroundColor Yellow
     Write-Host '  [I] Install APK to all' -ForegroundColor Yellow
     Write-Host ''
+    Write-Host '  --- Window ---' -ForegroundColor Green
+    Write-Host '  [W] Show all windows' -ForegroundColor Yellow
+    Write-Host '  [H] Hide all windows' -ForegroundColor Yellow
+    Write-Host '  [L] Layout windows' -ForegroundColor Yellow
+    Write-Host ''
     Write-Host '  --- Other ---' -ForegroundColor Green
     Write-Host '  [S] Take screenshot' -ForegroundColor Yellow
     Write-Host '  [A] Run ADB command' -ForegroundColor Yellow
@@ -565,6 +570,27 @@ function Show-VersionInfo {
     Write-Host ''
 }
 
+function Show-Windows {
+    Write-Host ''
+    Write-Host 'Showing all emulator windows...' -ForegroundColor Cyan
+    & $MumuPath control -v all show_window 2>&1 | Out-Null
+    Write-Host 'Done!' -ForegroundColor Green
+}
+
+function Hide-Windows {
+    Write-Host ''
+    Write-Host 'Hiding all emulator windows...' -ForegroundColor Cyan
+    & $MumuPath control -v all hide_window 2>&1 | Out-Null
+    Write-Host 'Done! Windows hidden.' -ForegroundColor Green
+}
+
+function Layout-Windows {
+    Write-Host ''
+    Write-Host 'Arranging emulator windows...' -ForegroundColor Cyan
+    & $MumuPath control -v all layout_window 2>&1 | Out-Null
+    Write-Host 'Done! Windows arranged.' -ForegroundColor Green
+}
+
 function Take-Screenshot {
     $index = Get-InstanceIndex 'Select instance'
     Write-Host ''
@@ -650,6 +676,12 @@ do {
         'R' { Restart-All }
         'i' { Install-APK-All }
         'I' { Install-APK-All }
+        'w' { Show-Windows }
+        'W' { Show-Windows }
+        'h' { Hide-Windows }
+        'H' { Hide-Windows }
+        'l' { Layout-Windows }
+        'L' { Layout-Windows }
         's' { Take-Screenshot }
         'S' { Take-Screenshot }
         'v' { Show-VersionInfo }
