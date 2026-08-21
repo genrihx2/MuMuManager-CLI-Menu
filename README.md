@@ -35,37 +35,7 @@ cd MuMuManager-CLI-Menu
 ## Скриншоты
 
 ### Главное меню
-```
-======================================
-    MuMuManager CLI Menu
-======================================
-
-  --- Emulator Control ---
-  [1] Show emulator info
-  [2] Launch emulator
-  [3] Shutdown emulator
-  [4] Restart emulator
-  [5] Create new emulator
-
-  --- Apps and Settings ---
-  [6] List installed apps
-  [7] Show settings
-  [8] Install APK
-  [9] Uninstall app
-
-  --- Batch ---
-  [B] Launch all instances
-  [D] Shutdown all instances
-  [R] Restart all instances
-
-  --- Other ---
-  [A] Run ADB command
-  [U] Check for updates
-  [0] Exit
-
-======================================
-Select option (0-9):
-```
+![Главное меню](screenshots/menu-main.png)
 
 ### Запуск эмулятора с progress bar
 ```
