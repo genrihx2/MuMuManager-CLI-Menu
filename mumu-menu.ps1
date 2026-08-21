@@ -28,7 +28,10 @@ function Update-FromGitHub {
     Write-Host 'Checking for updates...' -ForegroundColor Cyan
 
     # Build headers with token if available
-    $headers = @{'Accept' = 'application/vnd.github.v3+json'}
+    $headers = @{
+        'Accept' = 'application/vnd.github.v3+json'
+        'User-Agent' = 'MuMuManager-CLI-Menu'
+    }
     if ($GitHubToken) {
         $headers['Authorization'] = "token $GitHubToken"
     }
@@ -89,7 +92,7 @@ function Update-FromGitHub {
                 } else {
                     # Use raw URL for public repos
                     $url = "$GitHubRaw/$GitHubRepo/main/$SkillPath/$f"
-                    Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing -ErrorAction Stop
+                    Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing -Headers @{'User-Agent' = 'MuMuManager-CLI-Menu'} -ErrorAction Stop
                 }
                 Write-Host '    OK' -ForegroundColor Green
             } catch {
