@@ -183,6 +183,7 @@ function Show-Menu {
     Write-Host '  [T] Start app' -ForegroundColor Yellow
     Write-Host '  [E] Export emulator data' -ForegroundColor Yellow
     Write-Host '  [K] Update GitHub token' -ForegroundColor Yellow
+    Write-Host '  [Z] Security audit' -ForegroundColor Yellow
     Write-Host ''
     Write-Host '  --- Info ---' -ForegroundColor Green
     Write-Host '  [V] Version info' -ForegroundColor Yellow
@@ -442,6 +443,132 @@ function Export-Emulator {
     } catch {
         Write-Host "Export failed: $($_.Exception.Message)" -ForegroundColor Red
     }
+}
+
+function Security-Audit {
+    Write-Host ''
+    Write-Host '=== Security Audit ===' -ForegroundColor Cyan
+    Write-Host ''
+
+    $tokenFile = Join-Path $ScriptDir '.github-token'
+    $safeCount = 0
+    $warnCount = 0
+    $dangerCount = 0
+
+    # 1. Token file exists
+    Write-Host '[1] Token file' -ForegroundColor Yellow
+    if (Test-Path $tokenFile) {
+        $token = (Get-Content $tokenFile -Raw).Trim()
+        Write-Host "  EXISTS: $($token.Substring(0, [Math]::Min(10, $token.Length)))..." -ForegroundColor DarkGray
+        
+        # Check file permissions
+        $acl = Get-Acl $tokenFile
+        $owner = $acl.Owner
+        Write-Host "  Owner: $owner" -ForegroundColor DarkGray
+        
+        # Check if file is hidden
+        $attr = (Get-Item $tokenFile).Attributes
+        if ($attr -band [IO.FileAttributes]::Hidden) {
+            Write-Host '  Hidden: YES' -ForegroundColor Green
+            $safeCount++
+        } else {
+            Write-Host '  Hidden: NO (should be hidden)' -ForegroundColor Yellow
+            $warnCount++
+        }
+        
+        # Check token validity
+        $headers = @{'Authorization' = "token $token"}
+        try {
+            $user = Invoke-RestMethod 'https://api.github.com/user' -Headers $headers -ErrorAction Stop
+            Write-Host "  Valid: YES ($($user.login))" -ForegroundColor Green
+            $safeCount++
+            
+            # Check scopes
+            $resp = Invoke-WebRequest -Uri 'https://api.github.com/user' -Headers $headers -UseBasicParsing
+            $scopes = $resp.Headers['X-OAuth-Scopes']
+            if ($scopes) {
+                Write-Host "  Scopes: $scopes" -ForegroundColor DarkGray
+            } else {
+                Write-Host '  Scopes: none (limited access)' -ForegroundColor DarkGray
+            }
+        } catch {
+            Write-Host '  Valid: NO (token expired or invalid)' -ForegroundColor Red
+            $dangerCount++
+        }
+    } else {
+        Write-Host '  NOT FOUND (public repo - OK)' -ForegroundColor Green
+        $safeCount++
+    }
+    Write-Host ''
+
+    # 2. Git ignore check
+    Write-Host '[2] Git protection' -ForegroundColor Yellow
+    $gitignorePath = Join-Path $ScriptDir '.gitignore'
+    if (Test-Path $gitignorePath) {
+        $gitignore = Get-Content $gitignorePath -Raw
+        if ($gitignore -match 'github-token') {
+            Write-Host '  .gitignore: Token excluded' -ForegroundColor Green
+            $safeCount++
+        } else {
+            Write-Host '  .gitignore: Token NOT excluded' -ForegroundColor Red
+            $dangerCount++
+        }
+    }
+    
+    $tracked = git -C $ScriptDir ls-files .github-token 2>$null
+    if ($tracked) {
+        Write-Host '  Git tracking: TOKEN TRACKED (BAD!)' -ForegroundColor Red
+        $dangerCount++
+    } else {
+        Write-Host '  Git tracking: Not tracked' -ForegroundColor Green
+        $safeCount++
+    }
+    Write-Host ''
+
+    # 3. Script security
+    Write-Host '[3] Script security' -ForegroundColor Yellow
+    $menuPath = Join-Path $ScriptDir 'mumu-menu.ps1'
+    $menuContent = Get-Content $menuPath -Raw -ErrorAction SilentlyContinue
+    if ($menuContent -match 'ghp_[A-Za-z0-9]{36}') {
+        Write-Host '  Hardcoded token: FOUND (BAD!)' -ForegroundColor Red
+        $dangerCount++
+    } else {
+        Write-Host '  Hardcoded token: None' -ForegroundColor Green
+        $safeCount++
+    }
+    Write-Host ''
+
+    # 4. Emulator status
+    Write-Host '[4] Emulator security' -ForegroundColor Yellow
+    try {
+        $info = & $MumuPath info -v 0 2>$null | ConvertFrom-Json
+        if ($info.hyperv_enabled) {
+            Write-Host '  Hyper-V: Enabled' -ForegroundColor DarkGray
+        } else {
+            Write-Host '  Hyper-V: Disabled' -ForegroundColor DarkGray
+        }
+        if ($info.vt_enabled) {
+            Write-Host '  VT: Enabled' -ForegroundColor DarkGray
+        } else {
+            Write-Host '  VT: Disabled' -ForegroundColor DarkGray
+        }
+    } catch {
+        Write-Host '  Could not check emulator' -ForegroundColor Yellow
+    }
+    Write-Host ''
+
+    # Summary
+    Write-Host '=== Summary ===' -ForegroundColor Cyan
+    Write-Host "  Safe: $safeCount" -ForegroundColor Green
+    Write-Host "  Warnings: $warnCount" -ForegroundColor Yellow
+    Write-Host "  Dangers: $dangerCount" -ForegroundColor $(if ($dangerCount -gt 0) { 'Red' } else { 'Green' })
+    Write-Host ''
+    if ($dangerCount -eq 0) {
+        Write-Host '  STATUS: SECURE' -ForegroundColor Green
+    } else {
+        Write-Host '  STATUS: ISSUES FOUND' -ForegroundColor Red
+    }
+    Write-Host ''
 }
 
 function Update-Token {
@@ -844,6 +971,8 @@ do {
         'E' { Export-Emulator }
         'k' { Update-Token }
         'K' { Update-Token }
+        'z' { Security-Audit }
+        'Z' { Security-Audit }
         'a' { Invoke-ADBCommand }
         'A' { Invoke-ADBCommand }
         'b' { Launch-All }
