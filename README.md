@@ -10,12 +10,17 @@
 - ✏️ Переименование инстансов
 - 📦 Установка и удаление приложений (APK)
 - 📱 ADB-команды
+- 🧹 Очистка данных приложения, force stop, запуск приложения
+- ⚙️ Тюнинг производительности: FPS, CPU, RAM, разрешение
+- 🔓 Включение / выключение Root
+- 💾 Экспорт данных инстанса (.mumudata)
 - 🎭 Подмена модели устройства (brand / model / код модели)
-- 🎲 Генерация случайных IMEI / Android ID / MAC
+- 🎲 Генерация случайных IMEI (с контрольной суммой) / Android ID / MAC
 - 📸 Скриншоты эмулятора через ADB
 - 🪟 Управление окнами (показать/скрыть/расположить)
 - 🔄 Массовые операции (все инстансы)
 - 📋 Просмотр логов
+- 🛡️ Аудит безопасности и менеджер GitHub-токена
 - 📊 Информация о версиях
 - ⚡ Автообновление из GitHub
 
@@ -83,11 +88,21 @@ cd MuMuManager-CLI-Menu
   [H] Hide all windows
   [L] Layout windows
 
-  --- Other ---
+  --- Tools ---
   [S] Take screenshot
   [A] Run ADB command
+  [O] Clear app data
+  [P] Force stop app
+  [T] Start app
+  [E] Export emulator data
+  [K] Update GitHub token
+  [Z] Security audit
+
+  --- Spoofing ---
   [DM] Spoof device model
   [DI] Random device IDs
+
+  --- Info ---
   [V] Version info
   [U] Check for updates
   [0] Exit
@@ -209,7 +224,8 @@ Select device: 3
 
 Setting device to Google Pixel 8 Pro (G1MNW)...
 Device model set to Google Pixel 8 Pro!
-Restart the emulator to apply.
+Device name updated live.
+Restart the emulator to fully apply build properties.
 ```
 
 #### Случайные идентификаторы устройства
@@ -254,7 +270,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.9.0
+Script version: 1.10.2
 MuMu version: 6.5.2.0
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
