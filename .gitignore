@@ -20,3 +20,6 @@ Desktop.ini
 # IDE
 .vscode/
 .idea/
+
+# Instance data backups (large files)
+backups/

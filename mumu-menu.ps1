@@ -252,6 +252,7 @@ function Show-Menu {
     Write-Host '  [P] Force stop app' -ForegroundColor Yellow
     Write-Host '  [T] Start app' -ForegroundColor Yellow
     Write-Host '  [E] Export emulator data' -ForegroundColor Yellow
+    Write-Host '  [BA] Backup instance data' -ForegroundColor Yellow
     Write-Host '  [K] Update GitHub token' -ForegroundColor Yellow
     Write-Host '  [Z] Security audit' -ForegroundColor Yellow
     Write-Host ''
@@ -506,6 +507,95 @@ function Start-App {
     Write-Host "Starting $package..." -ForegroundColor Cyan
     & $MumuPath adb -v $index -c "shell monkey -p $package -c android.intent.category.LAUNCHER 1" 2>&1 | Out-Null
     Write-Host 'Done!' -ForegroundColor Green
+}
+
+function Backup-EmulatorData {
+    $index = Get-InstanceIndex 'Select instance'
+    Write-Host ''
+
+    $nxDir = Split-Path $MumuPath -Parent
+    $installRoot = Split-Path $nxDir -Parent
+    $vmsRoot = Join-Path $installRoot 'vms'
+
+    $candidates = @()
+    if (Test-Path -LiteralPath $vmsRoot) {
+        foreach ($d in (Get-ChildItem -LiteralPath $vmsRoot -Directory)) {
+            $m = [regex]::Match($d.Name, '-(\d+)$')
+            if ($m.Success -and $m.Groups[1].Value -eq $index) {
+                $candidates += $d.FullName
+            }
+        }
+    }
+
+    Write-Host 'Instance data folder:' -ForegroundColor Cyan
+    if ($candidates.Count -gt 0) {
+        for ($i = 0; $i -lt $candidates.Count; $i++) {
+            Write-Host "  [$($i + 1)] $($candidates[$i])" -ForegroundColor White
+        }
+        $src = $candidates[0]
+        if ($candidates.Count -gt 1) {
+            $sel = Read-Host 'Select folder (number)'
+            if ($sel -match '^\d+$' -and [int]$sel -ge 1 -and [int]$sel -le $candidates.Count) {
+                $src = $candidates[[int]$sel - 1]
+            }
+        }
+    } else {
+        Write-Host "  Not found under $vmsRoot" -ForegroundColor Yellow
+        $src = (Read-Host 'Enter folder path manually').Trim()
+    }
+
+    $custom = (Read-Host 'Press Enter to use this folder, or type a different path').Trim()
+    if ($custom) { $src = $custom }
+
+    if (-not ($src -and (Test-Path -LiteralPath $src))) {
+        Write-Host "Folder not found: $src" -ForegroundColor Red
+        return
+    }
+
+    $size = (Get-ChildItem -LiteralPath $src -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+    Write-Host ("  Size: {0:N2} GB" -f ($size / 1GB)) -ForegroundColor DarkGray
+
+    $info = & $MumuPath info -v $index 2>$null | ConvertFrom-Json
+    if ($info.is_process_started) {
+        Write-Host ''
+        Write-Host 'WARNING: instance is running. Backup may be inconsistent.' -ForegroundColor Yellow
+        $ans = Read-Host 'Shutdown instance before backup? (Y/n)'
+        if ($ans -ne 'n' -and $ans -ne 'N') {
+            Write-Host 'Shutting down...' -ForegroundColor Cyan
+            & $MumuPath control -v $index shutdown 2>&1 | Out-Null
+            $tries = 0
+            do {
+                Start-Sleep -Seconds 3
+                $tries++
+                $st = (& $MumuPath info -v $index 2>$null | ConvertFrom-Json).is_process_started
+            } while ($st -eq $true -and $tries -lt 20)
+            if ($st -eq $true) {
+                Write-Host 'Instance did not stop in time. Backup cancelled.' -ForegroundColor Red
+                return
+            }
+        }
+    }
+
+    $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
+    $dest = Join-Path $ScriptDir "backups\emu_${index}_$stamp"
+    New-Item -ItemType Directory -Path $dest -Force | Out-Null
+
+    Write-Host ''
+    Write-Host "Backing up to $dest ..." -ForegroundColor Cyan
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    & robocopy $src $dest /E /NFL /NDL /NJH /NJS /NP /R:1 /W:1 | Out-Null
+    $code = $LASTEXITCODE
+    $sw.Stop()
+
+    if ($code -ge 8) {
+        Write-Host "Backup FAILED (robocopy exit code $code)" -ForegroundColor Red
+        return
+    }
+
+    $copied = (Get-ChildItem -LiteralPath $dest -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+    Write-Host ''
+    Write-Host ("Backup complete! {0:N2} GB copied in {1:mm\:ss}" -f ($copied / 1GB), $sw.Elapsed) -ForegroundColor Green
+    Write-Host "Location: $dest" -ForegroundColor DarkGray
 }
 
 function Export-Emulator {
@@ -936,7 +1026,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.10.4' -ForegroundColor Green
+    Write-Host 'Script version: 1.11.0' -ForegroundColor Green
 
     # MuMu version
     try {
@@ -1454,6 +1544,8 @@ do {
         'DM' { Set-DeviceModel }
         'di' { Set-RandomDeviceIds }
         'DI' { Set-RandomDeviceIds }
+        'ba' { Backup-EmulatorData }
+        'BA' { Backup-EmulatorData }
         'a' { Invoke-ADBCommand }
         'A' { Invoke-ADBCommand }
         'b' { Start-All }
