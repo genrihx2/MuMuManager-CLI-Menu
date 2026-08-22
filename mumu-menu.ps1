@@ -48,6 +48,17 @@ if (-not (Test-Path $MumuPath)) {
 }
 
 # Auto-update from GitHub
+function Get-ContentHash {
+    param([string]$Text)
+    $norm = $Text -replace "`r", ''
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        ([BitConverter]::ToString($sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($norm))) -replace '-', '')
+    } finally {
+        $sha.Dispose()
+    }
+}
+
 function Update-FromGitHub {
     Write-Host ''
     Write-Host 'Checking for updates...' -ForegroundColor Cyan
@@ -56,6 +67,19 @@ function Update-FromGitHub {
     $headers = @{'Accept' = 'application/vnd.github.v3+json'; 'User-Agent' = 'MuMuManager-CLI-Menu'}
     if ($GitHubToken) {
         $headers['Authorization'] = "token $GitHubToken"
+    }
+
+    $files = @('mumu-menu.ps1', 'mumu-profile.ps1', 'SKILL.md', 'README.md')
+
+    function Get-RemoteFile {
+        param([string]$Name)
+        if ($GitHubToken) {
+            $apiFileUrl = "https://api.github.com/repos/$GitHubRepo/contents/$SkillPath/$Name"
+            $resp = Invoke-RestMethod -Uri $apiFileUrl -UseBasicParsing -Headers $headers -ErrorAction Stop
+            return [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($resp.content))
+        }
+        $url = "$GitHubRaw/$GitHubRepo/main/$SkillPath/$Name"
+        Invoke-RestMethod -Uri $url -Headers @{'User-Agent' = 'MuMuManager-CLI-Menu'} -ErrorAction Stop
     }
 
     try {
@@ -78,53 +102,72 @@ function Update-FromGitHub {
         if ($commit.commit -and $commit.commit.committer) {
             $remoteDate = $commit.commit.committer.date
         }
-
-        $localHash = ''
-        if (Test-Path $VersionFile) {
-            $localHash = (Get-Content $VersionFile -ErrorAction SilentlyContinue).Trim()
+        $remoteMsg = ''
+        if ($commit.commit -and $commit.commit.message) {
+            $remoteMsg = ($commit.commit.message -split "`n")[0]
         }
 
-        if ($remoteHash -eq $localHash) {
+        # Compare actual file content (line-ending tolerant) instead of stored marker
+        $localMenuPath = Join-Path $ScriptDir 'mumu-menu.ps1'
+        $localText = [System.IO.File]::ReadAllText($localMenuPath)
+        $remoteText = Get-RemoteFile 'mumu-menu.ps1'
+
+        if ((Get-ContentHash $localText) -eq (Get-ContentHash $remoteText)) {
+            Set-Content -Path $VersionFile -Value $remoteHash -NoNewline -ErrorAction SilentlyContinue
             Write-Host "  Up to date ($remoteHash)" -ForegroundColor DarkGray
             return
         }
 
         Write-Host "  Update available! ($remoteHash)" -ForegroundColor Yellow
-        if ($remoteDate) {
-            Write-Host "  Remote: $remoteDate" -ForegroundColor DarkGray
+        if ($remoteMsg) {
+            Write-Host "  Latest change: $remoteMsg" -ForegroundColor DarkGray
         }
-        $confirm = Read-Host '  Download update? (y/N)'
+        if ($remoteDate) {
+            Write-Host "  Date: $remoteDate" -ForegroundColor DarkGray
+        }
+        $confirm = Read-Host '  Download update? Current files will be backed up first (y/N)'
         if ($confirm -ne 'y' -and $confirm -ne 'Y') {
             Write-Host '  Skipped.' -ForegroundColor DarkGray
             return
         }
 
-        # Download files (use API for private repos)
-        $files = @('mumu-menu.ps1', 'mumu-profile.ps1', 'SKILL.md', 'README.md')
+        # Backup existing files before overwriting
+        $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
+        $backupDir = Join-Path $ScriptDir "backup\$stamp"
+        foreach ($f in $files) {
+            $p = Join-Path $ScriptDir $f
+            if (Test-Path $p) {
+                New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
+                Copy-Item -LiteralPath $p -Destination (Join-Path $backupDir $f) -Force
+            }
+        }
+        if (Test-Path $backupDir) {
+            Write-Host "  Backup saved: backup\$stamp" -ForegroundColor DarkGray
+        }
+
+        # Download files (API for private repos, raw for public)
+        $failed = 0
         foreach ($f in $files) {
             $dest = Join-Path $ScriptDir $f
             Write-Host "  Downloading $f..." -ForegroundColor Yellow
             try {
-                if ($GitHubToken) {
-                    # Use API for private repos
-                    $apiFileUrl = "https://api.github.com/repos/$GitHubRepo/contents/$SkillPath/$f"
-                    $fileResp = Invoke-RestMethod -Uri $apiFileUrl -UseBasicParsing -Headers $headers -ErrorAction Stop
-                    $content = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($fileResp.content))
-                    [System.IO.File]::WriteAllText($dest, $content, [System.Text.UTF8Encoding]::new($false))
-                } else {
-                    # Use raw URL for public repos
-                    $url = "$GitHubRaw/$GitHubRepo/main/$SkillPath/$f"
-                    Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing -Headers @{'User-Agent' = 'MuMuManager-CLI-Menu'} -ErrorAction Stop
-                }
+                $content = Get-RemoteFile $f
+                if (-not $content) { throw 'empty response' }
+                [System.IO.File]::WriteAllText($dest, $content, [System.Text.UTF8Encoding]::new($false))
                 Write-Host '    OK' -ForegroundColor Green
             } catch {
                 Write-Host "    Failed: $($_.Exception.Message)" -ForegroundColor Red
+                $failed++
             }
         }
 
-        Set-Content -Path $VersionFile -Value $remoteHash -NoNewline -ErrorAction SilentlyContinue
-        Write-Host ''
-        Write-Host 'Update complete! Restart the menu to use the new version.' -ForegroundColor Green
+        if ($failed -gt 0) {
+            Write-Host "Update finished with $failed failed file(s). Restore from backup if needed." -ForegroundColor Red
+        } else {
+            Set-Content -Path $VersionFile -Value $remoteHash -NoNewline -ErrorAction SilentlyContinue
+            Write-Host ''
+            Write-Host 'Update complete! Restart the menu to use the new version.' -ForegroundColor Green
+        }
         Start-Sleep -Seconds 2
         exit
     } catch {
@@ -893,7 +936,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.10.2' -ForegroundColor Green
+    Write-Host 'Script version: 1.10.3' -ForegroundColor Green
 
     # MuMu version
     try {
