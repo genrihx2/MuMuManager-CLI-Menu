@@ -94,19 +94,19 @@ function Update-FromGitHub {
         if ($GitHubToken) {
             $apiFileUrl = "https://api.github.com/repos/$GitHubRepo/contents/$SkillPath/$Name"
             return Invoke-WithRetry {
-                $resp = Invoke-RestMethod -Uri $apiFileUrl -UseBasicParsing -Headers $headers -ErrorAction Stop
+                $resp = Invoke-RestMethod -Uri $apiFileUrl -UseBasicParsing -Headers $headers -TimeoutSec 30 -ErrorAction Stop
                 [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($resp.content))
             }
         }
         $url = "$GitHubRaw/$GitHubRepo/main/$SkillPath/$Name"
         Invoke-WithRetry {
-            Invoke-RestMethod -Uri $url -Headers @{'User-Agent' = 'MuMuManager-CLI-Menu'} -ErrorAction Stop
+            Invoke-RestMethod -Uri $url -Headers @{'User-Agent' = 'MuMuManager-CLI-Menu'} -TimeoutSec 30 -ErrorAction Stop
         }
     }
 
     try {
         $apiUrl = "https://api.github.com/repos/$GitHubRepo/commits?path=$SkillPath/mumu-menu.ps1&per_page=1"
-        $response = Invoke-WithRetry { Invoke-RestMethod -Uri $apiUrl -UseBasicParsing -Headers $headers -ErrorAction Stop }
+        $response = Invoke-WithRetry { Invoke-RestMethod -Uri $apiUrl -UseBasicParsing -Headers $headers -TimeoutSec 15 -ErrorAction Stop }
 
         if (-not $response -or $response.Count -eq 0) {
             Write-Host '  No commits found on remote' -ForegroundColor Yellow
@@ -729,12 +729,12 @@ function Test-Security {
         # Check token validity
         $headers = @{'Authorization' = "token $token"}
         try {
-            $user = Invoke-RestMethod 'https://api.github.com/user' -Headers $headers -ErrorAction Stop
+            $user = Invoke-RestMethod 'https://api.github.com/user' -Headers $headers -TimeoutSec 15 -ErrorAction Stop
             Write-Host "  Valid: YES ($($user.login))" -ForegroundColor Green
             $safeCount++
             
             # Check scopes
-            $resp = Invoke-WebRequest -Uri 'https://api.github.com/user' -Headers $headers -UseBasicParsing
+            $resp = Invoke-WebRequest -Uri 'https://api.github.com/user' -Headers $headers -UseBasicParsing -TimeoutSec 15
             $scopes = $resp.Headers['X-OAuth-Scopes']
             if ($scopes) {
                 Write-Host "  Scopes: $scopes" -ForegroundColor DarkGray
@@ -855,7 +855,7 @@ function Update-Token {
     Write-Host 'Testing...' -ForegroundColor Yellow
     $headers = @{'Authorization' = "token $newToken"}
     try {
-        $user = Invoke-RestMethod 'https://api.github.com/user' -Headers $headers -ErrorAction Stop
+        $user = Invoke-RestMethod 'https://api.github.com/user' -Headers $headers -TimeoutSec 15 -ErrorAction Stop
         Write-Host "Token valid: $($user.login)" -ForegroundColor Green
     } catch {
         Write-Host 'Token invalid!' -ForegroundColor Red
@@ -1109,7 +1109,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.12.0' -ForegroundColor Green
+    Write-Host 'Script version: 1.12.1' -ForegroundColor Green
 
     # MuMu version
     try {
