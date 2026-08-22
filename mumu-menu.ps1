@@ -605,8 +605,23 @@ function Backup-EmulatorData {
     Write-Host ''
     Write-Host "Backing up to $dest ..." -ForegroundColor Cyan
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    & robocopy $src $dest /E /NFL /NDL /NJH /NJS /NP /R:1 /W:1 | Out-Null
-    $code = $LASTEXITCODE
+
+    $proc = Start-Process -FilePath 'robocopy.exe' -ArgumentList @(
+        "`"$src`"", "`"$dest`"", '/E', '/NFL', '/NDL', '/NJH', '/NJS', '/NP', '/R:1', '/W:1'
+    ) -NoNewWindow -PassThru
+    $null = $proc.Handle
+
+    while (-not $proc.HasExited) {
+        Start-Sleep -Seconds 3
+        if ($proc.HasExited) { break }
+        $done = (Get-ChildItem -LiteralPath $dest -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+        $pct = if ($size) { [Math]::Min(100, [int]($done / $size * 100)) } else { 0 }
+        Write-Host ("`r  Copied {0:N2} / {1:N2} GB ({2}%)   " -f ($done / 1GB), ($size / 1GB), $pct) -NoNewline
+    }
+    if (-not $proc.HasExited) { $proc.WaitForExit() }
+    $code = $proc.ExitCode
+    if (-not $code) { $code = 0 }
+    Write-Host ''
     $sw.Stop()
 
     if ($code -ge 8) {
@@ -1048,7 +1063,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.11.1' -ForegroundColor Green
+    Write-Host 'Script version: 1.11.2' -ForegroundColor Green
 
     # MuMu version
     try {
