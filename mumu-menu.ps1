@@ -18,6 +18,24 @@ if (Test-Path $TokenFile) {
     }
 }
 
+# Force TLS 1.2+ (PowerShell 5.1 defaults fail against GitHub with
+# "The underlying connection was closed: An unexpected error occurred on a send.")
+try {
+    [Net.ServicePointManager]::SecurityProtocol = ([Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12)
+} catch {}
+
+function Invoke-WithRetry {
+    param([scriptblock]$Action, [int]$Attempts = 3, [int]$DelaySeconds = 2)
+    for ($i = 1; $i -le $Attempts; $i++) {
+        try {
+            return & $Action
+        } catch {
+            if ($i -eq $Attempts) { throw }
+            Start-Sleep -Seconds $DelaySeconds
+        }
+    }
+}
+
 # Auto-detect MuMuManager.exe path
 $MumuPath = ''
 $PossiblePaths = @(
@@ -75,16 +93,20 @@ function Update-FromGitHub {
         param([string]$Name)
         if ($GitHubToken) {
             $apiFileUrl = "https://api.github.com/repos/$GitHubRepo/contents/$SkillPath/$Name"
-            $resp = Invoke-RestMethod -Uri $apiFileUrl -UseBasicParsing -Headers $headers -ErrorAction Stop
-            return [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($resp.content))
+            return Invoke-WithRetry {
+                $resp = Invoke-RestMethod -Uri $apiFileUrl -UseBasicParsing -Headers $headers -ErrorAction Stop
+                [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($resp.content))
+            }
         }
         $url = "$GitHubRaw/$GitHubRepo/main/$SkillPath/$Name"
-        Invoke-RestMethod -Uri $url -Headers @{'User-Agent' = 'MuMuManager-CLI-Menu'} -ErrorAction Stop
+        Invoke-WithRetry {
+            Invoke-RestMethod -Uri $url -Headers @{'User-Agent' = 'MuMuManager-CLI-Menu'} -ErrorAction Stop
+        }
     }
 
     try {
         $apiUrl = "https://api.github.com/repos/$GitHubRepo/commits?path=$SkillPath/mumu-menu.ps1&per_page=1"
-        $response = Invoke-RestMethod -Uri $apiUrl -UseBasicParsing -Headers $headers -ErrorAction Stop
+        $response = Invoke-WithRetry { Invoke-RestMethod -Uri $apiUrl -UseBasicParsing -Headers $headers -ErrorAction Stop }
 
         if (-not $response -or $response.Count -eq 0) {
             Write-Host '  No commits found on remote' -ForegroundColor Yellow
@@ -1026,7 +1048,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.11.0' -ForegroundColor Green
+    Write-Host 'Script version: 1.11.1' -ForegroundColor Green
 
     # MuMu version
     try {
