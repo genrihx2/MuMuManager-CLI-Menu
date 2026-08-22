@@ -3,8 +3,15 @@
 # Purpose:  launch/stop/restart emulator instances, install/uninstall APKs,
 #           tune performance, spoof device model, back up instance data.
 # Security: self-update downloads TEXT files only (.ps1/.md) from the GitHub
-#           repository above over HTTPS; no executables, no obfuscation,
-#           no persistence, no registry/schedule/certificate modifications.
+#           repository above over HTTPS. Integrity checks: content-hash diff
+#           before update, structural validation after download, automatic
+#           backup of previous versions. No executables are downloaded,
+#           no obfuscation, no persistence, no registry/schedule/certificate
+#           modifications.
+# Note:     Device-model spoofing and identifier randomization (IMEI/AndroidID/
+#           MAC) are provided solely for privacy protection and application
+#           testing on the USER'S OWN emulator instances. Do not use for any
+#           unlawful purpose.
 # Launch:   .\mumu-menu.ps1
 
 if ($PSScriptRoot) { $ScriptDir = $PSScriptRoot } else { $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path }
@@ -364,9 +371,11 @@ function Wait-Boot {
             $empty = $barWidth - $filled
             $bar = ('#' * $filled) + ('-' * $empty)
             $line = "  [$bar] $pct% [$elapsed s] state: $state"
-            Write-Host "$line                                        " -NoNewline
+            Write-Host "
+$line                                        " -NoNewline
         } catch {
-            Write-Host "  Checking... [$elapsed s]                                " -NoNewline
+            Write-Host "
+  Checking... [$elapsed s]                                " -NoNewline
         }
     }
     Write-Host "
@@ -923,11 +932,48 @@ function Update-Token {
 function Show-Logs {
     $index = Get-InstanceIndex 'Select instance'
     Write-Host ''
-    Write-Host "Fetching logs for instance $index..." -ForegroundColor Cyan
+
+    $nxDir = Split-Path $MumuPath -Parent
+    $root = Split-Path $nxDir -Parent
+    $vmsRoot = Join-Path $root 'vms'
+
+    $candidates = @()
+    if (Test-Path -LiteralPath $vmsRoot) {
+        $instDir = Get-ChildItem -LiteralPath $vmsRoot -Directory |
+            Where-Object { $mm = [regex]::Match($_.Name, '-(\d+)$'); $mm.Success -and $mm.Groups[1].Value -eq $index } |
+            Select-Object -First 1
+        if ($instDir) {
+            $candidates += (Join-Path $instDir.FullName 'logs\api.log')
+        }
+    }
+    $roamLogs = Get-ChildItem (Join-Path $env:APPDATA 'Netease') -Recurse -Filter '*.log' -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 3
+    foreach ($rl in $roamLogs) { $candidates += $rl.FullName }
+
+    $found = @()
+    foreach ($c in $candidates) {
+        if ((Test-Path -LiteralPath $c) -and (Get-Item -LiteralPath $c).Length -gt 0) { $found += $c }
+    }
+
+    if ($found.Count -eq 0) {
+        Write-Host 'No log files found.' -ForegroundColor Yellow
+        return
+    }
+
+    Write-Host "Log sources found: $($found.Count)" -ForegroundColor Cyan
+    for ($i = 0; $i -lt $found.Count; $i++) {
+        Write-Host ("  [{0}] {1}" -f ($i + 1), $found[$i]) -ForegroundColor DarkGray
+    }
+    Write-Host ''
+    $sel = Read-Host "Show tail of which log? (1-$($found.Count), Enter=1)"
+    if ($sel -match '^\d+$' -and [int]$sel -ge 1 -and [int]$sel -le $found.Count) { $pick = $found[[int]$sel - 1] } else { $pick = $found[0] }
+
+    Write-Host ''
+    Write-Host "=== last 40 lines of $pick ===" -ForegroundColor Green
     try {
-        & $MumuPath log -v $index --path 2>&1 | ForEach-Object { Write-Host $_ }
+        Get-Content -LiteralPath $pick -Tail 40 -ErrorAction Stop | ForEach-Object { Write-Host $_ }
     } catch {
-        Write-Host "Failed to get logs: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "Cannot read log: $($_.Exception.Message)" -ForegroundColor Red
     }
 }
 
@@ -1201,7 +1247,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.12.8' -ForegroundColor Green
+    Write-Host 'Script version: 1.13.0' -ForegroundColor Green
 
     # MuMu version
     try {
@@ -1244,7 +1290,8 @@ function Show-VersionInfo {
         }
         Write-Host "Instances: $count ($running running)" -ForegroundColor Cyan
     } catch {
-        Write-Host 'Instances: unknown' -ForegroundColor Yellown    }
+        Write-Host 'Instances: unknown' -ForegroundColor Yellow
+n    }
 
     Write-Host ''
 }
@@ -1584,6 +1631,8 @@ function New-RandomMac {
     ($hex -split '(..)' | Where-Object { $_ }) -join ':'
 }
 
+# Privacy/testing feature: randomizes identifiers of the user's own emulator
+# instance so it does not reuse factory/default values.
 function Set-RandomDeviceIds {
     param([string]$Mode)
 
