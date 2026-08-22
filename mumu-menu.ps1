@@ -893,7 +893,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.10.1' -ForegroundColor Green
+    Write-Host 'Script version: 1.10.2' -ForegroundColor Green
 
     # MuMu version
     try {
@@ -1227,12 +1227,22 @@ function Set-DeviceModel {
         return
     }
 
+    $display = if ($model -like "$brand*") { $model } else { "$brand $model" }
+
     Write-Host ''
-    Write-Host "Setting device to $brand $model ($code)..." -ForegroundColor Cyan
+    Write-Host "Setting device to $display ($code)..." -ForegroundColor Cyan
     try {
         & $MumuPath setting -v $index -k phone_brand -val $brand -k phone_model -val $model -k phone_miit -val $code 2>&1 | Out-Null
-        Write-Host "Device model set to $brand $model!" -ForegroundColor Green
-        Write-Host 'Restart the emulator to apply.' -ForegroundColor Yellow
+        Write-Host "Device model set to $display!" -ForegroundColor Green
+        try {
+            $info = & $MumuPath info -v $index 2>$null | ConvertFrom-Json
+            if ($info.is_android_started) {
+                $escaped = $display -replace ' ', '\ '
+                & $MumuPath adb -v $index -c "shell settings put global device_name $escaped" 2>&1 | Out-Null
+                Write-Host 'Device name updated live.' -ForegroundColor DarkGray
+            }
+        } catch {}
+        Write-Host 'Restart the emulator to fully apply build properties.' -ForegroundColor Yellow
     } catch {
         Write-Host "Failed: $($_.Exception.Message)" -ForegroundColor Red
     }
