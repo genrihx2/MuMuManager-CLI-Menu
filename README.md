@@ -46,6 +46,10 @@ cd MuMuManager-CLI-Menu
 2. Поместите в любую папку
 3. Запустите `.\mumu-menu.ps1`
 
+### Готовая сборка (Releases)
+Скачайте актуальный zip со страницы [Releases](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest), распакуйте и запустите `mumu-menu.ps1`.
+Релизы создаются автоматически при изменении версии в скрипте (GitHub Actions).
+
 ## Использование
 
 ### Запуск меню
