@@ -1,4 +1,4 @@
-# MuMuManager CLI - Interactive Menu for Netease MuMu Emulator (Windows)
+﻿# MuMuManager CLI - Interactive Menu for Netease MuMu Emulator (Windows)
 # Project:  https://github.com/genrihx2/MuMuManager-CLI-Menu
 # Purpose:  launch/stop/restart emulator instances, install/uninstall APKs,
 #           tune performance, spoof device model, back up instance data.

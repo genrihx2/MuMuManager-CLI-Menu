@@ -1,4 +1,4 @@
-# Sync README.md with mumu-menu.ps1 (menu block + script version)
+﻿# Sync README.md with mumu-menu.ps1 (menu block + script version)
 # Usage: ./update-readme.ps1
 # Used by .github/workflows/sync-readme.yml and locally before commits.
 
@@ -8,7 +8,7 @@ $root = if ($PSScriptRoot) { $PSScriptRoot } else { $PWD.Path }
 $menuScript = Join-Path $root 'mumu-menu.ps1'
 $readmePath = Join-Path $root 'README.md'
 
-$utf8 = [System.Text.UTF8Encoding]::new($false)
+$utf8 = [System.Text.UTF8Encoding]::new($true)
 $script = [System.IO.File]::ReadAllText($menuScript)
 $readme = [System.IO.File]::ReadAllText($readmePath)
 $newline = if ($readme -match "`r`n") { "`r`n" } else { "`n" }

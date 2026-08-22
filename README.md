@@ -1,4 +1,4 @@
-# MuMu Manager CLI Menu
+﻿# MuMu Manager CLI Menu
 
 ╨Ш╨╜╤В╨╡╤А╨░╨║╤В╨╕╨▓╨╜╨╛╨╡ PowerShell-╨╝╨╡╨╜╤О ╨┤╨╗╤П ╤Г╨┐╤А╨░╨▓╨╗╨╡╨╜╨╕╤П MuMu Emulator 6.0.
 

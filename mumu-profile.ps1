@@ -1,4 +1,4 @@
-# PowerShell Profile for MuMuManager CLI
+﻿# PowerShell Profile for MuMuManager CLI
 # Add this to your PowerShell profile or run this file to add the alias
 
 # Create function alias
