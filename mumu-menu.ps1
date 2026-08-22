@@ -6,8 +6,7 @@
 #           repository above over HTTPS. Integrity checks: content-hash diff
 #           before update, structural validation after download, automatic
 #           backup of previous versions. No executables are downloaded,
-#           no obfuscation, no persistence, no registry/schedule/certificate
-#           modifications.
+#           no obfuscation, no persistence, no registry or scheduler changes.
 # Note:     Device-model spoofing and identifier randomization (IMEI/AndroidID/
 #           MAC) are provided solely for privacy protection and application
 #           testing on the USER'S OWN emulator instances. Do not use for any
@@ -1247,7 +1246,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.13.0' -ForegroundColor Green
+    Write-Host 'Script version: 1.13.1' -ForegroundColor Green
 
     # MuMu version
     try {
