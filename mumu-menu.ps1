@@ -247,7 +247,7 @@ function Get-InstanceIndex {
     Write-Host ''
 
     do {
-        $index = Read-Host "$Prompt (0-9)"
+        $index = (Read-Host "$Prompt (0-9)").Trim()
         if (-not $index) { $index = '0' }
 
         $exists = $instances | Where-Object { $_.Index -eq $index }
@@ -438,7 +438,8 @@ function Rename-Emulator {
 function Clear-AppData {
     $index = Get-InstanceIndex 'Select instance'
     Write-Host ''
-    $package = Read-Host 'Enter package name'
+    $package = (Read-Host 'Enter package name').Trim()
+    if (-not $package) { Write-Host 'Cancelled.' -ForegroundColor Yellow; return }
     Write-Host "Clearing data for $package..." -ForegroundColor Cyan
     & $MumuPath adb -v $index -c "shell pm clear $package" 2>&1 | Out-Null
     Write-Host 'Done!' -ForegroundColor Green
@@ -447,7 +448,8 @@ function Clear-AppData {
 function Stop-App {
     $index = Get-InstanceIndex 'Select instance'
     Write-Host ''
-    $package = Read-Host 'Enter package name'
+    $package = (Read-Host 'Enter package name').Trim()
+    if (-not $package) { Write-Host 'Cancelled.' -ForegroundColor Yellow; return }
     Write-Host "Force stopping $package..." -ForegroundColor Cyan
     & $MumuPath adb -v $index -c "shell am force-stop $package" 2>&1 | Out-Null
     Write-Host 'Done!' -ForegroundColor Green
@@ -456,7 +458,8 @@ function Stop-App {
 function Start-App {
     $index = Get-InstanceIndex 'Select instance'
     Write-Host ''
-    $package = Read-Host 'Enter package name'
+    $package = (Read-Host 'Enter package name').Trim()
+    if (-not $package) { Write-Host 'Cancelled.' -ForegroundColor Yellow; return }
     Write-Host "Starting $package..." -ForegroundColor Cyan
     & $MumuPath adb -v $index -c "shell monkey -p $package -c android.intent.category.LAUNCHER 1" 2>&1 | Out-Null
     Write-Host 'Done!' -ForegroundColor Green
@@ -465,7 +468,7 @@ function Start-App {
 function Export-Emulator {
     $index = Get-InstanceIndex 'Select instance to export'
     Write-Host ''
-    $exportDir = Read-Host 'Enter export directory (or press Enter for current)'
+    $exportDir = (Read-Host 'Enter export directory (or press Enter for current)').Trim()
     if (-not $exportDir) { $exportDir = $PWD }
     Write-Host "Exporting instance $index..." -ForegroundColor Cyan
     try {
@@ -730,13 +733,17 @@ function Restart-All {
 
 function Install-APK-All {
     Write-Host ''
-    $apkPath = Read-Host 'Enter APK file path'
-    if (-not (Test-Path $apkPath)) {
+    $apkPath = (Read-Host 'Enter APK file path').Trim()
+    if (-not $apkPath) {
+        Write-Host 'Cancelled.' -ForegroundColor Yellow
+        return
+    }
+    if (-not (Test-Path -LiteralPath $apkPath)) {
         Write-Host "File not found: $apkPath" -ForegroundColor Red
         return
     }
     $apkName = Split-Path $apkPath -Leaf
-    $apkSize = [math]::Round((Get-Item $apkPath).Length / 1MB, 1)
+    $apkSize = [math]::Round((Get-Item -LiteralPath $apkPath).Length / 1MB, 1)
 
     $indices = Get-AllIndices
     Write-Host ''
@@ -756,12 +763,13 @@ function Install-APK-All {
         }
 
         Write-Host "  [$idx] $name - installing..." -ForegroundColor Yellow
-        try {
-            & $MumuPath control -v $idx app install -apk $apkPath 2>&1 | Out-Null
+        $result = & $MumuPath control -v $idx app install -apk $apkPath 2>&1 | Out-String
+        if ($result -match '"package"') {
             Write-Host "  [$idx] $name - OK" -ForegroundColor Green
             $success++
-        } catch {
-            Write-Host "  [$idx] $name - FAILED" -ForegroundColor Red
+        } else {
+            $msg = $result.Trim() -replace '\s+', ' '
+            Write-Host "  [$idx] $name - FAILED: $msg" -ForegroundColor Red
             $failed++
         }
     }
@@ -824,25 +832,59 @@ function Show-Settings {
 function Install-APK {
     $index = Get-InstanceIndex 'Select instance'
     Write-Host ''
-    $apkPath = Read-Host 'Enter APK file path'
+    $apkPath = (Read-Host 'Enter APK file path').Trim()
 
-    if (Test-Path $apkPath) {
-        Write-Host 'Installing APK...' -ForegroundColor Cyan
-        Invoke-Mumu control -v $index app install -apk $apkPath
-        Write-Host 'Done!' -ForegroundColor Green
-    } else {
-        Write-Error "File not found: $apkPath"
+    if (-not $apkPath) {
+        Write-Host 'Cancelled.' -ForegroundColor Yellow
+        return
     }
+
+    if (-not (Test-Path -LiteralPath $apkPath)) {
+        Write-Host "File not found: $apkPath" -ForegroundColor Red
+        return
+    }
+
+    Write-Host 'Installing APK...' -ForegroundColor Cyan
+    $maxAttempts = 3
+    $result = ''
+    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+        $result = & $MumuPath control -v $index app install -apk $apkPath 2>&1 | Out-String
+        if ($result -match '"package"') {
+            Write-Host 'APK installed!' -ForegroundColor Green
+            return
+        }
+        if ($result -match 'not handle cmd' -and $attempt -lt $maxAttempts) {
+            Write-Host "  Emulator service not ready, retrying ($attempt/$maxAttempts)..." -ForegroundColor Yellow
+            Start-Sleep -Seconds 5
+            continue
+        }
+        break
+    }
+    $msg = $result.Trim()
+    try {
+        $parsed = $result | ConvertFrom-Json
+        if ($parsed.errmsg) { $msg = $parsed.errmsg }
+    } catch {}
+    Write-Host "Install failed: $msg" -ForegroundColor Red
 }
 
 function Uninstall-App {
     $index = Get-InstanceIndex 'Select instance'
     Write-Host ''
-    $package = Read-Host 'Enter package name'
+    $package = (Read-Host 'Enter package name').Trim()
+
+    if (-not $package) {
+        Write-Host 'Cancelled.' -ForegroundColor Yellow
+        return
+    }
 
     Write-Host 'Uninstalling app...' -ForegroundColor Cyan
-    Invoke-Mumu control -v $index app uninstall -pkg $package
-    Write-Host 'Done!' -ForegroundColor Green
+    $result = & $MumuPath control -v $index app uninstall -pkg $package 2>&1 | Out-String
+    if ($result -match '"errcode"\s*:\s*0') {
+        Write-Host 'App uninstalled!' -ForegroundColor Green
+    } else {
+        Write-Host "Uninstall failed: $($result.Trim())" -ForegroundColor Red
+    }
 }
 
 function Show-VersionInfo {
@@ -851,7 +893,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.10.0' -ForegroundColor Green
+    Write-Host 'Script version: 1.10.1' -ForegroundColor Green
 
     # MuMu version
     try {
@@ -990,7 +1032,7 @@ function Save-Screenshot {
 function Invoke-ADBCommand {
     $index = Get-InstanceIndex 'Select instance'
     Write-Host ''
-    $cmd = Read-Host 'Enter ADB command'
+    $cmd = (Read-Host 'Enter ADB command').Trim()
 
     Write-Host 'Running ADB command...' -ForegroundColor Cyan
     Invoke-Mumu adb -v $index -c $cmd
