@@ -487,17 +487,39 @@ function Rename-Emulator {
     $info = & $MumuPath info -v $index 2>$null | ConvertFrom-Json
     $oldName = $info.name
     Write-Host "Current name: $oldName" -ForegroundColor DarkGray
-    $newName = Read-Host 'Enter new name'
+    $newName = (Read-Host 'Enter new name').Trim()
     if (-not $newName) {
         Write-Host 'Cancelled.' -ForegroundColor Yellow
         return
     }
     Write-Host "Renaming to '$newName'..." -ForegroundColor Cyan
+
+    $tmpOut = Join-Path $env:TEMP ("rn_" + [Guid]::NewGuid().ToString('N') + ".out")
+    $tmpErr = Join-Path $env:TEMP ("rn_" + [Guid]::NewGuid().ToString('N') + ".err")
     try {
-        & $MumuPath rename -v $index -n $newName 2>&1 | Out-Null
-        Write-Host "Renamed to '$newName'!" -ForegroundColor Green
-    } catch {
-        Write-Host "Rename failed: $($_.Exception.Message)" -ForegroundColor Red
+        $proc = Start-Process -FilePath $MumuPath -ArgumentList @('rename', '-v', $index, '-n', "`"$newName`"") -NoNewWindow -PassThru -RedirectStandardOutput $tmpOut -RedirectStandardError $tmpErr
+        $null = $proc.Handle
+        if (-not $proc.WaitForExit(15000)) {
+            try { $proc.Kill() } catch {}
+            Write-Host 'Rename timed out (emulator service did not respond).' -ForegroundColor Red
+            return
+        }
+        $result = ''
+        if (Test-Path $tmpOut) { $result = Get-Content $tmpOut -Raw -ErrorAction SilentlyContinue }
+        if ($result -match '"errcode"\s*:\s*0') {
+            Write-Host "Renamed to '$newName'!" -ForegroundColor Green
+        } elseif ($result.Trim()) {
+            $msg = $result.Trim()
+            try {
+                $parsed = $result | ConvertFrom-Json
+                if ($parsed.errmsg) { $msg = $parsed.errmsg }
+            } catch {}
+            Write-Host "Rename failed: $msg" -ForegroundColor Red
+        } else {
+            Write-Host 'Renamed.' -ForegroundColor Green
+        }
+    } finally {
+        Remove-Item -LiteralPath $tmpOut, $tmpErr -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -1144,7 +1166,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.12.2' -ForegroundColor Green
+    Write-Host 'Script version: 1.12.3' -ForegroundColor Green
 
     # MuMu version
     try {
