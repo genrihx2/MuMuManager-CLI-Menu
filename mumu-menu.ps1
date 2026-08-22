@@ -1046,14 +1046,27 @@ function Install-APK-All {
 function Show-Apps {
     $index = Get-InstanceIndex 'Select instance'
     Write-Host ''
-    
-    # Check if running
+
+    # Check if running, offer to start
     $info = & $MumuPath info -v $index 2>$null | ConvertFrom-Json
     if (-not $info.is_process_started) {
-        Write-Host 'Emulator is not running! Start it first.' -ForegroundColor Red
-        return
+        $st = Read-Host 'Emulator is not running. Start it now? (Y/n)'
+        if ($st -eq 'n' -or $st -eq 'N') { return }
+        Write-Host 'Starting emulator...' -ForegroundColor Cyan
+        & $MumuPath control -v $index launch 2>&1 | Out-Null
+        $tries = 0
+        do {
+            Start-Sleep -Seconds 5
+            $tries++
+            $s = (& $MumuPath info -v $index 2>$null | ConvertFrom-Json).is_android_started
+        } while ($s -ne $true -and $tries -lt 24)
+        if ($s -ne $true) {
+            Write-Host 'Emulator did not boot in time. Try again later.' -ForegroundColor Red
+            return
+        }
+        Start-Sleep -Seconds 5
     }
-    
+
     Write-Host 'Fetching installed apps...' -ForegroundColor Cyan
     $output = & $MumuPath adb -v $index -c 'shell pm list packages -3' 2>&1
     $text = @($output | Out-String) -join ''
@@ -1065,8 +1078,26 @@ function Show-Apps {
             Write-Host 'ADB could not read the package list.' -ForegroundColor Red
             Write-Host "Details: $($text.Trim())" -ForegroundColor DarkGray
             Write-Host 'Try restarting the emulator and waiting for full boot.' -ForegroundColor Yellow
+            return
+        }
+
+        $allOut = & $MumuPath adb -v $index -c 'shell pm list packages' 2>&1
+        $allText = @($allOut | Out-String) -join ''
+        $all = [regex]::Matches($allText, '(?m)^\s*package:([A-Za-z0-9_.]+)') |
+            ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
+
+        if ($all.Count -gt 0) {
+            Write-Host "Third-party apps: none. Only system packages found ($($all.Count))." -ForegroundColor Yellow
+            $show = Read-Host 'Show all system packages? (y/N)'
+            if ($show -eq 'y' -or $show -eq 'Y') {
+                Write-Host ''
+                foreach ($pkg in $all) {
+                    Write-Host "  $pkg" -ForegroundColor White
+                }
+            }
         } else {
-            Write-Host 'No third-party apps found' -ForegroundColor Yellow
+            Write-Host 'ADB returned no package list.' -ForegroundColor Yellow
+            Write-Host 'Wait for full boot or restart the emulator.' -ForegroundColor Yellow
         }
         return
     }
@@ -1161,7 +1192,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.12.6' -ForegroundColor Green
+    Write-Host 'Script version: 1.12.7' -ForegroundColor Green
 
     # MuMu version
     try {
