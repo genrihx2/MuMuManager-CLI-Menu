@@ -685,13 +685,48 @@ function Export-Emulator {
     $index = Get-InstanceIndex 'Select instance to export'
     Write-Host ''
     $exportDir = (Read-Host 'Enter export directory (or press Enter for current)').Trim()
-    if (-not $exportDir) { $exportDir = $PWD }
+    $exportDir = $exportDir.Trim('"').Trim()
+    if (-not $exportDir) { $exportDir = $PWD.Path }
+
+    if ($exportDir -match '\.(zip|mumudata|rar|7z)$') {
+        Write-Host 'Export expects a DIRECTORY, not a file.' -ForegroundColor Yellow
+        Write-Host 'Native export creates a single .mumudata archive inside the directory.' -ForegroundColor Yellow
+        Write-Host 'For zipped folder backups use option [BA] instead.' -ForegroundColor Yellow
+        return
+    }
+
+    if (-not (Test-Path -LiteralPath $exportDir)) {
+        try {
+            New-Item -ItemType Directory -Path $exportDir -Force | Out-Null
+        } catch {
+            Write-Host "Cannot create directory: $($_.Exception.Message)" -ForegroundColor Red
+            return
+        }
+    }
+
+    $comp = Read-Host 'Use compressed format? (y/N)'
     Write-Host "Exporting instance $index..." -ForegroundColor Cyan
-    try {
-        & $MumuPath export -v $index -p $exportDir 2>&1 | ForEach-Object { Write-Host $_ }
+
+    $result = if ($comp -eq 'y' -or $comp -eq 'Y') {
+        & $MumuPath export -v $index -d $exportDir -zip 2>&1 | Out-String
+    } else {
+        & $MumuPath export -v $index -d $exportDir 2>&1 | Out-String
+    }
+
+    if ($result -match '"errcode"\s*:\s*0' -or ($result -notmatch '"errcode"' -and $result.Trim())) {
         Write-Host 'Export completed!' -ForegroundColor Green
-    } catch {
-        Write-Host "Export failed: $($_.Exception.Message)" -ForegroundColor Red
+        $files = Get-ChildItem -LiteralPath $exportDir -Filter '*.mumudata*' -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 3
+        foreach ($f in $files) {
+            Write-Host ("  {0} ({1:N1} MB)" -f $f.Name, ($f.Length / 1MB)) -ForegroundColor DarkGray
+        }
+    } else {
+        $msg = $result.Trim()
+        try {
+            $parsed = $result | ConvertFrom-Json
+            if ($parsed.errmsg) { $msg = $parsed.errmsg }
+        } catch {}
+        Write-Host "Export failed: $msg" -ForegroundColor Red
     }
 }
 
@@ -1109,7 +1144,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.12.1' -ForegroundColor Green
+    Write-Host 'Script version: 1.12.2' -ForegroundColor Green
 
     # MuMu version
     try {
