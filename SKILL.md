@@ -1,47 +1,48 @@
 ﻿---
 name: mumu-manager-cli
-description: ф╜┐чФи MuMuManager.exe хп╣ MuMu цибцЛЯхЩи 12 хоЮф╛Лш┐ЫшбМч╗Яф╕АчобчРЖф╕ОцУНф╜Ья╝МхМЕхРлхоЮф╛ЛщЕНч╜оуАБхИЫх╗║/хЕЛщЪЖ/хИащЩд/щЗНхС╜хРНуАБхп╝хЕе/хп╝хЗ║уАБхРпхКи/хЕ│щЧн/щЗНхРп/чкЧхПгцОзхИ╢уАБх║ФчФихоЙшгЕ/хН╕ш╜╜/хРпхКи/хЕ│щЧнуАБшо╛хдЗф┐бцБпуАБч│╗ч╗Ях╖ехЕ╖уАБADB хС╜ф╗дуАБщй▒хКиф╕ОцОТх║ПчнЙуАВщАВхРИч╝ЦхЖЩшДЪцЬмцЙ╣щЗПшЗкхКихМЦчобчРЖ MuMu цибцЛЯхЩицЧ╢ф╜┐чФиуАВ
+description: 使用 MuMuManager.exe 对 MuMu 模拟器 12 实例进行统一管理与操作，包含实例配置、创建/克隆/删除/重命名、导入/导出、启动/关闭/重启/窗口控制、应用安装/卸载/启动/关闭、设备信息、系统工具、ADB 命令、驱动与排序等。适合编写脚本批量自动化管理 MuMu 模拟器时使用。
 ---
 # MuMuManager CLI
-## чФищАФ
-ф╜┐чФихС╜ф╗дшбМцЯешпвхТМчобчРЖ MuMu цибцЛЯхЩи 12 чЪДхоЮф╛Лф╕Ох║ФчФищЕНч╜оя╝МщАВхРИш┤жхП╖чЯйщШ╡уАБцЙ╣щЗПх╝АхЕ│уАБшЗкхКихМЦшДЪцЬмуАБш┐Рч╗┤цОТщЪЬчнЙхЬ║цЩпуАВ
-## хЙНч╜ошжБц▒В
-- чбоф┐ЭцибцЛЯхЩичЙИцЬм **V4.0.0.3179 цИЦф╗еф╕К**я╝МхРжхИЩщГихИЖхС╜ф╗дф╕НхПпчФиуАВ
-- хоЪф╜Н `MuMuManager.exe`я╝Мх╕╕шзБш╖пх╛Дя╝Ъ`X:\Program Files\Netease\MuMuPlayer-12.0\shell\MuMuManager.exe`я╝ЫцЬмцЬ║ш╖пх╛Дчд║ф╛Ля╝Ъ`C:\Program Files\Netease\MuMu\nx_main\MuMuManager.exe`уАВ
-- х╗║шооф╜┐чФич╗Эхп╣ш╖пх╛Дя╝МцИЦх░Ж `nx_main` чЫох╜ХхКахЕе `PATH`уАВ
-## ф╜┐чФиц╡БчиЛ
-1. хЕИчФи `info` чбошодхПпчФихоЮф╛Ля╝Ы`-v` цФпцМБщАЧхП╖хИЖщЪФхИЧшбицИЦ `all`уАВ
-2. щАЙцЛйщЬАшжБчЪДф╗╗хКбя╝ИхИЫх╗║/хЕЛщЪЖ/хИащЩд/щЗНхС╜хРН/хп╝хЕе/хп╝хЗ║/ADB/х║ФчФи/цОзхИ╢/шо╛ч╜оя╝ЙуАВ
-3. х░╜щЗПч╝йх░Пф╜ЬчФишМГхЫ┤я╝Мш░ицЕОхп╣ `all` цЙзшбМхЖЩцУНф╜ЬуАВ
-## хКЯшГ╜щАЯцЯе
-### хоЮф╛ЛчобчРЖ
-- `info` цЯечЬЛхоЮф╛ЛчК╢цАБф╕ОхнЧцо╡шп┤цШО
-- `create / clone / delete / rename` хИЫх╗║/хЕЛщЪЖ/хИащЩд/щЗНхС╜хРНхоЮф╛Л
-- `import / export` хдЗф╗╜ф╕ОцБвхдН `.mumudata`я╝ИхПпщАЙ `--zip`я╝Й
-### х╕╕шзБхЭСф╕ОшзДщБ┐
-- хИащЩдхоЮф╛ЛхЙНхЕИхЕ│щЧншпехоЮф╛Ля╝Ъ`control -v <index> shutdown`уАВцЬкхЕ│щЧнцЧ╢хПпшГ╜ш┐ФхЫЮ `{"errcode": -1, "errmsg": "not handle cmd"}`уАВ
-### хРпхКиф╕ОчкЧхПгцОзхИ╢
-- `control launch / shutdown / restart` хРпхКи/хЕ│щЧн/щЗНхРпхоЮф╛Л
-- `control show_window / hide_window / layout_window` цШ╛чд║/щЪРшЧП/х╕Гх▒АчкЧхПг
-### х║ФчФичобчРЖ
-- `control app install / uninstall / launch / close / info` ф╜┐чФихМЕхРНцИЦ apk ш╖пх╛Д
-- `control app info -i` цЯечЬЛх╖▓хоЙшгЕх║ФчФиф╕Ох╜УхЙНхЙНхП░х║ФчФи
-### ч│╗ч╗Ях╖ехЕ╖
-- `control tool func` х╕╕чФихКЯшГ╜я╝ИцИкхЫ╛уАБхИ╖цЦ░уАБф╕╗щб╡уАБшо╛ч╜оуАБхоЙхЕичнЙя╝Й
-- `control tool downcpu` щЩНф╜О CPU
-- `control tool location / gyro` шЩЪцЛЯхоЪф╜Нф╕ОщЗНхКЫцДЯх║Ф
-- `control shortcut create / delete` хИЫх╗║/хИащЩдцбМщЭвх┐лцН╖цЦ╣х╝П
-### шо╛хдЗщЕНч╜оф╕Оф╗┐чЬЯ
-- `setting` шп╗хПЦ/ф┐оцФ╣щЕНч╜оя╝МцФпцМБ `--all / --all_writable / --info / --path`
-- `setting -v <i> -k phone_brand -val X -k phone_model -val Y -k phone_miit -val Z` ф╝кшгЕшо╛хдЗхЮЛхП╖я╝ИхУБчЙМ/хЮЛхП╖хРН/хЕеч╜СхЮЛхП╖я╝Йя╝Мф┐оцФ╣хРОщЬАщЗНхРпхоЮф╛ЛчФЯцХИя╝ЫшПЬхНХхп╣х║Ф `[DM] Spoof device model`
-- `simulation -v <i> -sk imei/android_id/mac_address -sv <value>` щЪПцЬ║чФЯцИРх╣╢хЖЩхЕешо╛хдЗцаЗшпЖя╝ИIMEI х╕жцабщкМф╜Ня╝Йя╝Мф┐оцФ╣хРОщЬАщЗНхРпхоЮф╛ЛчФЯцХИя╝ЫшПЬхНХхп╣х║Ф `[DI] Random device IDs`
-- `simulation` ф┐оцФ╣ф╗┐чЬЯх▒ЮцАзя╝ИIMEI/IMSI/Android ID/MAC чнЙя╝Й
-### ADB хС╜ф╗д
-- `adb -c` х╕╕чФих┐лцН╖хС╜ф╗дя╝Иц╕ЕчРЖч╝УхнШ/цИкхЫ╛/х╜Хх▒ПчнЙя╝Й
-- `adb -c "shell ..."` цЙзшбМшЗкхоЪф╣Й shell хС╜ф╗д
-### хЕ╢ф╗Ц
-- `sort` шЗкхКицОТхИЧчкЧхПг
-- `driver install / uninstall -n lwf` хоЙшгЕ/хН╕ш╜╜щй▒хКия╝ИхПпшГ╜щЬАшжБчобчРЖхСШцЭГщЩРя╝Й
-- ш╛ЕхКйцОехПг `api` ф╗ЕхЬих┐ЕшжБцЧ╢ф╜┐чФия╝Мчи│хоЪцАзф╛Эш╡ЦчЙИцЬм
-## хПВшАГ
-- шпжшзБ `references/mumu-manager-cli.md`
+## 用途
+使用命令行查询和管理 MuMu 模拟器 12 的实例与应用配置，适合账号矩阵、批量开关、自动化脚本、运维排障等场景。
+## 前置要求
+- 确保模拟器版本 **V4.0.0.3179 或以上**，否则部分命令不可用。
+- 定位 `MuMuManager.exe`，常见路径：`X:\Program Files\Netease\MuMuPlayer-12.0\shell\MuMuManager.exe`；本机路径示例：`C:\Program Files\Netease\MuMu\nx_main\MuMuManager.exe`。
+- 建议使用绝对路径，或将 `nx_main` 目录加入 `PATH`。
+## 使用流程
+1. 先用 `info` 确认可用实例；`-v` 支持逗号分隔列表或 `all`。
+2. 选择需要的任务（创建/克隆/删除/重命名/导入/导出/ADB/应用/控制/设置）。
+3. 尽量缩小作用范围，谨慎对 `all` 执行写操作。
+## 功能速查
+### 实例管理
+- `info` 查看实例状态与字段说明
+- `create / clone / delete / rename` 创建/克隆/删除/重命名实例
+- `import / export` 备份与恢复 `.mumudata`（可选 `--zip`）
+### 常见坑与规避
+- 删除实例前先关闭该实例：`control -v <index> shutdown`。未关闭时可能返回 `{"errcode": -1, "errmsg": "not handle cmd"}`。
+- `rename -n "名称含空格"` 可能让 MuMuManager 无响应（CLI 缺陷）；脚本已用 15 秒超时兜底。
+### 启动与窗口控制
+- `control launch / shutdown / restart` 启动/关闭/重启实例
+- `control show_window / hide_window / layout_window` 显示/隐藏/布局窗口
+### 应用管理
+- `control app install / uninstall / launch / close / info` 使用包名或 apk 路径
+- `control app info -i` 查看已安装应用与当前前台应用
+- `export -d <dir> [-zip] [-n <name>]` 导出 `.mumudata`（注意是 `-d`，不是 `-p`）
+### 系统工具
+- `control tool func` 常用功能（截图、刷新、主页、设置、安全等）
+- `control tool downcpu` 降低 CPU
+- `control tool location / gyro` 虚拟定位与重力感应
+- `control shortcut create / delete` 创建/删除桌面快捷方式
+### 设备配置与仿真
+- `setting` 读取/修改配置，支持 `--all / --all_writable / --info / --path`
+- `setting -v <i> -k phone_brand -val X -k phone_model -val Y -k phone_miit -val Z` 伪装设备型号（品牌/型号名/入网型号），修改后需重启实例生效；菜单对应 `[DM] Spoof device model`
+- `simulation -v <i> -sk imei/android_id/mac_address -sv <value>` 随机生成并写入设备标识（IMEI 带校验位），修改后需重启实例生效；菜单对应 `[DI] Random device IDs`
+### ADB 命令
+- `adb -c` 常用快捷命令（清理缓存/截图/录屏等）
+- `adb -c "shell ..."` 执行自定义 shell 命令
+### 其他
+- `sort` 自动排列窗口
+- `driver install / uninstall -n lwf` 安装/卸载驱动（可能需要管理员权限）
+- 辅助接口 `api` 仅在必要时使用，稳定性依赖版本
+## 参考
+- 详见 `references/mumu-manager-cli.md`
