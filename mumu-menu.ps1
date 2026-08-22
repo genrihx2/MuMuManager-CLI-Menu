@@ -30,16 +30,18 @@ try {
     [Net.ServicePointManager]::SecurityProtocol = ([Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12)
 } catch {}
 
-function Invoke-WithRetry {
-    param([scriptblock]$Action, [int]$Attempts = 3, [int]$DelaySeconds = 2)
-    for ($i = 1; $i -le $Attempts; $i++) {
-        try {
-            return & $Action
-        } catch {
-            if ($i -eq $Attempts) { throw }
-            Start-Sleep -Seconds $DelaySeconds
-        }
+function Invoke-GitHubGet {
+    param([string]$Url, [int]$TimeoutSec = 30)
+    $curlArgs = @('-s', '--retry', '2', '--retry-delay', '2', '--connect-timeout', '15', '--max-time', "$TimeoutSec")
+    if ($GitHubToken) {
+        $curlArgs += @('-H', "Authorization: token $GitHubToken")
     }
+    for ($i = 1; $i -le 3; $i++) {
+        $out = & curl.exe @curlArgs $Url 2>$null
+        if ($LASTEXITCODE -eq 0 -and $out) { return (@($out) | Out-String).TrimEnd() }
+        Start-Sleep -Seconds 2
+    }
+    throw "Request failed (exit $LASTEXITCODE): $Url"
 }
 
 # Auto-detect MuMuManager.exe path
@@ -98,21 +100,15 @@ function Update-FromGitHub {
     function Get-RemoteFile {
         param([string]$Name)
         if ($GitHubToken) {
-            $apiFileUrl = "https://api.github.com/repos/$GitHubRepo/contents/$SkillPath/$Name"
-            $apiHeaders = @{'Accept' = 'application/vnd.github.raw'; 'User-Agent' = 'MuMuManager-CLI-Menu'; 'Authorization' = "token $GitHubToken"}
-            return Invoke-WithRetry {
-                Invoke-RestMethod -Uri $apiFileUrl -UseBasicParsing -Headers $apiHeaders -TimeoutSec 30 -ErrorAction Stop
-            }
+            return Invoke-GitHubGet "https://api.github.com/repos/$GitHubRepo/contents/$SkillPath/$Name" 30
         }
-        $url = "$GitHubRaw/$GitHubRepo/main/$SkillPath/$Name"
-        Invoke-WithRetry {
-            Invoke-RestMethod -Uri $url -Headers @{'User-Agent' = 'MuMuManager-CLI-Menu'} -TimeoutSec 30 -ErrorAction Stop
-        }
+        return Invoke-GitHubGet "$GitHubRaw/$GitHubRepo/main/$SkillPath/$Name" 30
     }
 
     try {
         $apiUrl = "https://api.github.com/repos/$GitHubRepo/commits?path=$SkillPath/mumu-menu.ps1&per_page=1"
-        $response = Invoke-WithRetry { Invoke-RestMethod -Uri $apiUrl -UseBasicParsing -Headers $headers -TimeoutSec 15 -ErrorAction Stop }
+        $rawCommits = Invoke-GitHubGet $apiUrl 15
+        $response = @($rawCommits | ConvertFrom-Json)
 
         if (-not $response -or $response.Count -eq 0) {
             Write-Host '  No commits found on remote' -ForegroundColor Yellow
@@ -199,21 +195,18 @@ function Update-FromGitHub {
         Start-Sleep -Seconds 2
         exit
     } catch {
-        $statusCode = 0
-        if ($_.Exception.Response) {
-            $statusCode = [int]$_.Exception.Response.StatusCode
-        }
-        if ($statusCode -eq 404) {
+        $msg = $_.Exception.Message
+        if ($msg -match '404|Not Found') {
             if (-not $GitHubToken) {
                 Write-Host '  Private repo detected. Save your token:' -ForegroundColor Yellow
                 Write-Host "    Set-Content '$TokenFile' 'ghp_YourTokenHere'" -ForegroundColor DarkGray
             } else {
                 Write-Host '  Repository or file not found.' -ForegroundColor Yellow
             }
-        } elseif ($statusCode -eq 403) {
+        } elseif ($msg -match '403|rate limit') {
             Write-Host '  Rate limit exceeded. Try again later.' -ForegroundColor Yellow
         } else {
-            Write-Host "  Update check failed: $($_.Exception.Message)" -ForegroundColor Yellow
+            Write-Host "  Update check failed: $msg" -ForegroundColor Yellow
         }
     }
 }
@@ -500,32 +493,34 @@ function Rename-Emulator {
     }
     Write-Host "Renaming to '$newName'..." -ForegroundColor Cyan
 
-    $tmpOut = Join-Path $env:TEMP ("rn_" + [Guid]::NewGuid().ToString('N') + ".out")
-    $tmpErr = Join-Path $env:TEMP ("rn_" + [Guid]::NewGuid().ToString('N') + ".err")
+    $job = Start-Job -ScriptBlock {
+        param($mp, $idx, $nm)
+        $out = & $mp rename -v $idx -n $nm 2>&1 | Out-String
+        "EXIT:$LASTEXITCODE`n$out"
+    } -ArgumentList $MumuPath, $index, $newName
+
     try {
-        $proc = Start-Process -FilePath $MumuPath -ArgumentList @('rename', '-v', $index, '-n', "`"$newName`"") -NoNewWindow -PassThru -RedirectStandardOutput $tmpOut -RedirectStandardError $tmpErr
-        $null = $proc.Handle
-        if (-not $proc.WaitForExit(15000)) {
-            & taskkill /PID $proc.Id /T /F 2>&1 | Out-Null
-            Write-Host 'Rename timed out (emulator service did not respond).' -ForegroundColor Red
-            return
-        }
-        $result = ''
-        if (Test-Path $tmpOut) { $result = Get-Content $tmpOut -Raw -ErrorAction SilentlyContinue }
-        if ($result -match '"errcode"\s*:\s*0') {
-            Write-Host "Renamed to '$newName'!" -ForegroundColor Green
-        } elseif ($result.Trim()) {
-            $msg = $result.Trim()
-            try {
-                $parsed = $result | ConvertFrom-Json
-                if ($parsed.errmsg) { $msg = $parsed.errmsg }
-            } catch {}
-            Write-Host "Rename failed: $msg" -ForegroundColor Red
+        if (Wait-Job $job -Timeout 15) {
+            $result = [string](Receive-Job $job)
+            if ($result -match '"errcode"\s*:\s*0') {
+                Write-Host "Renamed to '$newName'!" -ForegroundColor Green
+            } elseif ($result.Trim()) {
+                $msg = ($result -replace 'EXIT:-?\d+', '').Trim()
+                try {
+                    $parsed = $msg | ConvertFrom-Json
+                    if ($parsed.errmsg) { $msg = $parsed.errmsg }
+                } catch {}
+                Write-Host "Rename failed: $msg" -ForegroundColor Red
+            } else {
+                Write-Host 'Renamed.' -ForegroundColor Green
+            }
         } else {
-            Write-Host 'Renamed.' -ForegroundColor Green
+            Stop-Job $job
+            & taskkill /IM MuMuManager.exe /F 2>&1 | Out-Null
+            Write-Host 'Rename timed out (emulator service did not respond).' -ForegroundColor Red
         }
     } finally {
-        Remove-Item -LiteralPath $tmpOut, $tmpErr -Force -ErrorAction SilentlyContinue
+        Remove-Job $job -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -633,23 +628,8 @@ function Backup-EmulatorData {
     Write-Host ''
     Write-Host "Backing up to $dest ..." -ForegroundColor Cyan
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
-
-    $proc = Start-Process -FilePath 'robocopy.exe' -ArgumentList @(
-        "`"$src`"", "`"$dest`"", '/E', '/NFL', '/NDL', '/NJH', '/NJS', '/NP', '/R:1', '/W:1'
-    ) -NoNewWindow -PassThru
-    $null = $proc.Handle
-
-    while (-not $proc.HasExited) {
-        Start-Sleep -Seconds 3
-        if ($proc.HasExited) { break }
-        $done = (Get-ChildItem -LiteralPath $dest -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
-        $pct = if ($size) { [Math]::Min(100, [int]($done / $size * 100)) } else { 0 }
-        Write-Host ("`r  Copied {0:N2} / {1:N2} GB ({2}%)   " -f ($done / 1GB), ($size / 1GB), $pct) -NoNewline
-    }
-    if (-not $proc.HasExited) { $proc.WaitForExit() }
-    $code = $proc.ExitCode
-    if (-not $code) { $code = 0 }
-    Write-Host ''
+    & robocopy $src $dest /E /NDL /NJH /NP /R:1 /W:1 | Out-Null
+    $code = $LASTEXITCODE
     $sw.Stop()
 
     if ($code -ge 8) {
@@ -666,22 +646,20 @@ function Backup-EmulatorData {
     if ($ans -ne 'y' -and $ans -ne 'Y') { return }
 
     $archive = "$dest.zip"
-    Write-Host 'Archiving...' -ForegroundColor Cyan
+    Write-Host 'Archiving (this may take a while)...' -ForegroundColor Cyan
     $sw2 = [System.Diagnostics.Stopwatch]::StartNew()
     $acode = 0
     $tarExe = Join-Path $env:SystemRoot 'System32\tar.exe'
     if (Test-Path $tarExe) {
         $parent = Split-Path $dest -Parent
         $leaf = Split-Path $dest -Leaf
-        $proc = Start-Process -FilePath $tarExe -ArgumentList @('-a', '-cf', "`"$archive`"", '-C', "`"$parent`"", $leaf) -NoNewWindow -PassThru
-        $null = $proc.Handle
-        while (-not $proc.HasExited) {
-            Start-Sleep -Seconds 2
-            if ($proc.HasExited) { break }
-            Write-Host ("`r  Archiving... {0:mm\:ss}   " -f $sw2.Elapsed) -NoNewline
+        Push-Location $parent
+        try {
+            & $tarExe -a -cf $archive $leaf 2>&1 | Out-Null
+            $acode = $LASTEXITCODE
+        } finally {
+            Pop-Location
         }
-        if (-not $proc.HasExited) { $proc.WaitForExit() }
-        $acode = $proc.ExitCode
         Write-Host ''
     } else {
         try {
@@ -790,21 +768,28 @@ function Test-Security {
         }
         
         # Check token validity
-        $headers = @{'Authorization' = "token $token"}
         try {
-            $user = Invoke-RestMethod 'https://api.github.com/user' -Headers $headers -TimeoutSec 15 -ErrorAction Stop
+            $tmpHead = Join-Path $env:TEMP ("gh_" + [Guid]::NewGuid().ToString('N') + ".hdr")
+            $rawUser = & curl.exe -s --connect-timeout 15 --max-time 20 -D "$tmpHead" -H "Authorization: token $token" 'https://api.github.com/user' 2>$null
+            $user = (@($rawUser) | Out-String | ConvertFrom-Json)
+            if (-not $user.login) { throw 'no login' }
             Write-Host "  Valid: YES ($($user.login))" -ForegroundColor Green
             $safeCount++
-            
+
             # Check scopes
-            $resp = Invoke-WebRequest -Uri 'https://api.github.com/user' -Headers $headers -UseBasicParsing -TimeoutSec 15
-            $scopes = $resp.Headers['X-OAuth-Scopes']
+            $scopes = ''
+            if (Test-Path $tmpHead) {
+                $line = (Get-Content $tmpHead | Where-Object { $_ -match '(?i)^x-oauth-scopes:' } | Select-Object -First 1)
+                if ($line) { $scopes = ($line -split ':', 2)[1].Trim() }
+            }
             if ($scopes) {
                 Write-Host "  Scopes: $scopes" -ForegroundColor DarkGray
             } else {
                 Write-Host '  Scopes: none (limited access)' -ForegroundColor DarkGray
             }
+            Remove-Item $tmpHead -Force -ErrorAction SilentlyContinue
         } catch {
+            Remove-Item $tmpHead -Force -ErrorAction SilentlyContinue
             Write-Host '  Valid: NO (token expired or invalid)' -ForegroundColor Red
             $dangerCount++
         }
@@ -916,9 +901,10 @@ function Update-Token {
     [System.IO.File]::WriteAllText($TokenFile, $newToken, [System.Text.UTF8Encoding]::new($false))
     Write-Host 'Token saved!' -ForegroundColor Green
     Write-Host 'Testing...' -ForegroundColor Yellow
-    $headers = @{'Authorization' = "token $newToken"}
     try {
-        $user = Invoke-RestMethod 'https://api.github.com/user' -Headers $headers -TimeoutSec 15 -ErrorAction Stop
+        $rawUser = & curl.exe -s --connect-timeout 15 --max-time 20 -H "Authorization: token $newToken" 'https://api.github.com/user' 2>$null
+        $user = (@($rawUser) | Out-String | ConvertFrom-Json)
+        if (-not $user.login) { throw 'invalid' }
         Write-Host "Token valid: $($user.login)" -ForegroundColor Green
     } catch {
         Write-Host 'Token invalid!' -ForegroundColor Red
@@ -1069,7 +1055,7 @@ function Show-Apps {
     }
     
     Write-Host 'Fetching installed apps...' -ForegroundColor Cyan
-    $output = Invoke-WithRetry { & $MumuPath adb -v $index -c 'shell pm list packages -3' 2>&1 }
+    $output = & $MumuPath adb -v $index -c 'shell pm list packages -3' 2>&1
     $text = @($output | Out-String) -join ''
     $packages = [regex]::Matches($text, '(?m)^\s*package:([A-Za-z0-9_.]+)') |
         ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
@@ -1175,7 +1161,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.12.5' -ForegroundColor Green
+    Write-Host 'Script version: 1.12.6' -ForegroundColor Green
 
     # MuMu version
     try {
