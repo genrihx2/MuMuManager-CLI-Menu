@@ -633,6 +633,52 @@ function Backup-EmulatorData {
     Write-Host ''
     Write-Host ("Backup complete! {0:N2} GB copied in {1:mm\:ss}" -f ($copied / 1GB), $sw.Elapsed) -ForegroundColor Green
     Write-Host "Location: $dest" -ForegroundColor DarkGray
+
+    $ans = Read-Host 'Create compressed archive? (y/N)'
+    if ($ans -ne 'y' -and $ans -ne 'Y') { return }
+
+    $archive = "$dest.zip"
+    Write-Host 'Archiving...' -ForegroundColor Cyan
+    $sw2 = [System.Diagnostics.Stopwatch]::StartNew()
+    $acode = 0
+    $tarExe = Join-Path $env:SystemRoot 'System32\tar.exe'
+    if (Test-Path $tarExe) {
+        $parent = Split-Path $dest -Parent
+        $leaf = Split-Path $dest -Leaf
+        $proc = Start-Process -FilePath $tarExe -ArgumentList @('-a', '-cf', "`"$archive`"", '-C', "`"$parent`"", $leaf) -NoNewWindow -PassThru
+        $null = $proc.Handle
+        while (-not $proc.HasExited) {
+            Start-Sleep -Seconds 2
+            if ($proc.HasExited) { break }
+            Write-Host ("`r  Archiving... {0:mm\:ss}   " -f $sw2.Elapsed) -NoNewline
+        }
+        if (-not $proc.HasExited) { $proc.WaitForExit() }
+        $acode = $proc.ExitCode
+        Write-Host ''
+    } else {
+        try {
+            Compress-Archive -Path (Join-Path $dest '*') -DestinationPath $archive -CompressionLevel Optimal -ErrorAction Stop
+        } catch {
+            Write-Host "Archiving FAILED: $($_.Exception.Message)" -ForegroundColor Red
+            $acode = 1
+        }
+    }
+    $sw2.Stop()
+
+    if ($acode -ne 0 -or -not (Test-Path -LiteralPath $archive)) {
+        Write-Host 'Archiving failed. Uncompressed folder copy kept.' -ForegroundColor Red
+        return
+    }
+
+    $azip = (Get-Item -LiteralPath $archive).Length
+    Write-Host ("Archive: $archive") -ForegroundColor Green
+    Write-Host ("  Size: {0:N2} GB ({1:N0}% of original), took {2:mm\:ss}" -f ($azip / 1GB), (($azip / $copied) * 100), $sw2.Elapsed)
+
+    $del = Read-Host 'Delete uncompressed folder to free space? (Y/n)'
+    if ($del -ne 'n' -and $del -ne 'N') {
+        Remove-Item -LiteralPath $dest -Recurse -Force
+        Write-Host 'Folder removed, archive kept.' -ForegroundColor DarkGray
+    }
 }
 
 function Export-Emulator {
@@ -1063,7 +1109,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.11.2' -ForegroundColor Green
+    Write-Host 'Script version: 1.12.0' -ForegroundColor Green
 
     # MuMu version
     try {
