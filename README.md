@@ -11,6 +11,7 @@
 - 📦 Установка и удаление приложений (APK)
 - 📱 ADB-команды
 - 🎭 Подмена модели устройства (brand / model / код модели)
+- 🎲 Генерация случайных IMEI / Android ID / MAC
 - 📸 Скриншоты эмулятора через ADB
 - 🪟 Управление окнами (показать/скрыть/расположить)
 - 🔄 Массовые операции (все инстансы)
@@ -86,6 +87,7 @@ cd MuMuManager-CLI-Menu
   [S] Take screenshot
   [A] Run ADB command
   [DM] Spoof device model
+  [DI] Random device IDs
   [V] Version info
   [U] Check for updates
   [0] Exit
@@ -208,6 +210,31 @@ Select device: 3
 Setting device to Google Pixel 8 Pro (G1MNW)...
 Device model set to Google Pixel 8 Pro!
 Restart the emulator to apply.
+```
+
+#### Случайные идентификаторы устройства
+```
+Select option: DI
+
+Select instance: 0
+
+Current simulated properties:
+  IMEI:       353240116262762
+  Android ID: (not set)
+  MAC:        (not set)
+
+Randomize:
+  [1] IMEI
+  [2] Android ID
+  [3] MAC address
+  [4] All of the above
+Select option: 4
+
+  IMEI -> 356821728580688
+  Android ID -> 13f454f21c0f5f57
+  MAC -> e2:fa:65:e3:f5:38
+
+Done! Restart the emulator to apply.
 ```
 
 #### Скриншот

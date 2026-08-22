@@ -214,6 +214,7 @@ function Show-Menu {
     Write-Host ''
     Write-Host '  --- Spoofing ---' -ForegroundColor Green
     Write-Host '  [DM] Spoof device model' -ForegroundColor Yellow
+    Write-Host '  [DI] Random device IDs' -ForegroundColor Yellow
     Write-Host ''
     Write-Host '  --- Info ---' -ForegroundColor Green
     Write-Host '  [V] Version info' -ForegroundColor Yellow
@@ -850,7 +851,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.9.0' -ForegroundColor Green
+    Write-Host 'Script version: 1.10.0' -ForegroundColor Green
 
     # MuMu version
     try {
@@ -1195,6 +1196,92 @@ function Set-DeviceModel {
     }
 }
 
+function New-RandomImei {
+    $base = '35'
+    1..12 | ForEach-Object { $base += Get-Random -Minimum 0 -Maximum 10 }
+    $sum = 0
+    for ($i = 0; $i -lt 14; $i++) {
+        $d = [int]$base.Substring($i, 1)
+        if ($i % 2 -eq 1) {
+            $d *= 2
+            if ($d -gt 9) { $d -= 9 }
+        }
+        $sum += $d
+    }
+    "$base$((10 - ($sum % 10)) % 10)"
+}
+
+function New-RandomAndroidId {
+    $hex = '{0:x}' -f (Get-Random -Minimum 1 -Maximum 16)
+    1..15 | ForEach-Object { $hex += '{0:x}' -f (Get-Random -Maximum 16) }
+    $hex
+}
+
+function New-RandomMac {
+    $nib = @('2', '6', 'a', 'e')[(Get-Random -Maximum 4)]
+    $hex = ('{0:x}' -f (Get-Random -Maximum 16)) + $nib
+    1..5 | ForEach-Object { $hex += '{0:x2}' -f (Get-Random -Maximum 256) }
+    ($hex -split '(..)' | Where-Object { $_ }) -join ':'
+}
+
+function Set-RandomDeviceIds {
+    param([string]$Mode)
+
+    $index = Get-InstanceIndex 'Select instance'
+    Write-Host ''
+
+    try {
+        $sim = & $MumuPath simulation -v $index 2>$null | ConvertFrom-Json
+        Write-Host 'Current simulated properties:' -ForegroundColor DarkGray
+        Write-Host "  IMEI:       $(if ($sim.imei) { $sim.imei } else { '(not set)' })" -ForegroundColor White
+        Write-Host "  Android ID: $(if ($sim.android_id) { $sim.android_id } else { '(not set)' })" -ForegroundColor White
+        Write-Host "  MAC:        $(if ($sim.mac_address) { $sim.mac_address } else { '(not set)' })" -ForegroundColor White
+        Write-Host ''
+    } catch {}
+
+    if (-not $Mode) {
+        Write-Host 'Randomize:' -ForegroundColor Cyan
+        Write-Host '  [1] IMEI' -ForegroundColor White
+        Write-Host '  [2] Android ID' -ForegroundColor White
+        Write-Host '  [3] MAC address' -ForegroundColor White
+        Write-Host '  [4] All of the above' -ForegroundColor White
+        Write-Host '  [0] Cancel' -ForegroundColor Yellow
+        $choice = Read-Host 'Select option'
+        switch ($choice) {
+            '1' { $Mode = 'imei' }
+            '2' { $Mode = 'android_id' }
+            '3' { $Mode = 'mac_address' }
+            '4' { $Mode = 'all' }
+            default { Write-Host 'Cancelled.' -ForegroundColor Yellow; return }
+        }
+    }
+
+    $targets = switch ($Mode) {
+        'imei'         { @('imei') }
+        'android_id'   { @('android_id') }
+        'mac_address'  { @('mac_address') }
+        'all'          { @('imei', 'android_id', 'mac_address') }
+    }
+
+    foreach ($t in $targets) {
+        switch ($t) {
+            'imei'        { $val = New-RandomImei }
+            'android_id'  { $val = New-RandomAndroidId }
+            'mac_address' { $val = New-RandomMac }
+        }
+        try {
+            & $MumuPath simulation -v $index -sk $t -sv $val 2>&1 | Out-Null
+            $label = switch ($t) { 'imei' { 'IMEI' } 'android_id' { 'Android ID' } 'mac_address' { 'MAC' } }
+            Write-Host "  $label -> $val" -ForegroundColor Green
+        } catch {
+            Write-Host "  Failed to set ${t}: $($_.Exception.Message)" -ForegroundColor Red
+        }
+    }
+
+    Write-Host ''
+    Write-Host 'Done! Restart the emulator to apply.' -ForegroundColor Green
+}
+
 function Toggle-Root {
     $index = Get-InstanceIndex 'Select instance'
     Write-Host ''
@@ -1270,6 +1357,8 @@ do {
         'Z' { Test-Security }
         'dm' { Set-DeviceModel }
         'DM' { Set-DeviceModel }
+        'di' { Set-RandomDeviceIds }
+        'DI' { Set-RandomDeviceIds }
         'a' { Invoke-ADBCommand }
         'A' { Invoke-ADBCommand }
         'b' { Start-All }

@@ -34,6 +34,7 @@ description: 使用 MuMuManager.exe 对 MuMu 模拟器 12 实例进行统一管�
 ### 设备配置与仿真
 - `setting` 读取/修改配置，支持 `--all / --all_writable / --info / --path`
 - `setting -v <i> -k phone_brand -val X -k phone_model -val Y -k phone_miit -val Z` 伪装设备型号（品牌/型号名/入网型号），修改后需重启实例生效；菜单对应 `[DM] Spoof device model`
+- `simulation -v <i> -sk imei/android_id/mac_address -sv <value>` 随机生成并写入设备标识（IMEI 带校验位），修改后需重启实例生效；菜单对应 `[DI] Random device IDs`
 - `simulation` 修改仿真属性（IMEI/IMSI/Android ID/MAC 等）
 ### ADB 命令
 - `adb -c` 常用快捷命令（清理缓存/截图/录屏等）
