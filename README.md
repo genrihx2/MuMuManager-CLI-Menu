@@ -101,6 +101,7 @@ cd MuMuManager-CLI-Menu
   [P] Force stop app
   [T] Start app
   [E] Export emulator data
+  [BA] Backup instance data
   [K] Update GitHub token
   [Z] Security audit
 
@@ -278,7 +279,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.10.4
+Script version: 1.11.0
 MuMu version: 6.5.2.0
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
