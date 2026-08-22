@@ -10,6 +10,7 @@
 - ✏️ Переименование инстансов
 - 📦 Установка и удаление приложений (APK)
 - 📱 ADB-команды
+- 🎭 Подмена модели устройства (brand / model / код модели)
 - 📸 Скриншоты эмулятора через ADB
 - 🪟 Управление окнами (показать/скрыть/расположить)
 - 🔄 Массовые операции (все инстансы)
@@ -84,6 +85,7 @@ cd MuMuManager-CLI-Menu
   --- Other ---
   [S] Take screenshot
   [A] Run ADB command
+  [DM] Spoof device model
   [V] Version info
   [U] Check for updates
   [0] Exit
@@ -185,6 +187,29 @@ Arranging emulator windows...
 Done! Windows arranged.
 ```
 
+#### Подмена модели устройства
+```
+Select option: DM
+
+Select instance: 0
+
+Current device model:
+  Brand: Samsung
+  Model: Galaxy A54
+  Code:  SM-A546E
+
+Device presets:
+  [ 1] Samsung Galaxy S23 Ultra (SM-S918B)
+  [ 2] Samsung Galaxy A54 (SM-A546E)
+  [ 3] Google Pixel 8 Pro (G1MNW)
+  ...
+Select device: 3
+
+Setting device to Google Pixel 8 Pro (G1MNW)...
+Device model set to Google Pixel 8 Pro!
+Restart the emulator to apply.
+```
+
 #### Скриншот
 ```
 Select option: S
@@ -202,7 +227,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.3.0
+Script version: 1.9.0
 MuMu version: 6.5.2.0
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0

@@ -212,6 +212,9 @@ function Show-Menu {
     Write-Host '  [K] Update GitHub token' -ForegroundColor Yellow
     Write-Host '  [Z] Security audit' -ForegroundColor Yellow
     Write-Host ''
+    Write-Host '  --- Spoofing ---' -ForegroundColor Green
+    Write-Host '  [DM] Spoof device model' -ForegroundColor Yellow
+    Write-Host ''
     Write-Host '  --- Info ---' -ForegroundColor Green
     Write-Host '  [V] Version info' -ForegroundColor Yellow
     Write-Host '  [U] Check for updates' -ForegroundColor Yellow
@@ -847,7 +850,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.8.0' -ForegroundColor Green
+    Write-Host 'Script version: 1.9.0' -ForegroundColor Green
 
     # MuMu version
     try {
@@ -1120,6 +1123,78 @@ function Set-Resolution {
     }
 }
 
+function Set-DeviceModel {
+    $index = Get-InstanceIndex 'Select instance'
+    Write-Host ''
+
+    try {
+        $info = & $MumuPath setting -v $index -k phone_brand -k phone_model -k phone_miit 2>$null | ConvertFrom-Json
+        Write-Host 'Current device model:' -ForegroundColor DarkGray
+        Write-Host "  Brand: $($info.phone_brand)" -ForegroundColor White
+        Write-Host "  Model: $($info.phone_model)" -ForegroundColor White
+        Write-Host "  Code:  $($info.phone_miit)" -ForegroundColor White
+        Write-Host ''
+    } catch {}
+
+    $presets = @(
+        @{ Brand = 'Samsung'; Model = 'Galaxy S23 Ultra';  Code = 'SM-S918B' },
+        @{ Brand = 'Samsung'; Model = 'Galaxy A54';        Code = 'SM-A546E' },
+        @{ Brand = 'Google';  Model = 'Pixel 8 Pro';       Code = 'G1MNW' },
+        @{ Brand = 'Google';  Model = 'Pixel 7a';          Code = 'GWKK3' },
+        @{ Brand = 'Xiaomi';  Model = 'Xiaomi 14';         Code = '23127PN0CG' },
+        @{ Brand = 'Xiaomi';  Model = 'Redmi Note 13 Pro'; Code = '2312DRA50G' },
+        @{ Brand = 'OnePlus'; Model = 'OnePlus 12';        Code = 'CPH2573' },
+        @{ Brand = 'Oppo';    Model = 'Find X7';           Code = 'PHY110' },
+        @{ Brand = 'Vivo';    Model = 'V30 Pro';           Code = 'V2319A' },
+        @{ Brand = 'Huawei';  Model = 'P60 Pro';           Code = 'MNA-LX9' },
+        @{ Brand = 'Honor';   Model = 'Magic 6 Pro';       Code = 'BVL-AN10' },
+        @{ Brand = 'Asus';    Model = 'ROG Phone 8';       Code = 'AI2401' }
+    )
+
+    Write-Host 'Device presets:' -ForegroundColor Cyan
+    for ($i = 0; $i -lt $presets.Count; $i++) {
+        Write-Host ("  [{0,2}] {1} {2} ({3})" -f ($i + 1), $presets[$i].Brand, $presets[$i].Model, $presets[$i].Code) -ForegroundColor White
+    }
+    Write-Host '  [ C] Custom brand / model' -ForegroundColor White
+    Write-Host '  [ 0] Cancel' -ForegroundColor Yellow
+
+    $choice = Read-Host 'Select device'
+
+    if ($choice -eq '0') {
+        Write-Host 'Cancelled.' -ForegroundColor Yellow
+        return
+    }
+
+    if ($choice -eq 'c' -or $choice -eq 'C') {
+        $brand = Read-Host 'Brand (e.g. Samsung)'
+        $model = Read-Host 'Model name (e.g. Galaxy A54)'
+        $code  = Read-Host 'Model code (e.g. SM-A546E)'
+        if (-not $brand -or -not $model) {
+            Write-Host 'Cancelled.' -ForegroundColor Yellow
+            return
+        }
+        if (-not $code) { $code = $model }
+    } elseif ($choice -match '^\d+$' -and [int]$choice -ge 1 -and [int]$choice -le $presets.Count) {
+        $p = $presets[[int]$choice - 1]
+        $brand = $p.Brand
+        $model = $p.Model
+        $code  = $p.Code
+    } else {
+        Write-Host 'Invalid option!' -ForegroundColor Red
+        return
+    }
+
+    Write-Host ''
+    Write-Host "Setting device to $brand $model ($code)..." -ForegroundColor Cyan
+    try {
+        & $MumuPath setting -v $index -k phone_brand -val $brand -k phone_model -val $model -k phone_miit -val $code 2>&1 | Out-Null
+        Write-Host "Device model set to $brand $model!" -ForegroundColor Green
+        Write-Host 'Restart the emulator to apply.' -ForegroundColor Yellow
+    } catch {
+        Write-Host "Failed: $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
+
 function Toggle-Root {
     $index = Get-InstanceIndex 'Select instance'
     Write-Host ''
@@ -1193,6 +1268,8 @@ do {
         'K' { Update-Token }
         'z' { Test-Security }
         'Z' { Test-Security }
+        'dm' { Set-DeviceModel }
+        'DM' { Set-DeviceModel }
         'a' { Invoke-ADBCommand }
         'A' { Invoke-ADBCommand }
         'b' { Start-All }
