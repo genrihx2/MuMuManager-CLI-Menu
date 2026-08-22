@@ -1,5 +1,11 @@
-# MuMuManager CLI - Interactive Menu
-# Launch: .\mumu-menu.ps1
+# MuMuManager CLI - Interactive Menu for Netease MuMu Emulator (Windows)
+# Project:  https://github.com/genrihx2/MuMuManager-CLI-Menu
+# Purpose:  launch/stop/restart emulator instances, install/uninstall APKs,
+#           tune performance, spoof device model, back up instance data.
+# Security: self-update downloads TEXT files only (.ps1/.md) from the GitHub
+#           repository above over HTTPS; no executables, no obfuscation,
+#           no persistence, no registry/schedule/certificate modifications.
+# Launch:   .\mumu-menu.ps1
 
 if ($PSScriptRoot) { $ScriptDir = $PSScriptRoot } else { $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path }
 if (-not $ScriptDir) { $ScriptDir = $PWD.Path }
@@ -93,9 +99,9 @@ function Update-FromGitHub {
         param([string]$Name)
         if ($GitHubToken) {
             $apiFileUrl = "https://api.github.com/repos/$GitHubRepo/contents/$SkillPath/$Name"
+            $apiHeaders = @{'Accept' = 'application/vnd.github.raw'; 'User-Agent' = 'MuMuManager-CLI-Menu'; 'Authorization' = "token $GitHubToken"}
             return Invoke-WithRetry {
-                $resp = Invoke-RestMethod -Uri $apiFileUrl -UseBasicParsing -Headers $headers -TimeoutSec 30 -ErrorAction Stop
-                [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($resp.content))
+                Invoke-RestMethod -Uri $apiFileUrl -UseBasicParsing -Headers $apiHeaders -TimeoutSec 30 -ErrorAction Stop
             }
         }
         $url = "$GitHubRaw/$GitHubRepo/main/$SkillPath/$Name"
@@ -500,7 +506,7 @@ function Rename-Emulator {
         $proc = Start-Process -FilePath $MumuPath -ArgumentList @('rename', '-v', $index, '-n', "`"$newName`"") -NoNewWindow -PassThru -RedirectStandardOutput $tmpOut -RedirectStandardError $tmpErr
         $null = $proc.Handle
         if (-not $proc.WaitForExit(15000)) {
-            try { $proc.Kill() } catch {}
+            & taskkill /PID $proc.Id /T /F 2>&1 | Out-Null
             Write-Host 'Rename timed out (emulator service did not respond).' -ForegroundColor Red
             return
         }
@@ -1063,22 +1069,25 @@ function Show-Apps {
     }
     
     Write-Host 'Fetching installed apps...' -ForegroundColor Cyan
-    $output = & $MumuPath adb -v $index -c 'shell pm list packages -3' 2>&1
-    $packages = @()
-    foreach ($line in $output) {
-        $line = $line.ToString().Trim()
-        if ($line -match '^package:(.+)$') {
-            $packages += $matches[1]
-        }
-    }
-    
+    $output = Invoke-WithRetry { & $MumuPath adb -v $index -c 'shell pm list packages -3' 2>&1 }
+    $text = @($output | Out-String) -join ''
+    $packages = [regex]::Matches($text, '(?m)^\s*package:([A-Za-z0-9_.]+)') |
+        ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
+
     if ($packages.Count -eq 0) {
-        Write-Host 'No third-party apps found' -ForegroundColor Yellow
-    } else {
-        Write-Host "Found $($packages.Count) third-party apps:`n" -ForegroundColor Green
-        foreach ($pkg in ($packages | Sort-Object)) {
-            Write-Host "  $pkg" -ForegroundColor White
+        if ($text -match 'offline|unauthorized|not found|no devices|error') {
+            Write-Host 'ADB could not read the package list.' -ForegroundColor Red
+            Write-Host "Details: $($text.Trim())" -ForegroundColor DarkGray
+            Write-Host 'Try restarting the emulator and waiting for full boot.' -ForegroundColor Yellow
+        } else {
+            Write-Host 'No third-party apps found' -ForegroundColor Yellow
         }
+        return
+    }
+
+    Write-Host "Found $($packages.Count) third-party apps:`n" -ForegroundColor Green
+    foreach ($pkg in $packages) {
+        Write-Host "  $pkg" -ForegroundColor White
     }
 }
 
@@ -1166,7 +1175,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.12.3' -ForegroundColor Green
+    Write-Host 'Script version: 1.12.5' -ForegroundColor Green
 
     # MuMu version
     try {
