@@ -55,6 +55,7 @@ cd MuMuManager-CLI-Menu
 
 ### Меню опций
 
+<!-- MENU:AUTO:START -->
 ```
 ======================================
     MuMuManager CLI Menu
@@ -106,7 +107,9 @@ cd MuMuManager-CLI-Menu
   [V] Version info
   [U] Check for updates
   [0] Exit
+======================================
 ```
+<!-- MENU:AUTO:END -->
 
 ### Примеры
 
@@ -306,8 +309,13 @@ Set-Content '.github-token' 'ghp_ВашТокенЗдесь'
 |------|----------|
 | `mumu-menu.ps1` | Основной скрипт с интерактивным меню |
 | `mumu-profile.ps1` | PowerShell-профиль (опционально) |
+| `update-readme.ps1` | Синхронизация README с меню/версией скрипта |
+| `.github/workflows/sync-readme.yml` | Автообновление README при пуше (GitHub Actions) |
 | `SKILL.md` | Документация навыка для AI-агентов |
 | `.github-token` | Токен GitHub (не коммитится) |
+
+> Блок меню и версия в README генерируются автоматически из `mumu-menu.ps1`
+> (`update-readme.ps1`, запускается локально и в GitHub Actions).
 
 ## Лицензия
 

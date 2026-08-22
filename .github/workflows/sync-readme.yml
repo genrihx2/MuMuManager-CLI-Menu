@@ -1,0 +1,37 @@
+name: Sync README
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'mumu-menu.ps1'
+      - 'update-readme.ps1'
+      - '.github/workflows/sync-readme.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync-readme:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Regenerate README
+        shell: pwsh
+        run: ./update-readme.ps1
+
+      - name: Commit and push if changed
+        shell: bash
+        run: |
+          if [[ -n "$(git status --porcelain README.md)" ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add README.md
+            git commit -m "docs: auto-sync README with mumu-menu.ps1"
+            git push
+          else
+            echo "README already up to date"
+          fi
