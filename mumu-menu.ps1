@@ -33,6 +33,9 @@ try {
 function Invoke-GitHubGet {
     param([string]$Url, [int]$TimeoutSec = 30)
     $curlArgs = @('-s', '--retry', '2', '--retry-delay', '2', '--connect-timeout', '15', '--max-time', "$TimeoutSec")
+    if ($Url -match '^https://api\.github\.com/') {
+        $curlArgs += @('-H', 'Accept: application/vnd.github.raw')
+    }
     if ($GitHubToken) {
         $curlArgs += @('-H', "Authorization: token $GitHubToken")
     }
@@ -177,6 +180,12 @@ function Update-FromGitHub {
             try {
                 $content = Get-RemoteFile $f
                 if (-not $content) { throw 'empty response' }
+                if ($content.TrimStart().StartsWith('{') -and $content -match '"\s*:\s*"') {
+                    throw 'received JSON metadata instead of file content'
+                }
+                if ($f -eq 'mumu-menu.ps1' -and $content -notmatch '^# MuMuManager CLI') {
+                    throw 'unexpected mumu-menu.ps1 content'
+                }
                 [System.IO.File]::WriteAllText($dest, $content, [System.Text.UTF8Encoding]::new($false))
                 Write-Host '    OK' -ForegroundColor Green
             } catch {
@@ -1192,7 +1201,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.12.7' -ForegroundColor Green
+    Write-Host 'Script version: 1.12.8' -ForegroundColor Green
 
     # MuMu version
     try {
