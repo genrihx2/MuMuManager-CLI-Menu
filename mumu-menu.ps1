@@ -59,8 +59,8 @@ $PossiblePaths = @(
     'C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe',
     'C:\Program Files (x86)\Netease\MuMuPlayer\nx_main\MuMuManager.exe',
     "$env:LOCALAPPDATA\Netease\MuMuPlayer\nx_main\MuMuManager.exe",
-    "$env:ProgramFiles\Netease\MuMuPlayer-12.0\nx_main\MuMuManager.exe",
-    "$env:ProgramFiles\Netease\MuMuPlayer-12.1\nx_main\MuMuManager.exe"
+    "$env:ProgramFiles\Netease\MuMuPlayer-12.0\shell\MuMuManager.exe",
+    "$env:ProgramFiles\Netease\MuMuPlayer-12.1\shell\MuMuManager.exe"
 )
 foreach ($p in $PossiblePaths) {
     if (Test-Path $p) { $MumuPath = $p; break }

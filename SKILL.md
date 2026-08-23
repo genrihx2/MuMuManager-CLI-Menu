@@ -7,7 +7,7 @@ description: 使用 MuMuManager.exe 对 MuMu 模拟器 12 实例进行统一管�
 使用命令行查询和管理 MuMu 模拟器 12 的实例与应用配置，适合账号矩阵、批量开关、自动化脚本、运维排障等场景。
 ## 前置要求
 - 确保模拟器版本 **V4.0.0.3179 或以上**，否则部分命令不可用。
-- 定位 `MuMuManager.exe`，常见路径：`X:\Program Files\Netease\MuMuPlayer-12.0\shell\MuMuManager.exe`；本机路径示例：`C:\Program Files\Netease\MuMu\nx_main\MuMuManager.exe`。
+- 定位 `MuMuManager.exe`，常见路径：`X:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe`；本机路径示例：`C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe`。
 - 建议使用绝对路径，或将 `nx_main` 目录加入 `PATH`。
 ## 使用流程
 1. 先用 `info` 确认可用实例；`-v` 支持逗号分隔列表或 `all`。
@@ -44,5 +44,3 @@ description: 使用 MuMuManager.exe 对 MuMu 模拟器 12 实例进行统一管�
 - `sort` 自动排列窗口
 - `driver install / uninstall -n lwf` 安装/卸载驱动（可能需要管理员权限）
 - 辅助接口 `api` 仅在必要时使用，稳定性依赖版本
-## 参考
-- 详见 `references/mumu-manager-cli.md`

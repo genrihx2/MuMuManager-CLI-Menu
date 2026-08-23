@@ -5,11 +5,11 @@
 function mumu {
     param([Parameter(Position=0)]$Command, [Parameter(ValueFromRemainingArguments)]$MumuArgs)
     
-    $scriptPath = Join-Path $PSScriptRoot "mumu-cli.ps1"
+    $scriptPath = Join-Path $PSScriptRoot "mumu-menu.ps1"
     if (Test-Path $scriptPath) {
         & $scriptPath $Command @MumuArgs
     } else {
-        Write-Error "mumu-cli.ps1 not found at $scriptPath"
+        Write-Error "mumu-menu.ps1 not found at $scriptPath"
     }
 }
 
