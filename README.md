@@ -323,7 +323,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 | Файл | SHA-256 | Движков | Отчёт |
 |------|---------|---------|-------|
 | `mumu-menu.ps1` | `a824eff712de…e1551` | 61 | [отчёт](https://www.virustotal.com/gui/file/a824eff712de5779b2578c785126fbb4d9de3d1f24dddf476eda4afa211e1551) |
-| `update-readme.ps1` | `3bd1710a416b…5bee0` | 60 | [отчёт](https://www.virustotal.com/gui/file/3bd1710a416bbe7b58f1b2c106ae4a15e2dd5c203e773324bf2deafb3b45bee0) |
+| `update-readme.ps1` | `618c48dc0809…e6854` | 60 | [отчёт](https://www.virustotal.com/gui/file/618c48dc0809f68c178634470d15dcdf708f90f3e32ffb9a31dfd9a9ff7e6854) |
 | `README.md` | `868a1a7db4cf…03ddf` | 60 | [отчёт](https://www.virustotal.com/gui/file/868a1a7db4cf7df3f9fc51e4e0a9dd738f3cd17192df775dd6cdff1ead003ddf) |
 | `SKILL.md` | `1e60372d8fbe…8f2e7b` | 60 | [отчёт](https://www.virustotal.com/gui/file/1e60372d8fbea80854619fcbca10c0c39a3bea74f35999bfefc55dfb6a8f2e7b) |
 | релизный `MuMuManager-CLI-Menu-v1.13.2.zip` | `f4249a8a56cb…1b4c0` | 64 | [отчёт](https://www.virustotal.com/gui/file/f4249a8a56cb8c24a0699fbea89830b97c7b476de4cea93b2b8b3fd596e1b4c0) |
