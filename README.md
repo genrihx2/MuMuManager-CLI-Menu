@@ -113,13 +113,6 @@ function mumu { & "C:\путь\к\mumu-menu.ps1" }
   [DM] Spoof device model
   [DI] Random device IDs
 
-  --- Performance ---
-  [F] Set FPS limit
-  [Y] Set CPU cores
-  [M] Set RAM size
-  [Q] Set resolution
-  [J] Toggle root
-
   --- Info ---
   [V] Version info
   [U] Check for updates
@@ -290,7 +283,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.13.12
+Script version: 1.13.13
 MuMu version: 6.5.2.0
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
