@@ -318,10 +318,12 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Безопасность
 
-- **VirusTotal (v1.13.3): 0 malicious / 0 suspicious во всех файлах пакета** — сканы от 24.08.2026; целостность релизного zip сверена с отчётом
+- **VirusTotal (v1.13.6): 0 malicious / 0 suspicious во всех файлах пакета** — сканы от 24.08.2026; целостность релизного zip сверена с отчётом
 
 | Файл | SHA-256 | Движков | Отчёт |
 |------|---------|---------|-------|
+| `mumu-menu.ps1` (v1.13.6) | `f3e00f73e2fc…f6fab4` | 60 | [отчёт](https://www.virustotal.com/gui/file/f3e00f73e2fc1dc9644ce375a78f20a52340c39fab0a94e1d5cc82c665f6fab4) |
+| релизный `MuMuManager-CLI-Menu-v1.13.6.zip` | `b44c13579966…195b8` | 64 | [отчёт](https://www.virustotal.com/gui/file/b44c13579966339148e8f2846b93f7d9e744bf06bad031e584ba1d72f5d195b8) |
 | `mumu-menu.ps1` (v1.13.5) | `6afb9756dff3…c293` | 60 | [отчёт](https://www.virustotal.com/gui/file/6afb9756dff3a33f9cf8930a5e7c4d8d049be424e840b3d1f2bce648c4cfc293) |
 | `mumu-menu.ps1` (v1.13.4) | `201de575dcd3…c3081` | 60 | [отчёт](https://www.virustotal.com/gui/file/201de575dcd35d962e3980c73ef7e5d4d5d2c4f96dda189eeff92cea297c3081) |
 | `mumu-menu.ps1` (v1.13.3) | `35fd20035859…4ec1e` | 44+ | [отчёт](https://www.virustotal.com/gui/file/35fd200358598ecd71978cdd29a06fdd26182d8698942d19a81fe5fd9014ec1e) |
