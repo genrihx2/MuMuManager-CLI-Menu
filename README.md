@@ -75,7 +75,7 @@ function mumu { & "C:\путь\к\mumu-menu.ps1" }
   [2] Launch emulator
   [3] Shutdown emulator
   [4] Restart emulator
-  [5] Create new emulator
+  [5] Create new emulator (Android 12/15)
   [C] Clone emulator
   [X] Delete emulator
   [N] Rename emulator
