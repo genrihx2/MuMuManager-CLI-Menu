@@ -1,6 +1,6 @@
 ﻿# MuMu Manager CLI Menu
 
-Интерактивное PowerShell-меню для управления MuMu Emulator 6.0.
+Интерактивное PowerShell-меню для управления MuMu Emulator 6.0
 
 ## Возможности
 
