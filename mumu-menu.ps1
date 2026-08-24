@@ -1363,7 +1363,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.13.11' -ForegroundColor Green
+    Write-Host 'Script version: 1.13.12' -ForegroundColor Green
 
     # MuMu version
     try {
@@ -1558,7 +1558,10 @@ function Set-CPU {
     Write-Host '  [3] 3 cores' -ForegroundColor White
     Write-Host '  [4] 4 cores (default)' -ForegroundColor White
     Write-Host '  [5] 6 cores' -ForegroundColor White
-    Write-Host '  [6] 8 cores (high performance)' -ForegroundColor White
+    Write-Host '  [6] 8 cores' -ForegroundColor White
+    Write-Host '  [7] 10 cores (high performance)' -ForegroundColor White
+    Write-Host '  [8] 12 cores' -ForegroundColor White
+    Write-Host '  [9] 16 cores' -ForegroundColor White
     $choice = Read-Host 'Select CPU cores'
     
     $cores = switch ($choice) {
@@ -1568,6 +1571,9 @@ function Set-CPU {
         '4' { 4 }
         '5' { 6 }
         '6' { 8 }
+        '7' { 10 }
+        '8' { 12 }
+        '9' { 16 }
         default { 4 }
     }
     
