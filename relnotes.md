@@ -1,13 +1,10 @@
-## MuMuManager CLI Menu v1.13.9
+## MuMuManager CLI Menu v1.13.10
 
 Интерактивное PowerShell-меню для управления MuMu Emulator через официальный `MuMuManager.exe`.
 
 ### Исправлено
 
-- `[M]` Set RAM: команда `setting -f ram` не поддерживалась MuMu 6 (`errcode -1, not handle cmd`) — теперь используется корректный ключ `performance_mem.custom` + `performance_mode=custom`, значения в ГБ
-- `[F]` FPS → `max_frame_rate`, `[Y]` CPU → `performance_cpu.custom`, `[Q]` разрешение → `resolution_width/height.custom`, `[J]` Root → `root_permission` (все были с тем же сломанным синтаксисом `-f/-v`)
-- Определение успеха теперь считает пустой ответ валидным; после CPU/RAM/разрешения показывается напоминание о перезапуске
-- Убран паразитный символ в блоке catch функции Version info (`[V]`)
+- `[M]`/`[Y]`/`[Q]`/`[F]`/`[J]`: успешная смена RAM/CPU/разрешения/FPS/Root ошибочно помечалась как «Failed» — MuMuManager на успех отвечает эхом применённых значений без `errcode`, такая проверка теперь считается успехом; ошибкой считается только ненулевой `errcode`/`errmsg`
 
 ### Обновление
 

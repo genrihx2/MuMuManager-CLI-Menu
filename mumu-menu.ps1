@@ -1363,7 +1363,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.13.9' -ForegroundColor Green
+    Write-Host 'Script version: 1.13.10' -ForegroundColor Green
 
     # MuMu version
     try {
@@ -1509,6 +1509,17 @@ function Invoke-ADBCommand {
     Invoke-Mumu adb -v $index -c $cmd
 }
 
+# MuMuManager setting replies differ by version: success may be an empty
+# line, an {"errcode":0,...} object, or the echo of applied key/value pairs
+# ({"key":"value",...}) with no errcode at all. Failure is a non-zero errcode.
+function Test-SettingOk {
+    param([string]$Result)
+    if ([string]::IsNullOrWhiteSpace($Result)) { return $true }
+    $m = [regex]::Match($Result, '"errcode":\s*(-?\d+)')
+    if ($m.Success) { return ($m.Groups[1].Value -eq '0') }
+    return ($Result -notmatch '"errmsg"')
+}
+
 function Set-FPS {
     $index = Get-InstanceIndex 'Select instance'
     Write-Host ''
@@ -1531,7 +1542,7 @@ function Set-FPS {
     
     Write-Host "Setting FPS to $fps..." -ForegroundColor Cyan
     $result = & $MumuPath setting -v $index -k max_frame_rate -val $fps 2>&1 | Out-String
-    if ($result -match '"errcode":\s*0' -or [string]::IsNullOrWhiteSpace($result)) {
+    if (Test-SettingOk $result) {
         Write-Host "FPS set to $fps!" -ForegroundColor Green
     } else {
         Write-Host "Failed: $result" -ForegroundColor Red
@@ -1562,7 +1573,7 @@ function Set-CPU {
     
     Write-Host "Setting CPU to $cores cores..." -ForegroundColor Cyan
     $result = & $MumuPath setting -v $index -k performance_mode -val custom -k performance_cpu.custom -val $cores 2>&1 | Out-String
-    if ($result -match '"errcode":\s*0' -or [string]::IsNullOrWhiteSpace($result)) {
+    if (Test-SettingOk $result) {
         Write-Host "CPU set to $cores cores! Restart the emulator to apply." -ForegroundColor Green
     } else {
         Write-Host "Failed: $result" -ForegroundColor Red
@@ -1599,7 +1610,7 @@ function Set-RAM {
 
     Write-Host "Setting RAM to $ram GB..." -ForegroundColor Cyan
     $result = & $MumuPath setting -v $index -k performance_mode -val custom -k performance_mem.custom -val $ram 2>&1 | Out-String
-    if ($result -match '"errcode":\s*0' -or [string]::IsNullOrWhiteSpace($result)) {
+    if (Test-SettingOk $result) {
         Write-Host "RAM set to $ram GB! Restart the emulator to apply." -ForegroundColor Green
     } else {
         Write-Host "Failed: $result" -ForegroundColor Red
@@ -1634,7 +1645,7 @@ function Set-Resolution {
     
     Write-Host "Setting resolution to ${w}x${h}..." -ForegroundColor Cyan
     $result = & $MumuPath setting -v $index -k resolution_width.custom -val $w -k resolution_height.custom -val $h 2>&1 | Out-String
-    if ($result -match '"errcode":\s*0' -or [string]::IsNullOrWhiteSpace($result)) {
+    if (Test-SettingOk $result) {
         Write-Host "Resolution set to ${w}x${h}! Restart the emulator to apply." -ForegroundColor Green
     } else {
         Write-Host "Failed: $result" -ForegroundColor Red
@@ -1853,7 +1864,7 @@ function Toggle-Root {
         if ($choice -eq '1') {
             Write-Host 'Disabling root...' -ForegroundColor Cyan
             $result = & $MumuPath setting -v $index -k root_permission -val false 2>&1 | Out-String
-            if ($result -match '"errcode":\s*0' -or [string]::IsNullOrWhiteSpace($result)) {
+            if (Test-SettingOk $result) {
                 Write-Host 'Root disabled! Restart emulator to apply.' -ForegroundColor Green
             } else {
                 Write-Host "Failed: $result" -ForegroundColor Red
@@ -1867,7 +1878,7 @@ function Toggle-Root {
         if ($choice -eq '1') {
             Write-Host 'Enabling root...' -ForegroundColor Cyan
             $result = & $MumuPath setting -v $index -k root_permission -val true 2>&1 | Out-String
-            if ($result -match '"errcode":\s*0' -or [string]::IsNullOrWhiteSpace($result)) {
+            if (Test-SettingOk $result) {
                 Write-Host 'Root enabled! Restart emulator to apply.' -ForegroundColor Green
             } else {
                 Write-Host "Failed: $result" -ForegroundColor Red
