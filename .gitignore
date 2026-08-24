@@ -6,6 +6,7 @@
 
 # GitHub token
 .github-token
+.github-token.dpapi
 
 # Screenshots (large files)
 screenshots/*.png

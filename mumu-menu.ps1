@@ -2,11 +2,16 @@
 # Project:  https://github.com/genrihx2/MuMuManager-CLI-Menu
 # Purpose:  launch/stop/restart emulator instances, install/uninstall APKs,
 #           tune performance, spoof device model, back up instance data.
-# Security: self-update downloads TEXT files only (.ps1/.md) from the GitHub
-#           repository above over HTTPS. Integrity checks: content-hash diff
-#           before update, structural validation after download, automatic
-#           backup of previous versions. No executables are downloaded,
-#           no obfuscation, no persistence, no registry or scheduler changes.
+# Security: the startup update check is READ-ONLY (a single version query).
+#           Self-update downloads TEXT files only (.ps1/.md) from tagged
+#           GitHub Releases of the repository above over HTTPS, and ONLY when
+#           the user explicitly selects [U] in the menu and confirms each
+#           action. Integrity checks: content-hash diff before update,
+#           structural validation after download, automatic backup of
+#           previous versions. The GitHub token is stored DPAPI-encrypted
+#           per Windows user (.github-token.dpapi); no plaintext tokens on
+#           disk. No executables are downloaded, no obfuscation, no
+#           persistence, no registry or scheduler changes.
 # Note:     Device-model spoofing and identifier randomization (IMEI/AndroidID/
 #           MAC) are provided solely for privacy protection and application
 #           testing on the USER'S OWN emulator instances. Do not use for any
@@ -20,15 +25,56 @@ $SkillPath = '.'
 $GitHubRaw = 'https://raw.githubusercontent.com'
 $VersionFile = Join-Path $ScriptDir '.version'
 $TokenFile = Join-Path $ScriptDir '.github-token'
+$DpapiTokenFile = Join-Path $ScriptDir '.github-token.dpapi'
 
-# Load GitHub token if exists
-$GitHubToken = ''
-if (Test-Path $TokenFile) {
-    $GitHubToken = (Get-Content $TokenFile -Raw -ErrorAction SilentlyContinue).Trim()
-    if (-not $GitHubToken) {
-        $GitHubToken = [System.IO.File]::ReadAllText($TokenFile).Trim()
+# --- GitHub token storage -------------------------------------------------
+# Canonical store: .github-token.dpapi - a DPAPI-encrypted (CurrentUser scope)
+# SecureString produced by ConvertFrom-SecureString. Only the same Windows
+# user on the same machine can decrypt it; the plaintext token never touches
+# disk. A legacy plaintext .github-token is migrated automatically and then
+# deleted.
+
+function ConvertFrom-SecureToken {
+    param([Security.SecureString]$Secure)
+    $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Secure)
+    try { [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) }
+    finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
+}
+
+function Get-GitHubToken {
+    if (Test-Path -LiteralPath $DpapiTokenFile -PathType Leaf) {
+        try {
+            $sec = Get-Content -LiteralPath $DpapiTokenFile -Raw | ConvertTo-SecureString -ErrorAction Stop
+            return (ConvertFrom-SecureToken $sec)
+        } catch {
+            Write-Warning "Cannot decrypt $DpapiTokenFile (moved between machines/users?). Re-save the token via menu option [K]."
+            return ''
+        }
+    }
+    if (Test-Path -LiteralPath $TokenFile -PathType Leaf) {
+        $plain = ([System.IO.File]::ReadAllText($TokenFile)).Trim()
+        if ($plain) { Initialize-TokenStorage -Plain $plain }
+        return $plain
+    }
+    return ''
+}
+
+function Initialize-TokenStorage {
+    # One-time migration: encrypt an existing plaintext token with DPAPI,
+    # then remove the plaintext file.
+    param([string]$Plain)
+    try {
+        $sec = ConvertTo-SecureString $Plain -AsPlainText -Force
+        ConvertFrom-SecureString -SecureString $sec |
+            Set-Content -LiteralPath $DpapiTokenFile -Force -ErrorAction Stop
+        Remove-Item -LiteralPath $TokenFile -Force -ErrorAction SilentlyContinue
+        Write-Host '  Token migrated to encrypted storage (.github-token.dpapi); plaintext file removed.' -ForegroundColor DarkGray
+    } catch {
+        Write-Warning "Could not migrate token to encrypted storage: $($_.Exception.Message)"
     }
 }
+
+$GitHubToken = Get-GitHubToken
 
 # Force TLS 1.2+ (PowerShell 5.1 defaults fail against GitHub with
 # "The underlying connection was closed: An unexpected error occurred on a send.")
@@ -95,8 +141,16 @@ function Get-ContentHash {
 }
 
 function Update-FromGitHub {
-    Write-Host ''
-    Write-Host 'Checking for updates...' -ForegroundColor Cyan
+    # Passive mode = read-only version check (used at startup).
+    # Downloads happen only in interactive mode via menu option [U].
+    param([switch]$Passive)
+
+    if ($Passive) {
+        Write-Host 'Update check (read-only)...' -ForegroundColor DarkGray
+    } else {
+        Write-Host ''
+        Write-Host 'Checking for updates...' -ForegroundColor Cyan
+    }
 
     # Build headers with token if available
     $headers = @{'Accept' = 'application/vnd.github.v3+json'; 'User-Agent' = 'MuMuManager-CLI-Menu'}
@@ -104,54 +158,53 @@ function Update-FromGitHub {
         $headers['Authorization'] = "token $GitHubToken"
     }
 
-    $files = @('mumu-menu.ps1', 'mumu-profile.ps1', 'SKILL.md', 'README.md')
+    $files = @('mumu-menu.ps1', 'SKILL.md', 'README.md')
 
+    # Updates are sourced ONLY from tagged GitHub Releases, never from the
+    # mutable main branch. Get-RemoteFile closes over the resolved tag.
     function Get-RemoteFile {
-        param([string]$Name)
+        param([string]$Name, [string]$Ref)
         if ($GitHubToken) {
-            return Invoke-GitHubGet "https://api.github.com/repos/$GitHubRepo/contents/$SkillPath/$Name" 30
+            return Invoke-GitHubGet "https://api.github.com/repos/$GitHubRepo/contents/$SkillPath/$Name`?ref=$Ref" 30
         }
-        return Invoke-GitHubGet "$GitHubRaw/$GitHubRepo/main/$SkillPath/$Name" 30
+        return Invoke-GitHubGet "$GitHubRaw/$GitHubRepo/$Ref/$SkillPath/$Name" 30
     }
 
     try {
-        $apiUrl = "https://api.github.com/repos/$GitHubRepo/commits?path=$SkillPath/mumu-menu.ps1&per_page=1"
-        $rawCommits = Invoke-GitHubGet $apiUrl 15
-        $response = @($rawCommits | ConvertFrom-Json)
+        $relUrl = "https://api.github.com/repos/$GitHubRepo/releases/latest"
+        $release = Invoke-GitHubGet $relUrl 15 | ConvertFrom-Json
 
-        if (-not $response -or $response.Count -eq 0) {
-            Write-Host '  No commits found on remote' -ForegroundColor Yellow
+        if (-not $release -or -not $release.tag_name) {
+            if (-not $Passive) { Write-Host '  No releases found on remote' -ForegroundColor Yellow }
             return
         }
 
-        $commit = $response[0]
-        if (-not $commit -or -not $commit.sha) {
-            Write-Host '  Invalid response from GitHub' -ForegroundColor Yellow
-            return
-        }
-
-        $remoteHash = $commit.sha.Substring(0, [Math]::Min(7, $commit.sha.Length))
-        $remoteDate = ''
-        if ($commit.commit -and $commit.commit.committer) {
-            $remoteDate = $commit.commit.committer.date
-        }
+        $tag = $release.tag_name
+        $remoteDate = $release.published_at
         $remoteMsg = ''
-        if ($commit.commit -and $commit.commit.message) {
-            $remoteMsg = ($commit.commit.message -split "`n")[0]
+        if ($release.body) {
+            $remoteMsg = (($release.body -split "`n") | Where-Object { $_.Trim() } | Select-Object -First 1)
         }
 
-        # Compare actual file content (line-ending tolerant) instead of stored marker
+        # Compare actual file content (line-ending tolerant) against the release tag
         $localMenuPath = Join-Path $ScriptDir 'mumu-menu.ps1'
         $localText = [System.IO.File]::ReadAllText($localMenuPath)
-        $remoteText = Get-RemoteFile 'mumu-menu.ps1'
+        $remoteText = Get-RemoteFile 'mumu-menu.ps1' $tag
 
         if ((Get-ContentHash $localText) -eq (Get-ContentHash $remoteText)) {
-            Set-Content -Path $VersionFile -Value $remoteHash -NoNewline -ErrorAction SilentlyContinue
-            Write-Host "  Up to date ($remoteHash)" -ForegroundColor DarkGray
+            Set-Content -Path $VersionFile -Value $tag -NoNewline -ErrorAction SilentlyContinue
+            if (-not $Passive) {
+                Write-Host "  Up to date ($tag)" -ForegroundColor DarkGray
+            }
             return
         }
 
-        Write-Host "  Update available! ($remoteHash)" -ForegroundColor Yellow
+        Write-Host "  Update available! ($tag)" -ForegroundColor $(if ($Passive) { 'DarkGray' } else { 'Yellow' })
+        if ($Passive) {
+            Write-Host '  Nothing was downloaded. Select [U] Check for updates' -ForegroundColor DarkGray
+            Write-Host '  in the menu to review and install it manually.' -ForegroundColor DarkGray
+            return
+        }
         if ($remoteMsg) {
             Write-Host "  Latest change: $remoteMsg" -ForegroundColor DarkGray
         }
@@ -184,7 +237,7 @@ function Update-FromGitHub {
             $dest = Join-Path $ScriptDir $f
             Write-Host "  Downloading $f..." -ForegroundColor Yellow
             try {
-                $content = Get-RemoteFile $f
+                $content = Get-RemoteFile $f $tag
                 if (-not $content) { throw 'empty response' }
                 if ($content.TrimStart().StartsWith('{') -and $content -match '"\s*:\s*"') {
                     throw 'received JSON metadata instead of file content'
@@ -210,11 +263,12 @@ function Update-FromGitHub {
         Start-Sleep -Seconds 2
         exit
     } catch {
+        if ($Passive) { return }
         $msg = $_.Exception.Message
         if ($msg -match '404|Not Found') {
             if (-not $GitHubToken) {
-                Write-Host '  Private repo detected. Save your token:' -ForegroundColor Yellow
-                Write-Host "    Set-Content '$TokenFile' 'ghp_YourTokenHere'" -ForegroundColor DarkGray
+                Write-Host '  Private repo detected. Run the menu and select' -ForegroundColor Yellow
+                Write-Host '  [K] Update GitHub token (stored DPAPI-encrypted).' -ForegroundColor Yellow
             } else {
                 Write-Host '  Repository or file not found.' -ForegroundColor Yellow
             }
@@ -226,7 +280,8 @@ function Update-FromGitHub {
     }
 }
 
-Update-FromGitHub
+# Read-only update check at startup; installs only via menu option [U]
+Update-FromGitHub -Passive
 
 # Check MuMu version
 $MinVersion = [version]'4.0.0.3179'
@@ -758,24 +813,55 @@ function Test-Security {
     Write-Host '=== Security Audit ===' -ForegroundColor Cyan
     Write-Host ''
 
-    $tokenFile = Join-Path $ScriptDir '.github-token'
     $safeCount = 0
     $warnCount = 0
     $dangerCount = 0
 
-    # 1. Token file exists
-    Write-Host '[1] Token file' -ForegroundColor Yellow
-    if (Test-Path $tokenFile) {
-        $token = (Get-Content $tokenFile -Raw).Trim()
-        Write-Host "  EXISTS: $($token.Substring(0, [Math]::Min(10, $token.Length)))..." -ForegroundColor DarkGray
-        
-        # Check file permissions
-        $acl = Get-Acl $tokenFile
-        $owner = $acl.Owner
-        Write-Host "  Owner: $owner" -ForegroundColor DarkGray
-        
-        # Check if file is hidden
-        $attr = (Get-Item $tokenFile -Force).Attributes
+    # Local helper: validates the loaded token against api.github.com/user.
+    function Test-TokenHttp {
+        $tmpHead = Join-Path $env:TEMP ("gh_" + [Guid]::NewGuid().ToString('N') + '.hdr')
+        try {
+            $rawUser = & curl.exe -s --connect-timeout 15 --max-time 20 -D "$tmpHead" -H "Authorization: token $GitHubToken" 'https://api.github.com/user' 2>$null
+            $user = (@($rawUser) | Out-String | ConvertFrom-Json)
+            if (-not $user.login) { return $null }
+            $scopes = ''
+            if (Test-Path $tmpHead) {
+                $line = (Get-Content $tmpHead | Where-Object { $_ -match '(?i)^x-oauth-scopes:' } | Select-Object -First 1)
+                if ($line) { $scopes = ($line -split ':', 2)[1].Trim() }
+            }
+            [pscustomobject]@{ Login = $user.login; Scopes = $scopes }
+        } finally {
+            Remove-Item $tmpHead -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    function Show-TokenValidity {
+        if (-not $GitHubToken) {
+            Write-Host '  Valid: UNKNOWN (token could not be loaded/decrypted)' -ForegroundColor Red
+            return
+        }
+        $info = Test-TokenHttp
+        if ($info) {
+            Write-Host "  Valid: YES ($($info.Login))" -ForegroundColor Green
+            $script:safeCount++
+            if ($info.Scopes) { Write-Host "  Scopes: $($info.Scopes)" -ForegroundColor DarkGray }
+            else { Write-Host '  Scopes: none (limited access)' -ForegroundColor DarkGray }
+        } else {
+            Write-Host '  Valid: NO (token expired or invalid)' -ForegroundColor Red
+            $script:dangerCount++
+        }
+    }
+
+    # 1. Token storage
+    Write-Host '[1] Token storage' -ForegroundColor Yellow
+    if (Test-Path -LiteralPath $DpapiTokenFile -PathType Leaf) {
+        Write-Host '  Store: ENCRYPTED (.github-token.dpapi, DPAPI CurrentUser)' -ForegroundColor Green
+        $safeCount++
+
+        $acl = Get-Acl -LiteralPath $DpapiTokenFile
+        Write-Host "  Owner: $($acl.Owner)" -ForegroundColor DarkGray
+
+        $attr = (Get-Item -LiteralPath $DpapiTokenFile -Force).Attributes
         if ($attr -band [IO.FileAttributes]::Hidden) {
             Write-Host '  Hidden: YES' -ForegroundColor Green
             $safeCount++
@@ -783,34 +869,18 @@ function Test-Security {
             Write-Host '  Hidden: NO (should be hidden)' -ForegroundColor Yellow
             $warnCount++
         }
-        
-        # Check token validity
-        try {
-            $tmpHead = Join-Path $env:TEMP ("gh_" + [Guid]::NewGuid().ToString('N') + ".hdr")
-            $rawUser = & curl.exe -s --connect-timeout 15 --max-time 20 -D "$tmpHead" -H "Authorization: token $token" 'https://api.github.com/user' 2>$null
-            $user = (@($rawUser) | Out-String | ConvertFrom-Json)
-            if (-not $user.login) { throw 'no login' }
-            Write-Host "  Valid: YES ($($user.login))" -ForegroundColor Green
-            $safeCount++
+        Show-TokenValidity
+    }
+    elseif (Test-Path -LiteralPath $TokenFile -PathType Leaf) {
+        Write-Host '  Store: PLAINTEXT (legacy .github-token)' -ForegroundColor Yellow
+        $warnCount++
+        Write-Host '  Re-save via menu option [K] to encrypt it with DPAPI.' -ForegroundColor DarkGray
 
-            # Check scopes
-            $scopes = ''
-            if (Test-Path $tmpHead) {
-                $line = (Get-Content $tmpHead | Where-Object { $_ -match '(?i)^x-oauth-scopes:' } | Select-Object -First 1)
-                if ($line) { $scopes = ($line -split ':', 2)[1].Trim() }
-            }
-            if ($scopes) {
-                Write-Host "  Scopes: $scopes" -ForegroundColor DarkGray
-            } else {
-                Write-Host '  Scopes: none (limited access)' -ForegroundColor DarkGray
-            }
-            Remove-Item $tmpHead -Force -ErrorAction SilentlyContinue
-        } catch {
-            Remove-Item $tmpHead -Force -ErrorAction SilentlyContinue
-            Write-Host '  Valid: NO (token expired or invalid)' -ForegroundColor Red
-            $dangerCount++
-        }
-    } else {
+        $acl = Get-Acl -LiteralPath $TokenFile
+        Write-Host "  Owner: $($acl.Owner)" -ForegroundColor DarkGray
+        Show-TokenValidity
+    }
+    else {
         Write-Host '  NOT FOUND (public repo - OK)' -ForegroundColor Green
         $safeCount++
     }
@@ -830,7 +900,7 @@ function Test-Security {
         }
     }
     
-    $tracked = git -C $ScriptDir ls-files .github-token 2>$null
+    $tracked = git -C $ScriptDir ls-files '.github-token*' 2>$null
     if ($tracked) {
         Write-Host '  Git tracking: TOKEN TRACKED (BAD!)' -ForegroundColor Red
         $dangerCount++
@@ -889,19 +959,26 @@ function Test-Security {
 function Update-Token {
     Write-Host ''
     Write-Host 'GitHub Token Manager' -ForegroundColor Cyan
-    $tokenFile = Join-Path $ScriptDir '.github-token'
-    
-    if (Test-Path $tokenFile) {
-        $old = (Get-Content $TokenFile -Raw).Trim()
-        Write-Host "Current token: $($old.Substring(0, [Math]::Min(10, $old.Length)))..." -ForegroundColor DarkGray
+
+    $stored = $false
+    if (Test-Path -LiteralPath $DpapiTokenFile -PathType Leaf) {
+        Write-Host 'Current token: stored ENCRYPTED (.github-token.dpapi)' -ForegroundColor DarkGray
+        $stored = $true
+    } elseif (Test-Path -LiteralPath $TokenFile -PathType Leaf) {
+        Write-Host 'Current token: stored PLAINTEXT (legacy .github-token)' -ForegroundColor Yellow
+        $stored = $true
+    }
+
+    if ($stored) {
         Write-Host ''
         Write-Host '  [1] Update token' -ForegroundColor Yellow
         Write-Host '  [2] Remove token (public repo)' -ForegroundColor Yellow
         Write-Host '  [0] Cancel' -ForegroundColor Yellow
         $choice = Read-Host 'Select option'
-        
+
         if ($choice -eq '2') {
-            Remove-Item $TokenFile -Force
+            Remove-Item -LiteralPath $DpapiTokenFile -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $TokenFile -Force -ErrorAction SilentlyContinue
             Write-Host 'Token removed! Auto-update works without token for public repos.' -ForegroundColor Green
             return
         } elseif ($choice -ne '1') {
@@ -909,22 +986,27 @@ function Update-Token {
             return
         }
     }
-    
-    $newToken = Read-Host 'Enter token (ghp_...)'
-    if (-not $newToken) {
-        Write-Host 'Cancelled.' -ForegroundColor Yellow
-        return
-    }
-    [System.IO.File]::WriteAllText($TokenFile, $newToken, [System.Text.UTF8Encoding]::new($false))
-    Write-Host 'Token saved!' -ForegroundColor Green
-    Write-Host 'Testing...' -ForegroundColor Yellow
-    try {
-        $rawUser = & curl.exe -s --connect-timeout 15 --max-time 20 -H "Authorization: token $newToken" 'https://api.github.com/user' 2>$null
+
+    # Masked input: the token is captured as a SecureString and never echoed.
+    Write-Host 'Enter token (input hidden):' -ForegroundColor Cyan
+    $sec = Read-Host -AsSecureString
+    if (ConvertFrom-SecureToken $sec) {
+        # Validate BEFORE saving anything to disk.
+        $plain = ConvertFrom-SecureToken $sec
+        Write-Host 'Testing...' -ForegroundColor Yellow
+        $rawUser = & curl.exe -s --connect-timeout 15 --max-time 20 -H "Authorization: token $plain" 'https://api.github.com/user' 2>$null
         $user = (@($rawUser) | Out-String | ConvertFrom-Json)
-        if (-not $user.login) { throw 'invalid' }
-        Write-Host "Token valid: $($user.login)" -ForegroundColor Green
-    } catch {
-        Write-Host 'Token invalid!' -ForegroundColor Red
+        if (-not $user.login) {
+            Write-Host 'Token invalid! Nothing was saved.' -ForegroundColor Red
+            return
+        }
+        ConvertFrom-SecureString -SecureString $sec |
+            Set-Content -LiteralPath $DpapiTokenFile -Force
+        Remove-Item -LiteralPath $TokenFile -Force -ErrorAction SilentlyContinue
+        $script:GitHubToken = $plain
+        Write-Host "Token valid ($($user.login)). Saved ENCRYPTED via DPAPI (.github-token.dpapi)." -ForegroundColor Green
+    } else {
+        Write-Host 'Cancelled (empty input).' -ForegroundColor Yellow
     }
 }
 
@@ -1246,7 +1328,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.13.1' -ForegroundColor Green
+    Write-Host 'Script version: 1.13.2' -ForegroundColor Green
 
     # MuMu version
     try {
