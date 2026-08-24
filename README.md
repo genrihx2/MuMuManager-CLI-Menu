@@ -283,7 +283,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.13.4
+Script version: 1.13.5
 MuMu version: 6.5.2.0
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -322,9 +322,9 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Файл | SHA-256 | Движков | Отчёт |
 |------|---------|---------|-------|
+| `mumu-menu.ps1` (v1.13.5) | `6afb9756dff3…c293` | 60 | [отчёт](https://www.virustotal.com/gui/file/6afb9756dff3a33f9cf8930a5e7c4d8d049be424e840b3d1f2bce648c4cfc293) |
 | `mumu-menu.ps1` (v1.13.4) | `201de575dcd3…c3081` | 60 | [отчёт](https://www.virustotal.com/gui/file/201de575dcd35d962e3980c73ef7e5d4d5d2c4f96dda189eeff92cea297c3081) |
 | `mumu-menu.ps1` (v1.13.3) | `35fd20035859…4ec1e` | 44+ | [отчёт](https://www.virustotal.com/gui/file/35fd200358598ecd71978cdd29a06fdd26182d8698942d19a81fe5fd9014ec1e) |
-| `mumu-menu.ps1` (v1.13.2) | `a824eff712de…e1551` | 61 | [отчёт](https://www.virustotal.com/gui/file/a824eff712de5779b2578c785126fbb4d9de3d1f24dddf476eda4afa211e1551) |
 | `update-readme.ps1` | `618c48dc0809…e6854` | 60 | [отчёт](https://www.virustotal.com/gui/file/618c48dc0809f68c178634470d15dcdf708f90f3e32ffb9a31dfd9a9ff7e6854) |
 | `README.md` | `868a1a7db4cf…03ddf` | 60 | [отчёт](https://www.virustotal.com/gui/file/868a1a7db4cf7df3f9fc51e4e0a9dd738f3cd17192df775dd6cdff1ead003ddf) |
 | `SKILL.md` | `1e60372d8fbe…8f2e7b` | 60 | [отчёт](https://www.virustotal.com/gui/file/1e60372d8fbea80854619fcbca10c0c39a3bea74f35999bfefc55dfb6a8f2e7b) |
