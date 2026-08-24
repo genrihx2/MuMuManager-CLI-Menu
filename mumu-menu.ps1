@@ -1363,7 +1363,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.13.10' -ForegroundColor Green
+    Write-Host 'Script version: 1.13.11' -ForegroundColor Green
 
     # MuMu version
     try {
@@ -1590,7 +1590,9 @@ function Set-RAM {
     Write-Host '  [4] 4 GB (default)' -ForegroundColor White
     Write-Host '  [5] 6 GB' -ForegroundColor White
     Write-Host '  [6] 8 GB' -ForegroundColor White
-    Write-Host '  [7] Custom' -ForegroundColor White
+    Write-Host '  [7] 12 GB (high performance)' -ForegroundColor White
+    Write-Host '  [8] 16 GB' -ForegroundColor White
+    Write-Host '  [9] Custom' -ForegroundColor White
     $choice = Read-Host 'Select RAM'
 
     $ram = switch ($choice) {
@@ -1600,9 +1602,11 @@ function Set-RAM {
         '4' { 4 }
         '5' { 6 }
         '6' { 8 }
-        '7' {
+        '7' { 12 }
+        '8' { 16 }
+        '9' {
             $gb = [int](Read-Host 'Enter RAM in GB')
-            if ($gb -lt 1 -or $gb -gt 32) { throw 'RAM must be between 1 and 32 GB' }
+            if ($gb -lt 1 -or $gb -gt 64) { throw 'RAM must be between 1 and 64 GB' }
             $gb
         }
         default { 4 }
