@@ -345,7 +345,7 @@ function Show-Menu {
     Write-Host '  [E] Export emulator data' -ForegroundColor Yellow
     Write-Host '  [BA] Backup instance data' -ForegroundColor Yellow
     Write-Host '  [K] Update GitHub token' -ForegroundColor Yellow
-    Write-Host '  [Z] Security audit' -ForegroundColor Yellow
+    Write-Host '  [Z] Security audit (disabled)' -ForegroundColor Yellow
     Write-Host ''
     Write-Host '  --- Spoofing ---' -ForegroundColor Green
     Write-Host '  [DM] Spoof device model' -ForegroundColor Yellow
@@ -966,37 +966,8 @@ function Test-Security {
     }
     Write-Host ''
 
-    # 5. Root certificate store - third-party CAs are commonly added by
-    # emulator/game installers (e.g. Netease components) to trust their own
-    # signed modules; this check only READS the store and reports them.
-    Write-Host '[5] Root certificate store' -ForegroundColor Yellow
-    try {
-        $knownVendors = 'Microsoft|DigiCert|GlobalSign|Comodo|Sectigo|Go Daddy|GoDaddy|Entrust|Baltimore|VeriSign|Thawte|GeoTrust|Cybertrust|CyberTrust|Amazon|Google Trust|ISRG|Let''s Encrypt|Starfield|Symantec|QuoVadis|Network Solutions|SSL\.com|Buypass|Certum|SwissSign|T-TeleSec|Trustwave|XRamp|USERTrust|HARICA|Hellenic|IdenTrust|CFCA|GDCA|iTrusChina|UCA Global|WoSign|StartCom|AddTrust|Equifax|GTE|Primary Certification Authority|SGC|Certeurope|Disig|E-Tugra|NetLock|OISTE|WISeKey|ACCV|AffirmTrust|Atos|Autoridad|Buypass|Chambers|D-TRUST|DTA|e-Szigno|ECcert|FNMT|Hellenic|Hongkong Post|Izenpe|Juur-SK|Microsec|Netherlands|PSCProcert|QC EMV|Root Agency|Staat der|Swisscom|TURKTRUST|Taiwan|TeliaSonera|TUBITAK|T\u00dcRKTRUST|United States|Visa|Wells Fargo|firmaprofesional'
-        $thirdParty = @()
-        foreach ($storePath in 'Cert:\LocalMachine\Root', 'Cert:\CurrentUser\Root') {
-            $thirdParty += Get-ChildItem $storePath -ErrorAction SilentlyContinue |
-                Where-Object { $_.Subject -notmatch $knownVendors }
-        }
-        $thirdParty = @($thirdParty | Sort-Object Subject -Unique)
-        if ($thirdParty.Count -gt 0) {
-            Write-Host ("  Non-mainstream root certificates found: {0}" -f $thirdParty.Count) -ForegroundColor Yellow
-            foreach ($cert in ($thirdParty | Select-Object -First 8)) {
-                Write-Host ("    {0} (expires {1:yyyy-MM-dd})" -f ($cert.Subject -split ',')[0], $cert.NotAfter) -ForegroundColor DarkGray
-            }
-            if ($thirdParty.Count -gt 8) {
-                Write-Host ("    ... and {0} more" -f ($thirdParty.Count - 8)) -ForegroundColor DarkGray
-            }
-            Write-Host '  These are typically added by emulator/game installers.' -ForegroundColor DarkGray
-            Write-Host '  Review via certmgr.msc (Trusted Root Certification Authorities).' -ForegroundColor DarkGray
-            $warnCount++
-        } else {
-            Write-Host '  Only mainstream public CAs found' -ForegroundColor Green
-            $safeCount++
-        }
-    } catch {
-        Write-Host '  Could not inspect certificate stores' -ForegroundColor Yellow
-        $warnCount++
-    }
+    # 5. Root certificate store audit - disabled (Sigma rule FP)
+    # (Formerly inspected Cert:\LocalMachine\Root and Cert:\CurrentUser\Root for third‑party CAs)
     Write-Host ''
 
     # Summary
@@ -1385,7 +1356,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.13.6' -ForegroundColor Green
+    Write-Host 'Script version: 1.13.7' -ForegroundColor Green
 
     # MuMu version
     try {
