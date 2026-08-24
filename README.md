@@ -328,7 +328,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 | `update-readme.ps1` | `618c48dc0809…e6854` | 60 | [отчёт](https://www.virustotal.com/gui/file/618c48dc0809f68c178634470d15dcdf708f90f3e32ffb9a31dfd9a9ff7e6854) |
 | `README.md` | `868a1a7db4cf…03ddf` | 60 | [отчёт](https://www.virustotal.com/gui/file/868a1a7db4cf7df3f9fc51e4e0a9dd738f3cd17192df775dd6cdff1ead003ddf) |
 | `SKILL.md` | `1e60372d8fbe…8f2e7b` | 60 | [отчёт](https://www.virustotal.com/gui/file/1e60372d8fbea80854619fcbca10c0c39a3bea74f35999bfefc55dfb6a8f2e7b) |
-| релизный `MuMuManager-CLI-Menu-v1.13.4.zip` | `ee8e0d46fedd…7ec3` | 64 | [отчёт](https://www.virustotal.com/gui/file/ee8e0d46feddc464814100a2c00f213797e7bd29b25efa8f1c378aa90fde7ec3) |
+| релизный `MuMuManager-CLI-Menu-v1.13.5.zip` | `940264ef8e12…02cc` | 64 | [отчёт](https://www.virustotal.com/gui/file/940264ef8e1225f7111d73c8d806d0580a484129b1877dbf47e21f61f87f02cc) |
 
 ### URL-репутация
 
