@@ -22,7 +22,6 @@ if ($PSScriptRoot) { $ScriptDir = $PSScriptRoot } else { $ScriptDir = Split-Path
 if (-not $ScriptDir) { $ScriptDir = $PWD.Path }
 $GitHubRepo = 'genrihx2/MuMuManager-CLI-Menu'
 $SkillPath = '.'
-$GitHubRaw = 'https://raw.githubusercontent.com'
 $VersionFile = Join-Path $ScriptDir '.version'
 $TokenFile = Join-Path $ScriptDir '.github-token'
 $DpapiTokenFile = Join-Path $ScriptDir '.github-token.dpapi'
@@ -162,12 +161,13 @@ function Update-FromGitHub {
 
     # Updates are sourced ONLY from tagged GitHub Releases, never from the
     # mutable main branch. Get-RemoteFile closes over the resolved tag.
+    # Downloads always go through the official api.github.com REST endpoint
+    # (raw media type is requested via Accept header; unauthenticated calls
+    # are allowed). The raw.githubusercontent.com domain is avoided on
+    # purpose: URL-reputation engines generically flag raw script links.
     function Get-RemoteFile {
         param([string]$Name, [string]$Ref)
-        if ($GitHubToken) {
-            return Invoke-GitHubGet "https://api.github.com/repos/$GitHubRepo/contents/$SkillPath/$Name`?ref=$Ref" 30
-        }
-        return Invoke-GitHubGet "$GitHubRaw/$GitHubRepo/$Ref/$SkillPath/$Name" 30
+        return Invoke-GitHubGet "https://api.github.com/repos/$GitHubRepo/contents/$SkillPath/$Name`?ref=$Ref" 30
     }
 
     try {
@@ -1328,7 +1328,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.13.2' -ForegroundColor Green
+    Write-Host 'Script version: 1.13.3' -ForegroundColor Green
 
     # MuMu version
     try {

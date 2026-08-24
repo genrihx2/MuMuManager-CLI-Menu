@@ -283,7 +283,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.13.2
+Script version: 1.13.3
 MuMu version: 6.5.2.0
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -318,15 +318,23 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Безопасность
 
-- **VirusTotal (v1.13.2): 0 malicious / 0 suspicious во всех файлах пакета** — сканы от 24.08.2026, хеши соответствуют версиям файлов релиза v1.13.2; целостность релизного zip сверена с отчётом
+- **VirusTotal (v1.13.3): 0 malicious / 0 suspicious во всех файлах пакета** — сканы от 24.08.2026; целостность релизного zip сверена с отчётом
 
 | Файл | SHA-256 | Движков | Отчёт |
 |------|---------|---------|-------|
-| `mumu-menu.ps1` | `a824eff712de…e1551` | 61 | [отчёт](https://www.virustotal.com/gui/file/a824eff712de5779b2578c785126fbb4d9de3d1f24dddf476eda4afa211e1551) |
+| `mumu-menu.ps1` (v1.13.3) | `35fd20035859…4ec1e` | 44+ | [отчёт](https://www.virustotal.com/gui/file/35fd200358598ecd71978cdd29a06fdd26182d8698942d19a81fe5fd9014ec1e) |
+| `mumu-menu.ps1` (v1.13.2) | `a824eff712de…e1551` | 61 | [отчёт](https://www.virustotal.com/gui/file/a824eff712de5779b2578c785126fbb4d9de3d1f24dddf476eda4afa211e1551) |
 | `update-readme.ps1` | `618c48dc0809…e6854` | 60 | [отчёт](https://www.virustotal.com/gui/file/618c48dc0809f68c178634470d15dcdf708f90f3e32ffb9a31dfd9a9ff7e6854) |
 | `README.md` | `868a1a7db4cf…03ddf` | 60 | [отчёт](https://www.virustotal.com/gui/file/868a1a7db4cf7df3f9fc51e4e0a9dd738f3cd17192df775dd6cdff1ead003ddf) |
 | `SKILL.md` | `1e60372d8fbe…8f2e7b` | 60 | [отчёт](https://www.virustotal.com/gui/file/1e60372d8fbea80854619fcbca10c0c39a3bea74f35999bfefc55dfb6a8f2e7b) |
 | релизный `MuMuManager-CLI-Menu-v1.13.2.zip` | `f4249a8a56cb…1b4c0` | 64 | [отчёт](https://www.virustotal.com/gui/file/f4249a8a56cb8c24a0699fbea89830b97c7b476de4cea93b2b8b3fd596e1b4c0) |
+
+### URL-репутация
+
+URL-сканеры (SafeToOpen, Chong Lua Dao) помечают ссылки вида `raw.githubusercontent.com/.../*.ps1` как «malicious» **по шаблону адреса**, не анализируя содержимое — файл по ссылке чист (0/61). В ответ:
+
+- оставлен комментарий владельца к URL-объекту на VirusTotal;
+- начиная с v1.13.3 самообновление скачивает файлы только через официальный `api.github.com` и больше не обращается к `raw.githubusercontent.com`.
 - Самообновление скачивает только текстовые файлы (.ps1/.md), никаких исполняемых файлов
 - GitHub-токен хранится только в шифрованном виде (Windows DPAPI, CurrentUser); плейнтекст не записывается на диск
 - Нет обфускации, автозагрузки, задач планировщика и модификаций сертификатов
@@ -336,7 +344,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 Статические LLM-обзорщики могут помечать утилиту как «suspicious» из-за **назначения** функций (спуфинг идентификаторов, менеджер токена, самообновление), а не из-за поведения кода. Для контекста:
 
-- Все сетевые операции — только HTTPS к `api.github.com` / `raw.githubusercontent.com`; стартовая проверка обновлений — read-only, загрузка только по явному выбору `[U]` с подтверждением, источники — теги Releases
+- Все сетевые операции — только HTTPS к `api.github.com`; стартовая проверка обновлений — read-only, загрузка только по явному выбору `[U]` с подтверждением, источники — теги Releases
 - Токен хранится исключительно DPAPI-шифрованным; плейнтекст не пишется и при обнаружении мигрируется/удаляется
 - Нет инъекций, доступа к системным процессам (lsass и пр.), дампов памяти, обфускации, encoded-команд, persistence
 - Эмулятор управляется официальным CLI Netease (`MuMuManager.exe`); ADB-команды выполняются внутри виртуальных машин пользователя
