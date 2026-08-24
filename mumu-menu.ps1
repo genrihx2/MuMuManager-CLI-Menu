@@ -351,6 +351,13 @@ function Show-Menu {
     Write-Host '  [DM] Spoof device model' -ForegroundColor Yellow
     Write-Host '  [DI] Random device IDs' -ForegroundColor Yellow
     Write-Host ''
+    Write-Host '  --- Performance ---' -ForegroundColor Green
+    Write-Host '  [F] Set FPS limit' -ForegroundColor Yellow
+    Write-Host '  [Y] Set CPU cores' -ForegroundColor Yellow
+    Write-Host '  [M] Set RAM size' -ForegroundColor Yellow
+    Write-Host '  [Q] Set resolution' -ForegroundColor Yellow
+    Write-Host '  [J] Toggle root' -ForegroundColor Yellow
+    Write-Host ''
     Write-Host '  --- Info ---' -ForegroundColor Green
     Write-Host '  [V] Version info' -ForegroundColor Yellow
     Write-Host '  [U] Check for updates' -ForegroundColor Yellow
@@ -1356,7 +1363,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.13.7' -ForegroundColor Green
+    Write-Host 'Script version: 1.13.8' -ForegroundColor Green
 
     # MuMu version
     try {
