@@ -318,7 +318,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Безопасность
 
-- **VirusTotal (v1.13.2): 0 malicious / 0 suspicious во всех файлах пакета**
+- **VirusTotal (v1.13.2): 0 malicious / 0 suspicious во всех файлах пакета** — сканы от 24.08.2026, хеши соответствуют версиям файлов релиза v1.13.2; целостность релизного zip сверена с отчётом
 
 | Файл | SHA-256 | Движков | Отчёт |
 |------|---------|---------|-------|
