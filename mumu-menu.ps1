@@ -313,7 +313,7 @@ function Show-Menu {
     Write-Host '  [2] Launch emulator' -ForegroundColor Yellow
     Write-Host '  [3] Shutdown emulator' -ForegroundColor Yellow
     Write-Host '  [4] Restart emulator' -ForegroundColor Yellow
-    Write-Host '  [5] Create new emulator' -ForegroundColor Yellow
+    Write-Host '  [5] Create new emulator (Android 12/15)' -ForegroundColor Yellow
     Write-Host '  [C] Clone emulator' -ForegroundColor Yellow
     Write-Host '  [X] Delete emulator' -ForegroundColor Yellow
     Write-Host '  [N] Rename emulator' -ForegroundColor Yellow
@@ -496,11 +496,35 @@ function Restart-Emulator {
 function New-Emulator {
     Write-Host ''
     Write-Host 'Creating new emulator...' -ForegroundColor Cyan
-
-    $output = Invoke-Mumu create 2>&1
-    Write-Host $output
-
-    Write-Host 'Done!' -ForegroundColor Green
+    Write-Host ''
+    Write-Host 'Android version:' -ForegroundColor White
+    Write-Host '  [1] Auto (recommended)' -ForegroundColor Yellow
+    Write-Host '  [2] Android 12' -ForegroundColor Yellow
+    Write-Host '  [3] Android 15' -ForegroundColor Yellow
+    $choice = Read-Host 'Select version [1-3, Enter = 1]'
+    $ver = switch ($choice) {
+        '2' { '12' }
+        '3' { '15' }
+        default { 'auto' }
+    }
+    Write-Host ''
+    Write-Host "Creating instance (Android: $ver)..." -ForegroundColor DarkGray
+    try {
+        $output = Invoke-Mumu @('create', '-ver', $ver) 2>&1
+        Write-Host $output
+        Write-Host ''
+        Write-Host 'Done!' -ForegroundColor Green
+        Write-Host ''
+        Write-Host 'Current instances:' -ForegroundColor Yellow
+        $allInfo = & $MumuPath info -v all 2>$null | ConvertFrom-Json
+        foreach ($key in $allInfo.PSObject.Properties.Name) {
+            $inst = $allInfo.$key
+            $state = if ($inst.player_state) { $inst.player_state } else { 'stopped' }
+            Write-Host "  [$key] $($inst.name) - $state" -ForegroundColor White
+        }
+    } catch {
+        Write-Host "Create failed: $($_.Exception.Message)" -ForegroundColor Red
+    }
 }
 
 function Copy-Emulator {
@@ -1361,7 +1385,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.13.5' -ForegroundColor Green
+    Write-Host 'Script version: 1.13.6' -ForegroundColor Green
 
     # MuMu version
     try {
