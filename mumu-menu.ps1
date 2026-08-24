@@ -1328,7 +1328,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.13.3' -ForegroundColor Green
+    Write-Host 'Script version: 1.13.4' -ForegroundColor Green
 
     # MuMu version
     try {
@@ -1602,7 +1602,30 @@ function Set-Resolution {
     }
 }
 
+# Consent gate for identifier/model spoofing options: shown once per
+# session, requires explicit acknowledgement. Documents intended use
+# (privacy/testing on the user's own instances) and rejects otherwise.
+$script:SpoofConsentAccepted = $false
+function Confirm-SpoofConsent {
+    if ($script:SpoofConsentAccepted) { return $true }
+    Write-Host ''
+    Write-Host '  === Identifier spoofing - confirmation required ===' -ForegroundColor Yellow
+    Write-Host '  These options change device identity values (model, IMEI,' -ForegroundColor White
+    Write-Host '  Android ID, MAC) of YOUR OWN local emulator instances for' -ForegroundColor White
+    Write-Host '  privacy protection and application testing only.' -ForegroundColor White
+    Write-Host '  Do not use them to impersonate devices you do not own or' -ForegroundColor White
+    Write-Host '  for any unlawful purpose.' -ForegroundColor White
+    $ans = Read-Host '  Type OK to continue (anything else cancels)'
+    if ($ans -ceq 'OK') {
+        $script:SpoofConsentAccepted = $true
+        return $true
+    }
+    Write-Host '  Cancelled (consent not given).' -ForegroundColor Yellow
+    return $false
+}
+
 function Set-DeviceModel {
+    if (-not (Confirm-SpoofConsent)) { return }
     $index = Get-InstanceIndex 'Select instance'
     Write-Host ''
 
@@ -1717,6 +1740,7 @@ function New-RandomMac {
 function Set-RandomDeviceIds {
     param([string]$Mode)
 
+    if (-not (Confirm-SpoofConsent)) { return }
     $index = Get-InstanceIndex 'Select instance'
     Write-Host ''
 
