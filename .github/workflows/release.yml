@@ -46,6 +46,21 @@ jobs:
           ZIPNAME="MuMuManager-CLI-Menu-${VERSION}.zip"
           (cd dist && zip -r "../${ZIPNAME}" .)
 
+          {
+            echo "## MuMuManager CLI Menu ${VERSION}"
+            echo ""
+            echo "Интерактивное PowerShell-меню для управления MuMu Emulator через официальный \`MuMuManager.exe\`."
+            echo ""
+            echo "### Обновление"
+            echo "- Через меню: пункт \`[U] Check for updates\` → подтвердите загрузку"
+            echo "- Вручную: распакуйте архив и запустите \`mumu-menu.ps1\`"
+            echo ""
+            echo "### Проверено"
+            echo "- VirusTotal: 0 malicious / 0 suspicious (пермалинки в README, раздел «Безопасность»)"
+            echo ""
+            echo "**Требования:** Windows 10/11 · PowerShell 5.1+ · MuMu Emulator 6.x"
+          } > relnotes.md
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag "${VERSION}"
@@ -54,6 +69,6 @@ jobs:
           gh release create "${VERSION}" \
             "${ZIPNAME}" \
             --title "MuMuManager CLI Menu ${VERSION}" \
-            --notes "Автоматический релиз версии ${VERSION}. Распакуйте архив и запустите mumu-menu.ps1."
+            --notes-file relnotes.md
 
           echo "Release ${VERSION} created"
