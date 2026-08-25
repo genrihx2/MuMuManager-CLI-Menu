@@ -318,10 +318,12 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Безопасность
 
-- **VirusTotal (v1.13.7): 0 malicious / 0 suspicious во всех файлах пакета** — сканы от 24.08.2026; целостность релизного zip сверена с отчётом
+- **VirusTotal (v1.13.14): 0 malicious / 0 suspicious во всех файлах пакета** — сканы от 25.08.2026; целостность релизного zip сверена с отчётом
 
 | Файл | SHA-256 | Движков | Отчёт |
 |------|---------|---------|-------|
+| `mumu-menu.ps1` (v1.13.14) | `97cfac7eb2ce…912` | 75 | [отчёт](https://www.virustotal.com/gui/file/97cfac7eb2ced8644579aae38c84bf81760ebf633568061312fa2277e3f94912) |
+| релизный `MuMuManager-CLI-Menu-v1.13.14.zip` | `0da34de075d4…bde` | 74 | [отчёт](https://www.virustotal.com/gui/file/0da34de075d43ce043cace86303ab41776ce5552a4aea9742addcd18aa69cbde) |
 | `mumu-menu.ps1` (v1.13.7) | `4cfb3fd0679d…1f0c` | 60 | [отчёт](https://www.virustotal.com/gui/file/4cfb3fd0679da38a575619d4e54514acae6855b1913bf6150fab3bd261b51f0c) |
 | релизный `MuMuManager-CLI-Menu-v1.13.7.zip` | `5d7ae270346a…5a9e` | 64 | [отчёт](https://www.virustotal.com/gui/file/5d7ae270346a089305c7a5c52568814f382a7ffb6873604a0ffc0327c5565a9e) |
 | `mumu-menu.ps1` (v1.13.6) | `f3e00f73e2fc…f6fab4` | 60 | [отчёт](https://www.virustotal.com/gui/file/f3e00f73e2fc1dc9644ce375a78f20a52340c39fab0a94e1d5cc82c665f6fab4) |
@@ -351,7 +353,7 @@ URL-сканеры (SafeToOpen, Chong Lua Dao) помечают ссылки в�
 - Токен хранится исключительно DPAPI-шифрованным; плейнтекст не пишется и при обнаружении мигрируется/удаляется
 - Нет инъекций, доступа к критическим системным процессам, дампов памяти, обфускации, encoded-команд, persistence
 - Эмулятор управляется официальным CLI Netease (`MuMuManager.exe`); ADB-команды выполняются внутри виртуальных машин пользователя
-- Мультидвижковый вердикт VirusTotal: 0/61 (пермалинк выше)
+- Мультидвижковый вердикт VirusTotal: 0/75 (пермалинк выше)
 
 ## Компоненты
 
