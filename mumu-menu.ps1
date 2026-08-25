@@ -231,32 +231,65 @@ function Update-FromGitHub {
             Write-Host "  Backup saved: backup\$stamp" -ForegroundColor DarkGray
         }
 
-        # Download files (API for private repos, raw for public)
+        # Primary: download the release ZIP asset (one request, no API rate limits).
+        # Fallback: fetch individual files via the GitHub contents API.
+        $zipName = "MuMuManager-CLI-Menu-$tag.zip"
+        $zipUrl = "https://github.com/$GitHubRepo/releases/download/$tag/$zipName"
+        $tmp = Join-Path $env:TEMP "mumu_update_$stamp.zip"
+        $tmpDir = Join-Path $env:TEMP "mumu_update_$stamp"
         $failed = 0
-        foreach ($f in $files) {
-            $dest = Join-Path $ScriptDir $f
-            Write-Host "  Downloading $f..." -ForegroundColor Yellow
-            try {
-                $content = Get-RemoteFile $f $tag
-                if (-not $content) { throw 'empty response' }
-                if ($content.TrimStart().StartsWith('{') -and $content -match '"\s*:\s*"') {
-                    throw 'received JSON metadata instead of file content'
+        $usedZip = $false
+
+        try {
+            Write-Host "  Downloading $zipName..." -ForegroundColor Yellow
+            $dlArgs = @('-sL', '--retry', '3', '--retry-delay', '2', '--connect-timeout', '15', '--max-time', '120', '-o', $tmp, $zipUrl)
+            if ($GitHubToken) { $dlArgs += @('-H', "Authorization: token $GitHubToken") }
+            & curl.exe @dlArgs 2>$null
+            if ($LASTEXITCODE -eq 0 -and (Test-Path $tmp) -and (Get-Item $tmp).Length -gt 100) {
+                New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
+                & tar.exe -xf $tmp -C $tmpDir 2>$null
+                if ($LASTEXITCODE -ne 0) { Expand-Archive -LiteralPath $tmp -DestinationPath $tmpDir -Force }
+                foreach ($f in $files) {
+                    $src = Get-ChildItem $tmpDir -Recurse -Filter $f | Select-Object -First 1
+                    if (-not $src) { Write-Host "    Missing in archive: $f" -ForegroundColor Red; $failed++; continue }
+                    Copy-Item -LiteralPath $src.FullName -Destination (Join-Path $ScriptDir $f) -Force
+                    Write-Host "    $f OK" -ForegroundColor Green
                 }
-                if ($f -eq 'mumu-menu.ps1' -and $content -notmatch '^# MuMuManager CLI') {
-                    throw 'unexpected mumu-menu.ps1 content'
-                }
-                [System.IO.File]::WriteAllText($dest, $content, [System.Text.UTF8Encoding]::new($false))
-                Write-Host '    OK' -ForegroundColor Green
-            } catch {
-                Write-Host "    Failed: $($_.Exception.Message)" -ForegroundColor Red
-                $failed++
+                $usedZip = ($failed -eq 0)
+            } else {
+                throw "ZIP download failed (exit $LASTEXITCODE)"
             }
+        } catch {
+            Write-Host "  ZIP method failed: $($_.Exception.Message)" -ForegroundColor Yellow
+            Write-Host "  Falling back to per-file API download..." -ForegroundColor DarkGray
+            foreach ($f in $files) {
+                $dest = Join-Path $ScriptDir $f
+                Write-Host "  Downloading $f..." -ForegroundColor Yellow
+                try {
+                    $content = Get-RemoteFile $f $tag
+                    if (-not $content) { throw 'empty response' }
+                    if ($content.TrimStart().StartsWith('{') -and $content -match '"\s*:\s*"') {
+                        throw 'received JSON metadata instead of file content'
+                    }
+                    if ($f -eq 'mumu-menu.ps1' -and $content -notmatch '^# MuMuManager CLI') {
+                        throw 'unexpected mumu-menu.ps1 content'
+                    }
+                    [System.IO.File]::WriteAllText($dest, $content, [System.Text.UTF8Encoding]::new($false))
+                    Write-Host '    OK' -ForegroundColor Green
+                } catch {
+                    Write-Host "    Failed: $($_.Exception.Message)" -ForegroundColor Red
+                    $failed++
+                }
+            }
+        } finally {
+            if (Test-Path $tmp) { Remove-Item $tmp -Force -ErrorAction SilentlyContinue }
+            if (Test-Path $tmpDir) { Remove-Item $tmpDir -Recurse -Force -ErrorAction SilentlyContinue }
         }
 
         if ($failed -gt 0) {
             Write-Host "Update finished with $failed failed file(s). Restore from backup if needed." -ForegroundColor Red
         } else {
-            Set-Content -Path $VersionFile -Value $remoteHash -NoNewline -ErrorAction SilentlyContinue
+            Set-Content -Path $VersionFile -Value $tag -NoNewline -ErrorAction SilentlyContinue
             Write-Host ''
             Write-Host 'Update complete! Restart the menu to use the new version.' -ForegroundColor Green
         }
@@ -1421,7 +1454,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.13.17' -ForegroundColor Green
+    Write-Host 'Script version: 1.13.18' -ForegroundColor Green
 
     # MuMu version
     try {
