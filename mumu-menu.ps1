@@ -967,7 +967,6 @@ function Test-Security {
     Write-Host ''
 
     # 5. Root certificate store audit - disabled (Sigma rule FP)
-    # (Formerly inspected Cert:\LocalMachine\Root and Cert:\CurrentUser\Root for third‑party CAs)
     Write-Host ''
 
     # Summary
@@ -1233,7 +1232,7 @@ function Show-Apps {
 
     Write-Host 'Fetching installed apps...' -ForegroundColor Cyan
     $output = & $MumuPath adb -v $index -c 'shell pm list packages -3' 2>&1
-    $text = @($output | Out-String) -join ''
+    $text = $output | Out-String
     $packages = [regex]::Matches($text, '(?m)^\s*package:([A-Za-z0-9_.]+)') |
         ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
 
@@ -1246,7 +1245,7 @@ function Show-Apps {
         }
 
         $allOut = & $MumuPath adb -v $index -c 'shell pm list packages' 2>&1
-        $allText = @($allOut | Out-String) -join ''
+        $allText = $allOut | Out-String
         $all = [regex]::Matches($allText, '(?m)^\s*package:([A-Za-z0-9_.]+)') |
             ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
 
@@ -1356,7 +1355,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.13.13' -ForegroundColor Green
+    Write-Host 'Script version: 1.13.14' -ForegroundColor Green
 
     # MuMu version
     try {
@@ -1623,16 +1622,16 @@ function New-RandomImei {
 }
 
 function New-RandomAndroidId {
-    $hex = '{0:x}' -f (Get-Random -Minimum 1 -Maximum 16)
-    1..15 | ForEach-Object { $hex += '{0:x}' -f (Get-Random -Maximum 16) }
-    $hex
+    # 16 hex chars, e.g. "13f454f21c0f5f57"
+    [guid]::NewGuid().ToString('N').Substring(0, 16)
 }
 
 function New-RandomMac {
-    $nib = @('2', '6', 'a', 'e')[(Get-Random -Maximum 4)]
-    $hex = ('{0:x}' -f (Get-Random -Maximum 16)) + $nib
-    1..5 | ForEach-Object { $hex += '{0:x2}' -f (Get-Random -Maximum 256) }
-    ($hex -split '(..)' | Where-Object { $_ }) -join ':'
+    # Locally administered unicast MAC from random bytes
+    $bytes = [byte[]]::new(6)
+    [System.Random]::new().NextBytes($bytes)
+    $bytes[0] = ($bytes[0] -band 0xFC) -bor 0x02
+    ($bytes | ForEach-Object { $_.ToString('x2') }) -join ':'
 }
 
 # Privacy/testing feature: randomizes identifiers of the user's own emulator
