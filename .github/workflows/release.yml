@@ -56,11 +56,8 @@ jobs:
             echo "Интерактивное PowerShell-меню для управления MuMu Emulator через официальный \`MuMuManager.exe\`."
             echo ""
             echo "### Что нового"
-            if [ -n "$LAST_TAG" ]; then
-              git log --no-merges --pretty=format:'- %s' "${LAST_TAG}..HEAD" | head -30 || true
-            else
-              git log --no-merges --pretty=format:'- %s' HEAD | head -30 || true
-            fi
+            # Extract the human-written changelog from README.md ("## Что нового" .. next "## ")
+            awk '/^## Что нового/{f=1; next} /^## /{if(f) f=0} f' README.md | sed '/^$/d' | head -40 || true
             echo ""
             echo ""
             echo "### Обновление"
