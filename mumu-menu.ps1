@@ -1041,48 +1041,118 @@ function Show-Logs {
     $index = Get-InstanceIndex 'Select instance'
     Write-Host ''
 
-    $nxDir = Split-Path $MumuPath -Parent
-    $root = Split-Path $nxDir -Parent
-    $vmsRoot = Join-Path $root 'vms'
+    Write-Host '  [1] Static log files (api.log, etc.)' -ForegroundColor White
+    Write-Host '  [2] adb logcat — snapshot (last 200 lines)' -ForegroundColor White
+    Write-Host '  [3] adb logcat — live (Ctrl+C to stop)' -ForegroundColor White
+    Write-Host '  [0] Cancel' -ForegroundColor Yellow
+    $mode = Read-Host 'Select'
 
-    $candidates = @()
-    if (Test-Path -LiteralPath $vmsRoot) {
-        $instDir = Get-ChildItem -LiteralPath $vmsRoot -Directory |
-            Where-Object { $mm = [regex]::Match($_.Name, '-(\d+)$'); $mm.Success -and $mm.Groups[1].Value -eq $index } |
-            Select-Object -First 1
-        if ($instDir) {
-            $candidates += (Join-Path $instDir.FullName 'logs\api.log')
+    if ($mode -eq '0' -or $mode -eq '') { return }
+
+    if ($mode -eq '1') {
+        $nxDir = Split-Path $MumuPath -Parent
+        $root = Split-Path $nxDir -Parent
+        $vmsRoot = Join-Path $root 'vms'
+
+        $candidates = @()
+        if (Test-Path -LiteralPath $vmsRoot) {
+            $instDir = Get-ChildItem -LiteralPath $vmsRoot -Directory |
+                Where-Object { $mm = [regex]::Match($_.Name, '-(\d+)$'); $mm.Success -and $mm.Groups[1].Value -eq $index } |
+                Select-Object -First 1
+            if ($instDir) {
+                $candidates += (Join-Path $instDir.FullName 'logs\api.log')
+            }
         }
-    }
-    $roamLogs = Get-ChildItem (Join-Path $env:APPDATA 'Netease') -Recurse -Filter '*.log' -ErrorAction SilentlyContinue |
-        Sort-Object LastWriteTime -Descending | Select-Object -First 3
-    foreach ($rl in $roamLogs) { $candidates += $rl.FullName }
+        $roamLogs = Get-ChildItem (Join-Path $env:APPDATA 'Netease') -Recurse -Filter '*.log' -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 3
+        foreach ($rl in $roamLogs) { $candidates += $rl.FullName }
 
-    $found = @()
-    foreach ($c in $candidates) {
-        if ((Test-Path -LiteralPath $c) -and (Get-Item -LiteralPath $c).Length -gt 0) { $found += $c }
-    }
+        $found = @()
+        foreach ($c in $candidates) {
+            if ((Test-Path -LiteralPath $c) -and (Get-Item -LiteralPath $c).Length -gt 0) { $found += $c }
+        }
 
-    if ($found.Count -eq 0) {
-        Write-Host 'No log files found.' -ForegroundColor Yellow
+        if ($found.Count -eq 0) {
+            Write-Host 'No log files found.' -ForegroundColor Yellow
+            return
+        }
+
+        Write-Host "Log sources found: $($found.Count)" -ForegroundColor Cyan
+        for ($i = 0; $i -lt $found.Count; $i++) {
+            Write-Host ("  [{0}] {1}" -f ($i + 1), $found[$i]) -ForegroundColor DarkGray
+        }
+        Write-Host ''
+        $sel = Read-Host "Show tail of which log? (1-$($found.Count), Enter=1)"
+        if ($sel -match '^\d+$' -and [int]$sel -ge 1 -and [int]$sel -le $found.Count) { $pick = $found[[int]$sel - 1] } else { $pick = $found[0] }
+
+        Write-Host ''
+        Write-Host "=== last 40 lines of $pick ===" -ForegroundColor Green
+        try {
+            Get-Content -LiteralPath $pick -Tail 40 -ErrorAction Stop | ForEach-Object { Write-Host $_ }
+        } catch {
+            Write-Host "Cannot read log: $($_.Exception.Message)" -ForegroundColor Red
+        }
         return
     }
 
-    Write-Host "Log sources found: $($found.Count)" -ForegroundColor Cyan
-    for ($i = 0; $i -lt $found.Count; $i++) {
-        Write-Host ("  [{0}] {1}" -f ($i + 1), $found[$i]) -ForegroundColor DarkGray
-    }
-    Write-Host ''
-    $sel = Read-Host "Show tail of which log? (1-$($found.Count), Enter=1)"
-    if ($sel -match '^\d+$' -and [int]$sel -ge 1 -and [int]$sel -le $found.Count) { $pick = $found[[int]$sel - 1] } else { $pick = $found[0] }
+    if ($mode -eq '2' -or $mode -eq '3') {
+        Write-Host ''
+        Write-Host 'Logcat filter:' -ForegroundColor Cyan
+        Write-Host '  [1] All (no filter)' -ForegroundColor White
+        Write-Host '  [2] Errors only (E)' -ForegroundColor White
+        Write-Host '  [3] Warnings + Errors (W)' -ForegroundColor White
+        Write-Host '  [4] Custom tag (e.g. ActivityManager)' -ForegroundColor White
+        $fmode = Read-Host 'Filter (Enter=1)'
+        if ($fmode -eq '') { $fmode = '1' }
 
-    Write-Host ''
-    Write-Host "=== last 40 lines of $pick ===" -ForegroundColor Green
-    try {
-        Get-Content -LiteralPath $pick -Tail 40 -ErrorAction Stop | ForEach-Object { Write-Host $_ }
-    } catch {
-        Write-Host "Cannot read log: $($_.Exception.Message)" -ForegroundColor Red
+        $filter = '*:*'
+        $filterDesc = 'all'
+        switch ($fmode) {
+            '2' { $filter = '*:E'; $filterDesc = 'errors only (E)' }
+            '3' { $filter = '*:W'; $filterDesc = 'warnings + errors (W)' }
+            '4' {
+                $tag = Read-Host 'Enter tag or package name (regex supported)'
+                if ($tag) {
+                    $level = Read-Host 'Min level? (V/D/I/W/E, Enter=V)'
+                    if (-not $level) { $level = 'V' }
+                    $filter = "${tag}:${level}"
+                    $filterDesc = "tag=${tag} level=${level}"
+                }
+            }
+        }
+
+        $logcatArgs = @('adb', '-v', $index, '-c', 'logcat', '-v', 'time', '-d', $filter)
+
+        if ($mode -eq '2') {
+            $logcatArgs += '-t'
+            $logcatArgs += '200'
+            Write-Host ''
+            Write-Host "=== adb logcat snapshot (last 200 lines, filter: $filterDesc) ===" -ForegroundColor Green
+            try {
+                $raw = & $MumuPath @logcatArgs 2>&1
+                if ($raw) {
+                    $raw | ForEach-Object { Write-Host $_ }
+                } else {
+                    Write-Host 'Empty output — instance may be stopped or no matching logs.' -ForegroundColor Yellow
+                }
+            } catch {
+                Write-Host "logcat failed: $($_.Exception.Message)" -ForegroundColor Red
+            }
+        } elseif ($mode -eq '3') {
+            $logcatArgs = @('adb', '-v', $index, '-c', 'logcat', '-v', 'time', $filter)
+            Write-Host ''
+            Write-Host "=== adb logcat LIVE (Ctrl+C to stop, filter: $filterDesc) ===" -ForegroundColor Green
+            Write-Host ''
+            try {
+                & $MumuPath @logcatArgs
+            } catch {
+                Write-Host "logcat interrupted or failed: $($_.Exception.Message)" -ForegroundColor Red
+            }
+        }
+        return
     }
+
+    Write-Host 'Invalid choice.' -ForegroundColor Yellow
 }
 
 function Get-AllIndices {
