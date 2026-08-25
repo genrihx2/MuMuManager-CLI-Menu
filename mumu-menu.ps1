@@ -382,8 +382,9 @@ function Get-InstanceIndex {
     Write-Host ''
 
     do {
-        $index = (Read-Host "$Prompt (0-9)").Trim()
-        if (-not $index) { $index = '0' }
+        $validRange = ($instances | ForEach-Object { $_.Index }) -join '/'
+        $index = (Read-Host "$Prompt ($validRange)").Trim()
+        if (-not $index -and $instances.Count -gt 0) { $index = $instances[0].Index }
 
         $exists = $instances | Where-Object { $_.Index -eq $index }
         if ($exists) {
@@ -1420,7 +1421,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.13.16' -ForegroundColor Green
+    Write-Host 'Script version: 1.13.17' -ForegroundColor Green
 
     # MuMu version
     try {
