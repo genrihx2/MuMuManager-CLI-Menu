@@ -1454,7 +1454,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.13.18' -ForegroundColor Green
+    Write-Host 'Script version: 1.13.19' -ForegroundColor Green
 
     # MuMu version
     try {
@@ -1797,7 +1797,7 @@ function Set-RandomDeviceIds {
 # Main loop
 do {
     Show-Menu
-    $choice = Read-Host 'Select option (0-9)'
+    $choice = Read-Host 'Select option (0 = Exit)'
 
     switch ($choice) {
         '1' { Show-InstanceInfo }
