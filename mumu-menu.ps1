@@ -416,7 +416,9 @@ function Get-InstanceIndex {
 
     do {
         $validRange = ($instances | ForEach-Object { $_.Index }) -join '/'
-        $index = (Read-Host "$Prompt ($validRange)").Trim()
+        $index = (Read-Host "$Prompt ($validRange, q=cancel)").Trim()
+        if ($index -eq 'q' -or $index -eq 'Q') { return $null }
+
         if (-not $index -and $instances.Count -gt 0) { $index = $instances[0].Index }
 
         $exists = $instances | Where-Object { $_.Index -eq $index }
@@ -473,6 +475,7 @@ $line                                        " -NoNewline
 
 function Show-InstanceInfo {
     $index = Get-InstanceIndex 'Select instance'
+    if (-not $index) { return }
     Write-Host ''
     Write-Host "Fetching info for instance $index..." -ForegroundColor Cyan
     $result = Invoke-Mumu info -v $index
@@ -485,6 +488,7 @@ function Show-InstanceInfo {
 
 function Start-Emulator {
     $index = Get-InstanceIndex 'Select instance to launch'
+    if (-not $index) { return }
     Write-Host ''
     Write-Host "Launching instance $index..." -ForegroundColor Cyan
 
@@ -495,6 +499,7 @@ function Start-Emulator {
 
 function Stop-Emulator {
     $index = Get-InstanceIndex 'Select instance to shutdown'
+    if (-not $index) { return }
     Write-Host ''
     Write-Host "Shutting down instance $index..." -ForegroundColor Cyan
 
@@ -513,6 +518,7 @@ function Stop-Emulator {
 
 function Restart-Emulator {
     $index = Get-InstanceIndex 'Select instance to restart'
+    if (-not $index) { return }
     Write-Host ''
     Write-Host "Restarting instance $index..." -ForegroundColor Cyan
 
@@ -563,6 +569,7 @@ function New-Emulator {
 
 function Copy-Emulator {
     $index = Get-InstanceIndex 'Select instance to clone'
+    if (-not $index) { return }
     Write-Host ''
     Write-Host "Cloning instance $index..." -ForegroundColor Cyan
 
@@ -591,6 +598,7 @@ function Copy-Emulator {
 
 function Remove-Emulator {
     $index = Get-InstanceIndex 'Select instance to DELETE'
+    if (-not $index) { return }
     Write-Host ''
     Write-Host "WARNING: This will permanently delete instance $index!" -ForegroundColor Red
     $confirm = Read-Host 'Type YES to confirm'
@@ -612,6 +620,7 @@ function Remove-Emulator {
 
 function Rename-Emulator {
     $index = Get-InstanceIndex 'Select instance to rename'
+    if (-not $index) { return }
     Write-Host ''
     $info = & $MumuPath info -v $index 2>$null | ConvertFrom-Json
     $oldName = $info.name
@@ -656,6 +665,7 @@ function Rename-Emulator {
 
 function Clear-AppData {
     $index = Get-InstanceIndex 'Select instance'
+    if (-not $index) { return }
     Write-Host ''
     $package = (Read-Host 'Enter package name').Trim()
     if (-not $package) { Write-Host 'Cancelled.' -ForegroundColor Yellow; return }
@@ -666,6 +676,7 @@ function Clear-AppData {
 
 function Stop-App {
     $index = Get-InstanceIndex 'Select instance'
+    if (-not $index) { return }
     Write-Host ''
     $package = (Read-Host 'Enter package name').Trim()
     if (-not $package) { Write-Host 'Cancelled.' -ForegroundColor Yellow; return }
@@ -676,6 +687,7 @@ function Stop-App {
 
 function Start-App {
     $index = Get-InstanceIndex 'Select instance'
+    if (-not $index) { return }
     Write-Host ''
     $package = (Read-Host 'Enter package name').Trim()
     if (-not $package) { Write-Host 'Cancelled.' -ForegroundColor Yellow; return }
@@ -686,6 +698,7 @@ function Start-App {
 
 function Backup-EmulatorData {
     $index = Get-InstanceIndex 'Select instance'
+    if (-not $index) { return }
     Write-Host ''
 
     $nxDir = Split-Path $MumuPath -Parent
@@ -819,6 +832,7 @@ function Backup-EmulatorData {
 
 function Export-Emulator {
     $index = Get-InstanceIndex 'Select instance to export'
+    if (-not $index) { return }
     Write-Host ''
     $exportDir = (Read-Host 'Enter export directory (or press Enter for current)').Trim()
     $exportDir = $exportDir.Trim('"').Trim()
@@ -1073,6 +1087,7 @@ function Update-Token {
 
 function Show-Logs {
     $index = Get-InstanceIndex 'Select instance'
+    if (-not $index) { return }
     Write-Host ''
 
     Write-Host '  [1] Static log files (api.log, etc.)' -ForegroundColor White
@@ -1307,6 +1322,7 @@ function Install-APK-All {
 
 function Show-Apps {
     $index = Get-InstanceIndex 'Select instance'
+    if (-not $index) { return }
     Write-Host ''
 
     # Check if running, offer to start
@@ -1372,6 +1388,7 @@ function Show-Apps {
 
 function Show-Settings {
     $index = Get-InstanceIndex 'Select instance'
+    if (-not $index) { return }
     Write-Host ''
     
     # Check if running
@@ -1392,6 +1409,7 @@ function Show-Settings {
 
 function Install-APK {
     $index = Get-InstanceIndex 'Select instance'
+    if (-not $index) { return }
     Write-Host ''
     $apkPath = (Read-Host 'Enter APK file path').Trim()
 
@@ -1431,6 +1449,7 @@ function Install-APK {
 
 function Uninstall-App {
     $index = Get-InstanceIndex 'Select instance'
+    if (-not $index) { return }
     Write-Host ''
     $package = (Read-Host 'Enter package name').Trim()
 
@@ -1454,7 +1473,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.13.20' -ForegroundColor Green
+    Write-Host 'Script version: 1.13.21' -ForegroundColor Green
 
     # MuMu version
     try {
@@ -1544,6 +1563,7 @@ function Set-WindowLayout {
 
 function Save-Screenshot {
     $index = Get-InstanceIndex 'Select instance'
+    if (-not $index) { return }
     Write-Host ''
 
     # Get ADB port for this instance
@@ -1593,6 +1613,7 @@ function Save-Screenshot {
 
 function Invoke-ADBCommand {
     $index = Get-InstanceIndex 'Select instance'
+    if (-not $index) { return }
     Write-Host ''
     $cmd = (Read-Host 'Enter ADB command').Trim()
 
@@ -1625,6 +1646,7 @@ function Confirm-SpoofConsent {
 function Set-DeviceModel {
     if (-not (Confirm-SpoofConsent)) { return }
     $index = Get-InstanceIndex 'Select instance'
+    if (-not $index) { return }
     Write-Host ''
 
     try {
@@ -1740,6 +1762,7 @@ function Set-RandomDeviceIds {
 
     if (-not (Confirm-SpoofConsent)) { return }
     $index = Get-InstanceIndex 'Select instance'
+    if (-not $index) { return }
     Write-Host ''
 
     try {
