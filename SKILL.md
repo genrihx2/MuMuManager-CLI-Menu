@@ -3,6 +3,16 @@ name: mumu-manager-cli
 description: 使用 MuMuManager.exe 对 MuMu 模拟器 12 实例进行统一管理与操作，包含实例配置、创建/克隆/删除/重命名、导入/导出、启动/关闭/重启/窗口控制、应用安装/卸载/启动/关闭、设备信息、系统工具、ADB 命令、驱动与排序等。适合编写脚本批量自动化管理 MuMu 模拟器时使用。
 ---
 # MuMuManager CLI
+
+## Цель и легитимность
+Утилита для управления **собственными** локальными инстансами MuMu Emulator. 
+Все операции выполняются локально через официальный `MuMuManager.exe`. 
+Функции спуфинга (модель устройства, идентификаторы) предназначены 
+для приватности и тестирования — **не** для имперсонации чужих устройств.
+
+> Open-source tool for managing your own MuMu Emulator instances locally.
+> Spoofing features are for privacy/testing on your own instances only.
+
 ## 用途
 使用命令行查询和管理 MuMu 模拟器 12 的实例与应用配置，适合账号矩阵、批量开关、自动化脚本、运维排障等场景。
 ## 前置要求
