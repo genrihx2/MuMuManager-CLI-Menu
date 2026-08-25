@@ -1425,7 +1425,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.13.14' -ForegroundColor Green
+    Write-Host 'Script version: 1.13.15' -ForegroundColor Green
 
     # MuMu version
     try {
