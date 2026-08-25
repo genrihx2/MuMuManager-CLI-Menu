@@ -59,17 +59,26 @@ function Get-GitHubToken {
 }
 
 function Initialize-TokenStorage {
-    # One-time migration: encrypt an existing plaintext token with DPAPI,
-    # then remove the plaintext file.
+    # One-time migration: encrypt an existing legacy plaintext token with DPAPI,
+    # then wipe its contents and delete the file. The script NEVER writes
+    # plaintext tokens itself; this path only consumes pre-existing ones.
     param([string]$Plain)
     try {
         $sec = ConvertTo-SecureString $Plain -AsPlainText -Force
         ConvertFrom-SecureString -SecureString $sec |
             Set-Content -LiteralPath $DpapiTokenFile -Force -ErrorAction Stop
-        Remove-Item -LiteralPath $TokenFile -Force -ErrorAction SilentlyContinue
-        Write-Host '  Token migrated to encrypted storage (.github-token.dpapi); plaintext file removed.' -ForegroundColor DarkGray
+        if (Test-Path -LiteralPath $TokenFile -PathType Leaf) {
+            try {
+                # Best-effort secure wipe before unlink
+                $len = [Math]::Max((Get-Item -LiteralPath $TokenFile).Length, 16)
+                [System.IO.File]::WriteAllText($TokenFile, ('0' * $len))
+            } catch {}
+            Remove-Item -LiteralPath $TokenFile -Force -ErrorAction SilentlyContinue
+        }
+        Write-Host '  Token migrated to encrypted storage (.github-token.dpapi); plaintext file wiped and removed.' -ForegroundColor DarkGray
     } catch {
         Write-Warning "Could not migrate token to encrypted storage: $($_.Exception.Message)"
+        Write-Warning 'The plaintext .github-token file was left untouched. Re-save via menu option [K].'
     }
 }
 
@@ -1480,7 +1489,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.13.23' -ForegroundColor Green
+    Write-Host 'Script version: 1.13.24' -ForegroundColor Green
 
     # MuMu version
     try {
