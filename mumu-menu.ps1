@@ -488,7 +488,7 @@ function Start-Emulator {
     Write-Host ''
     Write-Host "Launching instance $index..." -ForegroundColor Cyan
 
-    & $MumuPath api -v $index launch_player 2>&1 | ForEach-Object { Write-Host $ }
+    & $MumuPath api -v $index launch_player 2>&1 | ForEach-Object { Write-Host $_ }
 
     Wait-Boot -Index $index | Out-Null
 }
@@ -502,7 +502,7 @@ function Stop-Emulator {
     $outputStr = $output | Out-String
     if ($outputStr -match 'errcode') {
         Write-Host 'control shutdown failed, trying api...' -ForegroundColor Yellow
-        & $MumuPath api -v $index shutdown_player 2>&1 | ForEach-Object { Write-Host $ }
+        & $MumuPath api -v $index shutdown_player 2>&1 | ForEach-Object { Write-Host $_ }
     } else {
         Write-Host $output
     }
@@ -522,7 +522,7 @@ function Restart-Emulator {
     Start-Sleep -Seconds 5
 
     Write-Host 'Launching...'
-    & $MumuPath api -v $index launch_player 2>&1 | ForEach-Object { Write-Host $ }
+    & $MumuPath api -v $index launch_player 2>&1 | ForEach-Object { Write-Host $_ }
 
     Wait-Boot -Index $index | Out-Null
 }
@@ -1454,7 +1454,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.13.19' -ForegroundColor Green
+    Write-Host 'Script version: 1.13.20' -ForegroundColor Green
 
     # MuMu version
     try {
