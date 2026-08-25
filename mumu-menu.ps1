@@ -1173,15 +1173,22 @@ function Show-Logs {
         if ($mode -eq '2') {
             Write-Host ''
             Write-Host "=== adb logcat snapshot (last 200 lines, filter: $filterDesc) ===" -ForegroundColor Green
-            try {
-                $raw = & $MumuPath adb -v $index -c "logcat -v time -d -t 200 $filter" 2>&1
+            $job = Start-Job -ScriptBlock {
+                param($mp, $idx, $flt)
+                & $mp adb -v $idx -c "logcat -v time -d -t 200 $flt" 2>&1
+            } -ArgumentList $MumuPath, $index, $filter
+            if (Wait-Job $job -Timeout 30) {
+                $raw = Receive-Job $job
+                Remove-Job $job -Force
                 if ($raw) {
                     $raw | ForEach-Object { Write-Host $_ }
                 } else {
-                    Write-Host 'Empty output — instance may be stopped or no matching logs.' -ForegroundColor Yellow
+                    Write-Host 'Empty output — instance may be stopped, not authorized for adb, or no matching logs.' -ForegroundColor Yellow
                 }
-            } catch {
-                Write-Host "logcat failed: $($_.Exception.Message)" -ForegroundColor Red
+            } else {
+                Stop-Job $job -ErrorAction SilentlyContinue
+                Remove-Job $job -Force
+                Write-Host 'logcat timed out (30s). Emulator may still be booting or adb not authorized. Try live mode [3] or wait and retry.' -ForegroundColor Yellow
             }
         } elseif ($mode -eq '3') {
             Write-Host ''
@@ -1473,7 +1480,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.13.21' -ForegroundColor Green
+    Write-Host 'Script version: 1.13.22' -ForegroundColor Green
 
     # MuMu version
     try {
