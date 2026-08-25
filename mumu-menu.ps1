@@ -1121,15 +1121,11 @@ function Show-Logs {
             }
         }
 
-        $logcatArgs = @('adb', '-v', $index, '-c', 'logcat', '-v', 'time', '-d', $filter)
-
         if ($mode -eq '2') {
-            $logcatArgs += '-t'
-            $logcatArgs += '200'
             Write-Host ''
             Write-Host "=== adb logcat snapshot (last 200 lines, filter: $filterDesc) ===" -ForegroundColor Green
             try {
-                $raw = & $MumuPath @logcatArgs 2>&1
+                $raw = & $MumuPath adb -v $index -c "logcat -v time -d -t 200 $filter" 2>&1
                 if ($raw) {
                     $raw | ForEach-Object { Write-Host $_ }
                 } else {
@@ -1139,12 +1135,11 @@ function Show-Logs {
                 Write-Host "logcat failed: $($_.Exception.Message)" -ForegroundColor Red
             }
         } elseif ($mode -eq '3') {
-            $logcatArgs = @('adb', '-v', $index, '-c', 'logcat', '-v', 'time', $filter)
             Write-Host ''
             Write-Host "=== adb logcat LIVE (Ctrl+C to stop, filter: $filterDesc) ===" -ForegroundColor Green
             Write-Host ''
             try {
-                & $MumuPath @logcatArgs
+                & $MumuPath adb -v $index -c "logcat -v time $filter"
             } catch {
                 Write-Host "logcat interrupted or failed: $($_.Exception.Message)" -ForegroundColor Red
             }
@@ -1425,7 +1420,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.13.15' -ForegroundColor Green
+    Write-Host 'Script version: 1.13.16' -ForegroundColor Green
 
     # MuMu version
     try {
