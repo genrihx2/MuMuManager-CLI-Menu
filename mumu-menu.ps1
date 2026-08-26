@@ -26,6 +26,20 @@ $VersionFile = Join-Path $ScriptDir '.version'
 $TokenFile = Join-Path $ScriptDir '.github-token'
 $DpapiTokenFile = Join-Path $ScriptDir '.github-token.dpapi'
 
+# --- Apply pending update (from [U] which saved to .new) --------------------
+$newFile = Join-Path $ScriptDir 'mumu-menu.ps1.new'
+if (Test-Path -LiteralPath $newFile) {
+    $dstFile = Join-Path $ScriptDir 'mumu-menu.ps1'
+    try {
+        Copy-Item -LiteralPath $newFile -Destination $dstFile -Force
+        Remove-Item -LiteralPath $newFile -Force
+        Write-Host 'Update applied successfully!' -ForegroundColor Green
+        Start-Sleep -Seconds 1
+    } catch {
+        Write-Host "Failed to apply update: $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
+
 # --- GitHub token storage -------------------------------------------------
 # Canonical store: .github-token.dpapi - a DPAPI-encrypted (CurrentUser scope)
 # SecureString produced by ConvertFrom-SecureString. Only the same Windows
@@ -263,7 +277,7 @@ function Update-FromGitHub {
         # Primary: download the release ZIP asset (one request, no API rate limits).
         # Fallback: fetch individual files via the GitHub contents API.
         # Note: mumu-menu.ps1 cannot be overwritten while running on Windows,
-        # so we download it to a temp file and move it after exit.
+        # so we download it as .new and apply on next startup.
         $zipName = "MuMuManager-CLI-Menu-$tag.zip"
         $zipUrl = "https://github.com/$GitHubRepo/releases/download/$tag/$zipName"
         $tmp = Join-Path $env:TEMP "mumu_update_$stamp.zip"
@@ -285,10 +299,9 @@ function Update-FromGitHub {
                     if (-not $src) { Write-Host "    Missing in archive: $f" -ForegroundColor Red; $failed++; continue }
                     $dest = Join-Path $ScriptDir $f
                     if ($f -eq 'mumu-menu.ps1') {
-                        # Can't overwrite running script — save to temp, move after exit
-                        $dest = Join-Path $env:TEMP "mumu-menu.ps1.update_$stamp"
+                        # Can't overwrite running script — save as .new, apply on next startup
+                        $dest = Join-Path $ScriptDir "$f.new"
                         $pendingSelfUpdate = $true
-                        $script:pendingSelfUpdatePath = $dest
                     }
                     Copy-Item -LiteralPath $src.FullName -Destination $dest -Force
                     Write-Host "    $f OK" -ForegroundColor Green
@@ -312,10 +325,9 @@ function Update-FromGitHub {
                         throw 'unexpected mumu-menu.ps1 content'
                     }
                     if ($f -eq 'mumu-menu.ps1') {
-                        # Can't overwrite running script — save to temp, move after exit
-                        $dest = Join-Path $env:TEMP "mumu-menu.ps1.update_$stamp"
+                        # Can't overwrite running script — save as .new, apply on next startup
+                        $dest = Join-Path $ScriptDir "$f.new"
                         $pendingSelfUpdate = $true
-                        $script:pendingSelfUpdatePath = $dest
                     }
                     [System.IO.File]::WriteAllText($dest, $content, [System.Text.UTF8Encoding]::new($false))
                     Write-Host '    OK' -ForegroundColor Green
@@ -335,12 +347,7 @@ function Update-FromGitHub {
             Set-Content -Path $VersionFile -Value $tag -NoNewline -ErrorAction SilentlyContinue
             if ($pendingSelfUpdate) {
                 Write-Host ''
-                Write-Host 'Update downloaded. Applying on exit...' -ForegroundColor Green
-                $srcPath = $script:pendingSelfUpdatePath
-                $dstPath = Join-Path $ScriptDir 'mumu-menu.ps1'
-                # Schedule move after exit via a helper process
-                $moveScript = "Start-Sleep -Seconds 1; Move-Item -LiteralPath '$srcPath' -Destination '$dstPath' -Force; Remove-Item -LiteralPath '$PSCommandPath' -Force"
-                Start-Process powershell.exe -ArgumentList "-NoProfile", "-NonInteractive", "-Command", $moveScript -WindowStyle Hidden
+                Write-Host 'Update downloaded. Restart to apply.' -ForegroundColor Green
             } else {
                 Write-Host ''
                 Write-Host 'Update complete! Restart the menu to use the new version.' -ForegroundColor Green
