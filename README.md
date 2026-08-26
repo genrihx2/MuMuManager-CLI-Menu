@@ -328,7 +328,11 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 ## Что нового
 
 ### v1.13.40 (26.08.2026)
-- **SIM оператор `[SIM]`**: смена страны SIM (MCC/MNC + iso-country + alpha) через `adb setprop` — 15 пресетов (US, RU, GB, DE, FR, JP, KR, CN, IN, BR и др.) + кастом; для ленты TikTok — очистите кэш TikTok и перезапустите, setprop временный до ребута
+- **SIM оператор `[SIM]`**: смена страны SIM (MCC/MNC + iso-country + alpha) — 15 пресетов (US, RU, GB, DE, FR, JP, KR, CN, IN, BR и др.) + кастом; persist.mumu.mccmnc + gsm.sim.operator.* + settings global; для TikTok — очистите кэш и перезапустите
+- **Device ID `[DI]`**: теперь устанавливает IMEI через `simulation` + `setting phone_imei` (оба слоя); проверяет `simulation.json`; предложение рестарта с мгновенным `[R]`
+- Consent-окна теперь принимают `ok` (не только `OK`)
+- Исправлен Unicode-символ `→` ломавший PS 5.1 парсер на Windows
+- Sigma FP документация в SECURITY.md
 
 ### v1.13.39 (26.08.2026)
 - Удалена логика `.new`/`.old` — update и sign работают напрямую
