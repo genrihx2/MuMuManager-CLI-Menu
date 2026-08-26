@@ -1185,64 +1185,164 @@ function Update-Token {
 }
 
 function Create-Certificate {
-    Write-Host ''
-    Write-Host 'Certificate Manager' -ForegroundColor Cyan
-    Write-Host 'This will create a self-signed code signing certificate and sign mumu-menu.ps1' -ForegroundColor DarkGray
-    Write-Host ''
+    while ($true) {
+        Clear-Host
+        Write-Host 'Certificate Manager' -ForegroundColor Cyan
+        Write-Host 'Create self-signed code signing certificate and sign mumu-menu.ps1' -ForegroundColor DarkGray
+        Write-Host ''
 
-    # Check if cert already exists and has Code Signing EKU
-    $existing = Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.FriendlyName -eq 'MuMuManager-CLI-Menu-Token' }
-    if ($existing) {
-        $hasCodeSigningEku = $false
-        foreach ($ext in $existing.Extensions) {
-            if ($ext.Oid.Value -eq '1.3.6.1.5.5.7.3.3') { $hasCodeSigningEku = $true; break }
+        $existing = Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.FriendlyName -eq 'MuMuManager-CLI-Menu-Token' }
+        $defaultName = 'MuMuManager-CLI-Menu'
+        $defaultEmail = 'genrihlist@mail.ru'
+        $curName = $defaultName
+        $curEmail = $defaultEmail
+        if ($existing) {
+            if ($existing.Subject -match 'CN=([^,]+)') { $curName = $Matches[1].Trim() }
+            # Try SAN (RFC822) first, then subject E=
+            $sanEmail = $null
+            foreach ($ext in $existing.Extensions) {
+                if ($ext.Oid.Value -eq '2.5.29.17') {
+                    if ($ext.Format($false) -match '[\w\.\-+]+@[\w\.\-]+') { $sanEmail = $Matches[0] }
+                }
+            }
+            if ($sanEmail) { $curEmail = $sanEmail }
+            elseif ($existing.Subject -match 'E=([^,]+)') { $curEmail = $Matches[1].Trim() }
         }
 
-        if ($hasCodeSigningEku) {
-            Write-Host "Found valid certificate with Code Signing EKU: $($existing.Thumbprint)" -ForegroundColor Green
-            $cert = $existing
+        if ($existing) {
+            $hasEku = $false
+            foreach ($ext in $existing.Extensions) { if ($ext.Oid.Value -eq '1.3.6.1.5.5.7.3.3') { $hasEku = $true; break } }
+            $ekuStatus = if ($hasEku) { 'OK' } else { 'MISSING - will be replaced' }
+            Write-Host "Current certificate: $($existing.Thumbprint)" -ForegroundColor Green
+            Write-Host "  Name : $curName" -ForegroundColor White
+            Write-Host "  Email: $curEmail" -ForegroundColor White
+            Write-Host "  EKU  : $ekuStatus" -ForegroundColor $(if ($hasEku) { 'Green' } else { 'Yellow' })
+            Write-Host "  Valid: $($existing.NotBefore.ToString('yyyy-MM-dd')) -> $($existing.NotAfter.ToString('yyyy-MM-dd'))" -ForegroundColor DarkGray
+            $sig = Get-AuthenticodeSignature (Join-Path $ScriptDir 'mumu-menu.ps1') -ErrorAction SilentlyContinue
+            if ($sig) { Write-Host "  Script signature: $($sig.Status)" -ForegroundColor $(if ($sig.Status -eq 'Valid') { 'Green' } else { 'Yellow' }) }
+            Write-Host ''
         } else {
-            Write-Host "Found certificate without Code Signing EKU: $($existing.Thumbprint) - replacing..." -ForegroundColor Yellow
-            Remove-Item $existing.PSPath -Force
-            $cert = New-Certificate
+            Write-Host 'No certificate found.' -ForegroundColor Yellow
+            Write-Host "  Default Name : $curName" -ForegroundColor DarkGray
+            Write-Host "  Default Email: $curEmail" -ForegroundColor DarkGray
+            Write-Host ''
         }
-    } else {
-        $cert = New-Certificate
-    }
 
-    if ($cert) {
-        # Add to Trusted Root (Local Machine first, fallback to CurrentUser)
-        $added = $false
-        try {
-            $rootStore = New-Object System.Security.Cryptography.X509Certificates.X509Store 'Root', 'LocalMachine'
-            $rootStore.Open('ReadWrite')
-            if (-not ($rootStore.Certificates | Where-Object { $_.Thumbprint -eq $cert.Thumbprint })) {
-                $rootStore.Add($cert)
-                Write-Host 'Added certificate to Trusted Root (Local Machine)' -ForegroundColor Green
+        Write-Host '  [1] Create / Re-create and Sign (uses current Name/Email)' -ForegroundColor White
+        Write-Host '  [2] Change Name' -ForegroundColor White
+        Write-Host '  [3] Change Email' -ForegroundColor White
+        Write-Host '  [4] Create with custom Name & Email and Sign' -ForegroundColor White
+        Write-Host '  [5] Remove certificate' -ForegroundColor DarkYellow
+        Write-Host '  [0] Back to main menu' -ForegroundColor DarkGray
+        Write-Host ''
+        $choice = Read-Host 'Select option'
+        switch ($choice) {
+            '1' {
+                $cert = $null
+                if ($existing) {
+                    $hasEku = $false
+                    foreach ($ext in $existing.Extensions) { if ($ext.Oid.Value -eq '1.3.6.1.5.5.7.3.3') { $hasEku = $true; break } }
+                    if ($hasEku) {
+                        $cert = $existing
+                        Write-Host "Using existing certificate: $($cert.Thumbprint)" -ForegroundColor Green
+                    } else {
+                        Write-Host "Replacing certificate without EKU: $($existing.Thumbprint)" -ForegroundColor Yellow
+                        Remove-Item $existing.PSPath -Force
+                        $cert = New-Certificate -CertName $curName -CertEmail $curEmail
+                    }
+                } else {
+                    $cert = New-Certificate -CertName $curName -CertEmail $curEmail
+                }
+                if ($cert) { Add-CertToTrustedRoot $cert; Sign-Script $cert }
+                Read-Host 'Press Enter to continue'
             }
-            $rootStore.Close()
-            $added = $true
-        } catch {
-            Write-Host 'No admin rights for Local Machine store, using CurrentUser...' -ForegroundColor DarkGray
-        }
-        if (-not $added) {
-            $rootStore = New-Object System.Security.Cryptography.X509Certificates.X509Store 'Root', 'CurrentUser'
-            $rootStore.Open('ReadWrite')
-            if (-not ($rootStore.Certificates | Where-Object { $_.Thumbprint -eq $cert.Thumbprint })) {
-                $rootStore.Add($cert)
-                Write-Host 'Added certificate to Trusted Root (CurrentUser)' -ForegroundColor Green
+            '2' {
+                $n = Read-Host "Enter new Name [$curName]"
+                if ($n) { $curName = $n.Trim() }
+                if ($existing) { Remove-Item $existing.PSPath -Force; Write-Host 'Old certificate removed - will create new on next [1] or [4].' -ForegroundColor Yellow }
+                # Update default for next creation by removing existing so new Name is picked up via manual creation
+                $existing = $null
+                # Store as persisted override via a temp variable - actually just create immediately with new name
+                $cert = New-Certificate -CertName $curName -CertEmail $curEmail
+                if ($cert) { Add-CertToTrustedRoot $cert; Sign-Script $cert }
+                Read-Host 'Press Enter to continue'
             }
-            $rootStore.Close()
+            '3' {
+                $e = Read-Host "Enter new Email [$curEmail]"
+                if ($e) { $curEmail = $e.Trim() }
+                if ($existing) { Remove-Item $existing.PSPath -Force; Write-Host 'Old certificate removed.' -ForegroundColor Yellow }
+                $cert = New-Certificate -CertName $curName -CertEmail $curEmail
+                if ($cert) { Add-CertToTrustedRoot $cert; Sign-Script $cert }
+                Read-Host 'Press Enter to continue'
+            }
+            '4' {
+                $n = Read-Host "Enter Name [$curName]"
+                if (-not $n) { $n = $curName } else { $n = $n.Trim() }
+                $e = Read-Host "Enter Email [$curEmail]"
+                if (-not $e) { $e = $curEmail } else { $e = $e.Trim() }
+                if ($existing) { Remove-Item $existing.PSPath -Force }
+                $cert = New-Certificate -CertName $n -CertEmail $e
+                if ($cert) { Add-CertToTrustedRoot $cert; Sign-Script $cert }
+                Read-Host 'Press Enter to continue'
+            }
+            '5' {
+                if ($existing) {
+                    Remove-Item $existing.PSPath -Force
+                    Write-Host 'Certificate removed.' -ForegroundColor Yellow
+                    # Also try to remove from Trusted Root
+                    foreach ($storeName in @('LocalMachine', 'CurrentUser')) {
+                        try {
+                            $s = New-Object System.Security.Cryptography.X509Certificates.X509Store 'Root', $storeName
+                            $s.Open('ReadWrite')
+                            $found = $s.Certificates | Where-Object { $_.Thumbprint -eq $existing.Thumbprint }
+                            if ($found) { $s.Remove($found); Write-Host "Removed from Trusted Root ($storeName)" -ForegroundColor DarkGray }
+                            $s.Close()
+                        } catch {}
+                    }
+                } else { Write-Host 'No certificate to remove.' -ForegroundColor Yellow }
+                Read-Host 'Press Enter to continue'
+            }
+            '0' { return }
+            default { Write-Host 'Invalid choice' -ForegroundColor Red; Start-Sleep -Seconds 1 }
         }
-        Sign-Script $cert
+    }
+}
+
+function Add-CertToTrustedRoot {
+    param([System.Security.Cryptography.X509Certificates.X509Certificate2]$cert)
+    $added = $false
+    try {
+        $rootStore = New-Object System.Security.Cryptography.X509Certificates.X509Store 'Root', 'LocalMachine'
+        $rootStore.Open('ReadWrite')
+        if (-not ($rootStore.Certificates | Where-Object { $_.Thumbprint -eq $cert.Thumbprint })) {
+            $rootStore.Add($cert)
+            Write-Host 'Added certificate to Trusted Root (Local Machine)' -ForegroundColor Green
+        }
+        $rootStore.Close()
+        $added = $true
+    } catch {
+        Write-Host 'No admin rights for Local Machine store, using CurrentUser...' -ForegroundColor DarkGray
+    }
+    if (-not $added) {
+        $rootStore = New-Object System.Security.Cryptography.X509Certificates.X509Store 'Root', 'CurrentUser'
+        $rootStore.Open('ReadWrite')
+        if (-not ($rootStore.Certificates | Where-Object { $_.Thumbprint -eq $cert.Thumbprint })) {
+            $rootStore.Add($cert)
+            Write-Host 'Added certificate to Trusted Root (CurrentUser)' -ForegroundColor Green
+        }
+        $rootStore.Close()
     }
 }
 
 function New-Certificate {
+    param(
+        [string]$CertName = 'MuMuManager-CLI-Menu',
+        [string]$CertEmail = 'genrihlist@mail.ru'
+    )
     try {
-        # Create certificate with Code Signing EKU via TextExtension (PS 5.1 compatible)
-        $cert = New-SelfSignedCertificate -Subject 'CN=MuMuManager-CLI-Menu, E=genrihlist@mail.ru' -KeySpec Signature -FriendlyName 'MuMuManager-CLI-Menu-Token' -CertStoreLocation 'Cert:\CurrentUser\My' -NotAfter (Get-Date).AddYears(5) -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3", "2.5.29.17={text}email=genrihlist@mail.ru") -ErrorAction Stop
-        Write-Host "Created certificate with Code Signing EKU: $($cert.Thumbprint)" -ForegroundColor Green
+        $subject = "CN=$CertName, E=$CertEmail"
+        $cert = New-SelfSignedCertificate -Subject $subject -KeySpec Signature -FriendlyName 'MuMuManager-CLI-Menu-Token' -CertStoreLocation 'Cert:\CurrentUser\My' -NotAfter (Get-Date).AddYears(5) -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3", "2.5.29.17={text}email=$CertEmail") -ErrorAction Stop
+        Write-Host "Created certificate ($CertName <$CertEmail>): $($cert.Thumbprint)" -ForegroundColor Green
         return $cert
     } catch {
         Write-Host "Failed to create certificate: $($_.Exception.Message)" -ForegroundColor Red
