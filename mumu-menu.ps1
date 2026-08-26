@@ -192,7 +192,19 @@ function Update-FromGitHub {
         $release = Invoke-GitHubGet $relUrl 15 | ConvertFrom-Json
 
         if (-not $release -or -not $release.tag_name) {
-            if (-not $Passive) { Write-Host '  No releases found on remote' -ForegroundColor Yellow }
+            if ($release -and $release.message) {
+                $apiMsg = $release.message
+                if ($apiMsg -match 'rate limit') {
+                    if (-not $Passive) {
+                        Write-Host '  GitHub API rate limit exceeded (60 requests/hour without token).' -ForegroundColor Yellow
+                        Write-Host '  Add a token: menu [K] Update GitHub token (stored DPAPI-encrypted).' -ForegroundColor Yellow
+                    }
+                } else {
+                    if (-not $Passive) { Write-Host "  GitHub API: $apiMsg" -ForegroundColor Yellow }
+                }
+            } else {
+                if (-not $Passive) { Write-Host '  No releases found on remote' -ForegroundColor Yellow }
+            }
             return
         }
 
