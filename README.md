@@ -325,6 +325,9 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Что нового
 
+### v1.13.39 (26.08.2026)
+- Удалена логика `.new`/`.old` — update и sign работают напрямую
+
 ### v1.13.38 (26.08.2026)
 - Docs: убраны упоминания `.new` из changelog (строки 343,348,358)
 
