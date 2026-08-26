@@ -1149,12 +1149,27 @@ function Create-Certificate {
 
 function New-Certificate {
     try {
-        $cert = New-SelfSignedCertificate -Subject 'CN=MuMuManager-CLI-Menu' -KeySpec Signature -FriendlyName 'MuMuManager-CLI-Menu-Token' -CertStoreLocation 'Cert:\CurrentUser\My' -NotAfter (Get-Date).AddYears(5)
+        # Try modern parameter first (PowerShell 7+ / Windows 10 1709+)
+        $cert = New-SelfSignedCertificate -Subject 'CN=MuMuManager-CLI-Menu' -Type CodeSigningCert -FriendlyName 'MuMuManager-CLI-Menu-Token' -CertStoreLocation 'Cert:\CurrentUser\My' -NotAfter (Get-Date).AddYears(5) -ErrorAction Stop
         Write-Host "Created certificate: $($cert.Thumbprint)" -ForegroundColor Green
         return $cert
     } catch {
-        Write-Host "Failed to create certificate: $($_.Exception.Message)" -ForegroundColor Red
-        return $null
+        # Fallback for older PowerShell: use Signature KeySpec + add Code Signing EKU manually
+        try {
+            Write-Host 'Trying fallback method...' -ForegroundColor Yellow
+            $cert = New-SelfSignedCertificate -Subject 'CN=MuMuManager-CLI-Menu' -KeySpec Signature -FriendlyName 'MuMuManager-CLI-Menu-Token' -CertStoreLocation 'Cert:\CurrentUser\My' -NotAfter (Get-Date).AddYears(5) -ErrorAction Stop
+            
+            # Add Code Signing EKU (1.3.6.1.5.5.7.3.3) to the certificate
+            $eku = [System.Security.Cryptography.Oid]'1.3.6.1.5.5.7.3.3'
+            $ext = New-Object System.Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension($eku, $false)
+            $cert.Extensions.Add($ext)
+            
+            Write-Host "Created certificate with Code Signing EKU: $($cert.Thumbprint)" -ForegroundColor Green
+            return $cert
+        } catch {
+            Write-Host "Failed to create certificate: $($_.Exception.Message)" -ForegroundColor Red
+            return $null
+        }
     }
 }
 
