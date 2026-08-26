@@ -657,9 +657,9 @@ function Rename-Emulator {
                 try {
                     $parsed = $msg | ConvertFrom-Json
                     if ($parsed.errmsg) { $msg = $parsed.errmsg }
-} catch {
-            Write-Warning "Token migration skip: $($_.Exception.Message)"
-                Write-Host "Rename failed: $msg" -ForegroundColor Red
+                } catch {
+                    Write-Host "Rename failed: $msg" -ForegroundColor Red
+                }
             } else {
                 Write-Host 'Renamed.' -ForegroundColor Green
             }
@@ -668,6 +668,8 @@ function Rename-Emulator {
             & taskkill /IM MuMuManager.exe /F 2>&1 | Out-Null
             Write-Host 'Rename timed out (emulator service did not respond).' -ForegroundColor Red
         }
+    } catch {
+        Write-Host "Rename error: $($_.Exception.Message)" -ForegroundColor Red
     } finally {
         Remove-Job $job -Force -ErrorAction SilentlyContinue
     }
@@ -1672,7 +1674,6 @@ function Confirm-SpoofConsent {
 # Documents that commands run inside the user's OWN emulator Android VM
 # (each instance is an isolated device) and requires explicit acknowledgement.
 $script:AdbConsentAccepted = $false
-[System.Diagnostics.CodeAnalysis.SuppressMessage("PSAvoidUsingWriteHost", "Menu colors – intentional output")]
 function Confirm-AdbConsent {
     if ($script:AdbConsentAccepted) { return $true }
     Write-Host ''
