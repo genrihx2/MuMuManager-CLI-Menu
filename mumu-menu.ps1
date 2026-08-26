@@ -1200,16 +1200,23 @@ function Sign-Script {
         return
     }
 
+    # Copy to temp, sign the copy, then move back (can't sign a running file)
+    $tmpPath = Join-Path $env:TEMP "mumu-menu_sign.ps1"
     try {
+        Copy-Item -LiteralPath $scriptPath -Destination $tmpPath -Force
         Write-Host "Signing $scriptPath..." -ForegroundColor Cyan
-        Set-AuthenticodeSignature -FilePath $scriptPath -Certificate $cert -HashAlgorithm SHA256
-        $sig = Get-AuthenticodeSignature $scriptPath
-        Write-Host "Signature status: $($sig.Status)" -ForegroundColor $(if ($sig.Status -eq 'Valid') { 'Green' } else { 'Red' })
-        if ($sig.Status -eq 'Valid') {
+        $result = Set-AuthenticodeSignature -FilePath $tmpPath -Certificate $cert -HashAlgorithm SHA256
+        if ($result.Status -eq 'Valid') {
+            Copy-Item -LiteralPath $tmpPath -Destination $scriptPath -Force
+            Write-Host "Signature status: Valid" -ForegroundColor Green
             Write-Host 'Script signed successfully! You can now run with AllSigned policy.' -ForegroundColor Green
+        } else {
+            Write-Host "Signing failed: $($result.StatusMessage)" -ForegroundColor Red
         }
     } catch {
         Write-Host "Signing failed: $($_.Exception.Message)" -ForegroundColor Red
+    } finally {
+        Remove-Item -LiteralPath $tmpPath -Force -ErrorAction SilentlyContinue
     }
 }
 
