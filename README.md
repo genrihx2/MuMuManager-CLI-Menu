@@ -324,6 +324,9 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Что нового
 
+### v1.13.28 (26.08.2026)
+- `.version` теперь включается в релизный ZIP-архив
+
 ### v1.13.27 (26.08.2026)
 - **Fix обновления `[U]`**: заголовок `Accept: application/vnd.github.raw` ошибочно применялся ко всем запросам API (включая `/releases/latest`), из-за чего проверка обновлений всегда возвращала «No releases found»; теперь `raw` применяется только к `/contents/`, остальные эндпоинты используют `v3+json`
 - **CodeQL Action v4**: обновлен `github/codeql-action/upload-sarif` с `v3` на `v4` (v3 deprecated Dec 2026)
