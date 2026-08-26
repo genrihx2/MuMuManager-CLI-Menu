@@ -40,8 +40,12 @@ if (Test-Path -LiteralPath $newFile) {
         Rename-Item -LiteralPath $newFile -NewName (Split-Path $oldFile -Leaf) -Force
         $cmdLines = @(
             '@echo off'
+            ":retry"
             "timeout /t 2 /nobreak >nul"
-            "copy /y `"$oldFile`" `"$dstFile`" >nul"
+            "copy /y `"$oldFile`" `"$dstFile`" >nul 2>&1"
+            'if errorlevel 1 goto retry'
+            "fc /b `"$oldFile`" `"$dstFile`" >nul 2>&1"
+            'if errorlevel 1 goto retry'
             "del `"$oldFile`""
             "del `"%~f0`""
         )
