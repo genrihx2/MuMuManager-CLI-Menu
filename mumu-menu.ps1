@@ -1672,6 +1672,7 @@ function Confirm-SpoofConsent {
 # Documents that commands run inside the user's OWN emulator Android VM
 # (each instance is an isolated device) and requires explicit acknowledgement.
 $script:AdbConsentAccepted = $false
+[System.Diagnostics.CodeAnalysis.SuppressMessage("PSAvoidUsingWriteHost", "Menu colors – intentional output")]
 function Confirm-AdbConsent {
     if ($script:AdbConsentAccepted) { return $true }
     Write-Host ''
