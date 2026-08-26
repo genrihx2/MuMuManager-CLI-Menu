@@ -325,6 +325,10 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Что нового
 
+### v1.13.36 (26.08.2026)
+- Refactor: убран `.old` — хелпер копирует `.new` напрямую в `mumu-menu.ps1`
+- `[1]` не создаёт `.new` если подпись уже Valid с текущим сертификатом
+
 ### v1.13.35 (26.08.2026)
 - **Update `[U]`**: хелпер с ретраем `copy` + `fc /b` — `.old` не остаётся; `[1]` в `[CRT]` не создаёт `.new` если подпись уже Valid
 - `[CRT]` 8 пунктов: `[2]` Create Email / `[3]` Create Name, `.gitignore` для `*.old`/`*.new`
