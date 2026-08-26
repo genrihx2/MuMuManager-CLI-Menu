@@ -1226,7 +1226,7 @@ function Create-Certificate {
 function New-Certificate {
     try {
         # Create certificate with Code Signing EKU via TextExtension (PS 5.1 compatible)
-        $cert = New-SelfSignedCertificate -Subject 'CN=MuMuManager-CLI-Menu, E=genrihlist@mail.ru' -KeySpec Signature -FriendlyName 'MuMuManager-CLI-Menu-Token' -CertStoreLocation 'Cert:\CurrentUser\My' -NotAfter (Get-Date).AddYears(5) -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3") -ErrorAction Stop
+        $cert = New-SelfSignedCertificate -Subject 'CN=MuMuManager-CLI-Menu, E=genrihlist@mail.ru' -KeySpec Signature -FriendlyName 'MuMuManager-CLI-Menu-Token' -CertStoreLocation 'Cert:\CurrentUser\My' -NotAfter (Get-Date).AddYears(5) -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3", "2.5.29.17={text}email=genrihlist@mail.ru") -ErrorAction Stop
         Write-Host "Created certificate with Code Signing EKU: $($cert.Thumbprint)" -ForegroundColor Green
         return $cert
     } catch {
@@ -1250,7 +1250,7 @@ function Sign-Script {
     try {
         Copy-Item -LiteralPath $scriptPath -Destination $tmpPath -Force
         Write-Host "Signing..." -ForegroundColor Cyan
-        $result = Set-AuthenticodeSignature -FilePath $tmpPath -Certificate $cert -HashAlgorithm SHA256
+        $result = Set-AuthenticodeSignature -FilePath $tmpPath -Certificate $cert -HashAlgorithm SHA256 -TimestampServer 'http://timestamp.digicert.com'
         if ($result.Status -eq 'Valid') {
             if (Test-Path -LiteralPath $newPath) { Remove-Item -LiteralPath $newPath -Force }
             Copy-Item -LiteralPath $tmpPath -Destination $newPath -Force
