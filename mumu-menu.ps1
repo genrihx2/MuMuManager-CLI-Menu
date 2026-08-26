@@ -405,6 +405,7 @@ function Show-Menu {
     Write-Host '  [E] Export emulator data' -ForegroundColor Yellow
     Write-Host '  [BA] Backup instance data' -ForegroundColor Yellow
     Write-Host '  [K] Update GitHub token' -ForegroundColor Yellow
+    Write-Host '  [CRT] Create/sign certificate' -ForegroundColor Yellow
     Write-Host '  [Z] Security audit (disabled)' -ForegroundColor Yellow
     Write-Host ''
     Write-Host '  --- Spoofing ---' -ForegroundColor Green
@@ -1117,6 +1118,65 @@ function Update-Token {
         Write-Host "Token valid ($($user.login)). Saved ENCRYPTED via DPAPI (.github-token.dpapi)." -ForegroundColor Green
     } else {
         Write-Host 'Cancelled (empty input).' -ForegroundColor Yellow
+    }
+}
+
+function Create-Certificate {
+    Write-Host ''
+    Write-Host 'Certificate Manager' -ForegroundColor Cyan
+    Write-Host 'This will create a self-signed code signing certificate and sign mumu-menu.ps1' -ForegroundColor DarkGray
+    Write-Host ''
+
+    # Check if cert already exists
+    $existing = Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.Subject -eq 'CN=MuMuManager-CLI-Menu' -and $_.FriendlyName -eq 'MuMuManager-CLI-Menu-Token' }
+    if ($existing) {
+        Write-Host "Found existing certificate: $($existing.Thumbprint)" -ForegroundColor Green
+        $choice = Read-Host 'Use existing certificate? (Y/n)'
+        if ($choice -ne 'n' -and $choice -ne 'N') {
+            $cert = $existing
+        } else {
+            Remove-Item $existing.PSPath -Force
+            $cert = New-Certificate
+        }
+    } else {
+        $cert = New-Certificate
+    }
+
+    if ($cert) {
+        Sign-Script $cert
+    }
+}
+
+function New-Certificate {
+    try {
+        $cert = New-SelfSignedCertificate -Subject 'CN=MuMuManager-CLI-Menu' -KeySpec CodeSigning -FriendlyName 'MuMuManager-CLI-Menu-Token' -CertStoreLocation 'Cert:\CurrentUser\My' -NotAfter (Get-Date).AddYears(5)
+        Write-Host "Created certificate: $($cert.Thumbprint)" -ForegroundColor Green
+        return $cert
+    } catch {
+        Write-Host "Failed to create certificate: $($_.Exception.Message)" -ForegroundColor Red
+        return $null
+    }
+}
+
+function Sign-Script {
+    param([System.Security.Cryptography.X509Certificates.X509Certificate2]$cert)
+
+    $scriptPath = Join-Path $ScriptDir 'mumu-menu.ps1'
+    if (-not (Test-Path -LiteralPath $scriptPath)) {
+        Write-Host "Script not found: $scriptPath" -ForegroundColor Red
+        return
+    }
+
+    try {
+        Write-Host "Signing $scriptPath..." -ForegroundColor Cyan
+        Set-AuthenticodeSignature -FilePath $scriptPath -Certificate $cert -HashAlgorithm SHA256
+        $sig = Get-AuthenticodeSignature $scriptPath
+        Write-Host "Signature status: $($sig.Status)" -ForegroundColor $(if ($sig.Status -eq 'Valid') { 'Green' } else { 'Red' })
+        if ($sig.Status -eq 'Valid') {
+            Write-Host 'Script signed successfully! You can now run with AllSigned policy.' -ForegroundColor Green
+        }
+    } catch {
+        Write-Host "Signing failed: $($_.Exception.Message)" -ForegroundColor Red
     }
 }
 
@@ -1955,6 +2015,8 @@ do {
         'V' { Show-VersionInfo }
         'u' { Update-FromGitHub }
         'U' { Update-FromGitHub }
+        'crt' { Create-Certificate }
+        'CRT' { Create-Certificate }
         'q' {
             Write-Host 'Goodbye!' -ForegroundColor Cyan
             exit
