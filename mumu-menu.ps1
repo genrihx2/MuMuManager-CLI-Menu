@@ -72,7 +72,9 @@ function Initialize-TokenStorage {
                 # Best-effort secure wipe before unlink
                 $len = [Math]::Max((Get-Item -LiteralPath $TokenFile).Length, 16)
                 [System.IO.File]::WriteAllText($TokenFile, ('0' * $len))
-            } catch {}
+            } catch {
+                Write-Warning "Token file wipe failed: $($_.Exception.Message)"
+            }
             Remove-Item -LiteralPath $TokenFile -Force -ErrorAction SilentlyContinue
         }
         Write-Host '  Token migrated to encrypted storage (.github-token.dpapi); plaintext file wiped and removed.' -ForegroundColor DarkGray
@@ -88,7 +90,9 @@ $GitHubToken = Get-GitHubToken
 # "The underlying connection was closed: An unexpected error occurred on a send.")
 try {
     [Net.ServicePointManager]::SecurityProtocol = ([Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12)
-} catch {}
+} catch {
+    Write-Warning "TLS 1.2 enable failed: $($_.Exception.Message)"
+}
 
 function Invoke-GitHubGet {
     param([string]$Url, [int]$TimeoutSec = 30)
@@ -127,7 +131,9 @@ if (-not $MumuPath) {
             $regPath = Join-Path $reg.InstallPath 'nx_main\MuMuManager.exe'
             if (Test-Path $regPath) { $MumuPath = $regPath }
         }
-    } catch {}
+    } catch {
+        Write-Warning "Registry lookup failed: $($_.Exception.Message)"
+    }
 }
 
 # Check if MuMuManager.exe exists
@@ -149,11 +155,12 @@ function Get-ContentHash {
 }
 
 function Update-FromGitHub {
+    [CmdletBinding(SupportsShouldProcess=$true)]
     # Passive mode = read-only version check (used at startup).
     # Downloads happen only in interactive mode via menu option [U].
     param([switch]$Passive)
 
-    if ($Passive) {
+    if (-not $Passive -and -not $PSCmdlet.ShouldProcess('Script', 'Check for updates and optionally download')) { return }
         Write-Host 'Update check (read-only)...' -ForegroundColor DarkGray
     } else {
         Write-Host ''
@@ -496,6 +503,8 @@ function Show-InstanceInfo {
 }
 
 function Start-Emulator {
+    [CmdletBinding(SupportsShouldProcess=$true)]
+    if (-not $PSCmdlet.ShouldProcess("Instance $index", "Start emulator")) { return }
     $index = Get-InstanceIndex 'Select instance to launch'
     if (-not $index) { return }
     Write-Host ''
@@ -507,6 +516,8 @@ function Start-Emulator {
 }
 
 function Stop-Emulator {
+    [CmdletBinding(SupportsShouldProcess=$true)]
+    if (-not $PSCmdlet.ShouldProcess("Instance $index", "Shut down emulator")) { return }
     $index = Get-InstanceIndex 'Select instance to shutdown'
     if (-not $index) { return }
     Write-Host ''
@@ -526,6 +537,8 @@ function Stop-Emulator {
 }
 
 function Restart-Emulator {
+    [CmdletBinding(SupportsShouldProcess=$true)]
+    if (-not $PSCmdlet.ShouldProcess("Instance $index", "Restart emulator")) { return }
     $index = Get-InstanceIndex 'Select instance to restart'
     if (-not $index) { return }
     Write-Host ''
@@ -543,6 +556,8 @@ function Restart-Emulator {
 }
 
 function New-Emulator {
+    [CmdletBinding(SupportsShouldProcess=$true)]
+    if (-not $PSCmdlet.ShouldProcess('Emulator', 'Create new instance')) { return }
     Write-Host ''
     Write-Host 'Creating new emulator...' -ForegroundColor Cyan
     Write-Host ''
@@ -606,6 +621,8 @@ function Copy-Emulator {
 }
 
 function Remove-Emulator {
+    [CmdletBinding(SupportsShouldProcess=$true)]
+    if (-not $PSCmdlet.ShouldProcess("Instance $index", "Permanently delete emulator instance")) { return }
     $index = Get-InstanceIndex 'Select instance to DELETE'
     if (-not $index) { return }
     Write-Host ''
@@ -642,6 +659,7 @@ function Rename-Emulator {
     Write-Host "Renaming to '$newName'..." -ForegroundColor Cyan
 
     $job = Start-Job -ScriptBlock {
+        # PSVariableUsedInScriptBlock: variables passed via param + ArgumentList
         param($mp, $idx, $nm)
         $out = & $mp rename -v $idx -n $nm 2>&1 | Out-String
         "EXIT:$LASTEXITCODE`n$out"
@@ -890,7 +908,9 @@ function Export-Emulator {
         try {
             $parsed = $result | ConvertFrom-Json
             if ($parsed.errmsg) { $msg = $parsed.errmsg }
-        } catch {}
+        } catch {
+            Write-Warning "Export parse error: $($_.Exception.Message)"
+        }
         Write-Host "Export failed: $msg" -ForegroundColor Red
     }
 }
@@ -986,7 +1006,7 @@ function Test-Security {
             $dangerCount++
         }
     }
-    
+
     $tracked = git -C $ScriptDir ls-files '.github-token*' 2>$null
     if ($tracked) {
         Write-Host '  Git tracking: TOKEN TRACKED (BAD!)' -ForegroundColor Red
@@ -1047,6 +1067,8 @@ function Test-Security {
 }
 
 function Update-Token {
+    [CmdletBinding(SupportsShouldProcess=$true)]
+    if (-not $PSCmdlet.ShouldProcess('GitHub Token', 'Update or migrate token')) { return }
     Write-Host ''
     Write-Host 'GitHub Token Manager' -ForegroundColor Cyan
 
@@ -1100,6 +1122,7 @@ function Update-Token {
     }
 }
 
+# PSUseSingularNouns: intentional plural for menu command (shows multiple log types)
 function Show-Logs {
     $index = Get-InstanceIndex 'Select instance'
     if (-not $index) { return }
@@ -1189,6 +1212,7 @@ function Show-Logs {
             Write-Host ''
             Write-Host "=== adb logcat snapshot (last 200 lines, filter: $filterDesc) ===" -ForegroundColor Green
             $job = Start-Job -ScriptBlock {
+                # PSVariableUsedInScriptBlock: variables passed via param + ArgumentList
                 param($mp, $idx, $flt)
                 & $mp adb -v $idx -c "logcat -v time -d -t 200 $flt" 2>&1
             } -ArgumentList $MumuPath, $index, $filter
@@ -1221,12 +1245,15 @@ function Show-Logs {
     Write-Host 'Invalid choice.' -ForegroundColor Yellow
 }
 
+# PSUseSingularNouns: intentional plural (returns multiple indices)
 function Get-AllIndices {
     $info = & $MumuPath info -v all 2>$null | ConvertFrom-Json
     return $info.PSObject.Properties.Name
 }
 
 function Start-All {
+    [CmdletBinding(SupportsShouldProcess=$true)]
+    if (-not $PSCmdlet.ShouldProcess('All instances', 'Start all emulators')) { return }
     $indices = Get-AllIndices
     Write-Host ''
     Write-Host "Found $($indices.Count) instances" -ForegroundColor Cyan
@@ -1266,6 +1293,8 @@ function Start-All {
 }
 
 function Stop-All {
+    [CmdletBinding(SupportsShouldProcess=$true)]
+    if (-not $PSCmdlet.ShouldProcess('All instances', 'Shut down all emulators')) { return }
     $indices = Get-AllIndices
     Write-Host ''
     Write-Host "Found $($indices.Count) instances" -ForegroundColor Cyan
@@ -1287,6 +1316,8 @@ function Stop-All {
 }
 
 function Restart-All {
+    [CmdletBinding(SupportsShouldProcess=$true)]
+    if (-not $PSCmdlet.ShouldProcess('All instances', 'Restart all emulators')) { return }
     Stop-All
     Write-Host ''
     Write-Host 'Waiting for main services...' -ForegroundColor Yellow
@@ -1342,6 +1373,7 @@ function Install-APK-All {
     Write-Host "Done! Success: $success, Failed: $failed" -ForegroundColor Cyan
 }
 
+# PSUseSingularNouns: intentional plural (lists multiple apps)
 function Show-Apps {
     $index = Get-InstanceIndex 'Select instance'
     if (-not $index) { return }
@@ -1408,18 +1440,19 @@ function Show-Apps {
     }
 }
 
+# PSUseSingularNouns: intentional plural (shows multiple settings)
 function Show-Settings {
     $index = Get-InstanceIndex 'Select instance'
     if (-not $index) { return }
     Write-Host ''
-    
+
     # Check if running
     $info = & $MumuPath info -v $index 2>$null | ConvertFrom-Json
     if (-not $info.is_process_started) {
         Write-Host 'Emulator is not running! Start it first.' -ForegroundColor Red
         return
     }
-    
+
     Write-Host 'Fetching settings...' -ForegroundColor Cyan
     $result = & $MumuPath setting -v $index --all_writable 2>&1 | Out-String
     if ($result -match 'errcode.*-1') {
@@ -1465,7 +1498,9 @@ function Install-APK {
     try {
         $parsed = $result | ConvertFrom-Json
         if ($parsed.errmsg) { $msg = $parsed.errmsg }
-    } catch {}
+    } catch {
+        Write-Warning "Install parse error: $($_.Exception.Message)"
+    }
     Write-Host "Install failed: $msg" -ForegroundColor Red
 }
 
@@ -1575,6 +1610,8 @@ function Hide-Windows {
 }
 
 function Set-WindowLayout {
+    [CmdletBinding(SupportsShouldProcess=$true)]
+    if (-not $PSCmdlet.ShouldProcess('All running emulator windows', 'Arrange windows')) { return }
     Write-Host ''
     Write-Host 'Arranging emulator windows...' -ForegroundColor Cyan
     $output = & $MumuPath control -v all layout_window 2>&1 | Out-String
@@ -1691,7 +1728,9 @@ function Confirm-AdbConsent {
 }
 
 function Set-DeviceModel {
+    [CmdletBinding(SupportsShouldProcess=$true)]
     if (-not (Confirm-SpoofConsent)) { return }
+    if (-not $PSCmdlet.ShouldProcess("Instance $index", "Set device model")) { return }
     $index = Get-InstanceIndex 'Select instance'
     if (-not $index) { return }
     Write-Host ''
@@ -1703,7 +1742,9 @@ function Set-DeviceModel {
         Write-Host "  Model: $($info.phone_model)" -ForegroundColor White
         Write-Host "  Code:  $($info.phone_miit)" -ForegroundColor White
         Write-Host ''
-    } catch {}
+    } catch {
+        Write-Warning "Current model read failed: $($_.Exception.Message)"
+    }
 
     $presets = @(
         @{ Brand = 'Samsung'; Model = 'Galaxy S23 Ultra';  Code = 'SM-S918B' },
@@ -1767,7 +1808,9 @@ function Set-DeviceModel {
                 & $MumuPath adb -v $index -c "shell settings put global device_name $escaped" 2>&1 | Out-Null
                 Write-Host 'Device name updated live.' -ForegroundColor DarkGray
             }
-        } catch {}
+        } catch {
+            Write-Warning "Live device name update failed: $($_.Exception.Message)"
+        }
         Write-Host 'Restart the emulator to fully apply build properties.' -ForegroundColor Yellow
     } catch {
         Write-Host "Failed: $($_.Exception.Message)" -ForegroundColor Red
@@ -1775,6 +1818,8 @@ function Set-DeviceModel {
 }
 
 function New-RandomImei {
+    [CmdletBinding(SupportsShouldProcess=$true)]
+    if (-not $PSCmdlet.ShouldProcess("Instance $index", "Generate random IMEI")) { return }
     $base = '35'
     1..12 | ForEach-Object { $base += Get-Random -Minimum 0 -Maximum 10 }
     $sum = 0
@@ -1790,11 +1835,15 @@ function New-RandomImei {
 }
 
 function New-RandomAndroidId {
+    [CmdletBinding(SupportsShouldProcess=$true)]
+    if (-not $PSCmdlet.ShouldProcess("Instance $index", "Generate random Android ID")) { return }
     # 16 hex chars, e.g. "13f454f21c0f5f57"
     [guid]::NewGuid().ToString('N').Substring(0, 16)
 }
 
 function New-RandomMac {
+    [CmdletBinding(SupportsShouldProcess=$true)]
+    if (-not $PSCmdlet.ShouldProcess("Instance $index", "Generate random MAC")) { return }
     # Locally administered unicast MAC from random bytes
     $bytes = [byte[]]::new(6)
     [System.Random]::new().NextBytes($bytes)
@@ -1804,12 +1853,15 @@ function New-RandomMac {
 
 # Privacy/testing feature: randomizes identifiers of the user's own emulator
 # instance so it does not reuse factory/default values.
+# PSUseSingularNouns: intentional plural (randomizes multiple ID types)
 function Set-RandomDeviceIds {
+    [CmdletBinding(SupportsShouldProcess=$true)]
     param([string]$Mode)
 
     if (-not (Confirm-SpoofConsent)) { return }
     $index = Get-InstanceIndex 'Select instance'
     if (-not $index) { return }
+    if (-not $PSCmdlet.ShouldProcess("Instance $index", "Randomize device identifiers (IMEI/Android ID/MAC)")) { return }
     Write-Host ''
 
     try {
@@ -1819,7 +1871,9 @@ function Set-RandomDeviceIds {
         Write-Host "  Android ID: $(if ($sim.android_id) { $sim.android_id } else { '(not set)' })" -ForegroundColor White
         Write-Host "  MAC:        $(if ($sim.mac_address) { $sim.mac_address } else { '(not set)' })" -ForegroundColor White
         Write-Host ''
-    } catch {}
+    } catch {
+        Write-Warning "Could not read simulated properties: $($_.Exception.Message)"
+    }
 
     if (-not $Mode) {
         Write-Host 'Randomize:' -ForegroundColor Cyan
