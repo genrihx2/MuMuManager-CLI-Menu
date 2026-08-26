@@ -2227,7 +2227,7 @@ function Set-RandomDeviceIds {
     if (-not $index) { return }
     Write-Host ''
 
-    # Show current values from both simulation and setting
+    # Show current values
     try {
         $sim = & $MumuPath simulation -v $index 2>$null | ConvertFrom-Json
         Write-Host 'Current simulation values:' -ForegroundColor DarkGray
@@ -2269,42 +2269,84 @@ function Set-RandomDeviceIds {
         'all'          { @('imei', 'android_id', 'mac_address') }
     }
 
+    # Collect new values
+    $vals = @{}
     foreach ($t in $targets) {
         switch ($t) {
-            'imei'        { $val = New-RandomImei }
-            'android_id'  { $val = New-RandomAndroidId }
-            'mac_address' { $val = New-RandomMac }
-        }
-        try {
-            # 1) simulation (virtual hardware layer)
-            $simOut = & $MumuPath simulation -v $index -sk $t -sv $val 2>&1
-            # 2) setting (MuMu GUI layer) — only for IMEI
-            if ($t -eq 'imei') {
-                & $MumuPath setting -v $index -k phone_imei -val $val 2>&1 | Out-Null
-            }
-            $label = switch ($t) { 'imei' { 'IMEI' } 'android_id' { 'Android ID' } 'mac_address' { 'MAC' } }
-            Write-Host "  $label -> $val" -ForegroundColor Green
-        } catch {
-            Write-Host "  Failed to set ${t}: $($_.Exception.Message)" -ForegroundColor Red
+            'imei'        { $vals[$t] = New-RandomImei }
+            'android_id'  { $vals[$t] = New-RandomAndroidId }
+            'mac_address' { $vals[$t] = New-RandomMac }
         }
     }
 
-    # Verify
-    Write-Host ''
-    Write-Host 'Verifying...' -ForegroundColor DarkGray
-    try {
-        $sim2 = & $MumuPath simulation -v $index 2>$null | ConvertFrom-Json
-        foreach ($t in $targets) {
+    # 1) Set via MuMu simulation command (writes to simulation.json)
+    foreach ($t in $targets) {
+        try {
+            & $MumuPath simulation -v $index -sk $t -sv $vals[$t] 2>&1 | Out-Null
             $label = switch ($t) { 'imei' { 'IMEI' } 'android_id' { 'Android ID' } 'mac_address' { 'MAC' } }
-            $actual = $sim2.$t
-            $ok = $actual -eq $val
-            $color = if ($ok) { 'Green' } else { 'Yellow' }
-            Write-Host "  $label = $(if ($actual) { $actual } else { '(empty)' })" -ForegroundColor $color
+            Write-Host "  $label -> $($vals[$t])  (simulation)" -ForegroundColor Green
+        } catch {
+            Write-Host "  Failed to set ${t} via simulation: $($_.Exception.Message)" -ForegroundColor Red
+        }
+    }
+
+    # 2) Set IMEI via setting command (for MuMu GUI display)
+    if ($vals.ContainsKey('imei')) {
+        try {
+            & $MumuPath setting -v $index -k phone_imei -val $vals['imei'] 2>&1 | Out-Null
+            Write-Host "  IMEI -> $($vals['imei'])  (setting)" -ForegroundColor Green
+        } catch {
+            Write-Host "  Failed to set phone_imei via setting: $($_.Exception.Message)" -ForegroundColor Red
+        }
+    }
+
+    # 3) Verify simulation.json directly
+    try {
+        $info = & $MumuPath info -v $index 2>$null | ConvertFrom-Json
+        $androidVer = $info.android_version
+        $vmName = $info.name
+        Write-Host ''
+        Write-Host 'Verifying simulation.json...' -ForegroundColor DarkGray
+
+        # Find the VMS directory by scanning for matching simulation.json
+        $vmsRoot = Join-Path (Split-Path (Split-Path $MumuPath)) 'vms'
+        if (Test-Path $vmsRoot) {
+            $found = $false
+            foreach ($dir in (Get-ChildItem $vmsRoot -Directory)) {
+                $simFile = Join-Path $dir.FullName 'configs\simulation.json'
+                if (Test-Path $simFile) {
+                    $content = Get-Content $simFile -Raw | ConvertFrom-Json
+                    # Match by IMEI if we set one, otherwise skip
+                    if ($vals.ContainsKey('imei') -and $content.imei -eq $vals['imei']) {
+                        Write-Host "  Found: $($dir.Name)\configs\simulation.json" -ForegroundColor Green
+                        Write-Host "  Content: $((Get-Content $simFile -Raw).Trim())" -ForegroundColor White
+                        $found = $true
+                        break
+                    }
+                }
+            }
+            if (-not $found) {
+                Write-Host "  simulation.json not found or IMEI mismatch - values may not persist after reboot" -ForegroundColor Yellow
+            }
         }
     } catch {}
 
     Write-Host ''
-    Write-Host 'Done! Restart the emulator to apply.' -ForegroundColor Green
+    Write-Host 'IMPORTANT: Changes only take effect after emulator restart!' -ForegroundColor Yellow
+    Write-Host '  [R] Restart emulator now' -ForegroundColor White
+    Write-Host '  [S] Skip restart (apply later via [R] or MuMu GUI)' -ForegroundColor White
+    $restart = Read-Host 'Restart now?'
+    if ($restart -eq 'r' -or $restart -eq 'R') {
+        Write-Host 'Restarting emulator...' -ForegroundColor Cyan
+        try {
+            & $MumuPath control -v $index restart 2>&1 | Out-Null
+            Write-Host 'Emulator restarting. Values will be active after boot completes.' -ForegroundColor Green
+        } catch {
+            Write-Host "Restart failed: $($_.Exception.Message). Please restart manually." -ForegroundColor Red
+        }
+    } else {
+        Write-Host 'Skipped. Restart manually via [R] or MuMu GUI to apply.' -ForegroundColor DarkGray
+    }
 }
 
 # Main loop
