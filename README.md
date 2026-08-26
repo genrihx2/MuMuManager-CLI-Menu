@@ -325,6 +325,11 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Что нового
 
+### v1.13.35 (26.08.2026)
+- **Update `[U]`**: хелпер с ретраем `copy` + `fc /b` — `.old` не остаётся; `[1]` в `[CRT]` не создаёт `.new` если подпись уже Valid
+- `[CRT]` 8 пунктов: `[2]` Create Email / `[3]` Create Name, `.gitignore` для `*.old`/`*.new`
+- PSScriptAnalyzer: убран пустой `catch` в удалении из Trusted Root
+
 ### v1.13.34 (26.08.2026)
 - **Улучшен `[CRT]`**: интерактивное меню 8 пунктов — просмотр сертификата, `[1]` Create/Re-create, `[2]` Create with Name, `[3]` Create with Email, `[4]` Change Name, `[5]` Change Email (`-` для удаления), `[6]` Custom Name+Email, `[7]` Remove
 - `[CRT]` без Email по умолчанию (SAN только если Email указан); убран вывод дефолтов при отсутствии сертификата
