@@ -1191,7 +1191,7 @@ function Create-Certificate {
     Write-Host ''
 
     # Check if cert already exists and has Code Signing EKU
-    $existing = Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.Subject -eq 'CN=MuMuManager-CLI-Menu' -and $_.FriendlyName -eq 'MuMuManager-CLI-Menu-Token' }
+    $existing = Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.FriendlyName -eq 'MuMuManager-CLI-Menu-Token' }
     if ($existing) {
         $hasCodeSigningEku = $false
         foreach ($ext in $existing.Extensions) {
@@ -1226,7 +1226,7 @@ function Create-Certificate {
 function New-Certificate {
     try {
         # Create certificate with Code Signing EKU via TextExtension (PS 5.1 compatible)
-        $cert = New-SelfSignedCertificate -Subject 'CN=MuMuManager-CLI-Menu' -KeySpec Signature -FriendlyName 'MuMuManager-CLI-Menu-Token' -CertStoreLocation 'Cert:\CurrentUser\My' -NotAfter (Get-Date).AddYears(5) -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3") -ErrorAction Stop
+        $cert = New-SelfSignedCertificate -Subject 'CN=MuMuManager-CLI-Menu, E=genrihlist@mail.ru' -KeySpec Signature -FriendlyName 'MuMuManager-CLI-Menu-Token' -CertStoreLocation 'Cert:\CurrentUser\My' -NotAfter (Get-Date).AddYears(5) -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3") -ErrorAction Stop
         Write-Host "Created certificate with Code Signing EKU: $($cert.Thumbprint)" -ForegroundColor Green
         return $cert
     } catch {
