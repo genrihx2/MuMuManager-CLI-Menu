@@ -1946,7 +1946,7 @@ function Confirm-SpoofConsent {
     Write-Host '  Do not use them to impersonate devices you do not own or' -ForegroundColor White
     Write-Host '  for any unlawful purpose.' -ForegroundColor White
     $ans = Read-Host '  Type OK to continue (anything else cancels)'
-    if ($ans -ceq 'OK') {
+    if ($ans -eq 'OK') {
         $script:SpoofConsentAccepted = $true
         return $true
     }
@@ -1966,7 +1966,7 @@ function Confirm-AdbConsent {
     Write-Host '  (isolated Android device). They cannot affect the host OS.' -ForegroundColor White
     Write-Host '  Destructive shell commands may erase data inside that VM.' -ForegroundColor White
     $ans = Read-Host '  Type OK to continue (anything else cancels)'
-    if ($ans -ceq 'OK') {
+    if ($ans -eq 'OK') {
         $script:AdbConsentAccepted = $true
         return $true
     }
