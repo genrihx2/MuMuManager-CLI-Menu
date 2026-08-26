@@ -287,7 +287,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.13.24
+Script version: 1.13.25
 MuMu version: 6.5.2.0
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -321,6 +321,12 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 Для приватных репозиториев сохраните токен через пункт меню `[K] Update GitHub token` — он проверяется и хранится **зашифрованным через Windows DPAPI** в `.github-token.dpapi`; плейнтекстовый `.github-token` мигрируется в зашифрованное хранилище автоматически при первом запуске.
 
 ## Что нового
+
+### v1.13.25 (26.08.2026)
+- **Безопасность репозитория**: добавлена политика безопасности `SECURITY.md` (RU/EN) — как приватно сообщить об уязвимости, что не считается уязвимостью, SLA ответа
+- **Code scanning**: PSScriptAnalyzer → SARIF → GitHub Code Scanning (CodeQL не поддерживает PowerShell); триггеры: push/PR с PowerShell-файлами, еженедельно по понедельникам, ручной запуск
+- Включены: Private Vulnerability Reporting, Dependabot alerts + Dependabot security updates, Secret scanning + push protection
+- `.version` синхронизирован с релизным тегом
 
 ### v1.13.24 (25.08.2026)
 - Усилено хранение токена: при разовой миграции legacy-плейнтекста содержимое файла затирается нулями перед удалением (best-effort secure wipe); подтверждено — скрипт **никогда** не пишет токен плейнтекстом, только DPAPI
