@@ -30,6 +30,15 @@ $DpapiTokenFile = Join-Path $ScriptDir '.github-token.dpapi'
 $newFile = Join-Path $ScriptDir 'mumu-menu.ps1.new'
 if (Test-Path -LiteralPath $newFile) {
     $dstFile = Join-Path $ScriptDir 'mumu-menu.ps1'
+    # If .new is already identical to original (already applied), just delete it
+    try {
+        if ((Test-Path -LiteralPath $dstFile) -and (Get-FileHash -LiteralPath $newFile -Algorithm SHA256).Hash -eq (Get-FileHash -LiteralPath $dstFile -Algorithm SHA256).Hash) {
+            Remove-Item -LiteralPath $newFile -Force
+        }
+    } catch {}
+}
+if (Test-Path -LiteralPath $newFile) {
+    $dstFile = Join-Path $ScriptDir 'mumu-menu.ps1'
     $helperCmd = Join-Path $env:TEMP "mumu_apply_update.cmd"
     try {
         $cmdLines = @(
@@ -1797,7 +1806,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.13.36' -ForegroundColor Green
+    Write-Host 'Script version: 1.13.37' -ForegroundColor Green
 
     # MuMu version
     try {
