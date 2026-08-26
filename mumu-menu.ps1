@@ -19,7 +19,6 @@
 # Launch:   .\mumu-menu.ps1
 # PSScriptAnalyzer: PSUseShouldProcessForStateChangingFunctions - intentional; interactive menu already requires explicit user confirmation for all state-changing operations (Type YES/OK prompts)
 # PSScriptAnalyzer: PSUseUsingScopeModifierInNewRunspaces - false positive; variables passed via param + ArgumentList in Start-Job
-# PSScriptAnalyzer: UnexpectedAttribute / PSShouldProcess - removed CmdletBinding; menu uses explicit manual confirmations instead
 
 if ($PSScriptRoot) { $ScriptDir = $PSScriptRoot } else { $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path }
 if (-not $ScriptDir) { $ScriptDir = $PWD.Path }
@@ -158,7 +157,6 @@ function Get-ContentHash {
 }
 
 function Update-FromGitHub {
-    [CmdletBinding(SupportsShouldProcess=$true)]
     # Passive mode = read-only version check (used at startup).
     # Downloads happen only in interactive mode via menu option [U].
     param([switch]$Passive)
@@ -505,7 +503,6 @@ function Show-InstanceInfo {
 }
 
 function Start-Emulator {
-    [CmdletBinding(SupportsShouldProcess=$true)]
     $index = Get-InstanceIndex 'Select instance to launch'
     if (-not $index) { return }
     Write-Host ''
@@ -517,7 +514,6 @@ function Start-Emulator {
 }
 
 function Stop-Emulator {
-    [CmdletBinding(SupportsShouldProcess=$true)]
     $index = Get-InstanceIndex 'Select instance to shutdown'
     if (-not $index) { return }
     Write-Host ''
@@ -537,7 +533,6 @@ function Stop-Emulator {
 }
 
 function Restart-Emulator {
-    [CmdletBinding(SupportsShouldProcess=$true)]
     $index = Get-InstanceIndex 'Select instance to restart'
     if (-not $index) { return }
     Write-Host ''
@@ -555,7 +550,6 @@ function Restart-Emulator {
 }
 
 function New-Emulator {
-    [CmdletBinding(SupportsShouldProcess=$true)]
     Write-Host ''
     Write-Host 'Creating new emulator...' -ForegroundColor Cyan
     Write-Host ''
@@ -619,7 +613,6 @@ function Copy-Emulator {
 }
 
 function Remove-Emulator {
-    [CmdletBinding(SupportsShouldProcess=$true)]
     $index = Get-InstanceIndex 'Select instance to DELETE'
     if (-not $index) { return }
     Write-Host ''
@@ -1064,7 +1057,6 @@ function Test-Security {
 }
 
 function Update-Token {
-    [CmdletBinding(SupportsShouldProcess=$true)]
     Write-Host ''
     Write-Host 'GitHub Token Manager' -ForegroundColor Cyan
 
@@ -1248,7 +1240,6 @@ function Get-AllIndices {
 }
 
 function Start-All {
-    [CmdletBinding(SupportsShouldProcess=$true)]
     $indices = Get-AllIndices
     Write-Host ''
     Write-Host "Found $($indices.Count) instances" -ForegroundColor Cyan
@@ -1288,7 +1279,6 @@ function Start-All {
 }
 
 function Stop-All {
-    [CmdletBinding(SupportsShouldProcess=$true)]
     $indices = Get-AllIndices
     Write-Host ''
     Write-Host "Found $($indices.Count) instances" -ForegroundColor Cyan
@@ -1310,7 +1300,6 @@ function Stop-All {
 }
 
 function Restart-All {
-    [CmdletBinding(SupportsShouldProcess=$true)]
     Stop-All
     Write-Host ''
     Write-Host 'Waiting for main services...' -ForegroundColor Yellow
@@ -1603,7 +1592,6 @@ function Hide-Windows {
 }
 
 function Set-WindowLayout {
-    [CmdletBinding(SupportsShouldProcess=$true)]
     Write-Host ''
     Write-Host 'Arranging emulator windows...' -ForegroundColor Cyan
     $output = & $MumuPath control -v all layout_window 2>&1 | Out-String
@@ -1720,7 +1708,6 @@ function Confirm-AdbConsent {
 }
 
 function Set-DeviceModel {
-    [CmdletBinding(SupportsShouldProcess=$true)]
     if (-not (Confirm-SpoofConsent)) { return }
     $index = Get-InstanceIndex 'Select instance'
     if (-not $index) { return }
@@ -1809,7 +1796,6 @@ function Set-DeviceModel {
 }
 
 function New-RandomImei {
-    [CmdletBinding(SupportsShouldProcess=$true)]
     $base = '35'
     1..12 | ForEach-Object { $base += Get-Random -Minimum 0 -Maximum 10 }
     $sum = 0
@@ -1825,13 +1811,11 @@ function New-RandomImei {
 }
 
 function New-RandomAndroidId {
-    [CmdletBinding(SupportsShouldProcess=$true)]
     # 16 hex chars, e.g. "13f454f21c0f5f57"
     [guid]::NewGuid().ToString('N').Substring(0, 16)
 }
 
 function New-RandomMac {
-    [CmdletBinding(SupportsShouldProcess=$true)]
     # Locally administered unicast MAC from random bytes
     $bytes = [byte[]]::new(6)
     [System.Random]::new().NextBytes($bytes)
@@ -1843,7 +1827,6 @@ function New-RandomMac {
 # instance so it does not reuse factory/default values.
 # PSUseSingularNouns: intentional plural (randomizes multiple ID types)
 function Set-RandomDeviceIds {
-    [CmdletBinding(SupportsShouldProcess=$true)]
     param([string]$Mode)
 
     if (-not (Confirm-SpoofConsent)) { return }
