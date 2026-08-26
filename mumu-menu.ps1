@@ -1227,11 +1227,13 @@ function Create-Certificate {
         }
 
         Write-Host '  [1] Create / Re-create and Sign (uses current Name/Email)' -ForegroundColor White
-        Write-Host '  [2] Change Name' -ForegroundColor White
-        Write-Host '  [3] Change Email' -ForegroundColor White
-        Write-Host '  [4] Create with custom Name & Email and Sign' -ForegroundColor White
-        Write-Host '  [5] Remove certificate' -ForegroundColor DarkYellow
-        Write-Host '  [0] Back to main menu' -ForegroundColor DarkGray
+        Write-Host '  [2] Create with Name' -ForegroundColor White
+        Write-Host '  [3] Create with Email' -ForegroundColor White
+        Write-Host '  [4] Change Name' -ForegroundColor White
+        Write-Host '  [5] Change Email' -ForegroundColor White
+        Write-Host '  [6] Create with custom Name & Email and Sign' -ForegroundColor White
+        Write-Host '  [7] Remove certificate' -ForegroundColor DarkYellow
+        Write-Host '  [8] Back to main menu' -ForegroundColor DarkGray
         Write-Host ''
         $choice = Read-Host 'Select option'
         switch ($choice) {
@@ -1255,17 +1257,33 @@ function Create-Certificate {
                 Read-Host 'Press Enter to continue'
             }
             '2' {
-                $n = Read-Host "Enter new Name [$curName]"
-                if ($n) { $curName = $n.Trim() }
-                if ($existing) { Remove-Item $existing.PSPath -Force; Write-Host 'Old certificate removed - will create new on next [1] or [4].' -ForegroundColor Yellow }
-                # Update default for next creation by removing existing so new Name is picked up via manual creation
-                $existing = $null
-                # Store as persisted override via a temp variable - actually just create immediately with new name
-                $cert = New-Certificate -CertName $curName -CertEmail $curEmail
+                $n = Read-Host 'Enter Name for new certificate'
+                if (-not $n) { Write-Host 'Name cannot be empty.' -ForegroundColor Red; Read-Host 'Press Enter to continue'; continue }
+                $n = $n.Trim()
+                if ($existing) { Remove-Item $existing.PSPath -Force; Write-Host 'Old certificate removed.' -ForegroundColor Yellow }
+                $cert = New-Certificate -CertName $n -CertEmail ''
                 if ($cert) { Add-CertToTrustedRoot $cert; Sign-Script $cert }
                 Read-Host 'Press Enter to continue'
             }
             '3' {
+                $e = Read-Host 'Enter Email for new certificate'
+                if (-not $e) { Write-Host 'Email cannot be empty.' -ForegroundColor Red; Read-Host 'Press Enter to continue'; continue }
+                $e = $e.Trim()
+                $n = if ($existing) { $curName } else { $defaultName }
+                if ($existing) { Remove-Item $existing.PSPath -Force; Write-Host 'Old certificate removed.' -ForegroundColor Yellow }
+                $cert = New-Certificate -CertName $n -CertEmail $e
+                if ($cert) { Add-CertToTrustedRoot $cert; Sign-Script $cert }
+                Read-Host 'Press Enter to continue'
+            }
+            '4' {
+                $n = Read-Host "Enter new Name [$curName]"
+                if ($n) { $curName = $n.Trim() }
+                if ($existing) { Remove-Item $existing.PSPath -Force; Write-Host 'Old certificate removed.' -ForegroundColor Yellow }
+                $cert = New-Certificate -CertName $curName -CertEmail $curEmail
+                if ($cert) { Add-CertToTrustedRoot $cert; Sign-Script $cert }
+                Read-Host 'Press Enter to continue'
+            }
+            '5' {
                 $e = Read-Host "Enter new Email [$curEmail] (type '-' to remove, Enter to keep)"
                 if ($e -eq '-') { $curEmail = '' }
                 elseif ($e) { $curEmail = $e.Trim() }
@@ -1274,7 +1292,7 @@ function Create-Certificate {
                 if ($cert) { Add-CertToTrustedRoot $cert; Sign-Script $cert }
                 Read-Host 'Press Enter to continue'
             }
-            '4' {
+            '6' {
                 $n = Read-Host "Enter Name [$curName]"
                 if (-not $n) { $n = $curName } else { $n = $n.Trim() }
                 $e = Read-Host "Enter Email [$curEmail] (type '-' for no email, Enter to keep)"
@@ -1285,7 +1303,7 @@ function Create-Certificate {
                 if ($cert) { Add-CertToTrustedRoot $cert; Sign-Script $cert }
                 Read-Host 'Press Enter to continue'
             }
-            '5' {
+            '7' {
                 if ($existing) {
                     Remove-Item $existing.PSPath -Force
                     Write-Host 'Certificate removed.' -ForegroundColor Yellow
@@ -1302,7 +1320,7 @@ function Create-Certificate {
                 } else { Write-Host 'No certificate to remove.' -ForegroundColor Yellow }
                 Read-Host 'Press Enter to continue'
             }
-            '0' { return }
+            '8' { return }
             default { Write-Host 'Invalid choice' -ForegroundColor Red; Start-Sleep -Seconds 1 }
         }
     }
