@@ -329,6 +329,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 - VirusTotal: **0/75** (ps1), **0/75** (zip)
 - **Code Scanning**: исправлен синтаксис `Update-FromGitHub` (отсутствующий `if`-блок), удалены неиспользуемые переменные/параметры, интенсиональные предупреждения PSScriptAnalyzer (ShouldProcess, множественное число, Using: scope) подавлены через `PSScriptAnalyzerSettings.psd1`
 - **CodeQL Action v4**: обновлен `github/codeql-action/upload-sarif` с `v3` на `v4` (v3 deprecated Dec 2026)
+- **Fix обновления `[U]`**: заголовок `Accept: application/vnd.github.raw` ошибочно применялся ко всем запросам API (включая `/releases/latest`), из-за чего проверка обновлений всегда возвращала «No releases found»; теперь `raw` применяется только к `/contents/`, остальные эндпоинты используют `v3+json`
 
 ### v1.13.25 (26.08.2026)
 - **Безопасность репозитория**: добавлена политика безопасности `SECURITY.md` (RU/EN) — как приватно сообщить об уязвимости, что не считается уязвимостью, SLA ответа
