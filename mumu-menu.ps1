@@ -1207,6 +1207,14 @@ function Create-Certificate {
     }
 
     if ($cert) {
+        # Add to Trusted Root so Windows trusts the signature
+        $rootStore = New-Object System.Security.Cryptography.X509Certificates.X509Store 'Root', 'CurrentUser'
+        $rootStore.Open('ReadWrite')
+        if (-not ($rootStore.Certificates | Where-Object { $_.Thumbprint -eq $cert.Thumbprint })) {
+            $rootStore.Add($cert)
+            Write-Host "Added certificate to Trusted Root store" -ForegroundColor Green
+        }
+        $rootStore.Close()
         Sign-Script $cert
     }
 }
