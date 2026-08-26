@@ -325,6 +325,10 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Что нового
 
+### v1.13.29 (26.08.2026)
+- **Сертификат `[CRT]`**: исправлено создание сертификата (`Signature` KeySpec вместо невалидного `CodeSigning`), добавлен Code Signing EKU (1.3.6.1.5.5.7.3.3) для Authenticode, старые сертификаты без EKU заменяются автоматически
+- Устранён trailing whitespace (PSScriptAnalyzer: 0 алертов)
+
 ### v1.13.28 (26.08.2026)
 - `.version` теперь включается в релизный ZIP-архив
 - **Сертификат**: добавлен пункт меню `[CRT] Create/sign certificate` — автоматическое создание self-signed сертификата для подписи скрипта и подпись `mumu-menu.ps1` (SHA256); после подписи скрипт запускается без предупреждений под политикой `AllSigned`
