@@ -17,8 +17,6 @@
 #           testing on the USER'S OWN emulator instances. Do not use for any
 #           unlawful purpose.
 # Launch:   .\mumu-menu.ps1
-# PSScriptAnalyzer: PSUseShouldProcessForStateChangingFunctions - intentional; interactive menu already requires explicit user confirmation for all state-changing operations (Type YES/OK prompts)
-# PSScriptAnalyzer: PSUseUsingScopeModifierInNewRunspaces - false positive; variables passed via param + ArgumentList in Start-Job
 
 if ($PSScriptRoot) { $ScriptDir = $PSScriptRoot } else { $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path }
 if (-not $ScriptDir) { $ScriptDir = $PWD.Path }
@@ -161,10 +159,11 @@ function Update-FromGitHub {
     # Downloads happen only in interactive mode via menu option [U].
     param([switch]$Passive)
 
-        Write-Host 'Update check (read-only)...' -ForegroundColor DarkGray
-    } else {
+    if (-not $Passive) {
         Write-Host ''
         Write-Host 'Checking for updates...' -ForegroundColor Cyan
+    } else {
+        Write-Host 'Update check (read-only)...' -ForegroundColor DarkGray
     }
 
     # Build headers with token if available
@@ -254,7 +253,6 @@ function Update-FromGitHub {
         $tmp = Join-Path $env:TEMP "mumu_update_$stamp.zip"
         $tmpDir = Join-Path $env:TEMP "mumu_update_$stamp"
         $failed = 0
-        $usedZip = $false
 
         try {
             Write-Host "  Downloading $zipName..." -ForegroundColor Yellow
@@ -271,7 +269,6 @@ function Update-FromGitHub {
                     Copy-Item -LiteralPath $src.FullName -Destination (Join-Path $ScriptDir $f) -Force
                     Write-Host "    $f OK" -ForegroundColor Green
                 }
-                $usedZip = ($failed -eq 0)
             } else {
                 throw "ZIP download failed (exit $LASTEXITCODE)"
             }
@@ -649,7 +646,6 @@ function Rename-Emulator {
     Write-Host "Renaming to '$newName'..." -ForegroundColor Cyan
 
     $job = Start-Job -ScriptBlock {
-        # PSVariableUsedInScriptBlock: variables passed via param + ArgumentList
         param($mp, $idx, $nm)
         $out = & $mp rename -v $idx -n $nm 2>&1 | Out-String
         "EXIT:$LASTEXITCODE`n$out"
@@ -1110,7 +1106,6 @@ function Update-Token {
     }
 }
 
-# PSUseSingularNouns: intentional plural for menu command (shows multiple log types)
 function Show-Logs {
     $index = Get-InstanceIndex 'Select instance'
     if (-not $index) { return }
@@ -1200,7 +1195,6 @@ function Show-Logs {
             Write-Host ''
             Write-Host "=== adb logcat snapshot (last 200 lines, filter: $filterDesc) ===" -ForegroundColor Green
             $job = Start-Job -ScriptBlock {
-                # PSVariableUsedInScriptBlock: variables passed via param + ArgumentList
                 param($mp, $idx, $flt)
                 & $mp adb -v $idx -c "logcat -v time -d -t 200 $flt" 2>&1
             } -ArgumentList $MumuPath, $index, $filter
@@ -1233,7 +1227,6 @@ function Show-Logs {
     Write-Host 'Invalid choice.' -ForegroundColor Yellow
 }
 
-# PSUseSingularNouns: intentional plural (returns multiple indices)
 function Get-AllIndices {
     $info = & $MumuPath info -v all 2>$null | ConvertFrom-Json
     return $info.PSObject.Properties.Name
@@ -1355,7 +1348,6 @@ function Install-APK-All {
     Write-Host "Done! Success: $success, Failed: $failed" -ForegroundColor Cyan
 }
 
-# PSUseSingularNouns: intentional plural (lists multiple apps)
 function Show-Apps {
     $index = Get-InstanceIndex 'Select instance'
     if (-not $index) { return }
@@ -1422,7 +1414,6 @@ function Show-Apps {
     }
 }
 
-# PSUseSingularNouns: intentional plural (shows multiple settings)
 function Show-Settings {
     $index = Get-InstanceIndex 'Select instance'
     if (-not $index) { return }
@@ -1825,7 +1816,6 @@ function New-RandomMac {
 
 # Privacy/testing feature: randomizes identifiers of the user's own emulator
 # instance so it does not reuse factory/default values.
-# PSUseSingularNouns: intentional plural (randomizes multiple ID types)
 function Set-RandomDeviceIds {
     param([string]$Mode)
 
