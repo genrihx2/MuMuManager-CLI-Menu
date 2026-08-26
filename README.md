@@ -325,6 +325,11 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Что нового
 
+### v1.13.34 (26.08.2026)
+- **Улучшен `[CRT]`**: интерактивное меню 8 пунктов — просмотр сертификата, `[1]` Create/Re-create, `[2]` Create with Name, `[3]` Create with Email, `[4]` Change Name, `[5]` Change Email (`-` для удаления), `[6]` Custom Name+Email, `[7]` Remove
+- `[CRT]` без Email по умолчанию (SAN только если Email указан); убран вывод дефолтов при отсутствии сертификата
+- Подпись через `mumu-menu.ps1.new` → применяется после перезапуска (фикс блокировки запущенного файла)
+
 ### v1.13.33 (26.08.2026)
 - **Сертификат `[CRT]`**: добавлены Email (`genrihlist@mail.ru` через SAN) и время подписания (RFC 3161 timestamp DigiCert) в свойства цифровой подписи
 - Сертификат добавляется в **Доверенные корневые центры сертификации** Local Machine (при наличии прав администратора), фоллбэк — CurrentUser
