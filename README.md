@@ -327,6 +327,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 - `[A] Run ADB command`: session-consent перед первым произвольным ADB-шеллом (команды выполняются только внутри собственной ВМ эмулятора, хост недоступен)
 - Ответ на AI-вердикт VirusTotal (NICS Lab): флагует назначение (dual-use спуфинг), а не поведение; опубликованы комментарий владельца и голос harmless
 - VirusTotal: **0/75** (ps1), **0/75** (zip)
+- **Code Scanning**: исправлен синтаксис `Update-FromGitHub` (отсутствующий `if`-блок), удалены неиспользуемые переменные/параметры, интенсиональные предупреждения PSScriptAnalyzer (ShouldProcess, множественное число, Using: scope) подавлены через `PSScriptAnalyzerSettings.psd1`
 
 ### v1.13.25 (26.08.2026)
 - **Безопасность репозитория**: добавлена политика безопасности `SECURITY.md` (RU/EN) — как приватно сообщить об уязвимости, что не считается уязвимостью, SLA ответа
