@@ -58,6 +58,7 @@ function Get-GitHubToken {
     return ''
 }
 
+[System.Diagnostics.CodeAnalysis.SuppressMessage("PSAvoidUsingConvertToSecureStringWithPlainText", "Migration of legacy plaintext token to DPAPI; plaintext exists only briefly before encryption")]
 function Initialize-TokenStorage {
     # One-time migration: encrypt an existing legacy plaintext token with DPAPI,
     # then wipe its contents and delete the file. The script NEVER writes
