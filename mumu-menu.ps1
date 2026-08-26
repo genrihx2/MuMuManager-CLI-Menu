@@ -64,7 +64,8 @@ function Initialize-TokenStorage {
     # plaintext tokens itself; this path only consumes pre-existing ones.
     param([string]$Plain)
     try {
-        $sec = ConvertTo-SecureString $Plain -AsPlainText -Force  # PSAvoidUsingConvertToSecureStringWithPlainText
+        # PSAvoidUsingConvertToSecureStringWithPlainText
+        $sec = ConvertTo-SecureString $Plain -AsPlainText -Force  # migration: legacy plaintext → DPAPI
         ConvertFrom-SecureString -SecureString $sec |
             Set-Content -LiteralPath $DpapiTokenFile -Force -ErrorAction Stop
         if (Test-Path -LiteralPath $TokenFile -PathType Leaf) {
