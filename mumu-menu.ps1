@@ -1256,7 +1256,14 @@ function Create-Certificate {
                 } else {
                     $cert = New-Certificate -CertName $curName -CertEmail $curEmail
                 }
-                if ($cert) { Add-CertToTrustedRoot $cert; Sign-Script $cert }
+                if ($cert) {
+                    $sig = Get-AuthenticodeSignature (Join-Path $ScriptDir 'mumu-menu.ps1') -ErrorAction SilentlyContinue
+                    if ($sig -and $sig.Status -eq 'Valid' -and $sig.SignerCertificate -and $sig.SignerCertificate.Thumbprint -eq $cert.Thumbprint) {
+                        Write-Host 'Script already signed Valid with this certificate — no re-sign needed.' -ForegroundColor Green
+                    } else {
+                        Add-CertToTrustedRoot $cert; Sign-Script $cert
+                    }
+                }
                 Read-Host 'Press Enter to continue'
             }
             '2' {
