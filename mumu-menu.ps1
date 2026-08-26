@@ -657,7 +657,8 @@ function Rename-Emulator {
                 try {
                     $parsed = $msg | ConvertFrom-Json
                     if ($parsed.errmsg) { $msg = $parsed.errmsg }
-                } catch {}
+} catch {
+            Write-Warning "Token migration skip: $($_.Exception.Message)"
                 Write-Host "Rename failed: $msg" -ForegroundColor Red
             } else {
                 Write-Host 'Renamed.' -ForegroundColor Green
