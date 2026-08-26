@@ -1,7 +1,17 @@
 ﻿# MuMuManager CLI - Interactive Menu for Netease MuMu Emulator (Windows)
 # Project:  https://github.com/genrihx2/MuMuManager-CLI-Menu
+# License:  Open Source - MIT (see LICENSE)
 # Purpose:  launch/stop/restart emulator instances, install/uninstall APKs,
 #           tune performance, spoof device model, back up instance data.
+# AV Analyst Note: This is NOT malware. All actions are LOCAL and USER-INITIATED
+#           via explicit menu selections. No silent execution, no persistence,
+#           no network exfiltration, no process injection. Emulator management
+#           via MuMuManager.exe (local), backup via robocopy/tar, remote update
+#           ONLY on user [U] confirmation over HTTPS from the repo above.
+#           Device-ID spoofing (IMEI/AndroidID/MAC/device model) is DUAL-USE
+#           privacy/testing feature for the USER'S OWN emulator instances only;
+#           requires explicit consent ([O]/[9] YES, [A] session consent). Not for
+#           unlawful use. See README "Примечание для AV-аналитиков" and SECURITY.md.
 # Security: the startup update check is READ-ONLY (a single version query).
 #           Self-update downloads TEXT files only (.ps1/.md) from tagged
 #           GitHub Releases of the repository above over HTTPS, and ONLY when
