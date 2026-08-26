@@ -1130,7 +1130,7 @@ function Create-Certificate {
         Write-Host ''
 
         $existing = Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.FriendlyName -eq 'MuMuManager-CLI-Menu-Token' }
-        $defaultName = 'MuMuManager-CLI-Menu'
+        $defaultName = ''
         $defaultEmail = ''
         $curName = $defaultName
         $curEmail = $defaultEmail
@@ -1189,6 +1189,11 @@ function Create-Certificate {
                         $cert = New-Certificate -CertName $curName -CertEmail $curEmail
                     }
                 } else {
+                    if (-not $curName) {
+                        $curName = Read-Host 'Enter Name for new certificate'
+                        if (-not $curName) { Write-Host 'Name cannot be empty.' -ForegroundColor Red; Read-Host 'Press Enter to continue'; continue }
+                        $curName = $curName.Trim()
+                    }
                     $cert = New-Certificate -CertName $curName -CertEmail $curEmail
                 }
                 if ($cert) {
@@ -1205,7 +1210,12 @@ function Create-Certificate {
                 $e = Read-Host 'Enter Email for new certificate'
                 if (-not $e) { Write-Host 'Email cannot be empty.' -ForegroundColor Red; Read-Host 'Press Enter to continue'; continue }
                 $e = $e.Trim()
-                $n = if ($existing) { $curName } else { $defaultName }
+                $n = if ($existing -and $curName) { $curName } else { $defaultName }
+                if (-not $n) {
+                    $n = Read-Host 'Enter Name for new certificate'
+                    if (-not $n) { Write-Host 'Name cannot be empty.' -ForegroundColor Red; Read-Host 'Press Enter to continue'; continue }
+                    $n = $n.Trim()
+                }
                 if ($existing) { Remove-Item $existing.PSPath -Force; Write-Host 'Old certificate removed.' -ForegroundColor Yellow }
                 $cert = New-Certificate -CertName $n -CertEmail $e
                 if ($cert) { Add-CertToTrustedRoot $cert; Sign-Script $cert }
@@ -1299,9 +1309,10 @@ function Add-CertToTrustedRoot {
 
 function New-Certificate {
     param(
-        [string]$CertName = 'MuMuManager-CLI-Menu',
+        [string]$CertName = '',
         [string]$CertEmail = ''
     )
+    if (-not $CertName) { Write-Host 'Certificate Name cannot be empty.' -ForegroundColor Red; return $null }
     try {
         $extensions = @("2.5.29.37={text}1.3.6.1.5.5.7.3.3")
         if ($CertEmail) {
