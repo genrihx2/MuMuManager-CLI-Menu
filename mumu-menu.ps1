@@ -26,41 +26,6 @@ $VersionFile = Join-Path $ScriptDir '.version'
 $TokenFile = Join-Path $ScriptDir '.github-token'
 $DpapiTokenFile = Join-Path $ScriptDir '.github-token.dpapi'
 
-# --- Apply pending update (from [U] which saved to .new) --------------------
-$newFile = Join-Path $ScriptDir 'mumu-menu.ps1.new'
-if (Test-Path -LiteralPath $newFile) {
-    $dstFile = Join-Path $ScriptDir 'mumu-menu.ps1'
-    # If .new is already identical to original (already applied), just delete it
-    try {
-        if ((Test-Path -LiteralPath $dstFile) -and (Get-FileHash -LiteralPath $newFile -Algorithm SHA256).Hash -eq (Get-FileHash -LiteralPath $dstFile -Algorithm SHA256).Hash) {
-            Remove-Item -LiteralPath $newFile -Force
-        }
-    } catch {}
-}
-if (Test-Path -LiteralPath $newFile) {
-    $dstFile = Join-Path $ScriptDir 'mumu-menu.ps1'
-    $helperCmd = Join-Path $env:TEMP "mumu_apply_update.cmd"
-    try {
-        $cmdLines = @(
-            '@echo off'
-            ":retry"
-            "timeout /t 2 /nobreak >nul"
-            "copy /y `"$newFile`" `"$dstFile`" >nul 2>&1"
-            'if errorlevel 1 goto retry'
-            "fc /b `"$newFile`" `"$dstFile`" >nul 2>&1"
-            'if errorlevel 1 goto retry'
-            "del `"$newFile`""
-            "del `"%~f0`""
-        )
-        [System.IO.File]::WriteAllLines($helperCmd, $cmdLines, [System.Text.UTF8Encoding]::new($false))
-        Start-Process cmd.exe -ArgumentList "/c `"$helperCmd`"" -WindowStyle Hidden
-        Write-Host 'Update will apply on next restart.' -ForegroundColor Green
-        Start-Sleep -Seconds 1
-    } catch {
-        Write-Host "Failed to stage update: $($_.Exception.Message)" -ForegroundColor Red
-    }
-}
-
 # --- GitHub token storage -------------------------------------------------
 # Canonical store: .github-token.dpapi - a DPAPI-encrypted (CurrentUser scope)
 # SecureString produced by ConvertFrom-SecureString. Only the same Windows
@@ -297,14 +262,11 @@ function Update-FromGitHub {
 
         # Primary: download the release ZIP asset (one request, no API rate limits).
         # Fallback: fetch individual files via the GitHub contents API.
-        # Note: mumu-menu.ps1 cannot be overwritten while running on Windows,
-        # so we download it as .new and apply on next startup.
         $zipName = "MuMuManager-CLI-Menu-$tag.zip"
         $zipUrl = "https://github.com/$GitHubRepo/releases/download/$tag/$zipName"
         $tmp = Join-Path $env:TEMP "mumu_update_$stamp.zip"
         $tmpDir = Join-Path $env:TEMP "mumu_update_$stamp"
         $failed = 0
-        $pendingSelfUpdate = $false
 
         try {
             Write-Host "  Downloading $zipName..." -ForegroundColor Yellow
@@ -319,11 +281,6 @@ function Update-FromGitHub {
                     $src = Get-ChildItem $tmpDir -Recurse -Filter $f | Select-Object -First 1
                     if (-not $src) { Write-Host "    Missing in archive: $f" -ForegroundColor Red; $failed++; continue }
                     $dest = Join-Path $ScriptDir $f
-                    if ($f -eq 'mumu-menu.ps1') {
-                        # Can't overwrite running script — save as .new, apply on next startup
-                        $dest = Join-Path $ScriptDir "$f.new"
-                        $pendingSelfUpdate = $true
-                    }
                     Copy-Item -LiteralPath $src.FullName -Destination $dest -Force
                     Write-Host "    $f OK" -ForegroundColor Green
                 }
@@ -345,11 +302,6 @@ function Update-FromGitHub {
                     if ($f -eq 'mumu-menu.ps1' -and $content -notmatch '^# MuMuManager CLI') {
                         throw 'unexpected mumu-menu.ps1 content'
                     }
-                    if ($f -eq 'mumu-menu.ps1') {
-                        # Can't overwrite running script — save as .new, apply on next startup
-                        $dest = Join-Path $ScriptDir "$f.new"
-                        $pendingSelfUpdate = $true
-                    }
                     [System.IO.File]::WriteAllText($dest, $content, [System.Text.UTF8Encoding]::new($false))
                     Write-Host '    OK' -ForegroundColor Green
                 } catch {
@@ -366,13 +318,8 @@ function Update-FromGitHub {
             Write-Host "Update finished with $failed failed file(s). Restore from backup if needed." -ForegroundColor Red
         } else {
             Set-Content -Path $VersionFile -Value $tag -NoNewline -ErrorAction SilentlyContinue
-            if ($pendingSelfUpdate) {
-                Write-Host ''
-                Write-Host 'Update downloaded. Restart to apply.' -ForegroundColor Green
-            } else {
-                Write-Host ''
-                Write-Host 'Update complete! Restart the menu to use the new version.' -ForegroundColor Green
-            }
+            Write-Host ''
+            Write-Host 'Update complete! Restart the menu to use the new version.' -ForegroundColor Green
         }
         Start-Sleep -Seconds 2
         exit
@@ -1382,19 +1329,16 @@ function Sign-Script {
         return
     }
 
-    # Copy to temp, sign the copy, then save as .new (can't overwrite running file)
+    # Copy to temp, sign, then try to overwrite original directly (may fail if locked)
     $tmpPath = Join-Path $env:TEMP "mumu-menu_sign.ps1"
-    $newPath = Join-Path $ScriptDir 'mumu-menu.ps1.new'
     try {
         Copy-Item -LiteralPath $scriptPath -Destination $tmpPath -Force
         Write-Host "Signing..." -ForegroundColor Cyan
         $result = Set-AuthenticodeSignature -FilePath $tmpPath -Certificate $cert -HashAlgorithm SHA256 -TimestampServer 'http://timestamp.digicert.com'
         if ($result.Status -eq 'Valid') {
-            if (Test-Path -LiteralPath $newPath) { Remove-Item -LiteralPath $newPath -Force }
-            Copy-Item -LiteralPath $tmpPath -Destination $newPath -Force
+            Copy-Item -LiteralPath $tmpPath -Destination $scriptPath -Force
             Write-Host "Signature status: Valid" -ForegroundColor Green
-            Write-Host 'Signed script saved as mumu-menu.ps1.new' -ForegroundColor Green
-            Write-Host 'Restart to apply the signed version.' -ForegroundColor Green
+            Write-Host 'Script signed successfully!' -ForegroundColor Green
         } else {
             Write-Host "Signing failed: $($result.StatusMessage)" -ForegroundColor Red
         }
