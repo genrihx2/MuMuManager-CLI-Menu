@@ -678,6 +678,9 @@ function Clear-AppData {
     Write-Host ''
     $package = (Read-Host 'Enter package name').Trim()
     if (-not $package) { Write-Host 'Cancelled.' -ForegroundColor Yellow; return }
+    Write-Host "This will erase ALL data of '$package' on instance $index (app resets to first launch)." -ForegroundColor Yellow
+    $confirm = Read-Host 'Type YES to confirm'
+    if ($confirm -cne 'YES') { Write-Host 'Cancelled.' -ForegroundColor Yellow; return }
     Write-Host "Clearing data for $package..." -ForegroundColor Cyan
     & $MumuPath adb -v $index -c "shell pm clear $package" 2>&1 | Out-Null
     Write-Host 'Done!' -ForegroundColor Green
@@ -1474,6 +1477,10 @@ function Uninstall-App {
         return
     }
 
+    Write-Host "This will remove '$package' and ALL its data from instance $index." -ForegroundColor Yellow
+    $confirm = Read-Host 'Type YES to confirm uninstall'
+    if ($confirm -cne 'YES') { Write-Host 'Cancelled.' -ForegroundColor Yellow; return }
+
     Write-Host 'Uninstalling app...' -ForegroundColor Cyan
     $result = & $MumuPath control -v $index app uninstall -pkg $package 2>&1 | Out-String
     if ($result -match '"errcode"\s*:\s*0') {
@@ -1489,7 +1496,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.13.25' -ForegroundColor Green
+    Write-Host 'Script version: 1.13.26' -ForegroundColor Green
 
     # MuMu version
     try {
@@ -1630,6 +1637,7 @@ function Save-Screenshot {
 function Invoke-ADBCommand {
     $index = Get-InstanceIndex 'Select instance'
     if (-not $index) { return }
+    if (-not (Confirm-AdbConsent)) { return }
     Write-Host ''
     $cmd = (Read-Host 'Enter ADB command').Trim()
 
@@ -1653,6 +1661,26 @@ function Confirm-SpoofConsent {
     $ans = Read-Host '  Type OK to continue (anything else cancels)'
     if ($ans -ceq 'OK') {
         $script:SpoofConsentAccepted = $true
+        return $true
+    }
+    Write-Host '  Cancelled (consent not given).' -ForegroundColor Yellow
+    return $false
+}
+
+# Consent gate for the arbitrary ADB shell option: shown once per session.
+# Documents that commands run inside the user's OWN emulator Android VM
+# (each instance is an isolated device) and requires explicit acknowledgement.
+$script:AdbConsentAccepted = $false
+function Confirm-AdbConsent {
+    if ($script:AdbConsentAccepted) { return $true }
+    Write-Host ''
+    Write-Host '  === Arbitrary ADB shell - confirmation required ===' -ForegroundColor Yellow
+    Write-Host '  Commands are executed inside YOUR OWN local emulator VM' -ForegroundColor White
+    Write-Host '  (isolated Android device). They cannot affect the host OS.' -ForegroundColor White
+    Write-Host '  Destructive shell commands may erase data inside that VM.' -ForegroundColor White
+    $ans = Read-Host '  Type OK to continue (anything else cancels)'
+    if ($ans -ceq 'OK') {
+        $script:AdbConsentAccepted = $true
         return $true
     }
     Write-Host '  Cancelled (consent not given).' -ForegroundColor Yellow
