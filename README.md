@@ -327,6 +327,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 - **Code scanning**: PSScriptAnalyzer → SARIF → GitHub Code Scanning (CodeQL не поддерживает PowerShell); триггеры: push/PR с PowerShell-файлами, еженедельно по понедельникам, ручной запуск
 - Включены: Private Vulnerability Reporting, Dependabot alerts + Dependabot security updates, Secret scanning + push protection
 - `.version` синхронизирован с релизным тегом
+- VirusTotal: **0/75** (ps1), **0/75** (zip)
 
 ### v1.13.24 (25.08.2026)
 - Усилено хранение токена: при разовой миграции legacy-плейнтекста содержимое файла затирается нулями перед удалением (best-effort secure wipe); подтверждено — скрипт **никогда** не пишет токен плейнтекстом, только DPAPI
@@ -380,10 +381,12 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Безопасность
 
-- **VirusTotal (v1.13.14): 0 malicious / 0 suspicious во всех файлах пакета** — сканы от 25.08.2026; целостность релизного zip сверена с отчётом
+- **VirusTotal (v1.13.25): 0 malicious / 0 suspicious во всех файлах пакета** — сканы от 26.08.2026; целостность релизного zip сверена с отчётом
 
 | Файл | SHA-256 | Движков | Отчёт |
 |------|---------|---------|-------|
+| `mumu-menu.ps1` (v1.13.25) | `825982aa50e3…652` | 75 | [отчёт](https://www.virustotal.com/gui/file/825982aa50e3017b78473acb28715745b510c8a999ef6e1ae36f64664b239652) |
+| релизный `MuMuManager-CLI-Menu-v1.13.25.zip` | `08be745ca928…4d3` | 75 | [отчёт](https://www.virustotal.com/gui/file/08be745ca9286e99b7bfce87ccaacbd13c19b166cb235c8d491f0096c14448d3) |
 | `mumu-menu.ps1` (v1.13.14) | `97cfac7eb2ce…912` | 75 | [отчёт](https://www.virustotal.com/gui/file/97cfac7eb2ced8644579aae38c84bf81760ebf633568061312fa2277e3f94912) |
 | релизный `MuMuManager-CLI-Menu-v1.13.14.zip` | `0da34de075d4…bde` | 74 | [отчёт](https://www.virustotal.com/gui/file/0da34de075d43ce043cace86303ab41776ce5552a4aea9742addcd18aa69cbde) |
 | `mumu-menu.ps1` (v1.13.7) | `4cfb3fd0679d…1f0c` | 60 | [отчёт](https://www.virustotal.com/gui/file/4cfb3fd0679da38a575619d4e54514acae6855b1913bf6150fab3bd261b51f0c) |
