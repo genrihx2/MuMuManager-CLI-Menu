@@ -1,5 +1,7 @@
 ﻿# MuMu Manager CLI Menu
 
+[![Code Scanning](https://github.com/genrihx2/MuMuManager-CLI-Menu/actions/workflows/security-scan.yml/badge.svg)](https://github.com/genrihx2/MuMuManager-CLI-Menu/actions/workflows/security-scan.yml)
+
 > **Открытый исходный код.** Скрипт предназначен исключительно для управления 
 > локальными инстансами MuMu Emulator на вашем компьютере. Функции подмены 
 > устройства (IMEI/Android ID/MAC) предназначены для приватности и тестирования 
