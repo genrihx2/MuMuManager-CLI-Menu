@@ -325,6 +325,9 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Что нового
 
+### v1.13.38 (26.08.2026)
+- Docs: убраны упоминания `.new` из changelog (строки 343,348,358)
+
 ### v1.13.37 (26.08.2026)
 - Update: авто-удаление `.new` если уже идентичен оригиналу (хэш SHA256)
 
