@@ -2103,7 +2103,7 @@ function Set-SimOperator {
         @{ CC='kz'; MCC='401'; MNC='01';  Name='Beeline KZ'; Lang='ru' }
     )
 
-    Write-Host 'Presets (MCC/MNC → TikTok region):' -ForegroundColor Cyan
+    Write-Host 'Presets (MCC/MNC -> TikTok region):' -ForegroundColor Cyan
     for ($i = 0; $i -lt $presets.Count; $i++) {
         $p = $presets[$i]
         Write-Host ("  [{0,2}] {1,-8} {2} ({3}{4}) {5}" -f ($i+1), $p.CC.ToUpper(), $p.Name, $p.MCC, $p.MNC, "[$($p.Lang)]") -ForegroundColor White
@@ -2178,12 +2178,12 @@ function Set-SimOperator {
         Write-Host "SIM set to $alpha ($numeric, $cc)." -ForegroundColor Green
         Write-Host ''
         Write-Host 'To apply in TikTok:' -ForegroundColor Cyan
-        Write-Host '  1. Clear TikTok cache:  [ADB] → shell pm clear com.zhiliaoapp.musically' -ForegroundColor White
-        Write-Host '  2. Force-stop TikTok:    [ADB] → shell am force-stop com.zhiliaoapp.musically' -ForegroundColor White
+        Write-Host '  1. Clear TikTok cache:  [ADB] -> shell pm clear com.zhiliaoapp.musically' -ForegroundColor White
+        Write-Host '  2. Force-stop TikTok:    [ADB] -> shell am force-stop com.zhiliaoapp.musically' -ForegroundColor White
         Write-Host '  3. Restart TikTok' -ForegroundColor White
         Write-Host ''
         Write-Host 'If feed still shows old region after clearing cache:' -ForegroundColor Yellow
-        Write-Host '  Full restart: [R] → restart emulator, then re-apply [SIM]' -ForegroundColor White
+        Write-Host '  Full restart: [R] -> restart emulator, then re-apply [SIM]' -ForegroundColor White
     } catch {
         Write-Host "Failed: $($_.Exception.Message)" -ForegroundColor Red
     }
