@@ -2072,10 +2072,14 @@ function Set-SimOperator {
         $curNumeric = if ($props -match '\[gsm\.sim\.operator\.numeric\]:\s*\[(.*?)\]') { $Matches[1] } else { '' }
         $curIso     = if ($props -match '\[gsm\.sim\.operator\.iso-country\]:\s*\[(.*?)\]') { $Matches[1] } else { '' }
         $curAlpha   = if ($props -match '\[gsm\.sim\.operator\.alpha\]:\s*\[(.*?)\]') { $Matches[1] } else { '' }
+        $curMumMcc  = if ($props -match '\[persist\.mumu\.mccmnc\]:\s*\[(.*?)\]') { $Matches[1] } else { '' }
         Write-Host 'Current SIM operator:' -ForegroundColor DarkGray
         Write-Host "  Numeric (MCC+MNC): $(if ($curNumeric) { $curNumeric } else { '(not set, default 310260 US)' })" -ForegroundColor White
         Write-Host "  ISO country:       $(if ($curIso) { $curIso } else { '(not set)' })" -ForegroundColor White
         Write-Host "  Operator name:     $(if ($curAlpha) { $curAlpha } else { '(not set)' })" -ForegroundColor White
+        if ($curMumMcc) {
+            Write-Host "  MuMu mccmnc:       $curMumMcc" -ForegroundColor White
+        }
         Write-Host ''
     } catch {
         Write-Host 'Could not read current SIM props (instance may be stopped).' -ForegroundColor Yellow
@@ -2128,7 +2132,10 @@ function Set-SimOperator {
     Write-Host ''
     Write-Host "Setting SIM to $alpha ($numeric, $cc)..." -ForegroundColor Cyan
     try {
-        # setprop via MuMu adb (requires instance running)
+        # 1) MuMu-specific persist property (most reliable in MuMu)
+        & $MumuPath adb -v $index -c "shell setprop persist.mumu.mccmnc $numeric" 2>&1 | Out-Null
+
+        # 2) Standard gsm.sim.* and gsm.operator.* shell properties
         $cmds = @(
             "setprop gsm.sim.operator.numeric $numeric"
             "setprop gsm.sim.operator.iso-country $cc"
@@ -2142,15 +2149,41 @@ function Set-SimOperator {
         foreach ($c in $cmds) {
             & $MumuPath adb -v $index -c "shell $c" 2>&1 | Out-Null
         }
+
+        # 3) Settings global — carrier ID / operator name (persists across shell restarts)
+        & $MumuPath adb -v $index -c "shell settings put global mobile_operator $numeric" 2>&1 | Out-Null
+        & $MumuPath adb -v $index -c "shell settings put global operator_numeric $numeric" 2>&1 | Out-Null
+        & $MumuPath adb -v $index -c "shell settings put global operator_alpha `"$alpha`"" 2>&1 | Out-Null
+        & $MumuPath adb -v $index -c "shell settings put global sim_operator `"$alpha`"" 2>&1 | Out-Null
+        & $MumuPath adb -v $index -c "shell settings put global gsm_operator_alpha `"$alpha`"" 2>&1 | Out-Null
+
         # Verify
         $props2 = & $MumuPath adb -v $index -c "shell getprop" 2>$null | Out-String
-        $newNum = if ($props2 -match '\[gsm\.sim\.operator\.numeric\]:\s*\[(.*?)\]') { $Matches[1] } else { '' }
-        Write-Host "  Verified numeric: $newNum" -ForegroundColor Green
-        Write-Host "  Verified iso:     $cc" -ForegroundColor Green
+        $newNum  = if ($props2 -match '\[gsm\.sim\.operator\.numeric\]:\s*\[(.*?)\]') { $Matches[1] } else { '' }
+        $newMum  = if ($props2 -match '\[persist\.mumu\.mccmnc\]:\s*\[(.*?)\]') { $Matches[1] } else { '' }
         Write-Host ''
-        Write-Host 'Done! Clear TikTok cache and restart TikTok to see new feed.' -ForegroundColor Green
-        Write-Host '  Tip: adb -v <idx> -c "shell pm clear com.zhiliaoapp.musically"' -ForegroundColor DarkGray
-        Write-Host '  Note: setprop is temporary until emulator reboot. Re-apply via [SIM] after reboot.' -ForegroundColor Yellow
+        Write-Host 'Verification:' -ForegroundColor DarkGray
+        Write-Host "  gsm.sim.operator.numeric = $(if ($newNum) { $newNum } else { '(empty)' })" -ForegroundColor $(if ($newNum -eq $numeric) { 'Green' } else { 'Yellow' })
+        Write-Host "  persist.mumu.mccmnc      = $(if ($newMum) { $newMum } else { '(empty)' })" -ForegroundColor $(if ($newMum -eq $numeric) { 'Green' } else { 'Yellow' })
+
+        if ($newNum -ne $numeric -and $newMum -ne $numeric) {
+            Write-Host ''
+            Write-Host 'WARNING: gsm.sim.operator.numeric did not update via setprop.' -ForegroundColor Yellow
+            Write-Host '  MuMu may override shell props from its virtual modem config.' -ForegroundColor Yellow
+            Write-Host '  This is normal — MuMu reads SIM from its own config file.' -ForegroundColor Yellow
+            Write-Host '  If feed does not change, a full emulator restart may be needed.' -ForegroundColor Yellow
+        }
+
+        Write-Host ''
+        Write-Host "SIM set to $alpha ($numeric, $cc)." -ForegroundColor Green
+        Write-Host ''
+        Write-Host 'To apply in TikTok:' -ForegroundColor Cyan
+        Write-Host '  1. Clear TikTok cache:  [ADB] → shell pm clear com.zhiliaoapp.musically' -ForegroundColor White
+        Write-Host '  2. Force-stop TikTok:    [ADB] → shell am force-stop com.zhiliaoapp.musically' -ForegroundColor White
+        Write-Host '  3. Restart TikTok' -ForegroundColor White
+        Write-Host ''
+        Write-Host 'If feed still shows old region after clearing cache:' -ForegroundColor Yellow
+        Write-Host '  Full restart: [R] → restart emulator, then re-apply [SIM]' -ForegroundColor White
     } catch {
         Write-Host "Failed: $($_.Exception.Message)" -ForegroundColor Red
     }
