@@ -1127,14 +1127,19 @@ function Create-Certificate {
     Write-Host 'This will create a self-signed code signing certificate and sign mumu-menu.ps1' -ForegroundColor DarkGray
     Write-Host ''
 
-    # Check if cert already exists
+    # Check if cert already exists and has Code Signing EKU
     $existing = Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.Subject -eq 'CN=MuMuManager-CLI-Menu' -and $_.FriendlyName -eq 'MuMuManager-CLI-Menu-Token' }
     if ($existing) {
-        Write-Host "Found existing certificate: $($existing.Thumbprint)" -ForegroundColor Green
-        $choice = Read-Host 'Use existing certificate? (Y/n)'
-        if ($choice -ne 'n' -and $choice -ne 'N') {
+        $hasCodeSigningEku = $false
+        foreach ($ext in $existing.Extensions) {
+            if ($ext.Oid.Value -eq '1.3.6.1.5.5.7.3.3') { $hasCodeSigningEku = $true; break }
+        }
+
+        if ($hasCodeSigningEku) {
+            Write-Host "Found valid certificate with Code Signing EKU: $($existing.Thumbprint)" -ForegroundColor Green
             $cert = $existing
         } else {
+            Write-Host "Found certificate without Code Signing EKU: $($existing.Thumbprint) - replacing..." -ForegroundColor Yellow
             Remove-Item $existing.PSPath -Force
             $cert = New-Certificate
         }
