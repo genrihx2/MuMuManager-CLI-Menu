@@ -113,6 +113,7 @@ function mumu { & "C:\путь\к\mumu-menu.ps1" }
   [E] Export emulator data
   [BA] Backup instance data
   [K] Update GitHub token
+  [CRT] Create/sign certificate
   [Z] Security audit (disabled)
 
   --- Spoofing ---
