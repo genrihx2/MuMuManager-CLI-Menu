@@ -2,7 +2,7 @@
 # Project:  https://github.com/genrihx2/MuMuManager-CLI-Menu
 # License:  Open Source - MIT (see LICENSE)
 # Purpose:  launch/stop/restart emulator instances, install/uninstall APKs,
-#           tune performance, spoof device model, back up instance data.
+#           tune performance, spoof device model/SIM operator, back up instance data.
 # AV Analyst Note: This is NOT malware. All actions are LOCAL and USER-INITIATED
 #           via explicit menu selections. No silent execution, no persistence,
 #           no network exfiltration, no process injection. Emulator management
@@ -421,6 +421,7 @@ function Show-Menu {
     Write-Host ''
     Write-Host '  --- Spoofing ---' -ForegroundColor Green
     Write-Host '  [DM] Spoof device model' -ForegroundColor Yellow
+    Write-Host '  [SIM] Change SIM operator / country (MCC/MNC)' -ForegroundColor Yellow
     Write-Host '  [DI] Random device IDs' -ForegroundColor Yellow
     Write-Host ''
     Write-Host '  --- Info ---' -ForegroundColor Green
@@ -1782,7 +1783,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.13.39' -ForegroundColor Green
+    Write-Host 'Script version: 1.13.40' -ForegroundColor Green
 
     # MuMu version
     try {
@@ -2061,6 +2062,101 @@ function Set-DeviceModel {
     }
 }
 
+function Set-SimOperator {
+    if (-not (Confirm-SpoofConsent)) { return }
+    $index = Get-InstanceIndex 'Select instance'
+    if (-not $index) { return }
+    Write-Host ''
+    # Show current SIM props via adb
+    try {
+        $props = & $MumuPath adb -v $index -c "shell getprop" 2>$null | Out-String
+        $curNumeric = if ($props -match '\[gsm\.sim\.operator\.numeric\]:\s*\[(.*?)\]') { $Matches[1] } else { '' }
+        $curIso     = if ($props -match '\[gsm\.sim\.operator\.iso-country\]:\s*\[(.*?)\]') { $Matches[1] } else { '' }
+        $curAlpha   = if ($props -match '\[gsm\.sim\.operator\.alpha\]:\s*\[(.*?)\]') { $Matches[1] } else { '' }
+        Write-Host 'Current SIM operator:' -ForegroundColor DarkGray
+        Write-Host "  Numeric (MCC+MNC): $(if ($curNumeric) { $curNumeric } else { '(not set, default 310260 US)' })" -ForegroundColor White
+        Write-Host "  ISO country:       $(if ($curIso) { $curIso } else { '(not set)' })" -ForegroundColor White
+        Write-Host "  Operator name:     $(if ($curAlpha) { $curAlpha } else { '(not set)' })" -ForegroundColor White
+        Write-Host ''
+    } catch {
+        Write-Host 'Could not read current SIM props (instance may be stopped).' -ForegroundColor Yellow
+    }
+
+    $presets = @(
+        @{ CC='us'; MCC='310'; MNC='260'; Name='T-Mobile US'; Lang='en' },
+        @{ CC='ru'; MCC='250'; MNC='01';  Name='MTS RU'; Lang='ru' },
+        @{ CC='gb'; MCC='234'; MNC='15';  Name='Vodafone UK'; Lang='en' },
+        @{ CC='de'; MCC='262'; MNC='01';  Name='Telekom DE'; Lang='de' },
+        @{ CC='fr'; MCC='208'; MNC='01';  Name='Orange FR'; Lang='fr' },
+        @{ CC='jp'; MCC='440'; MNC='10';  Name='Docomo JP'; Lang='ja' },
+        @{ CC='kr'; MCC='450'; MNC='05';  Name='SK Telecom KR'; Lang='ko' },
+        @{ CC='cn'; MCC='460'; MNC='01';  Name='China Unicom'; Lang='zh' },
+        @{ CC='in'; MCC='404'; MNC='45';  Name='Airtel IN'; Lang='en' },
+        @{ CC='br'; MCC='724'; MNC='05';  Name='Claro BR'; Lang='pt' },
+        @{ CC='tr'; MCC='286'; MNC='01';  Name='Turkcell TR'; Lang='tr' },
+        @{ CC='id'; MCC='510'; MNC='01';  Name='Telkomsel ID'; Lang='id' },
+        @{ CC='vn'; MCC='452'; MNC='01';  Name='Viettel VN'; Lang='vi' },
+        @{ CC='ua'; MCC='255'; MNC='01';  Name='Vodafone UA'; Lang='uk' },
+        @{ CC='kz'; MCC='401'; MNC='01';  Name='Beeline KZ'; Lang='ru' }
+    )
+
+    Write-Host 'Presets (MCC/MNC → TikTok region):' -ForegroundColor Cyan
+    for ($i = 0; $i -lt $presets.Count; $i++) {
+        $p = $presets[$i]
+        Write-Host ("  [{0,2}] {1,-8} {2} ({3}{4}) {5}" -f ($i+1), $p.CC.ToUpper(), $p.Name, $p.MCC, $p.MNC, "[$($p.Lang)]") -ForegroundColor White
+    }
+    Write-Host '  [ C] Custom MCC / MNC / ISO' -ForegroundColor White
+    Write-Host '  [ 0] Cancel' -ForegroundColor Yellow
+    $choice = Read-Host 'Select SIM country'
+    if ($choice -eq '0') { Write-Host 'Cancelled.' -ForegroundColor Yellow; return }
+    $sel = $null
+    if ($choice -eq 'c' -or $choice -eq 'C') {
+        $mcc = Read-Host 'MCC (3 digits, e.g. 250)'
+        $mnc = Read-Host 'MNC (2-3 digits, e.g. 01)'
+        $cc  = Read-Host 'ISO country (2 letters, e.g. ru)'
+        $name= Read-Host 'Operator name (e.g. MTS RU)'
+        if (-not $mcc -or -not $mnc -or -not $cc) { Write-Host 'Cancelled.' -ForegroundColor Yellow; return }
+        $sel = @{ MCC=$mcc.Trim(); MNC=$mnc.Trim(); CC=$cc.Trim().ToLower(); Name=if ($name) { $name.Trim() } else { "Operator $($mcc.Trim())$($mnc.Trim())" } }
+    } elseif ($choice -match '^\d+$' -and [int]$choice -ge 1 -and [int]$choice -le $presets.Count) {
+        $sel = $presets[[int]$choice - 1]
+    } else {
+        Write-Host 'Invalid option!' -ForegroundColor Red; return
+    }
+
+    $numeric = "$($sel.MCC)$($sel.MNC)"
+    $cc = $sel.CC.ToLower()
+    $alpha = $sel.Name
+    Write-Host ''
+    Write-Host "Setting SIM to $alpha ($numeric, $cc)..." -ForegroundColor Cyan
+    try {
+        # setprop via MuMu adb (requires instance running)
+        $cmds = @(
+            "setprop gsm.sim.operator.numeric $numeric"
+            "setprop gsm.sim.operator.iso-country $cc"
+            "setprop gsm.sim.operator.alpha `"$alpha`""
+            "setprop gsm.operator.numeric $numeric"
+            "setprop gsm.operator.iso-country $cc"
+            "setprop gsm.operator.alpha `"$alpha`""
+            "setprop gsm.sim.operator.isroaming false"
+            "setprop gsm.operator.isroaming false"
+        )
+        foreach ($c in $cmds) {
+            & $MumuPath adb -v $index -c "shell $c" 2>&1 | Out-Null
+        }
+        # Verify
+        $props2 = & $MumuPath adb -v $index -c "shell getprop" 2>$null | Out-String
+        $newNum = if ($props2 -match '\[gsm\.sim\.operator\.numeric\]:\s*\[(.*?)\]') { $Matches[1] } else { '' }
+        Write-Host "  Verified numeric: $newNum" -ForegroundColor Green
+        Write-Host "  Verified iso:     $cc" -ForegroundColor Green
+        Write-Host ''
+        Write-Host 'Done! Clear TikTok cache and restart TikTok to see new feed.' -ForegroundColor Green
+        Write-Host '  Tip: adb -v <idx> -c "shell pm clear com.zhiliaoapp.musically"' -ForegroundColor DarkGray
+        Write-Host '  Note: setprop is temporary until emulator reboot. Re-apply via [SIM] after reboot.' -ForegroundColor Yellow
+    } catch {
+        Write-Host "Failed: $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
+
 function New-RandomImei {
     $base = '35'
     1..12 | ForEach-Object { $base += Get-Random -Minimum 0 -Maximum 10 }
@@ -2190,6 +2286,8 @@ do {
         'Z' { Test-Security }
         'dm' { Set-DeviceModel }
         'DM' { Set-DeviceModel }
+        'sim' { Set-SimOperator }
+        'SIM' { Set-SimOperator }
         'di' { Set-RandomDeviceIds }
         'DI' { Set-RandomDeviceIds }
         'ba' { Backup-EmulatorData }
