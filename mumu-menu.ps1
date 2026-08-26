@@ -97,8 +97,10 @@ try {
 function Invoke-GitHubGet {
     param([string]$Url, [int]$TimeoutSec = 30)
     $curlArgs = @('-s', '--retry', '2', '--retry-delay', '2', '--connect-timeout', '15', '--max-time', "$TimeoutSec")
-    if ($Url -match '^https://api\.github\.com/') {
+    if ($Url -match '^https://api\.github\.com/repos/.+/contents/') {
         $curlArgs += @('-H', 'Accept: application/vnd.github.raw')
+    } elseif ($Url -match '^https://api\.github\.com/') {
+        $curlArgs += @('-H', 'Accept: application/vnd.github.v3+json')
     }
     if ($GitHubToken) {
         $curlArgs += @('-H', "Authorization: token $GitHubToken")
