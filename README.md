@@ -327,6 +327,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ### v1.13.28 (26.08.2026)
 - `.version` теперь включается в релизный ZIP-архив
+- **Сертификат**: добавлен пункт меню `[CRT] Create/sign certificate` — автоматическое создание self-signed сертификата для подписи скрипта и подпись `mumu-menu.ps1` (SHA256); после подписи скрипт запускается без предупреждений под политикой `AllSigned`
 
 ### v1.13.27 (26.08.2026)
 - **Fix обновления `[U]`**: заголовок `Accept: application/vnd.github.raw` ошибочно применялся ко всем запросам API (включая `/releases/latest`), из-за чего проверка обновлений всегда возвращала «No releases found»; теперь `raw` применяется только к `/contents/`, остальные эндпоинты используют `v3+json`
