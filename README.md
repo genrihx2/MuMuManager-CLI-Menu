@@ -119,6 +119,7 @@ function mumu { & "C:\путь\к\mumu-menu.ps1" }
 
   --- Spoofing ---
   [DM] Spoof device model
+  [SIM] Change SIM operator / country (MCC/MNC)
   [DI] Random device IDs
 
   --- Info ---
@@ -291,7 +292,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.13.39
+Script version: 1.13.40
 MuMu version: 6.5.2.0
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
