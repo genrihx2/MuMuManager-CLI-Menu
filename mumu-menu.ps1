@@ -1315,7 +1315,7 @@ function Create-Certificate {
                             $found = $s.Certificates | Where-Object { $_.Thumbprint -eq $existing.Thumbprint }
                             if ($found) { $s.Remove($found); Write-Host "Removed from Trusted Root ($storeName)" -ForegroundColor DarkGray }
                             $s.Close()
-                        } catch {}
+                        } catch { Write-Verbose "Failed to remove from $storeName store: $($_.Exception.Message)" }
                     }
                 } else { Write-Host 'No certificate to remove.' -ForegroundColor Yellow }
                 Read-Host 'Press Enter to continue'
