@@ -46,6 +46,8 @@
 - Хранение GitHub-токена через Windows DPAPI (CurrentUser) — расшифровка возможна только от имени того же пользователя Windows
 - Read-only проверка обновлений при старте (HTTPS к `api.github.com`) — загрузка файлов происходит только вручную через `[U]`
 - Самообновление из тегов GitHub Releases с проверкой содержимого
+- **Sigma FP**: добавление сертификата в Trusted Root (`Root` store) через `[CRT]` — явное действие пользователя для доверия к Authenticode-подписи (см. `Add-CertToTrustedRoot`)
+- **Sigma FP**: `Unsigned Image Loaded Into LSASS` — DPAPI через `ConvertFrom-SecureString` (.NET ProtectedData), без загрузки DLL/EXE в LSASS и без инъекции; скрипт подписывается через `[CRT]`
 
 ### Благодарности
 
@@ -80,3 +82,5 @@ You will receive an initial response within **72 hours**. Critical issues are pa
 ### Out of Scope
 
 Documented features are not vulnerabilities (see "Note for AV analysts" in README): device-model spoofing and random identifier generation (privacy features for user-owned instances), DPAPI-protected token storage (CurrentUser scope), read-only update check at startup over HTTPS to `api.github.com`.
+- **Sigma FP**: New Root/CA certificate to Store via `[CRT]` — explicit user action to trust self-signed CodeSigning cert for Authenticode (`Add-CertToTrustedRoot`), not silent.
+- **Sigma FP**: Unsigned Image Loaded Into LSASS — DPAPI via `ConvertFrom-SecureString` (.NET ProtectedData CurrentUser), no DLL/EXE load into LSASS, no injection; script is Authenticode-signed via `[CRT]`.

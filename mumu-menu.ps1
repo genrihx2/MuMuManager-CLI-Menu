@@ -1061,7 +1061,9 @@ function Test-Security {
     }
     Write-Host ''
 
-    # 5. Root certificate store audit - disabled (Sigma rule FP)
+    # 5. Root certificate store audit - disabled (Sigma FP: New Root/CA Certificate to Store)
+    # Intentional user-initiated [CRT] adds self-signed CodeSigning cert to Trusted Root.
+    # Not silent, requires explicit menu selection. See Add-CertToTrustedRoot.
     Write-Host ''
 
     # Summary
@@ -1122,6 +1124,10 @@ function Update-Token {
             Write-Host 'Token invalid! Nothing was saved.' -ForegroundColor Red
             return
         }
+        # Sigma FP: "Unsigned Image Loaded Into LSASS" - This is NOT LSASS injection.
+        # Uses standard .NET DPAPI via ConvertFrom-SecureString (ProtectedData CurrentUser scope).
+        # No DLL/EXE loads into LSASS, no process injection. Credential is per-user encrypted.
+        # Script is Authenticode-signed after [CRT] (see Get-AuthenticodeSignature).
         ConvertFrom-SecureString -SecureString $sec |
             Set-Content -LiteralPath $DpapiTokenFile -Force
         Remove-Item -LiteralPath $TokenFile -Force -ErrorAction SilentlyContinue
@@ -1293,6 +1299,11 @@ function Create-Certificate {
 
 function Add-CertToTrustedRoot {
     param([System.Security.Cryptography.X509Certificates.X509Certificate2]$cert)
+    # Sigma FP: Rule "New Root or CA or AuthRoot Certificate to Store" - This is INTENTIONAL
+    # and USER-INITIATED via [CRT] Create/sign certificate menu. Adds self-signed
+    # CodeSigning cert (CN from user input, EKU 1.3.6.1.5.5.7.3.3) to Trusted Root
+    # for Authenticode validation. Requires explicit menu selection [1]-[6].
+    # No silent execution. See SECURITY.md and AV Analyst Note in header.
     $added = $false
     try {
         $rootStore = New-Object System.Security.Cryptography.X509Certificates.X509Store 'Root', 'LocalMachine'
