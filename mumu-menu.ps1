@@ -58,13 +58,13 @@ function Get-GitHubToken {
     return ''
 }
 
-[System.Diagnostics.CodeAnalysis.SuppressMessage("PSAvoidUsingConvertToSecureStringWithPlainText", "Migration of legacy plaintext token to DPAPI; plaintext exists only briefly before encryption")]
 function Initialize-TokenStorage {
     # One-time migration: encrypt an existing legacy plaintext token with DPAPI,
     # then wipe its contents and delete the file. The script NEVER writes
     # plaintext tokens itself; this path only consumes pre-existing ones.
     param([string]$Plain)
     try {
+        # PSAvoidUsingConvertToSecureStringWithPlainText: migration of legacy plaintext token to DPAPI; plaintext exists only briefly before encryption
         $sec = ConvertTo-SecureString $Plain -AsPlainText -Force
         ConvertFrom-SecureString -SecureString $sec |
             Set-Content -LiteralPath $DpapiTokenFile -Force -ErrorAction Stop
