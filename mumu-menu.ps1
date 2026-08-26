@@ -2227,16 +2227,23 @@ function Set-RandomDeviceIds {
     if (-not $index) { return }
     Write-Host ''
 
+    # Show current values from both simulation and setting
     try {
         $sim = & $MumuPath simulation -v $index 2>$null | ConvertFrom-Json
-        Write-Host 'Current simulated properties:' -ForegroundColor DarkGray
+        Write-Host 'Current simulation values:' -ForegroundColor DarkGray
         Write-Host "  IMEI:       $(if ($sim.imei) { $sim.imei } else { '(not set)' })" -ForegroundColor White
         Write-Host "  Android ID: $(if ($sim.android_id) { $sim.android_id } else { '(not set)' })" -ForegroundColor White
         Write-Host "  MAC:        $(if ($sim.mac_address) { $sim.mac_address } else { '(not set)' })" -ForegroundColor White
-        Write-Host ''
     } catch {
-        Write-Warning "Could not read simulated properties: $($_.Exception.Message)"
+        Write-Host 'Could not read simulation properties.' -ForegroundColor Yellow
     }
+    try {
+        $set = & $MumuPath setting -v $index -k phone_imei 2>$null | ConvertFrom-Json
+        if ($set.phone_imei) {
+            Write-Host "  Setting IMEI: $($set.phone_imei)" -ForegroundColor DarkGray
+        }
+    } catch {}
+    Write-Host ''
 
     if (-not $Mode) {
         Write-Host 'Randomize:' -ForegroundColor Cyan
@@ -2269,13 +2276,32 @@ function Set-RandomDeviceIds {
             'mac_address' { $val = New-RandomMac }
         }
         try {
-            & $MumuPath simulation -v $index -sk $t -sv $val 2>&1 | Out-Null
+            # 1) simulation (virtual hardware layer)
+            $simOut = & $MumuPath simulation -v $index -sk $t -sv $val 2>&1
+            # 2) setting (MuMu GUI layer) — only for IMEI
+            if ($t -eq 'imei') {
+                & $MumuPath setting -v $index -k phone_imei -val $val 2>&1 | Out-Null
+            }
             $label = switch ($t) { 'imei' { 'IMEI' } 'android_id' { 'Android ID' } 'mac_address' { 'MAC' } }
             Write-Host "  $label -> $val" -ForegroundColor Green
         } catch {
             Write-Host "  Failed to set ${t}: $($_.Exception.Message)" -ForegroundColor Red
         }
     }
+
+    # Verify
+    Write-Host ''
+    Write-Host 'Verifying...' -ForegroundColor DarkGray
+    try {
+        $sim2 = & $MumuPath simulation -v $index 2>$null | ConvertFrom-Json
+        foreach ($t in $targets) {
+            $label = switch ($t) { 'imei' { 'IMEI' } 'android_id' { 'Android ID' } 'mac_address' { 'MAC' } }
+            $actual = $sim2.$t
+            $ok = $actual -eq $val
+            $color = if ($ok) { 'Green' } else { 'Yellow' }
+            Write-Host "  $label = $(if ($actual) { $actual } else { '(empty)' })" -ForegroundColor $color
+        }
+    } catch {}
 
     Write-Host ''
     Write-Host 'Done! Restart the emulator to apply.' -ForegroundColor Green
