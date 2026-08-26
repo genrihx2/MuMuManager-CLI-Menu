@@ -1244,16 +1244,19 @@ function Sign-Script {
         return
     }
 
-    # Copy to temp, sign the copy, then move back (can't sign a running file)
+    # Copy to temp, sign the copy, then save as .new (can't overwrite running file)
     $tmpPath = Join-Path $env:TEMP "mumu-menu_sign.ps1"
+    $newPath = Join-Path $ScriptDir 'mumu-menu.ps1.new'
     try {
         Copy-Item -LiteralPath $scriptPath -Destination $tmpPath -Force
-        Write-Host "Signing $scriptPath..." -ForegroundColor Cyan
+        Write-Host "Signing..." -ForegroundColor Cyan
         $result = Set-AuthenticodeSignature -FilePath $tmpPath -Certificate $cert -HashAlgorithm SHA256
         if ($result.Status -eq 'Valid') {
-            Copy-Item -LiteralPath $tmpPath -Destination $scriptPath -Force
+            if (Test-Path -LiteralPath $newPath) { Remove-Item -LiteralPath $newPath -Force }
+            Copy-Item -LiteralPath $tmpPath -Destination $newPath -Force
             Write-Host "Signature status: Valid" -ForegroundColor Green
-            Write-Host 'Script signed successfully! You can now run with AllSigned policy.' -ForegroundColor Green
+            Write-Host 'Signed script saved as mumu-menu.ps1.new' -ForegroundColor Green
+            Write-Host 'Restart to apply the signed version.' -ForegroundColor Green
         } else {
             Write-Host "Signing failed: $($result.StatusMessage)" -ForegroundColor Red
         }
