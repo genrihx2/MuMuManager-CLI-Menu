@@ -1223,8 +1223,6 @@ function Create-Certificate {
             Write-Host ''
         } else {
             Write-Host 'No certificate found.' -ForegroundColor Yellow
-            Write-Host "  Default Name : $curName" -ForegroundColor DarkGray
-            Write-Host "  Default Email: $curEmail" -ForegroundColor DarkGray
             Write-Host ''
         }
 
