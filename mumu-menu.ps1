@@ -36,7 +36,7 @@ if (Test-Path -LiteralPath $newFile) {
         # .new is the fresh script — rename it .old so next launch detects it,
         # then schedule a CMD helper to apply after this process exits.
         if (Test-Path -LiteralPath $oldFile) { Remove-Item -LiteralPath $oldFile -Force }
-        Rename-Item -LiteralPath $newFile -Destination $oldFile -Force
+        Rename-Item -LiteralPath $newFile -NewName (Split-Path $oldFile -Leaf) -Force
         $cmdLines = @(
             '@echo off'
             "timeout /t 2 /nobreak >nul"
@@ -62,7 +62,7 @@ if (Test-Path -LiteralPath $oldFile) {
         Remove-Item -LiteralPath $oldFile -Force
         Write-Host 'Pending update applied!' -ForegroundColor Green
     } catch {
-        # Still locked — helper CMD from previous run will handle it
+        Write-Host "  (Update will be applied by helper on next run)" -ForegroundColor DarkGray
     }
 }
 
