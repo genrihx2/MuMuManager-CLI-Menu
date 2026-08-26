@@ -1211,14 +1211,29 @@ function Create-Certificate {
     }
 
     if ($cert) {
-        # Add to Trusted Root so Windows trusts the signature
-        $rootStore = New-Object System.Security.Cryptography.X509Certificates.X509Store 'Root', 'CurrentUser'
-        $rootStore.Open('ReadWrite')
-        if (-not ($rootStore.Certificates | Where-Object { $_.Thumbprint -eq $cert.Thumbprint })) {
-            $rootStore.Add($cert)
-            Write-Host "Added certificate to Trusted Root store" -ForegroundColor Green
+        # Add to Trusted Root (Local Machine first, fallback to CurrentUser)
+        $added = $false
+        try {
+            $rootStore = New-Object System.Security.Cryptography.X509Certificates.X509Store 'Root', 'LocalMachine'
+            $rootStore.Open('ReadWrite')
+            if (-not ($rootStore.Certificates | Where-Object { $_.Thumbprint -eq $cert.Thumbprint })) {
+                $rootStore.Add($cert)
+                Write-Host 'Added certificate to Trusted Root (Local Machine)' -ForegroundColor Green
+            }
+            $rootStore.Close()
+            $added = $true
+        } catch {
+            Write-Host 'No admin rights for Local Machine store, using CurrentUser...' -ForegroundColor DarkGray
         }
-        $rootStore.Close()
+        if (-not $added) {
+            $rootStore = New-Object System.Security.Cryptography.X509Certificates.X509Store 'Root', 'CurrentUser'
+            $rootStore.Open('ReadWrite')
+            if (-not ($rootStore.Certificates | Where-Object { $_.Thumbprint -eq $cert.Thumbprint })) {
+                $rootStore.Add($cert)
+                Write-Host 'Added certificate to Trusted Root (CurrentUser)' -ForegroundColor Green
+            }
+            $rootStore.Close()
+        }
         Sign-Script $cert
     }
 }
