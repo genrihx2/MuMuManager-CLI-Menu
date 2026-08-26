@@ -1149,7 +1149,7 @@ function Create-Certificate {
 
 function New-Certificate {
     try {
-        $cert = New-SelfSignedCertificate -Subject 'CN=MuMuManager-CLI-Menu' -KeySpec CodeSigning -FriendlyName 'MuMuManager-CLI-Menu-Token' -CertStoreLocation 'Cert:\CurrentUser\My' -NotAfter (Get-Date).AddYears(5)
+        $cert = New-SelfSignedCertificate -Subject 'CN=MuMuManager-CLI-Menu' -KeySpec Signature -FriendlyName 'MuMuManager-CLI-Menu-Token' -CertStoreLocation 'Cert:\CurrentUser\My' -NotAfter (Get-Date).AddYears(5)
         Write-Host "Created certificate: $($cert.Thumbprint)" -ForegroundColor Green
         return $cert
     } catch {
