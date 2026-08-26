@@ -30,13 +30,39 @@ $DpapiTokenFile = Join-Path $ScriptDir '.github-token.dpapi'
 $newFile = Join-Path $ScriptDir 'mumu-menu.ps1.new'
 if (Test-Path -LiteralPath $newFile) {
     $dstFile = Join-Path $ScriptDir 'mumu-menu.ps1'
+    $oldFile = Join-Path $ScriptDir 'mumu-menu.ps1.old'
+    $helperCmd = Join-Path $env:TEMP "mumu_apply_update.cmd"
     try {
-        Copy-Item -LiteralPath $newFile -Destination $dstFile -Force
-        Remove-Item -LiteralPath $newFile -Force
-        Write-Host 'Update applied successfully!' -ForegroundColor Green
+        # .new is the fresh script — rename it .old so next launch detects it,
+        # then schedule a CMD helper to apply after this process exits.
+        if (Test-Path -LiteralPath $oldFile) { Remove-Item -LiteralPath $oldFile -Force }
+        Rename-Item -LiteralPath $newFile -Destination $oldFile -Force
+        $cmdLines = @(
+            '@echo off'
+            "timeout /t 2 /nobreak >nul"
+            "copy /y `"$oldFile`" `"$dstFile`" >nul"
+            "del `"$oldFile`""
+            "del `"%~f0`""
+        )
+        [System.IO.File]::WriteAllLines($helperCmd, $cmdLines, [System.Text.UTF8Encoding]::new($false))
+        Start-Process cmd.exe -ArgumentList "/c `"$helperCmd`"" -WindowStyle Hidden
+        Write-Host 'Update will apply on next restart.' -ForegroundColor Green
         Start-Sleep -Seconds 1
     } catch {
-        Write-Host "Failed to apply update: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "Failed to stage update: $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
+
+# --- Also check for leftover .old from a previous staged update -------------
+$oldFile = Join-Path $ScriptDir 'mumu-menu.ps1.old'
+if (Test-Path -LiteralPath $oldFile) {
+    $dstFile = Join-Path $ScriptDir 'mumu-menu.ps1'
+    try {
+        Copy-Item -LiteralPath $oldFile -Destination $dstFile -Force
+        Remove-Item -LiteralPath $oldFile -Force
+        Write-Host 'Pending update applied!' -ForegroundColor Green
+    } catch {
+        # Still locked — helper CMD from previous run will handle it
     }
 }
 
@@ -1187,9 +1213,8 @@ function Create-Certificate {
 
 function New-Certificate {
     try {
-        # Create certificate with Code Signing EKU directly (works on PS 5.1+)
-        $ekuOids = @(New-Object System.Security.Cryptography.Oid '1.3.6.1.5.5.7.3.3')
-        $cert = New-SelfSignedCertificate -Subject 'CN=MuMuManager-CLI-Menu' -KeySpec Signature -FriendlyName 'MuMuManager-CLI-Menu-Token' -CertStoreLocation 'Cert:\CurrentUser\My' -NotAfter (Get-Date).AddYears(5) -EnhancedKeyUsageList $ekuOids -ErrorAction Stop
+        # Create certificate with Code Signing EKU via TextExtension (PS 5.1 compatible)
+        $cert = New-SelfSignedCertificate -Subject 'CN=MuMuManager-CLI-Menu' -KeySpec Signature -FriendlyName 'MuMuManager-CLI-Menu-Token' -CertStoreLocation 'Cert:\CurrentUser\My' -NotAfter (Get-Date).AddYears(5) -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3") -ErrorAction Stop
         Write-Host "Created certificate with Code Signing EKU: $($cert.Thumbprint)" -ForegroundColor Green
         return $cert
     } catch {
