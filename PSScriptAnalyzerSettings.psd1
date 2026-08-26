@@ -7,5 +7,6 @@
         'PSUseUsingScopeModifierInNewRunspaces'
         'PSReviewUnusedParameter'
         'PSUseDeclaredVarsMoreThanAssignments'
+        'PSUseApprovedVerbs'
     )
 }
