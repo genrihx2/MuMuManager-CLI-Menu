@@ -27,50 +27,28 @@ $TokenFile = Join-Path $ScriptDir '.github-token'
 $DpapiTokenFile = Join-Path $ScriptDir '.github-token.dpapi'
 
 # --- Apply pending update (from [U] which saved to .new) --------------------
-$stagedNew = $false
 $newFile = Join-Path $ScriptDir 'mumu-menu.ps1.new'
 if (Test-Path -LiteralPath $newFile) {
     $dstFile = Join-Path $ScriptDir 'mumu-menu.ps1'
-    $oldFile = Join-Path $ScriptDir 'mumu-menu.ps1.old'
     $helperCmd = Join-Path $env:TEMP "mumu_apply_update.cmd"
     try {
-        # .new is the fresh script — rename it .old so next launch detects it,
-        # then schedule a CMD helper to apply after this process exits.
-        if (Test-Path -LiteralPath $oldFile) { Remove-Item -LiteralPath $oldFile -Force }
-        Rename-Item -LiteralPath $newFile -NewName (Split-Path $oldFile -Leaf) -Force
         $cmdLines = @(
             '@echo off'
             ":retry"
             "timeout /t 2 /nobreak >nul"
-            "copy /y `"$oldFile`" `"$dstFile`" >nul 2>&1"
+            "copy /y `"$newFile`" `"$dstFile`" >nul 2>&1"
             'if errorlevel 1 goto retry'
-            "fc /b `"$oldFile`" `"$dstFile`" >nul 2>&1"
+            "fc /b `"$newFile`" `"$dstFile`" >nul 2>&1"
             'if errorlevel 1 goto retry'
-            "del `"$oldFile`""
+            "del `"$newFile`""
             "del `"%~f0`""
         )
         [System.IO.File]::WriteAllLines($helperCmd, $cmdLines, [System.Text.UTF8Encoding]::new($false))
         Start-Process cmd.exe -ArgumentList "/c `"$helperCmd`"" -WindowStyle Hidden
         Write-Host 'Update will apply on next restart.' -ForegroundColor Green
-        $stagedNew = $true
         Start-Sleep -Seconds 1
     } catch {
         Write-Host "Failed to stage update: $($_.Exception.Message)" -ForegroundColor Red
-    }
-}
-
-# --- Also check for leftover .old from a previous staged update -------------
-if (-not $stagedNew) {
-    $oldFile = Join-Path $ScriptDir 'mumu-menu.ps1.old'
-    if (Test-Path -LiteralPath $oldFile) {
-        $dstFile = Join-Path $ScriptDir 'mumu-menu.ps1'
-        try {
-            Copy-Item -LiteralPath $oldFile -Destination $dstFile -Force
-            Remove-Item -LiteralPath $oldFile -Force
-            Write-Host 'Pending update applied!' -ForegroundColor Green
-        } catch {
-            Write-Host "  (Update will be applied by helper on next run)" -ForegroundColor DarkGray
-        }
     }
 }
 
