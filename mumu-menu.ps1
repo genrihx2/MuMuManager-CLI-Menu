@@ -1193,7 +1193,7 @@ function Create-Certificate {
 
         $existing = Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.FriendlyName -eq 'MuMuManager-CLI-Menu-Token' }
         $defaultName = 'MuMuManager-CLI-Menu'
-        $defaultEmail = 'genrihlist@mail.ru'
+        $defaultEmail = ''
         $curName = $defaultName
         $curEmail = $defaultEmail
         if ($existing) {
@@ -1268,8 +1268,9 @@ function Create-Certificate {
                 Read-Host 'Press Enter to continue'
             }
             '3' {
-                $e = Read-Host "Enter new Email [$curEmail]"
-                if ($e) { $curEmail = $e.Trim() }
+                $e = Read-Host "Enter new Email [$curEmail] (type '-' to remove, Enter to keep)"
+                if ($e -eq '-') { $curEmail = '' }
+                elseif ($e) { $curEmail = $e.Trim() }
                 if ($existing) { Remove-Item $existing.PSPath -Force; Write-Host 'Old certificate removed.' -ForegroundColor Yellow }
                 $cert = New-Certificate -CertName $curName -CertEmail $curEmail
                 if ($cert) { Add-CertToTrustedRoot $cert; Sign-Script $cert }
@@ -1278,8 +1279,9 @@ function Create-Certificate {
             '4' {
                 $n = Read-Host "Enter Name [$curName]"
                 if (-not $n) { $n = $curName } else { $n = $n.Trim() }
-                $e = Read-Host "Enter Email [$curEmail]"
-                if (-not $e) { $e = $curEmail } else { $e = $e.Trim() }
+                $e = Read-Host "Enter Email [$curEmail] (type '-' for no email, Enter to keep)"
+                if ($e -eq '-') { $e = '' }
+                elseif (-not $e) { $e = $curEmail } else { $e = $e.Trim() }
                 if ($existing) { Remove-Item $existing.PSPath -Force }
                 $cert = New-Certificate -CertName $n -CertEmail $e
                 if ($cert) { Add-CertToTrustedRoot $cert; Sign-Script $cert }
@@ -1337,12 +1339,19 @@ function Add-CertToTrustedRoot {
 function New-Certificate {
     param(
         [string]$CertName = 'MuMuManager-CLI-Menu',
-        [string]$CertEmail = 'genrihlist@mail.ru'
+        [string]$CertEmail = ''
     )
     try {
-        $subject = "CN=$CertName, E=$CertEmail"
-        $cert = New-SelfSignedCertificate -Subject $subject -KeySpec Signature -FriendlyName 'MuMuManager-CLI-Menu-Token' -CertStoreLocation 'Cert:\CurrentUser\My' -NotAfter (Get-Date).AddYears(5) -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3", "2.5.29.17={text}email=$CertEmail") -ErrorAction Stop
-        Write-Host "Created certificate ($CertName <$CertEmail>): $($cert.Thumbprint)" -ForegroundColor Green
+        $extensions = @("2.5.29.37={text}1.3.6.1.5.5.7.3.3")
+        if ($CertEmail) {
+            $subject = "CN=$CertName, E=$CertEmail"
+            $extensions += "2.5.29.17={text}email=$CertEmail"
+        } else {
+            $subject = "CN=$CertName"
+        }
+        $cert = New-SelfSignedCertificate -Subject $subject -KeySpec Signature -FriendlyName 'MuMuManager-CLI-Menu-Token' -CertStoreLocation 'Cert:\CurrentUser\My' -NotAfter (Get-Date).AddYears(5) -TextExtension $extensions -ErrorAction Stop
+        $info = if ($CertEmail) { "$CertName <$CertEmail>" } else { $CertName }
+        Write-Host "Created certificate ($info): $($cert.Thumbprint)" -ForegroundColor Green
         return $cert
     } catch {
         Write-Host "Failed to create certificate: $($_.Exception.Message)" -ForegroundColor Red
