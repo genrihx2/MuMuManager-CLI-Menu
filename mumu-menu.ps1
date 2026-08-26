@@ -2063,7 +2063,6 @@ function Set-DeviceModel {
 }
 
 function Set-SimOperator {
-    if (-not (Confirm-SpoofConsent)) { return }
     $index = Get-InstanceIndex 'Select instance'
     if (-not $index) { return }
     Write-Host ''
