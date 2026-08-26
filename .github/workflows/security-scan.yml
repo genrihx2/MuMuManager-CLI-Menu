@@ -1,0 +1,49 @@
+name: Security scan (PSScriptAnalyzer)
+
+# CodeQL does not support PowerShell, so code scanning is fed by
+# Microsoft's official PowerShell linter (SARIF -> Code Scanning).
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '**/*.ps1'
+      - '**/*.psm1'
+      - '**/*.psd1'
+      - '**/*.ps1xml'
+      - '.github/workflows/security-scan.yml'
+  pull_request:
+    paths:
+      - '**/*.ps1'
+      - '**/*.psm1'
+      - '**/*.psd1'
+      - '**/*.ps1xml'
+      - '.github/workflows/security-scan.yml'
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  psscriptanalyzer:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run PSScriptAnalyzer
+        uses: microsoft/psscriptanalyzer-action@v1.0
+        with:
+          path: .\
+          recurse: true
+          output: results.sarif
+
+      - name: Upload SARIF results
+        if: always() && hashFiles('results.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif
+          category: psscriptanalyzer
