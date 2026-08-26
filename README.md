@@ -325,7 +325,8 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 ### v1.13.26 (26.08.2026)
 - **Consent-гейты для чувствительных операций**: `[O] Clear app data` и `[9] Uninstall app` теперь требуют явного ввода `YES` с описанием последствий
 - `[A] Run ADB command`: session-consent перед первым произвольным ADB-шеллом (команды выполняются только внутри собственной ВМ эмулятора, хост недоступен)
-- Ответ на AI-вердикт VirusTotal (NICS Lab): флагует назначение (dual-use спуфинг), а не поведение; опубликованы комментарий владельца и голос harmless на оба файла v1.13.25
+- Ответ на AI-вердикт VirusTotal (NICS Lab): флагует назначение (dual-use спуфинг), а не поведение; опубликованы комментарий владельца и голос harmless
+- VirusTotal: **0/75** (ps1), **0/75** (zip)
 
 ### v1.13.25 (26.08.2026)
 - **Безопасность репозитория**: добавлена политика безопасности `SECURITY.md` (RU/EN) — как приватно сообщить об уязвимости, что не считается уязвимостью, SLA ответа
@@ -386,10 +387,12 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Безопасность
 
-- **VirusTotal (v1.13.25): 0 malicious / 0 suspicious во всех файлах пакета** — сканы от 26.08.2026; целостность релизного zip сверена с отчётом
+- **VirusTotal (v1.13.26): 0 malicious / 0 suspicious во всех файлах пакета** — сканы от 26.08.2026; целостность релизного zip сверена с отчётом
 
 | Файл | SHA-256 | Движков | Отчёт |
 |------|---------|---------|-------|
+| `mumu-menu.ps1` (v1.13.26) | `318132d22881…f8c` | 75 | [отчёт](https://www.virustotal.com/gui/file/318132d2288194413cd559b100309f6900d6cbe6ee29df8cb0f80e4020299f8c) |
+| релизный `MuMuManager-CLI-Menu-v1.13.26.zip` | `c10e5da08f30…ec5` | 75 | [отчёт](https://www.virustotal.com/gui/file/c10e5da08f3041eeae7ba762871a486f7c1ee08394492fc8422ecb8aa66d3ec5) |
 | `mumu-menu.ps1` (v1.13.25) | `825982aa50e3…652` | 75 | [отчёт](https://www.virustotal.com/gui/file/825982aa50e3017b78473acb28715745b510c8a999ef6e1ae36f64664b239652) |
 | релизный `MuMuManager-CLI-Menu-v1.13.25.zip` | `08be745ca928…4d3` | 75 | [отчёт](https://www.virustotal.com/gui/file/08be745ca9286e99b7bfce87ccaacbd13c19b166cb235c8d491f0096c14448d3) |
 | `mumu-menu.ps1` (v1.13.14) | `97cfac7eb2ce…912` | 75 | [отчёт](https://www.virustotal.com/gui/file/97cfac7eb2ced8644579aae38c84bf81760ebf633568061312fa2277e3f94912) |
