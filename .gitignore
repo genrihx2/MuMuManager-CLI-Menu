@@ -25,3 +25,7 @@ Desktop.ini
 # Instance data backups (large files)
 backups/
 backup/
+
+# Temp update/sign files
+*.old
+*.new
