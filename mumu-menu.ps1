@@ -2326,7 +2326,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    $scriptVer = '1.8.0'
+    $scriptVer = '1.8.1'
     Write-Host "Script version: $scriptVer" -ForegroundColor Green
 
     # Check for updates

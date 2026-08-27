@@ -354,6 +354,10 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Что нового
 
+### v1.8.1 (27.08.2026)
+- **Fix**: PS 5.1 string interpolation — `${eng}` PSDrive reference в VirusTotal сканере
+- **Fix**: `${zipSize}` в ZIP validation
+
 ### v1.8.0 (27.08.2026)
 - **[WEB] Dashboard**: локальный веб-интерфейс на localhost:8080 — статус эмуляторов, версии, токен
 - **[VT] VirusTotal**: сканирование скрипта/ZIP/хеша, авто-workflow при релизе, бейдж в README
