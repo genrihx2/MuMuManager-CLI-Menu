@@ -32,7 +32,6 @@ if ($PSScriptRoot) { $ScriptDir = $PSScriptRoot } else { $ScriptDir = Split-Path
 if (-not $ScriptDir) { $ScriptDir = $PWD.Path }
 $GitHubRepo = 'genrihx2/MuMuManager-CLI-Menu'
 $SkillPath = '.'
-$VersionFile = Join-Path $ScriptDir '.version'
 $TokenFile = Join-Path $ScriptDir '.github-token'
 $DpapiTokenFile = Join-Path $ScriptDir '.github-token.dpapi'
 
@@ -245,7 +244,6 @@ function Update-FromGitHub {
         $remoteText = Get-RemoteFile 'mumu-menu.ps1' $tag
 
         if ((Get-ContentHash $localText) -eq (Get-ContentHash $remoteText)) {
-            Set-Content -Path $VersionFile -Value $tag -NoNewline -ErrorAction SilentlyContinue
             if (-not $Passive) {
                 Write-Host "  Up to date ($tag)" -ForegroundColor DarkGray
             }
@@ -385,7 +383,6 @@ function Update-FromGitHub {
         if ($failed -gt 0) {
             Write-Host "Update finished with $failed failed file(s). Restore from backup if needed." -ForegroundColor Red
         } else {
-            Set-Content -Path $VersionFile -Value $tag -NoNewline -ErrorAction SilentlyContinue
             Write-Host ''
             Write-Host 'Update complete! Restart the menu to use the new version.' -ForegroundColor Green
         }
@@ -440,11 +437,9 @@ function Show-QuickStatus {
             $total++
             if ($info.$key.player_state -and $info.$key.player_state -notmatch 'stopped| shutting') { $running++ }
         }
-        $ver = if (Test-Path $VersionFile) { (Get-Content $VersionFile -Raw).Trim() } else { '?' }
-        Write-Host "  v$ver | MuMu $InstalledVersion | $running/$total running" -ForegroundColor DarkGray
+        Write-Host "  v$scriptVer | MuMu $InstalledVersion | $running/$total running" -ForegroundColor DarkGray
     } catch {
-        $ver = if (Test-Path $VersionFile) { (Get-Content $VersionFile -Raw).Trim() } else { '?' }
-        Write-Host "  v$ver" -ForegroundColor DarkGray
+        Write-Host "  v$scriptVer" -ForegroundColor DarkGray
     }
 }
 

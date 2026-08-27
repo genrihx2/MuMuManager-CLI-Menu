@@ -72,7 +72,7 @@ jobs:
           ZIPNAME="MuMuManager-CLI-Menu-${VERSION}.zip"
 
           mkdir -p dist
-          for f in mumu-menu.ps1 README.md SKILL.md .version; do
+          for f in mumu-menu.ps1 README.md SKILL.md; do
             [ -f "$f" ] && cp "$f" dist/
           done
 
@@ -104,7 +104,7 @@ jobs:
           echo "${SHA256}  ${ZIPNAME}" | sha256sum -c -
           echo "SHA256: OK"
 
-          for f in mumu-menu.ps1 README.md SKILL.md .version; do
+          for f in mumu-menu.ps1 README.md SKILL.md; do
             unzip -l "${ZIPNAME}" | grep -q "$f" || { echo "MISSING: $f"; exit 1; }
           done
           echo "Structure: OK"
