@@ -61,7 +61,7 @@ jobs:
           (cd dist && zip -r "../${ZIPNAME}" .)
 
           # Generate SHA256 checksum
-          SHA256=$(sha256sum "../${ZIPNAME}" | cut -d' ' -f1)
+          SHA256=$(sha256sum "${ZIPNAME}" | cut -d' ' -f1)
           echo "SHA256: ${SHA256}"
           echo "${SHA256}  ${ZIPNAME}" > "${ZIPNAME}.sha256"
 
