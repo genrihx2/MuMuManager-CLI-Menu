@@ -1,56 +1,96 @@
 ﻿---
 name: mumu-manager-cli
-description: 使用 MuMuManager.exe 对 MuMu 模拟器 12 实例进行统一管理与操作，包含实例配置、创建/克隆/删除/重命名、导入/导出、启动/关闭/重启/窗口控制、应用安装/卸载/启动/关闭、设备信息、系统工具、ADB 命令、驱动与排序等。适合编写脚本批量自动化管理 MuMu 模拟器时使用。
+description: Interactive PowerShell menu for managing MuMu Emulator instances via MuMuManager.exe. Features: instance control, app management, device spoofing, SIM operator change, auto-update, code signing.
 ---
-# MuMuManager CLI
 
-## Цель и легитимность
-Утилита для управления **собственными** локальными инстансами MuMu Emulator. 
-Все операции выполняются локально через официальный `MuMuManager.exe`. 
-Функции спуфинга (модель устройства, идентификаторы) предназначены 
-для приватности и тестирования — **не** для имперсонации чужих устройств.
+# MuMuManager CLI Menu
 
-> Open-source tool for managing your own MuMu Emulator instances locally.
-> Spoofing features are for privacy/testing on your own instances only.
+## Purpose
+Interactive PowerShell menu for managing your own MuMu Emulator instances locally.
+All operations run locally through the official `MuMuManager.exe`.
 
-## 用途
-使用命令行查询和管理 MuMu 模拟器 12 的实例与应用配置，适合账号矩阵、批量开关、自动化脚本、运维排障等场景。
-## 前置要求
-- 确保模拟器版本 **V4.0.0.3179 或以上**，否则部分命令不可用。
-- 定位 `MuMuManager.exe`，常见路径：`X:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe`；本机路径示例：`C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe`。
-- 建议使用绝对路径，或将 `nx_main` 目录加入 `PATH`。
-## 使用流程
-1. 先用 `info` 确认可用实例；`-v` 支持逗号分隔列表或 `all`。
-2. 选择需要的任务（创建/克隆/删除/重命名/导入/导出/ADB/应用/控制/设置）。
-3. 尽量缩小作用范围，谨慎对 `all` 执行写操作。
-## 功能速查
-### 实例管理
-- `info` 查看实例状态与字段说明
-- `create / clone / delete / rename` 创建/克隆/删除/重命名实例
-- `import / export` 备份与恢复 `.mumudata`（可选 `--zip`）
-### 常见坑与规避
-- 删除实例前先关闭该实例：`control -v <index> shutdown`。未关闭时可能返回 `{"errcode": -1, "errmsg": "not handle cmd"}`。
-- `rename -n "名称含空格"` 可能让 MuMuManager 无响应（CLI 缺陷）；脚本已用 15 秒超时兜底。
-### 启动与窗口控制
-- `control launch / shutdown / restart` 启动/关闭/重启实例
-- `control show_window / hide_window / layout_window` 显示/隐藏/布局窗口
-### 应用管理
-- `control app install / uninstall / launch / close / info` 使用包名或 apk 路径
-- `control app info -i` 查看已安装应用与当前前台应用
-- `export -d <dir> [-zip] [-n <name>]` 导出 `.mumudata`（注意是 `-d`，不是 `-p`）
-### 系统工具
-- `control tool func` 常用功能（截图、刷新、主页、设置、安全等）
-- `control tool downcpu` 降低 CPU
-- `control tool location / gyro` 虚拟定位与重力感应
-- `control shortcut create / delete` 创建/删除桌面快捷方式
-### 设备配置与仿真
-- `setting` 读取/修改配置，支持 `--all / --all_writable / --info / --path`
-- `setting -v <i> -k phone_brand -val X -k phone_model -val Y -k phone_miit -val Z` 伪装设备型号（品牌/型号名/入网型号），修改后需重启实例生效；菜单对应 `[DM] Spoof device model`
-- `simulation -v <i> -sk imei/android_id/mac_address -sv <value>` 随机生成并写入设备标识（IMEI 带校验位），修改后需重启实例生效；菜单对应 `[DI] Random device IDs`
-### ADB 命令
-- `adb -c` 常用快捷命令（清理缓存/截图/录屏等）
-- `adb -c "shell ..."` 执行自定义 shell 命令
-### 其他
-- `sort` 自动排列窗口
-- `driver install / uninstall -n lwf` 安装/卸载驱动（可能需要管理员权限）
-- 辅助接口 `api` 仅在必要时使用，稳定性依赖版本
+## Project Structure
+```
+mumu-menu.ps1          # Main script (v1.1.0)
+README.md              # Documentation with changelog
+SKILL.md               # This file
+.gitattributes         # Line ending normalization (LF)
+.github/workflows/
+  release.yml          # Auto-release on version bump
+  sync-readme.yml      # Sync README with script menu
+  sync-version.yml     # Sync .version from script
+  security-scan.yml    # PSScriptAnalyzer → SARIF
+```
+
+## Requirements
+- Windows 10/11
+- PowerShell 5.1+
+- MuMu Emulator 6.x (minimum v4.0.0.3179)
+- `MuMuManager.exe` at: `C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe`
+
+## Installation
+```powershell
+# Quick run (one command):
+irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-menu.ps1 -OutFile $env:TEMP\mumu-menu.ps1; & $env:TEMP\mumu-menu.ps1
+
+# Or git clone:
+git clone https://github.com/genrihx2/MuMuManager-CLI-Menu.git
+cd MuMuManager-CLI-Menu
+.\mumu-menu.ps1
+```
+
+## Menu Commands
+- `[1]` Show instance info
+- `[2-5]` Launch/Shutdown/Restart/Create emulator
+- `[6-9]` Apps/Settings/Install APK/Uninstall
+- `[DI]` Random device IDs (IMEI/Android ID/MAC)
+- `[DM]` Spoof device model (brand/model/certification)
+- `[SIM]` Change SIM operator (MCC/MNC) — 15 presets + custom
+- `[U]` Check for updates (downloads from GitHub Releases)
+- `[V]` Version info (script, MuMu, .NET, disk, ADB, certificate)
+- `[K]` Update GitHub token (DPAPI-encrypted)
+- `[CRT]` Certificate manager (self-signed code signing)
+- `[Z]` Security test
+
+## Workflows
+### Release (auto)
+- Triggers on push to `main` when `mumu-menu.ps1` changes
+- Reads version from `$scriptVer` variable
+- Creates ZIP (mumu-menu.ps1, README.md, SKILL.md, .version)
+- SHA256 checksum + ZIP integrity verification
+- Generates release notes with changelog, commit list, install instructions
+
+### Sync README
+- Triggers on push to `main` when `mumu-menu.ps1` changes
+- Runs `update-readme.ps1` to sync menu block in README.md
+- Auto-commits if changed
+
+### Sync .version
+- Triggers on push to `main` when `mumu-menu.ps1` changes
+- Reads `$scriptVer` from script, writes to `.version`
+- Auto-commits if changed
+
+### Security Scan
+- PSScriptAnalyzer with custom settings
+- SARIF output for GitHub code scanning
+- Summary table (errors/warnings)
+
+## Versioning
+- Version is stored in `$scriptVer` variable in `mumu-menu.ps1`
+- `.version` file is synced automatically by workflow
+- To create a release: bump `$scriptVer`, commit, push
+- Tags follow `vX.Y.Z` format
+
+## Security
+- Device spoofing is DUAL-USE: privacy/testing on YOUR OWN instances only
+- Token stored DPAPI-encrypted (`.github-token.dpapi`)
+- Update downloads TEXT files only (.ps1/.md) from tagged GitHub Releases
+- SHA256 verification for all downloads
+- Code signing via self-signed certificate (created via `[CRT]`)
+- See SECURITY.md for full details
+
+## Troubleshooting
+- MuMu not found: edit `$MumuPath` at top of `mumu-menu.ps1`
+- Version mismatch: run `[V]` to check script vs MuMu version
+- Update fails: run `[K]` to configure GitHub token
+- Certificate expired: run `[CRT]` → `[1]` to recreate
