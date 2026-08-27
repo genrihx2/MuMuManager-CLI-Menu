@@ -351,6 +351,15 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Что нового
 
+### v1.13.41 (27.08.2026)
+- **Меню**: шапка показывает версию скрипта, версию MuMu, кол-во инстансов
+- **Auto-update `[U]`**: preview changelog, прогресс загрузки, проверка ZIP, автоочистка бэкапов
+- **Security scan**: summary table (errors/warnings), триггер на изменение PSScriptAnalyzerSettings
+- **Release workflow**: SHA256 чексуммы, сравнение с предыдущим релизом, статистика ZIP
+- **README**: badges (latest release, date), инструкция по установке (one-liner, git clone)
+- Исправлены пустые catch blocks (#455, #457)
+- `[U]` корректно пропускает отсутствующие файлы в ZIP
+
 ### v1.13.40 (26.08.2026)
 - **SIM оператор `[SIM]`**: смена страны SIM (MCC/MNC + iso-country + alpha) — 15 пресетов (US, RU, GB, DE, FR, JP, KR, CN, IN, BR и др.) + кастом; persist.mumu.mccmnc + gsm.sim.operator.* + settings global; для TikTok — очистите кэш и перезапустите
 - **Device ID `[DI]`**: теперь устанавливает IMEI через `simulation` + `setting phone_imei` (оба слоя); проверяет `simulation.json`; предложение рестарта с мгновенным `[R]`
