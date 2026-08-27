@@ -45,18 +45,31 @@ jobs:
 
           # Previous tag
           $tags = git tag -l 'v*' | Sort-Object { [version]($_ -replace '^v','') } -Descending
-          if ($tags.Count -gt 0 -and $tags[0] -ne $ver) {
-            $prev = $tags[0]
+          if ($tags.Count -gt 1 -and $tags[0] -eq $ver) {
+            $prev = $tags[1]
             "prev_tag=$prev" >> $env:GITHUB_OUTPUT
             Write-Host "Previous tag: $prev"
 
             # Commit stats
-            $commits = (git log --oneline "$prev..HEAD" 2>$null | Measure-Object).Count
+            $range = "$prev..HEAD"
+            $commits = try { (git log --oneline $range 2>$null | Measure-Object).Count } catch { 0 }
             "commit_count=$commits" >> $env:GITHUB_OUTPUT
             Write-Host "Commits since $prev : $commits"
 
             # Contributors
-            $authors = git log --format='%an' "$prev..HEAD" 2>$null | Sort-Object -Unique
+            $authors = try { git log --format='%an' $range 2>$null | Sort-Object -Unique } catch { @() }
+            "contributors=$($authors -join ', ')" >> $env:GITHUB_OUTPUT
+          } elseif ($tags.Count -gt 0 -and $tags[0] -ne $ver) {
+            $prev = $tags[0]
+            "prev_tag=$prev" >> $env:GITHUB_OUTPUT
+            Write-Host "Previous tag: $prev"
+
+            $range = "$prev..HEAD"
+            $commits = try { (git log --oneline $range 2>$null | Measure-Object).Count } catch { 0 }
+            "commit_count=$commits" >> $env:GITHUB_OUTPUT
+            Write-Host "Commits since $prev : $commits"
+
+            $authors = try { git log --format='%an' $range 2>$null | Sort-Object -Unique } catch { @() }
             "contributors=$($authors -join ', ')" >> $env:GITHUB_OUTPUT
           } else {
             "commit_count=0" >> $env:GITHUB_OUTPUT
