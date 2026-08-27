@@ -351,6 +351,14 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Что нового
 
+### v1.1.0 (27.08.2026)
+- **Version info `[V]`**: проверка обновлений, .NET, arch, disk space, ADB, certificate expiry, token masking
+- **Token manager `[K]`**: показ логина/scope/типа, `[2] Test token`, masked вывод
+- **Switch fix**: убраны дублирующие case (PowerShell case-insensitive)
+- **Workflows**: 3-step release, SHA256 verify, sync workflows с `git pull --rebase`, `timeout-minutes`
+- **Release**: SHA256 чексуммы, ZIP integrity check, changelog comparison, install instructions
+- **.gitattributes**: нормализация окончаний строк (LF)
+
 ### v1.13.42 (27.08.2026)
 - **Version info `[V]`**: проверка обновлений, .NET, arch, disk space, ADB, certificate expiry, token masking
 - **Token manager `[K]`**: показ логина/scope/типа, `[2] Test token`, masked вывод
