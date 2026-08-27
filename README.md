@@ -353,6 +353,10 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Что нового
 
+### v1.8.2 (27.08.2026)
+- **Fix**: загрузка из GitHub — убран BOM, исправлена PS 5.1-совместимость (`${var}` → `-f`), HMAC порядок, удалён `[WEB]`
+- **Fix**: `Update-FromGitHub` ZIP download — retry 3×, SHA256 проверка, fallback на API
+
 ### v1.8.1 (27.08.2026)
 - **Fix**: PS 5.1 string interpolation — `${eng}` PSDrive reference в VirusTotal сканере
 - **Fix**: `${zipSize}` в ZIP validation
