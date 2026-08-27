@@ -1,7 +1,6 @@
 ﻿# MuMu Manager CLI Menu
 
 [![Code Scanning](https://github.com/genrihx2/MuMuManager-CLI-Menu/actions/workflows/security-scan.yml/badge.svg)](https://github.com/genrihx2/MuMuManager-CLI-Menu/actions/workflows/security-scan.yml)
-[![VirusTotal](https://img.shields.io/badge/VirusTotal-clean-brightgreen)](https://www.virustotal.com/gui/file/622927ee00d66cfb978fac6141ddd2bbeb192ee58a2b25fa005e7a9a142501c0)
 [![Latest Release](https://img.shields.io/github/v/release/genrihx2/MuMuManager-CLI-Menu?label=latest)](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest)
 [![Release Date](https://img.shields.io/github/release-date/genrihx2/MuMuManager-CLI-Menu)](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases)
 
@@ -139,7 +138,6 @@ cd MuMuManager-CLI-Menu
   [BA] Backup instance data
   [K] Update GitHub token
   [CRT] Create/sign certificate
-  [VT] VirusTotal scan
   [Z] Security audit (disabled)
 
   --- Spoofing ---
@@ -317,7 +315,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.8.4
+Script version: 1.1.0
 MuMu version: 6.5.2.0
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -352,56 +350,6 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 Для приватных репозиториев сохраните токен через пункт меню `[K] Update GitHub token` — он проверяется и хранится **зашифрованным через Windows DPAPI** в `.github-token.dpapi`; плейнтекстовый `.github-token` мигрируется в зашифрованное хранилище автоматически при первом запуске.
 
 ## Что нового
-
-### v1.8.4 (27.08.2026)
-- **Fix**: PS 5.1 — `KB/s` slash в строке → `KBps` конкатенация (`mumu-menu.ps1:429`), `v/running` → конкатенация (`:573`)
-
-### v1.8.3 (27.08.2026)
-- **Fix**: PS 5.1 parser — `($speed KB/s)` → `-f` формат в `Update-FromGitHub` (строка 429)
-
-### v1.8.2 (27.08.2026)
-- **Fix**: загрузка из GitHub — убран BOM, исправлена PS 5.1-совместимость (`${var}` → `-f`), HMAC порядок, удалён `[WEB]`
-- **Fix**: `Update-FromGitHub` ZIP download — retry 3×, SHA256 проверка, fallback на API
-
-### v1.8.1 (27.08.2026)
-- **Fix**: PS 5.1 string interpolation — `${eng}` PSDrive reference в VirusTotal сканере
-- **Fix**: `${zipSize}` в ZIP validation
-
-### v1.8.0 (27.08.2026)
-- **[WEB] Dashboard**: локальный веб-интерфейс на localhost:8080 — статус эмуляторов, версии, токен
-- **[VT] VirusTotal**: сканирование скрипта/ZIP/хеша, авто-workflow при релизе, бейдж в README
-- **Token Security**: DPAPI + HMAC-SHA256 верификация целостности
-- **[U] Update**: retry логика (3 попытки), скорость загрузки, SHA256 retry
-
-### v1.7.0 (27.08.2026)
-- **[U] Update**: retry логика (3 попытки), отображение скорости загрузки (KB/s), автоматический rollback при ошибке
-- **[U] Update**: SHA256 retry при mismatch (перекачка ZIP)
-
-### v1.6.0 (27.08.2026)
-- **Security**: документирование всех 4 Sigma FP правил (DMP/HDMP, LSASS, Web Requests, Certificate)
-- **SECURITY.md**: расширенная секция Out of Scope с объяснением каждого FP
-
-### v1.5.1 (27.08.2026)
-- **[U] Update fix**: загрузка `System.IO.Compression` assembly перед ZIP валидацией (PS 5.1 compat)
-- **Dependabot**: `actions/checkout` 4.4.0 → 7.0.1 (SHA pinned)
-
-### v1.5.0 (27.08.2026)
-- **Security**: Dependabot для GitHub Actions, все actions pinned to SHA
-- **Security**: ветка `main` защищена (нет force push, нет удаления)
-- **[U] Update**: SHA256 верификация ZIP, улучшенная обработка ошибок curl
-- **[K] Token Manager**: name/email/type/scope/rate limit, export в clipboard, secure wipe
-
-### v1.4.0 (27.08.2026)
-- **[U] Update fix**: SHA256 checksum verification для ZIP, improved curl error handling (`--silent --show-error` вместо `-#`), download validation
-
-### v1.3.0 (27.08.2026)
-- **[K] Token Manager**: name/email/type/scope из HTTP header, rate limit, export в clipboard, secure wipe при удалении, hidden attribute, валидация префикса
-
-### v1.2.0 (27.08.2026)
-- **Security**: заменён `Invoke-WebRequest` на `curl.exe` — устранено ложное срабатывание Sigma rule
-- **Security**: добавлены комментарии о сетевых запросах (только `api.github.com`, HTTPS, таймауты)
-- **SECURITY.md**: диаграмма архитектуры, модель угроз, описание безопасности токена/обновлений
-- **VirusTotal**: 0 malicious / 0 suspicious (61 engine)
 
 ### v1.1.0 (27.08.2026)
 - **Version info `[V]`**: проверка обновлений, .NET, arch, disk space, ADB, certificate expiry, token masking
