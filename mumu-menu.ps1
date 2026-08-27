@@ -2542,66 +2542,36 @@ do {
         '4' { Restart-Emulator }
         '5' { New-Emulator }
         'c' { Copy-Emulator }
-        'C' { Copy-Emulator }
         'x' { Remove-Emulator }
-        'X' { Remove-Emulator }
         'n' { Rename-Emulator }
-        'N' { Rename-Emulator }
         '6' { Show-Apps }
         '7' { Show-Settings }
         '8' { Install-APK }
         '9' { Uninstall-App }
         'g' { Show-Logs }
-        'G' { Show-Logs }
         'o' { Clear-AppData }
-        'O' { Clear-AppData }
         'p' { Stop-App }
-        'P' { Stop-App }
         't' { Start-App }
-        'T' { Start-App }
         'e' { Export-Emulator }
-        'E' { Export-Emulator }
         'k' { Update-Token }
-        'K' { Update-Token }
         'z' { Test-Security }
-        'Z' { Test-Security }
         'dm' { Set-DeviceModel }
-        'DM' { Set-DeviceModel }
         'sim' { Set-SimOperator }
-        'SIM' { Set-SimOperator }
         'di' { Set-RandomDeviceIds }
-        'DI' { Set-RandomDeviceIds }
         'ba' { Backup-EmulatorData }
-        'BA' { Backup-EmulatorData }
         'a' { Invoke-ADBCommand }
-        'A' { Invoke-ADBCommand }
         'b' { Start-All }
-        'B' { Start-All }
         'd' { Stop-All }
-        'D' { Stop-All }
         'r' { Restart-All }
-        'R' { Restart-All }
         'i' { Install-APK-All }
-        'I' { Install-APK-All }
         'w' { Show-Windows }
-        'W' { Show-Windows }
         'h' { Hide-Windows }
-        'H' { Hide-Windows }
         'l' { Set-WindowLayout }
-        'L' { Set-WindowLayout }
         's' { Save-Screenshot }
-        'S' { Save-Screenshot }
         'v' { Show-VersionInfo }
-        'V' { Show-VersionInfo }
         'u' { Update-FromGitHub }
-        'U' { Update-FromGitHub }
         'crt' { Create-Certificate }
-        'CRT' { Create-Certificate }
         'q' {
-            Write-Host 'Goodbye!' -ForegroundColor Cyan
-            exit
-        }
-        'Q' {
             Write-Host 'Goodbye!' -ForegroundColor Cyan
             exit
         }
