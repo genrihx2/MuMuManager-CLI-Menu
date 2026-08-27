@@ -662,7 +662,7 @@ function Get-InstanceIndex {
 
     do {
         $validRange = ($instances | ForEach-Object { $_.Index }) -join '/'
-        $index = (Read-Host ($Prompt + " (" + $validRange + " q=cancel)")).Trim()
+        $index = (Read-Host ($Prompt + " " + $validRange + " q cancel")).Trim()
         if ($index -eq 'q' -or $index -eq 'Q') { return $null }
 
         if (-not $index -and $instances.Count -gt 0) { $index = $instances[0].Index }
@@ -707,15 +707,12 @@ function Wait-Boot {
             $empty = $barWidth - $filled
             $bar = ('#' * $filled) + ('-' * $empty)
             $line = "  [$bar] $pct% [$elapsed s] state: $state"
-            Write-Host "
-$line                                        " -NoNewline
+            Write-Host $line -NoNewline
         } catch {
-            Write-Host "
-  Checking... [$elapsed s]                                " -NoNewline
+            Write-Host "  Checking... [$elapsed s]                                " -NoNewline
         }
     }
-    Write-Host "
-  Timed out after $maxWait s" -ForegroundColor Red
+    Write-Host "  Timed out after $maxWait s" -ForegroundColor Red
     return $false
 }
 
@@ -2327,7 +2324,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    $scriptVer = '1.8.6'
+    $scriptVer = '1.8.7'
     Write-Host "Script version: $scriptVer" -ForegroundColor Green
 
     # Check for updates
