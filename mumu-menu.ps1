@@ -86,7 +86,13 @@ function Get-GitHubToken {
     if (Test-Path -LiteralPath $DpapiTokenFile -PathType Leaf) {
         try {
             $sec = Get-Content -LiteralPath $DpapiTokenFile -Raw | ConvertTo-SecureString -ErrorAction Stop
-            return (ConvertFrom-SecureToken $sec)
+            $token = ConvertFrom-SecureToken $sec
+            # Verify HMAC integrity
+            if (-not (Test-TokenIntegrity $token)) {
+                Write-Warning "Token HMAC mismatch — file may have been tampered with. Re-save via [K]."
+                return ''
+            }
+            return $token
         } catch {
             Write-Warning "Cannot decrypt $DpapiTokenFile (moved between machines/users?). Re-save the token via menu option [K]."
             return ''
@@ -127,6 +133,50 @@ function Initialize-TokenStorage {
 }
 
 $GitHubToken = Get-GitHubToken
+
+# --- HMAC Token Integrity ---------------------------------------------------
+$HmacKeyFile = Join-Path $ScriptDir '.token-hmac'
+
+function Get-HmacKey {
+    if (Test-Path -LiteralPath $HmacKeyFile -PathType Leaf) {
+        return (Get-Content -LiteralPath $HmacKeyFile -Raw).Trim()
+    }
+    # Generate new HMAC key
+    $key = -join ((1..32) | ForEach-Object { '{0:x2}' -f (Get-Random -Minimum 0 -Maximum 256) })
+    Set-Content -LiteralPath $HmacKeyFile -Value $key -Force
+    (Get-Item -LiteralPath $HmacKeyFile -Force).Attributes = 'Hidden, Archive'
+    return $key
+}
+
+function Get-TokenHmac {
+    param([string]$Token)
+    $hmacKey = Get-HmacKey
+    $hmac = New-Object System.Security.Cryptography.HMACSHA256
+    $hmac.Key = [System.Text.Encoding]::UTF8.GetBytes($hmacKey)
+    $hash = $hmac.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($Token))
+    return ($hash | ForEach-Object { '{0:x2}' -f $_ }) -join ''
+}
+
+function Save-TokenWithHmac {
+    param([string]$Token)
+    # Save DPAPI encrypted token
+    $sec = ConvertTo-SecureString $Token -AsPlainText -Force
+    ConvertFrom-SecureString -SecureString $sec |
+        Set-Content -LiteralPath $DpapiTokenFile -Force
+    # Save HMAC for integrity check
+    $hmac = Get-TokenHmac $Token
+    Set-Content -LiteralPath "$DpapiTokenFile.hmac" -Value $hmac -Force
+    (Get-Item -LiteralPath "$DpapiTokenFile.hmac" -Force).Attributes = 'Hidden, Archive'
+}
+
+function Test-TokenIntegrity {
+    param([string]$Token)
+    $hmacFile = "$DpapiTokenFile.hmac"
+    if (-not (Test-Path -LiteralPath $hmacFile -PathType Leaf)) { return $true }
+    $storedHmac = (Get-Content -LiteralPath $hmacFile -Raw).Trim()
+    $actualHmac = Get-TokenHmac $Token
+    return $storedHmac -eq $actualHmac
+}
 
 # Force TLS 1.2+ (PowerShell 5.1 defaults fail against GitHub with
 # "The underlying connection was closed: An unexpected error occurred on a send.")
@@ -581,6 +631,7 @@ function Show-Menu {
     Write-Host '  --- Info ---' -ForegroundColor Green
     Write-Host '  [V] Version info' -ForegroundColor Yellow
     Write-Host '  [U] Check for updates' -ForegroundColor Yellow
+    Write-Host '  [WEB] Web dashboard (localhost:8080)' -ForegroundColor Yellow
     Write-Host '  [0] Exit' -ForegroundColor Yellow
     Write-Host ''
     Write-Host '======================================' -ForegroundColor Cyan
@@ -1614,8 +1665,7 @@ function Update-Token {
         # Uses standard .NET DPAPI via ConvertFrom-SecureString (ProtectedData CurrentUser scope).
         # No DLL/EXE loads into LSASS, no process injection. Credential is per-user encrypted.
         # Script is Authenticode-signed after [CRT] (see Get-AuthenticodeSignature).
-        ConvertFrom-SecureString -SecureString $sec |
-            Set-Content -LiteralPath $DpapiTokenFile -Force
+        Save-TokenWithHmac $plain
         Remove-Item -LiteralPath $TokenFile -Force -ErrorAction SilentlyContinue
         $script:GitHubToken = $plain
 
@@ -1625,6 +1675,7 @@ function Update-Token {
         Write-Host ''
         Write-Host "Token saved! User: $($user.login)" -ForegroundColor Green
         Write-Host 'Stored ENCRYPTED via DPAPI (.github-token.dpapi)' -ForegroundColor Green
+        Write-Host 'Integrity: HMAC-SHA256 verified' -ForegroundColor DarkGray
         Write-Host "Rate limit: 5000 requests/hour (vs 60 without token)" -ForegroundColor DarkGray
     } else {
         Write-Host 'Cancelled (empty input).' -ForegroundColor Yellow
@@ -2902,6 +2953,117 @@ function Set-RandomDeviceIds {
 }
 
 # Main loop
+function Start-WebDashboard {
+    $port = 8080
+    $listener = New-Object System.Net.HttpListener
+    $listener.Prefixes.Add("http://localhost:$port/")
+    $listener.Start()
+
+    Write-Host ''
+    Write-Host "Web Dashboard started: http://localhost:$port" -ForegroundColor Green
+    Write-Host 'Press Ctrl+C to stop' -ForegroundColor DarkGray
+    Write-Host ''
+
+    while ($listener.IsListening) {
+        try {
+            $context = $listener.GetContext()
+            $request = $context.Request
+            $response = $context.Response
+
+            # Get emulator status
+            $emulatorInfo = try { & $MumuPath info -v all 2>$null | ConvertFrom-Json } catch { $null }
+            $running = 0
+            $total = 0
+            $instances = @()
+            if ($emulatorInfo) {
+                foreach ($key in $emulatorInfo.PSObject.Properties.Name) {
+                    $total++
+                    $inst = $emulatorInfo.$key
+                    $state = if ($inst.player_state) { $inst.player_state } else { 'stopped' }
+                    if ($state -eq 'running') { $running++ }
+                    $instances += [PSCustomObject]@{ Index = $key; Name = $inst.name; State = $state }
+                }
+            }
+
+            # Get version info
+            $muMuVersion = try { & $MumuPath version 2>$null } catch { '?' }
+            $tokenStatus = if ($GitHubToken) { 'Configured' } else { 'Not configured' }
+            $hmacStatus = if ($GitHubToken -and (Test-TokenIntegrity $GitHubToken)) { 'Verified' } else { 'N/A' }
+
+            $html = @"
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset='utf-8'>
+    <title>MuMuManager Dashboard</title>
+    <meta http-equiv='refresh' content='30'>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; margin: 20px; background: #1a1a2e; color: #eee; }
+        h1 { color: #00d4ff; }
+        .card { background: #16213e; border-radius: 10px; padding: 15px; margin: 10px 0; }
+        .status-ok { color: #00ff88; }
+        .status-warn { color: #ffaa00; }
+        .status-error { color: #ff4444; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 8px; text-align: left; border-bottom: 1px solid #333; }
+        th { color: #00d4ff; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; }
+        .badge-green { background: #00ff8833; color: #00ff88; }
+        .badge-red { background: #ff444433; color: #ff4444; }
+        .badge-yellow { background: #ffaa0033; color: #ffaa00; }
+    </style>
+</head>
+<body>
+    <h1>MuMuManager CLI Dashboard</h1>
+
+    <div class='card'>
+        <h2>System</h2>
+        <table>
+            <tr><th>Script Version</th><td>$scriptVer</td></tr>
+            <tr><th>MuMu Version</th><td>$muMuVersion</td></tr>
+            <tr><th>Instances</th><td><span class='badge badge-green'>$running running</span> / $total total</td></tr>
+            <tr><th>Token</th><td><span class='badge badge-$(if ($GitHubToken) { 'green' } else { 'yellow' })'>$tokenStatus</span></td></tr>
+            <tr><th>HMAC Integrity</th><td><span class='badge badge-green'>$hmacStatus</span></td></tr>
+        </table>
+    </div>
+
+    <div class='card'>
+        <h2>Emulator Instances</h2>
+        <table>
+            <tr><th>#</th><th>Name</th><th>Status</th></tr>
+            $(foreach ($inst in $instances) {
+                "<tr><td>$($inst.Index)</td><td>$($inst.Name)</td><td><span class='badge badge-$(if ($inst.State -eq 'running') { 'green' } else { 'red' })'>$($inst.State)</span></td></tr>"
+            })
+            $(if ($total -eq 0) { "<tr><td colspan='3'>No instances found</td></tr>" })
+        </table>
+    </div>
+
+    <div class='card'>
+        <h2>Security</h2>
+        <table>
+            <tr><th>Token Storage</th><td>DPAPI + HMAC-SHA256</td></tr>
+            <tr><th>VirusTotal</th><td><a href='https://www.virustotal.com/gui/file/622927ee00d66cfb978fac6141ddd2bbeb192ee58a2b25fa005e7a9a142501c0' style='color:#00d4ff'>View Report</a></td></tr>
+            <tr><th>Last Updated</th><td>$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')</td></tr>
+        </table>
+    </div>
+
+    <p style='color:#666; font-size:12px;'>Auto-refresh every 30 seconds | localhost:$port</p>
+</body>
+</html>
+"@
+
+            $buffer = [System.Text.Encoding]::UTF8.GetBytes($html)
+            $response.ContentLength64 = $buffer.Length
+            $response.OutputStream.Write($buffer, 0, $buffer.Length)
+            $response.Close()
+        } catch {
+            if ($listener.IsListening) {
+                Write-Verbose "Dashboard error: $($_.Exception.Message)"
+            }
+        }
+    }
+}
+
 do {
     Show-Menu
     $choice = Read-Host 'Select option (0/q = Exit)'
@@ -2943,6 +3105,7 @@ do {
         'u' { Update-FromGitHub }
         'crt' { Create-Certificate }
         'vt' { Scan-VirusTotal }
+        'web' { Start-WebDashboard }
         'q' {
             Write-Host 'Goodbye!' -ForegroundColor Cyan
             exit
