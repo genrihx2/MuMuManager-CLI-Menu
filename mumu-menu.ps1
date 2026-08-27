@@ -82,6 +82,50 @@ function ConvertFrom-SecureToken {
     finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
 }
 
+# --- HMAC Token Integrity ---------------------------------------------------
+$HmacKeyFile = Join-Path $ScriptDir '.token-hmac'
+
+function Get-HmacKey {
+    if (Test-Path -LiteralPath $HmacKeyFile -PathType Leaf) {
+        return (Get-Content -LiteralPath $HmacKeyFile -Raw).Trim()
+    }
+    # Generate new HMAC key
+    $key = -join ((1..32) | ForEach-Object { '{0:x2}' -f (Get-Random -Minimum 0 -Maximum 256) })
+    Set-Content -LiteralPath $HmacKeyFile -Value $key -Force
+    (Get-Item -LiteralPath $HmacKeyFile -Force).Attributes = 'Hidden, Archive'
+    return $key
+}
+
+function Get-TokenHmac {
+    param([string]$Token)
+    $hmacKey = Get-HmacKey
+    $hmac = New-Object System.Security.Cryptography.HMACSHA256
+    $hmac.Key = [System.Text.Encoding]::UTF8.GetBytes($hmacKey)
+    $hash = $hmac.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($Token))
+    return ($hash | ForEach-Object { '{0:x2}' -f $_ }) -join ''
+}
+
+function Save-TokenWithHmac {
+    param([string]$Token)
+    # Save DPAPI encrypted token
+    $sec = ConvertTo-SecureString $Token -AsPlainText -Force
+    ConvertFrom-SecureString -SecureString $sec |
+        Set-Content -LiteralPath $DpapiTokenFile -Force
+    # Save HMAC for integrity check
+    $hmac = Get-TokenHmac $Token
+    Set-Content -LiteralPath "$DpapiTokenFile.hmac" -Value $hmac -Force
+    (Get-Item -LiteralPath "$DpapiTokenFile.hmac" -Force).Attributes = 'Hidden, Archive'
+}
+
+function Test-TokenIntegrity {
+    param([string]$Token)
+    $hmacFile = "$DpapiTokenFile.hmac"
+    if (-not (Test-Path -LiteralPath $hmacFile -PathType Leaf)) { return $true }
+    $storedHmac = (Get-Content -LiteralPath $hmacFile -Raw).Trim()
+    $actualHmac = Get-TokenHmac $Token
+    return $storedHmac -eq $actualHmac
+}
+
 function Get-GitHubToken {
     if (Test-Path -LiteralPath $DpapiTokenFile -PathType Leaf) {
         try {
@@ -130,50 +174,6 @@ function Initialize-TokenStorage {
         Write-Warning "Could not migrate token to encrypted storage: $($_.Exception.Message)"
         Write-Warning 'The plaintext .github-token file was left untouched. Re-save via menu option [K].'
     }
-}
-
-# --- HMAC Token Integrity ---------------------------------------------------
-$HmacKeyFile = Join-Path $ScriptDir '.token-hmac'
-
-function Get-HmacKey {
-    if (Test-Path -LiteralPath $HmacKeyFile -PathType Leaf) {
-        return (Get-Content -LiteralPath $HmacKeyFile -Raw).Trim()
-    }
-    # Generate new HMAC key
-    $key = -join ((1..32) | ForEach-Object { '{0:x2}' -f (Get-Random -Minimum 0 -Maximum 256) })
-    Set-Content -LiteralPath $HmacKeyFile -Value $key -Force
-    (Get-Item -LiteralPath $HmacKeyFile -Force).Attributes = 'Hidden, Archive'
-    return $key
-}
-
-function Get-TokenHmac {
-    param([string]$Token)
-    $hmacKey = Get-HmacKey
-    $hmac = New-Object System.Security.Cryptography.HMACSHA256
-    $hmac.Key = [System.Text.Encoding]::UTF8.GetBytes($hmacKey)
-    $hash = $hmac.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($Token))
-    return ($hash | ForEach-Object { '{0:x2}' -f $_ }) -join ''
-}
-
-function Save-TokenWithHmac {
-    param([string]$Token)
-    # Save DPAPI encrypted token
-    $sec = ConvertTo-SecureString $Token -AsPlainText -Force
-    ConvertFrom-SecureString -SecureString $sec |
-        Set-Content -LiteralPath $DpapiTokenFile -Force
-    # Save HMAC for integrity check
-    $hmac = Get-TokenHmac $Token
-    Set-Content -LiteralPath "$DpapiTokenFile.hmac" -Value $hmac -Force
-    (Get-Item -LiteralPath "$DpapiTokenFile.hmac" -Force).Attributes = 'Hidden, Archive'
-}
-
-function Test-TokenIntegrity {
-    param([string]$Token)
-    $hmacFile = "$DpapiTokenFile.hmac"
-    if (-not (Test-Path -LiteralPath $hmacFile -PathType Leaf)) { return $true }
-    $storedHmac = (Get-Content -LiteralPath $hmacFile -Raw).Trim()
-    $actualHmac = Get-TokenHmac $Token
-    return $storedHmac -eq $actualHmac
 }
 
 $GitHubToken = Get-GitHubToken
