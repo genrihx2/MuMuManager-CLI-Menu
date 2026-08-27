@@ -1277,7 +1277,9 @@ function Update-Token {
                 try {
                     $len = (Get-Item -LiteralPath $DpapiTokenFile).Length
                     [System.IO.File]::WriteAllText($DpapiTokenFile, ('0' * [Math]::Max($len, 16)))
-                } catch {}
+                } catch {
+                    Write-Verbose "Token wipe failed: $($_.Exception.Message)"
+                }
             }
             Remove-Item -LiteralPath $DpapiTokenFile -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $TokenFile -Force -ErrorAction SilentlyContinue
