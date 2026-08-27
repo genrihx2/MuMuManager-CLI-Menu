@@ -70,14 +70,20 @@ function mumu { & "C:\путь\к\mumu-menu.ps1" }
 - Теги нельзя удалить/перезаписать — это гарантирует целостность истории обновлений
 
 **Способы установки:**
+
+1. **Быстрый запуск** (одна команда — скачивает и запускает):
 ```powershell
-# Git clone
+irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-menu.ps1 -OutFile $env:TEMP\mumu-menu.ps1; & $env:TEMP\mumu-menu.ps1
+```
+
+2. **Git clone** (с возможностью обновления через `[U]`):
+```powershell
 git clone https://github.com/genrihx2/MuMuManager-CLI-Menu.git
 cd MuMuManager-CLI-Menu
 .\mumu-menu.ps1
-
-# Или скачать ZIP вручную и распаковать
 ```
+
+3. **Скачать ZIP** вручную со страницы [Releases](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest), распаковать и запустить `mumu-menu.ps1`.
 
 ## Использование
 
