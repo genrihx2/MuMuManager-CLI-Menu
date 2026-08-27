@@ -431,10 +431,28 @@ try {
     Write-Host 'Could not check MuMu version' -ForegroundColor Yellow
 }
 
+function Show-QuickStatus {
+    # Show compact status line at the top of the menu
+    try {
+        $info = & $MumuPath info -v all 2>$null | ConvertFrom-Json
+        $total = 0; $running = 0
+        foreach ($key in $info.PSObject.Properties.Name) {
+            $total++
+            if ($info.$key.player_state -and $info.$key.player_state -notmatch 'stopped| shutting') { $running++ }
+        }
+        $ver = if (Test-Path $VersionFile) { (Get-Content $VersionFile -Raw).Trim() } else { '?' }
+        Write-Host "  v$ver | MuMu $InstalledVersion | $running/$total running" -ForegroundColor DarkGray
+    } catch {
+        $ver = if (Test-Path $VersionFile) { (Get-Content $VersionFile -Raw).Trim() } else { '?' }
+        Write-Host "  v$ver" -ForegroundColor DarkGray
+    }
+}
+
 function Show-Menu {
     Clear-Host
     Write-Host '======================================' -ForegroundColor Cyan
     Write-Host '    MuMuManager CLI Menu' -ForegroundColor Cyan
+    Show-QuickStatus
     Write-Host '======================================' -ForegroundColor Cyan
     Write-Host ''
     Write-Host '  --- Emulator Control ---' -ForegroundColor Green
