@@ -318,7 +318,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.9.1
+Script version: 1.8.1
 MuMu version: 6.5.2.0
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -353,15 +353,6 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 Для приватных репозиториев сохраните токен через пункт меню `[K] Update GitHub token` — он проверяется и хранится **зашифрованным через Windows DPAPI** в `.github-token.dpapi`; плейнтекстовый `.github-token` мигрируется в зашифрованное хранилище автоматически при первом запуске.
 
 ## Что нового
-
-### v1.9.2 (27.08.2026)
-- **Fix**: PS 5.1 ${var} interpolation — replaced all \${var} with -f format
-- **Fix**: UTF-8 BOM удалён из `mumu-menu.ps1`
-- **Fix**: HMAC функции перемещены перед `Get-GitHubToken` (PS 5.1 forward ref)
-
-### v1.9.1 (27.08.2026)
-- **[WEB] Dashboard v2**: grid layout, Android version, disk space, certificate status, JSON API (`/api/status`)
-- **Fix**: empty catch block #461 в VirusTotal сканере
 
 ### v1.8.1 (27.08.2026)
 - **Fix**: PS 5.1 string interpolation — `${eng}` PSDrive reference в VirusTotal сканере
