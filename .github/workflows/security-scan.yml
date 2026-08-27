@@ -39,7 +39,7 @@ jobs:
 
       - name: Run PSScriptAnalyzer
         id: scan
-        uses: microsoft/psscriptanalyzer-action@2044ae068e37d0161fa2127de04c19633882f061  # v1.0
+        uses: microsoft/psscriptanalyzer-action@6b2948b1944407914a58661c49941824d149734f  # v1.1
         with:
           path: .\
           recurse: true
