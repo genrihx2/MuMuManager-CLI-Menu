@@ -422,7 +422,7 @@ function Update-FromGitHub {
                 if ($curlExit -ne 0) { throw "curl failed with exit code $curlExit" }
                 if (-not (Test-Path $tmp)) { throw "ZIP file not created" }
                 $zipSize = (Get-Item $tmp).Length
-                if ($zipSize -lt 100) { throw "ZIP too small (${zipSize} bytes) - download failed" }
+                if ($zipSize -lt 100) { throw ('ZIP too small ({0} bytes) - download failed' -f $zipSize) }
 
                 $speed = if ($duration -gt 0) { [math]::Round($zipSize / $duration / 1KB, 1) } else { 0 }
                 Write-Host "  Downloaded: $([math]::Round($zipSize/1KB, 1)) KB ($speed KB/s)" -ForegroundColor DarkGray
@@ -1016,7 +1016,7 @@ function Backup-EmulatorData {
     }
 
     $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
-    $dest = Join-Path $ScriptDir "backups\emu_${index}_$stamp"
+    $dest = Join-Path $ScriptDir ("backups\emu_{0}_{1}" -f $index, $stamp)
     New-Item -ItemType Directory -Path $dest -Force | Out-Null
 
     Write-Host ''
@@ -1469,7 +1469,7 @@ function Show-VTResults {
         Write-Host ''
         Write-Host '  === Detections ===' -ForegroundColor Red
         foreach ($eng in $detections.Keys) {
-            Write-Host "    ${eng}: $($detections[$eng])" -ForegroundColor Red
+            Write-Host ("    {0}: {1}" -f $eng, $detections[$eng]) -ForegroundColor Red
         }
     } else {
         Write-Host ''
@@ -2006,8 +2006,8 @@ function Show-Logs {
                 if ($tag) {
                     $level = Read-Host 'Min level? (V/D/I/W/E, Enter=V)'
                     if (-not $level) { $level = 'V' }
-                    $filter = "${tag}:${level}"
-                    $filterDesc = "tag=${tag} level=${level}"
+                    $filter = ("{0}:{1}" -f $tag, $level)
+                    $filterDesc = ("tag={0} level={1}" -f $tag, $level)
                 }
             }
         }
@@ -2084,7 +2084,7 @@ function Start-All {
             } catch { $allReady = $false }
         }
         if ($allReady) {
-            Write-Host "  All instances ready! (~${elapsed}s)" -ForegroundColor Green
+            Write-Host ("  All instances ready! (~{0}s)" -f $elapsed) -ForegroundColor Green
             return
         }
         Write-Host "  [$elapsed s] still booting..." -ForegroundColor DarkGray
@@ -2418,7 +2418,7 @@ function Show-VersionInfo {
             $totalGB = [math]::Round($drive.Size / 1GB, 0)
             $pct = [math]::Round(($drive.FreeSpace / $drive.Size) * 100, 0)
             $color = if ($pct -lt 10) { 'Red' } elseif ($pct -lt 25) { 'Yellow' } else { 'Green' }
-            Write-Host "Disk C: ${freeGB}GB free / ${totalGB}GB (${pct}%)" -ForegroundColor $color
+            Write-Host ("Disk C: {0}GB free / {1}GB ({2}%)" -f $freeGB, $totalGB, $pct) -ForegroundColor $color
         }
     } catch {
         Write-Verbose "Disk info unavailable: $($_.Exception.Message)"
@@ -2502,7 +2502,7 @@ function Save-Screenshot {
 
     # Generate filename with timestamp
     $timestamp = Get-Date -Format 'yyyyMMdd_HHmmss'
-    $filename = "screenshot_${index}_${timestamp}.png"
+    $filename = ("screenshot_{0}_{1}.png" -f $index, $timestamp)
     $destPath = Join-Path $screenshotsDir $filename
     $remotePath = '/sdcard/screenshot.png'
 
@@ -2891,7 +2891,7 @@ function Set-RandomDeviceIds {
             $label = switch ($t) { 'imei' { 'IMEI' } 'android_id' { 'Android ID' } 'mac_address' { 'MAC' } }
             Write-Host "  $label -> $($vals[$t])  (simulation)" -ForegroundColor Green
         } catch {
-            Write-Host "  Failed to set ${t} via simulation: $($_.Exception.Message)" -ForegroundColor Red
+            Write-Host ("  Failed to set {0} via simulation: {1}" -f $t, $_.Exception.Message) -ForegroundColor Red
         }
     }
 
@@ -3070,7 +3070,7 @@ function Start-WebDashboard {
 <body>
     <div class='container'>
         <h1>MuMuManager CLI Dashboard</h1>
-        <div class='subtitle'>v${scriptVer} | Auto-refresh 30s | <a class='api-link' href='/api/status'>JSON API</a></div>
+        <div class='subtitle'>v{0} | Auto-refresh 30s | <a class='api-link' href='/api/status'>JSON API</a></div> -f $scriptVer
 
         <div class='grid'>
             <div class='card'>
@@ -3089,7 +3089,7 @@ function Start-WebDashboard {
                         $stateColor = if ($inst.State -eq 'running') { 'green' } else { 'red' }
                         "<div class='instance-row'>" +
                         "<div><span class='instance-name'>$($inst.Name)</span> <span class='instance-meta'>Android $($inst.Android)</span></div>" +
-                        "<span class='badge badge-${stateColor}'>$($inst.State)</span></div>"
+                        "<span class='badge badge-{0}'>$($inst.State)</span></div> -f $stateColor"
                     }
                 } else {
                     "<div style='color:#666;padding:10px 0'>No instances found</div>"
@@ -3101,7 +3101,7 @@ function Start-WebDashboard {
                 <table>
                     <tr><th>MuMu Version</th><td>$muMuVersion</td></tr>
                     <tr><th>Script Version</th><td>$scriptVer</td></tr>
-                    <tr><th>Disk C: Free</th><td>${diskFree} GB</td></tr>
+                    <tr><th>Disk C: Free</th><td>{0} GB</td></tr> -f $diskFree
                     <tr><th>Certificate</th><td>$certStatus</td></tr>
                 </table>
             </div>
@@ -3126,7 +3126,7 @@ function Start-WebDashboard {
             </div>
         </div>
 
-        <div class='footer'>MuMuManager CLI Menu v${scriptVer} | localhost:$port | $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')</div>
+        <div class='footer'>MuMuManager CLI Menu v{0} | localhost:{1} | $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')</div> -f $scriptVer, $port
     </div>
 </body>
 </html>
