@@ -354,6 +354,10 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Что нового
 
+### v1.9.0 (27.08.2026)
+- **[WEB] Dashboard v2**: grid layout, Android version, disk space, certificate status, JSON API (`/api/status`)
+- **Fix**: empty catch block #461 в VirusTotal сканере
+
 ### v1.8.1 (27.08.2026)
 - **Fix**: PS 5.1 string interpolation — `${eng}` PSDrive reference в VirusTotal сканере
 - **Fix**: `${zipSize}` в ZIP validation

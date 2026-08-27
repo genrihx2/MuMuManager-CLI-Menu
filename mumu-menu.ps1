@@ -1301,7 +1301,9 @@ function Scan-VirusTotal {
             $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)
             $vtKey = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
             [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
-        } catch {}
+        } catch {
+            Write-Verbose "VT API key decrypt failed: $($_.Exception.Message)"
+        }
     }
 
     if (-not $vtKey) {
@@ -2326,7 +2328,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    $scriptVer = '1.8.1'
+    $scriptVer = '1.9.0'
     Write-Host "Script version: $scriptVer" -ForegroundColor Green
 
     # Check for updates
@@ -2970,6 +2972,36 @@ function Start-WebDashboard {
             $request = $context.Request
             $response = $context.Response
 
+            # API endpoint for JSON
+            if ($request.Url.LocalPath -eq '/api/status') {
+                $emulatorInfo = try { & $MumuPath info -v all 2>$null | ConvertFrom-Json } catch { $null }
+                $instances = @()
+                if ($emulatorInfo) {
+                    foreach ($key in $emulatorInfo.PSObject.Properties.Name) {
+                        $inst = $emulatorInfo.$key
+                        $instances += [PSCustomObject]@{
+                            Index = $key
+                            Name = $inst.name
+                            State = if ($inst.player_state) { $inst.player_state } else { 'stopped' }
+                            Android = $inst.android_version
+                        }
+                    }
+                }
+                $json = @{
+                    script = @{ version = $scriptVer }
+                    muMu = @{ version = (try { & $MumuPath version 2>$null } catch { '?' }) }
+                    instances = $instances
+                    token = @{ configured = [bool]$GitHubToken; hmac = if ($GitHubToken) { Test-TokenIntegrity $GitHubToken } else { $false } }
+                    timestamp = (Get-Date -Format 'o')
+                } | ConvertTo-Json -Depth 5
+                $buffer = [System.Text.Encoding]::UTF8.GetBytes($json)
+                $response.ContentType = 'application/json'
+                $response.ContentLength64 = $buffer.Length
+                $response.OutputStream.Write($buffer, 0, $buffer.Length)
+                $response.Close()
+                continue
+            }
+
             # Get emulator status
             $emulatorInfo = try { & $MumuPath info -v all 2>$null | ConvertFrom-Json } catch { $null }
             $running = 0
@@ -2980,8 +3012,9 @@ function Start-WebDashboard {
                     $total++
                     $inst = $emulatorInfo.$key
                     $state = if ($inst.player_state) { $inst.player_state } else { 'stopped' }
+                    $android = if ($inst.android_version) { $inst.android_version } else { '?' }
                     if ($state -eq 'running') { $running++ }
-                    $instances += [PSCustomObject]@{ Index = $key; Name = $inst.name; State = $state }
+                    $instances += [PSCustomObject]@{ Index = $key; Name = $inst.name; State = $state; Android = $android }
                 }
             }
 
@@ -2989,6 +3022,14 @@ function Start-WebDashboard {
             $muMuVersion = try { & $MumuPath version 2>$null } catch { '?' }
             $tokenStatus = if ($GitHubToken) { 'Configured' } else { 'Not configured' }
             $hmacStatus = if ($GitHubToken -and (Test-TokenIntegrity $GitHubToken)) { 'Verified' } else { 'N/A' }
+
+            # Disk space
+            $drive = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'" -ErrorAction SilentlyContinue
+            $diskFree = if ($drive) { [math]::Round($drive.FreeSpace / 1GB, 1) } else { '?' }
+
+            # Certificate status
+            $cert = Get-ChildItem Cert:\CurrentUser\My -ErrorAction SilentlyContinue | Where-Object { $_.FriendlyName -eq 'MuMuManager-CLI-Menu-Token' } | Select-Object -First 1
+            $certStatus = if ($cert) { "Valid until $($cert.NotAfter.ToString('yyyy-MM-dd'))" } else { 'Not created' }
 
             $html = @"
 <!DOCTYPE html>
@@ -2998,56 +3039,95 @@ function Start-WebDashboard {
     <title>MuMuManager Dashboard</title>
     <meta http-equiv='refresh' content='30'>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; margin: 20px; background: #1a1a2e; color: #eee; }
-        h1 { color: #00d4ff; }
-        .card { background: #16213e; border-radius: 10px; padding: 15px; margin: 10px 0; }
-        .status-ok { color: #00ff88; }
-        .status-warn { color: #ffaa00; }
-        .status-error { color: #ff4444; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', sans-serif; background: #0f0f23; color: #e0e0e0; }
+        .container { max-width: 900px; margin: 0 auto; padding: 20px; }
+        h1 { color: #00d4ff; font-size: 24px; margin-bottom: 5px; }
+        .subtitle { color: #666; font-size: 13px; margin-bottom: 20px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        .card { background: #1a1a2e; border-radius: 12px; padding: 20px; border: 1px solid #2a2a4a; }
+        .card-full { grid-column: 1 / -1; }
+        .card h2 { color: #00d4ff; font-size: 16px; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #2a2a4a; }
         table { width: 100%; border-collapse: collapse; }
-        th, td { padding: 8px; text-align: left; border-bottom: 1px solid #333; }
-        th { color: #00d4ff; }
-        .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; }
-        .badge-green { background: #00ff8833; color: #00ff88; }
-        .badge-red { background: #ff444433; color: #ff4444; }
-        .badge-yellow { background: #ffaa0033; color: #ffaa00; }
+        th { text-align: left; color: #888; font-weight: normal; font-size: 13px; padding: 6px 0; }
+        td { padding: 6px 0; font-size: 13px; }
+        .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+        .badge-green { background: rgba(0,255,136,0.15); color: #00ff88; }
+        .badge-red { background: rgba(255,68,68,0.15); color: #ff4444; }
+        .badge-yellow { background: rgba(255,170,0,0.15); color: #ffaa00; }
+        .badge-blue { background: rgba(0,212,255,0.15); color: #00d4ff; }
+        .big-number { font-size: 36px; font-weight: 700; color: #00ff88; }
+        .stat-label { font-size: 12px; color: #888; margin-top: 4px; }
+        .instance-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #1a1a3a; }
+        .instance-row:last-child { border-bottom: none; }
+        .instance-name { font-weight: 500; }
+        .instance-meta { color: #888; font-size: 12px; }
+        .api-link { color: #00d4ff; text-decoration: none; font-size: 12px; }
+        .api-link:hover { text-decoration: underline; }
+        .footer { text-align: center; color: #444; font-size: 11px; margin-top: 20px; padding-top: 15px; border-top: 1px solid #1a1a2e; }
     </style>
 </head>
 <body>
-    <h1>MuMuManager CLI Dashboard</h1>
+    <div class='container'>
+        <h1>MuMuManager CLI Dashboard</h1>
+        <div class='subtitle'>v${scriptVer} | Auto-refresh 30s | <a class='api-link' href='/api/status'>JSON API</a></div>
 
-    <div class='card'>
-        <h2>System</h2>
-        <table>
-            <tr><th>Script Version</th><td>$scriptVer</td></tr>
-            <tr><th>MuMu Version</th><td>$muMuVersion</td></tr>
-            <tr><th>Instances</th><td><span class='badge badge-green'>$running running</span> / $total total</td></tr>
-            <tr><th>Token</th><td><span class='badge badge-$(if ($GitHubToken) { 'green' } else { 'yellow' })'>$tokenStatus</span></td></tr>
-            <tr><th>HMAC Integrity</th><td><span class='badge badge-green'>$hmacStatus</span></td></tr>
-        </table>
+        <div class='grid'>
+            <div class='card'>
+                <div class='big-number'>$running</div>
+                <div class='stat-label'>Running instances</div>
+            </div>
+            <div class='card'>
+                <div class='big-number' style='color:#00d4ff'>$total</div>
+                <div class='stat-label'>Total instances</div>
+            </div>
+
+            <div class='card card-full'>
+                <h2>Emulator Instances</h2>
+                $(if ($instances.Count -gt 0) {
+                    foreach ($inst in $instances) {
+                        $stateColor = if ($inst.State -eq 'running') { 'green' } else { 'red' }
+                        "<div class='instance-row'>" +
+                        "<div><span class='instance-name'>$($inst.Name)</span> <span class='instance-meta'>Android $($inst.Android)</span></div>" +
+                        "<span class='badge badge-${stateColor}'>$($inst.State)</span></div>"
+                    }
+                } else {
+                    "<div style='color:#666;padding:10px 0'>No instances found</div>"
+                })
+            </div>
+
+            <div class='card'>
+                <h2>System</h2>
+                <table>
+                    <tr><th>MuMu Version</th><td>$muMuVersion</td></tr>
+                    <tr><th>Script Version</th><td>$scriptVer</td></tr>
+                    <tr><th>Disk C: Free</th><td>${diskFree} GB</td></tr>
+                    <tr><th>Certificate</th><td>$certStatus</td></tr>
+                </table>
+            </div>
+
+            <div class='card'>
+                <h2>Security</h2>
+                <table>
+                    <tr><th>Token</th><td><span class='badge badge-$(if ($GitHubToken) { 'green' } else { 'yellow' })'>$tokenStatus</span></td></tr>
+                    <tr><th>HMAC</th><td><span class='badge badge-$(if ($hmacStatus -eq 'Verified') { 'green' } else { 'yellow' })'>$hmacStatus</span></td></tr>
+                    <tr><th>Storage</th><td>DPAPI + HMAC-SHA256</td></tr>
+                    <tr><th>Branch</th><td><span class='badge badge-green'>Protected</span></td></tr>
+                </table>
+            </div>
+
+            <div class='card card-full'>
+                <h2>Actions (via JSON API)</h2>
+                <table>
+                    <tr><th>Endpoint</th><th>Method</th><th>Description</th></tr>
+                    <tr><td><code>/api/status</code></td><td>GET</td><td>Current status (JSON)</td></tr>
+                </table>
+                <div style='margin-top:10px;color:#666;font-size:12px'>Use menu options [2][3][4] for emulator control</div>
+            </div>
+        </div>
+
+        <div class='footer'>MuMuManager CLI Menu v${scriptVer} | localhost:$port | $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')</div>
     </div>
-
-    <div class='card'>
-        <h2>Emulator Instances</h2>
-        <table>
-            <tr><th>#</th><th>Name</th><th>Status</th></tr>
-            $(foreach ($inst in $instances) {
-                "<tr><td>$($inst.Index)</td><td>$($inst.Name)</td><td><span class='badge badge-$(if ($inst.State -eq 'running') { 'green' } else { 'red' })'>$($inst.State)</span></td></tr>"
-            })
-            $(if ($total -eq 0) { "<tr><td colspan='3'>No instances found</td></tr>" })
-        </table>
-    </div>
-
-    <div class='card'>
-        <h2>Security</h2>
-        <table>
-            <tr><th>Token Storage</th><td>DPAPI + HMAC-SHA256</td></tr>
-            <tr><th>VirusTotal</th><td><a href='https://www.virustotal.com/gui/file/622927ee00d66cfb978fac6141ddd2bbeb192ee58a2b25fa005e7a9a142501c0' style='color:#00d4ff'>View Report</a></td></tr>
-            <tr><th>Last Updated</th><td>$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')</td></tr>
-        </table>
-    </div>
-
-    <p style='color:#666; font-size:12px;'>Auto-refresh every 30 seconds | localhost:$port</p>
 </body>
 </html>
 "@
