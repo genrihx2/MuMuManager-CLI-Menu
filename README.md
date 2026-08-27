@@ -353,6 +353,9 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Что нового
 
+### v1.8.3 (27.08.2026)
+- **Fix**: PS 5.1 parser — `($speed KB/s)` → `-f` формат в `Update-FromGitHub` (строка 429)
+
 ### v1.8.2 (27.08.2026)
 - **Fix**: загрузка из GitHub — убран BOM, исправлена PS 5.1-совместимость (`${var}` → `-f`), HMAC порядок, удалён `[WEB]`
 - **Fix**: `Update-FromGitHub` ZIP download — retry 3×, SHA256 проверка, fallback на API
