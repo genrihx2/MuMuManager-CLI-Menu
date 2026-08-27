@@ -351,6 +351,10 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Что нового
 
+### v1.7.0 (27.08.2026)
+- **[U] Update**: retry логика (3 попытки), отображение скорости загрузки (KB/s), автоматический rollback при ошибке
+- **[U] Update**: SHA256 retry при mismatch (перекачка ZIP)
+
 ### v1.6.0 (27.08.2026)
 - **Security**: документирование всех 4 Sigma FP правил (DMP/HDMP, LSASS, Web Requests, Certificate)
 - **SECURITY.md**: расширенная секция Out of Scope с объяснением каждого FP
