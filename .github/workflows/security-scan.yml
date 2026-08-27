@@ -35,11 +35,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
 
       - name: Run PSScriptAnalyzer
         id: scan
-        uses: microsoft/psscriptanalyzer-action@v1.0
+        uses: microsoft/psscriptanalyzer-action@2044ae068e37d0161fa2127de04c19633882f061  # v1.0
         with:
           path: .\
           recurse: true
@@ -48,7 +48,7 @@ jobs:
 
       - name: Upload SARIF results
         if: always() && hashFiles('results.sarif') != ''
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28  # v4.37.8
         with:
           sarif_file: results.sarif
           category: psscriptanalyzer
