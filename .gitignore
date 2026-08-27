@@ -1,9 +1,6 @@
 # PowerShell
 *.ps1xml
 
-# Version file
-.version
-
 # GitHub token
 .github-token
 .github-token.dpapi

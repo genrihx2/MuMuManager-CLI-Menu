@@ -1,0 +1,54 @@
+name: Sync .version
+
+on:
+  push:
+    branches: [ main ]
+    paths: [ 'mumu-menu.ps1' ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync-version:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Sync .version from script
+        id: sync
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $raw = Get-Content mumu-menu.ps1 -Raw
+          $m = [regex]::Match($raw, "scriptVer\s*=\s*'([\d\.]+)'|Script version:\s*([\d\.]+)")
+          if (-not $m.Success) { throw 'Cannot find Script version' }
+          $verNum = if ($m.Groups[1].Success) { $m.Groups[1].Value } else { $m.Groups[2].Value }
+          $ver = "v$verNum"
+          $current = (Get-Content .version -Raw).Trim()
+          if ($current -ne $ver) {
+            Set-Content -Path .version -Value $ver -NoNewline
+            "changed=true" >> $env:GITHUB_OUTPUT
+            "old=$current" >> $env:GITHUB_OUTPUT
+            "new=$ver" >> $env:GITHUB_OUTPUT
+            Write-Host ".version updated: $current -> $ver"
+          } else {
+            "changed=false" >> $env:GITHUB_OUTPUT
+            Write-Host ".version already up to date: $ver"
+          }
+
+      - name: Commit and push
+        if: steps.sync.outputs.changed == 'true'
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .version
+          git commit -m "chore: auto-sync .version ${{ steps.sync.outputs.old }} -> ${{ steps.sync.outputs.new }}"
+          git pull --rebase origin main
+          git push origin main
+          echo ".version synced: ${{ steps.sync.outputs.old }} -> ${{ steps.sync.outputs.new }}"
