@@ -354,6 +354,10 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Что нового
 
+### v1.9.1 (27.08.2026)
+- **Fix**: HMAC functions перемещены перед `Get-GitHubToken` (PS 5.1 forward ref)
+- **Fix**: UTF-8 BOM удалён из `mumu-menu.ps1`
+
 ### v1.9.0 (27.08.2026)
 - **[WEB] Dashboard v2**: grid layout, Android version, disk space, certificate status, JSON API (`/api/status`)
 - **Fix**: empty catch block #461 в VirusTotal сканере
