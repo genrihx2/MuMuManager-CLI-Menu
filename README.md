@@ -150,6 +150,7 @@ cd MuMuManager-CLI-Menu
   --- Info ---
   [V] Version info
   [U] Check for updates
+  [WEB] Web dashboard (localhost:8080)
   [0] Exit
 ======================================
 ```
