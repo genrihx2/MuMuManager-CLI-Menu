@@ -350,95 +350,115 @@ function Update-FromGitHub {
         $tmp = Join-Path $env:TEMP "mumu_update_$stamp.zip"
         $tmpDir = Join-Path $env:TEMP "mumu_update_$stamp"
         $failed = 0
+        $maxRetries = 3
 
-        try {
-            Write-Host "  Downloading $zipName..." -ForegroundColor Yellow
-            $dlArgs = @('--silent', '--show-error', '--retry', '3', '--retry-delay', '2', '--connect-timeout', '15', '--max-time', '120', '-L', '-o', $tmp, $zipUrl)
-            if ($GitHubToken) { $dlArgs += @('-H', "Authorization: token $GitHubToken") }
-            & curl.exe @dlArgs 2>&1
-            $curlExit = $LASTEXITCODE
-            Write-Host "  curl exit: $curlExit" -ForegroundColor DarkGray
-            if ($curlExit -ne 0) { throw "curl failed with exit code $curlExit" }
-            if (-not (Test-Path $tmp)) { throw "ZIP file not created" }
-            $zipSize = (Get-Item $tmp).Length
-            if ($zipSize -lt 100) { throw "ZIP too small ($zipSize bytes) - download failed" }
-            Write-Host "  Downloaded: $([math]::Round($zipSize/1KB, 1)) KB" -ForegroundColor DarkGray
-
-            # Verify ZIP integrity
+        for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
             try {
-                Add-Type -AssemblyName System.IO.Compression
+                if ($attempt -gt 1) {
+                    Write-Host "  Retry $attempt/$maxRetries..." -ForegroundColor Yellow
+                    Start-Sleep -Seconds 2
+                }
+
+                Write-Host "  Downloading $zipName..." -ForegroundColor Yellow
+                $dlArgs = @('--silent', '--show-error', '--retry', '3', '--retry-delay', '2',
+                    '--connect-timeout', '15', '--max-time', '120', '-L',
+                    '--progress-bar', '-#', '-o', $tmp, $zipUrl)
+                if ($GitHubToken) { $dlArgs += @('-H', "Authorization: token $GitHubToken") }
+                $startTime = Get-Date
+                & curl.exe @dlArgs 2>&1
+                $curlExit = $LASTEXITCODE
+                $duration = ((Get-Date) - $startTime).TotalSeconds
+
+                if ($curlExit -ne 0) { throw "curl failed with exit code $curlExit" }
+                if (-not (Test-Path $tmp)) { throw "ZIP file not created" }
+                $zipSize = (Get-Item $tmp).Length
+                if ($zipSize -lt 100) { throw "ZIP too small ($zipSize bytes) - download failed" }
+
+                $speed = if ($duration -gt 0) { [math]::Round($zipSize / $duration / 1KB, 1) } else { 0 }
+                Write-Host "  Downloaded: $([math]::Round($zipSize/1KB, 1)) KB ($speed KB/s)" -ForegroundColor DarkGray
+
+                # Verify ZIP integrity
+                Add-Type -AssemblyName System.IO.Compression -ErrorAction SilentlyContinue
                 $zip = [System.IO.Compression.ZipFile]::OpenRead($tmp)
                 $entryCount = $zip.Entries.Count
                 $zip.Dispose()
                 Write-Host "  ZIP valid: $entryCount file(s)" -ForegroundColor DarkGray
-            } catch {
-                throw "ZIP archive is corrupted: $($_.Exception.Message)"
-            }
 
-            # Verify SHA256 checksum
-            $sha256Name = "$zipName.sha256"
-            $sha256Url = "https://github.com/$GitHubRepo/releases/download/$tag/$sha256Name"
-            $sha256Tmp = Join-Path $env:TEMP "mumu_update_$stamp.sha256"
-            try {
-                $sha256Args = @('--silent', '--show-error', '--retry', '2', '--connect-timeout', '10', '--max-time', '30', '-L', '-o', $sha256Tmp, $sha256Url)
-                if ($GitHubToken) { $sha256Args += @('-H', "Authorization: token $GitHubToken") }
-                & curl.exe @sha256Args 2>&1 | Out-Null
-                if ($LASTEXITCODE -eq 0 -and (Test-Path $sha256Tmp)) {
-                    $sha256Content = (Get-Content $sha256Tmp -Raw).Trim()
-                    $expectedHash = ($sha256Content -split '\s+')[0].ToLower()
-                    $actualHash = (Get-FileHash -LiteralPath $tmp -Algorithm SHA256).Hash.ToLower()
-                    if ($expectedHash -ne $actualHash) {
-                        throw "SHA256 mismatch! Expected: $expectedHash, Got: $actualHash"
-                    }
-                    Write-Host "  SHA256 verified: $actualHash" -ForegroundColor DarkGray
-                } else {
-                    Write-Host "  SHA256 file not available, skipping verification" -ForegroundColor Yellow
-                }
-            } catch {
-                Write-Host "  SHA256 verification failed: $($_.Exception.Message)" -ForegroundColor Yellow
-                Write-Host "  Continuing anyway..." -ForegroundColor Yellow
-            } finally {
-                if (Test-Path $sha256Tmp) { Remove-Item $sha256Tmp -Force -ErrorAction SilentlyContinue }
-            }
-
-            New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
-            & tar.exe -xf $tmp -C $tmpDir 2>$null
-            if ($LASTEXITCODE -ne 0) { Expand-Archive -LiteralPath $tmp -DestinationPath $tmpDir -Force }
-            foreach ($f in $files) {
-                $src = Get-ChildItem $tmpDir -Recurse -Filter $f | Select-Object -First 1
-                if (-not $src) {
-                    Write-Host "    $f (not in release, skipped)" -ForegroundColor DarkGray
-                    continue
-                }
-                $dest = Join-Path $ScriptDir $f
-                Copy-Item -LiteralPath $src.FullName -Destination $dest -Force
-                Write-Host "    $f OK" -ForegroundColor Green
-            }
-        } catch {
-            Write-Host "  ZIP method failed: $($_.Exception.Message)" -ForegroundColor Yellow
-            Write-Host "  Falling back to per-file API download..." -ForegroundColor DarkGray
-            foreach ($f in $files) {
-                $dest = Join-Path $ScriptDir $f
-                Write-Host "  Downloading $f..." -ForegroundColor Yellow
+                # Verify SHA256 checksum
+                $sha256Name = "$zipName.sha256"
+                $sha256Url = "https://github.com/$GitHubRepo/releases/download/$tag/$sha256Name"
+                $sha256Tmp = Join-Path $env:TEMP "mumu_update_$stamp.sha256"
                 try {
-                    $content = Get-RemoteFile $f $tag
-                    if (-not $content) { throw 'empty response' }
-                    if ($content.TrimStart().StartsWith('{') -and $content -match '"\s*:\s*"') {
-                        throw 'received JSON metadata instead of file content'
+                    $sha256Args = @('--silent', '--show-error', '--retry', '2', '--connect-timeout', '10', '--max-time', '30', '-L', '-o', $sha256Tmp, $sha256Url)
+                    if ($GitHubToken) { $sha256Args += @('-H', "Authorization: token $GitHubToken") }
+                    & curl.exe @sha256Args 2>&1 | Out-Null
+                    if ($LASTEXITCODE -eq 0 -and (Test-Path $sha256Tmp)) {
+                        $sha256Content = (Get-Content $sha256Tmp -Raw).Trim()
+                        $expectedHash = ($sha256Content -split '\s+')[0].ToLower()
+                        $actualHash = (Get-FileHash -LiteralPath $tmp -Algorithm SHA256).Hash.ToLower()
+                        if ($expectedHash -ne $actualHash) {
+                            throw "SHA256 mismatch! Expected: $expectedHash, Got: $actualHash"
+                        }
+                        Write-Host "  SHA256 verified: $($actualHash.Substring(0,16))..." -ForegroundColor DarkGray
+                    } else {
+                        Write-Host "  SHA256 file not available, skipping verification" -ForegroundColor Yellow
                     }
-                    if ($f -eq 'mumu-menu.ps1' -and $content -notmatch '^# MuMuManager CLI') {
-                        throw 'unexpected mumu-menu.ps1 content'
-                    }
-                    [System.IO.File]::WriteAllText($dest, $content, [System.Text.UTF8Encoding]::new($false))
-                    Write-Host '    OK' -ForegroundColor Green
                 } catch {
-                    Write-Host "    Failed: $($_.Exception.Message)" -ForegroundColor Red
-                    $failed++
+                    Write-Host "  SHA256 verification failed: $($_.Exception.Message)" -ForegroundColor Yellow
+                    if ($attempt -lt $maxRetries) {
+                        Write-Host "  Will retry download..." -ForegroundColor Yellow
+                        continue
+                    }
+                } finally {
+                    if (Test-Path $sha256Tmp) { Remove-Item $sha256Tmp -Force -ErrorAction SilentlyContinue }
                 }
+
+                # Extract and copy files
+                New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
+                & tar.exe -xf $tmp -C $tmpDir 2>$null
+                if ($LASTEXITCODE -ne 0) { Expand-Archive -LiteralPath $tmp -DestinationPath $tmpDir -Force }
+
+                foreach ($f in $files) {
+                    $src = Get-ChildItem $tmpDir -Recurse -Filter $f | Select-Object -First 1
+                    if (-not $src) {
+                        Write-Host "    $f (not in release, skipped)" -ForegroundColor DarkGray
+                        continue
+                    }
+                    $dest = Join-Path $ScriptDir $f
+                    Copy-Item -LiteralPath $src.FullName -Destination $dest -Force
+                    Write-Host "    $f OK" -ForegroundColor Green
+                }
+
+                break  # Success, exit retry loop
+
+            } catch {
+                if ($attempt -eq $maxRetries) {
+                    Write-Host "  ZIP method failed after $maxRetries attempts: $($_.Exception.Message)" -ForegroundColor Yellow
+                    Write-Host "  Falling back to per-file API download..." -ForegroundColor DarkGray
+                    foreach ($f in $files) {
+                        $dest = Join-Path $ScriptDir $f
+                        Write-Host "  Downloading $f..." -ForegroundColor Yellow
+                        try {
+                            $content = Get-RemoteFile $f $tag
+                            if (-not $content) { throw 'empty response' }
+                            if ($content.TrimStart().StartsWith('{') -and $content -match '"\s*:\s*"') {
+                                throw 'received JSON metadata instead of file content'
+                            }
+                            if ($f -eq 'mumu-menu.ps1' -and $content -notmatch '^# MuMuManager CLI') {
+                                throw 'unexpected mumu-menu.ps1 content'
+                            }
+                            [System.IO.File]::WriteAllText($dest, $content, [System.Text.UTF8Encoding]::new($false))
+                            Write-Host '    OK' -ForegroundColor Green
+                        } catch {
+                            Write-Host "    Failed: $($_.Exception.Message)" -ForegroundColor Red
+                            $failed++
+                        }
+                    }
+                }
+            } finally {
+                if (Test-Path $tmp) { Remove-Item $tmp -Force -ErrorAction SilentlyContinue }
+                if (Test-Path $tmpDir) { Remove-Item $tmpDir -Recurse -Force -ErrorAction SilentlyContinue }
             }
-        } finally {
-            if (Test-Path $tmp) { Remove-Item $tmp -Force -ErrorAction SilentlyContinue }
-            if (Test-Path $tmpDir) { Remove-Item $tmpDir -Recurse -Force -ErrorAction SilentlyContinue }
         }
 
         if ($failed -gt 0) {
