@@ -197,6 +197,19 @@ function Update-FromGitHub {
         return Invoke-GitHubGet "https://api.github.com/repos/$GitHubRepo/contents/$SkillPath/$Name`?ref=$Ref" 30
     }
 
+    # Clean up old backups (keep last 5)
+    function Remove-OldBackups {
+        $backupRoot = Join-Path $ScriptDir 'backup'
+        if (-not (Test-Path $backupRoot)) { return }
+        $dirs = Get-ChildItem $backupRoot -Directory | Sort-Object Name -Descending
+        if ($dirs.Count -gt 5) {
+            $dirs | Select-Object -Skip 5 | ForEach-Object {
+                Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
+                Write-Host "  Cleaned old backup: $($_.Name)" -ForegroundColor DarkGray
+            }
+        }
+    }
+
     try {
         $relUrl = "https://api.github.com/repos/$GitHubRepo/releases/latest"
         $release = Invoke-GitHubGet $relUrl 15 | ConvertFrom-Json
@@ -220,9 +233,10 @@ function Update-FromGitHub {
 
         $tag = $release.tag_name
         $remoteDate = $release.published_at
+        $remoteBody = if ($release.body) { $release.body } else { '' }
         $remoteMsg = ''
-        if ($release.body) {
-            $remoteMsg = (($release.body -split "`n") | Where-Object { $_.Trim() } | Select-Object -First 1)
+        if ($remoteBody) {
+            $remoteMsg = (($remoteBody -split "`n") | Where-Object { $_.Trim() } | Select-Object -First 1)
         }
 
         # Compare actual file content (line-ending tolerant) against the release tag
@@ -244,13 +258,37 @@ function Update-FromGitHub {
             Write-Host '  in the menu to review and install it manually.' -ForegroundColor DarkGray
             return
         }
-        if ($remoteMsg) {
-            Write-Host "  Latest change: $remoteMsg" -ForegroundColor DarkGray
+
+        # Show changelog
+        if ($remoteBody) {
+            Write-Host ''
+            Write-Host '  --- Release notes ---' -ForegroundColor Cyan
+            $lines = $remoteBody -split "`n"
+            $shown = 0
+            foreach ($line in $lines) {
+                if ($shown -ge 20) {
+                    Write-Host '  ... (more in GitHub releases)' -ForegroundColor DarkGray
+                    break
+                }
+                if ($line.Trim()) {
+                    Write-Host "  $line" -ForegroundColor White
+                    $shown++
+                }
+            }
+            Write-Host '  ---------------------' -ForegroundColor Cyan
         }
         if ($remoteDate) {
-            Write-Host "  Date: $remoteDate" -ForegroundColor DarkGray
+            Write-Host "  Published: $remoteDate" -ForegroundColor DarkGray
         }
-        $confirm = Read-Host '  Download update? Current files will be backed up first (y/N)'
+
+        # Check available disk space (need ~50KB for ZIP)
+        $drive = (Get-Item $ScriptDir).PSDrive
+        if ($drive -and $drive.Free -and $drive.Free -lt 100KB) {
+            Write-Host '  Not enough disk space for update!' -ForegroundColor Red
+            return
+        }
+
+        $confirm = Read-Host '  Download update? (y/N)'
         if ($confirm -ne 'y' -and $confirm -ne 'Y') {
             Write-Host '  Skipped.' -ForegroundColor DarkGray
             return
@@ -270,6 +308,9 @@ function Update-FromGitHub {
             Write-Host "  Backup saved: backup\$stamp" -ForegroundColor DarkGray
         }
 
+        # Clean up old backups
+        Remove-OldBackups
+
         # Primary: download the release ZIP asset (one request, no API rate limits).
         # Fallback: fetch individual files via the GitHub contents API.
         $zipName = "MuMuManager-CLI-Menu-$tag.zip"
@@ -280,10 +321,23 @@ function Update-FromGitHub {
 
         try {
             Write-Host "  Downloading $zipName..." -ForegroundColor Yellow
-            $dlArgs = @('-sL', '--retry', '3', '--retry-delay', '2', '--connect-timeout', '15', '--max-time', '120', '-o', $tmp, $zipUrl)
+            $dlArgs = @('-#', '--retry', '3', '--retry-delay', '2', '--connect-timeout', '15', '--max-time', '120', '-o', $tmp, $zipUrl)
             if ($GitHubToken) { $dlArgs += @('-H', "Authorization: token $GitHubToken") }
             & curl.exe @dlArgs 2>$null
             if ($LASTEXITCODE -eq 0 -and (Test-Path $tmp) -and (Get-Item $tmp).Length -gt 100) {
+                # Verify ZIP integrity
+                $zipSize = (Get-Item $tmp).Length
+                Write-Host "  Downloaded: $([math]::Round($zipSize/1KB, 1)) KB" -ForegroundColor DarkGray
+
+                try {
+                    $zip = [System.IO.Compression.ZipFile]::OpenRead($tmp)
+                    $entryCount = $zip.Entries.Count
+                    $zip.Dispose()
+                    Write-Host "  ZIP valid: $entryCount file(s)" -ForegroundColor DarkGray
+                } catch {
+                    throw "ZIP archive is corrupted: $($_.Exception.Message)"
+                }
+
                 New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
                 & tar.exe -xf $tmp -C $tmpDir 2>$null
                 if ($LASTEXITCODE -ne 0) { Expand-Archive -LiteralPath $tmp -DestinationPath $tmpDir -Force }
