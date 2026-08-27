@@ -12,13 +12,18 @@ permissions:
 jobs:
   sync-version:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Sync .version from script
+        id: sync
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           $raw = Get-Content mumu-menu.ps1 -Raw
           $m = [regex]::Match($raw, "scriptVer\s*=\s*'([\d\.]+)'|Script version:\s*([\d\.]+)")
           if (-not $m.Success) { throw 'Cannot find Script version' }
@@ -27,20 +32,23 @@ jobs:
           $current = (Get-Content .version -Raw).Trim()
           if ($current -ne $ver) {
             Set-Content -Path .version -Value $ver -NoNewline
+            "changed=true" >> $env:GITHUB_OUTPUT
+            "old=$current" >> $env:GITHUB_OUTPUT
+            "new=$ver" >> $env:GITHUB_OUTPUT
             Write-Host ".version updated: $current -> $ver"
           } else {
+            "changed=false" >> $env:GITHUB_OUTPUT
             Write-Host ".version already up to date: $ver"
           }
 
-      - name: Commit and push if changed
+      - name: Commit and push
+        if: steps.sync.outputs.changed == 'true'
         shell: bash
         run: |
-          if [[ -n "$(git status --porcelain .version)" ]]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add .version
-            git commit -m "chore: auto-sync .version"
-            git push
-          else
-            echo ".version already up to date"
-          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .version
+          git commit -m "chore: auto-sync .version ${{ steps.sync.outputs.old }} -> ${{ steps.sync.outputs.new }}"
+          git pull --rebase origin main
+          git push origin main
+          echo ".version synced: ${{ steps.sync.outputs.old }} -> ${{ steps.sync.outputs.new }}"
