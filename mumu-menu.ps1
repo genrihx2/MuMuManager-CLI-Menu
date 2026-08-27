@@ -2242,7 +2242,7 @@ function Set-RandomDeviceIds {
         if ($set.phone_imei) {
             Write-Host "  Setting IMEI: $($set.phone_imei)" -ForegroundColor DarkGray
         }
-    } catch {}
+    } catch { Write-Verbose "setting phone_imei read failed: $($_.Exception.Message)" }
     Write-Host ''
 
     if (-not $Mode) {
@@ -2329,7 +2329,7 @@ function Set-RandomDeviceIds {
                 Write-Host "  simulation.json not found or IMEI mismatch - values may not persist after reboot" -ForegroundColor Yellow
             }
         }
-    } catch {}
+    } catch { Write-Verbose "simulation.json verification failed: $($_.Exception.Message)" }
 
     Write-Host ''
     Write-Host 'IMPORTANT: Changes only take effect after emulator restart!' -ForegroundColor Yellow
