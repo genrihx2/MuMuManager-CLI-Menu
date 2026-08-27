@@ -343,7 +343,11 @@ function Update-FromGitHub {
                 if ($LASTEXITCODE -ne 0) { Expand-Archive -LiteralPath $tmp -DestinationPath $tmpDir -Force }
                 foreach ($f in $files) {
                     $src = Get-ChildItem $tmpDir -Recurse -Filter $f | Select-Object -First 1
-                    if (-not $src) { Write-Host "    Missing in archive: $f" -ForegroundColor Red; $failed++; continue }
+                    if (-not $src) {
+                        # File not in this release ZIP — not fatal
+                        Write-Host "    $f (not in release, skipped)" -ForegroundColor DarkGray
+                        continue
+                    }
                     $dest = Join-Path $ScriptDir $f
                     Copy-Item -LiteralPath $src.FullName -Destination $dest -Force
                     Write-Host "    $f OK" -ForegroundColor Green
