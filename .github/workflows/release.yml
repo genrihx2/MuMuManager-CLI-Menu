@@ -12,70 +12,112 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Read script version
+      - name: Read version & check duplicate
         id: ver
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           $raw = Get-Content mumu-menu.ps1 -Raw
-          # Match: $scriptVer = 'X.Y.Z' OR Write-Host 'Script version: X.Y.Z'
           $m = [regex]::Match($raw, "scriptVer\s*=\s*'([\d\.]+)'|Script version:\s*([\d\.]+)")
           if (-not $m.Success) { throw 'Cannot find Script version' }
           $verNum = if ($m.Groups[1].Success) { $m.Groups[1].Value } else { $m.Groups[2].Value }
           $ver = "v$verNum"
           "version=$ver" >> $env:GITHUB_OUTPUT
+          Write-Host "Version: $ver"
 
-          # Get previous tag for comparison
+          # Skip if tag already exists
+          $existing = git ls-remote --tags origin "refs/tags/$ver" 2>$null
+          if ($existing -match $ver) {
+            "skip=true" >> $env:GITHUB_OUTPUT
+            Write-Host "Tag $ver already exists — skipping release"
+          } else {
+            "skip=false" >> $env:GITHUB_OUTPUT
+          }
+
+          # Previous tag for changelog comparison
           $tags = git tag -l 'v*' | Sort-Object { [version]($_ -replace '^v','') } -Descending
           if ($tags.Count -gt 0 -and $tags[0] -ne $ver) {
             "prev_tag=$($tags[0])" >> $env:GITHUB_OUTPUT
-          } else {
-            "prev_tag=" >> $env:GITHUB_OUTPUT
+            Write-Host "Previous tag: $($tags[0])"
           }
 
-      - name: Create release if new
+      - name: Build ZIP
+        if: steps.ver.outputs.skip == 'false'
+        id: zip
+        shell: bash
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          ZIPNAME="MuMuManager-CLI-Menu-${VERSION}.zip"
+
+          mkdir -p dist
+          for f in mumu-menu.ps1 README.md SKILL.md .version; do
+            [ -f "$f" ] && cp "$f" dist/
+          done
+
+          (cd dist && zip -r "../${ZIPNAME}" .)
+
+          # SHA256
+          SHA256=$(sha256sum "${ZIPNAME}" | cut -d' ' -f1)
+          echo "${SHA256}  ${ZIPNAME}" > "${ZIPNAME}.sha256"
+
+          # Stats
+          FILE_COUNT=$(unzip -l "${ZIPNAME}" | tail -1 | awk '{print $2}')
+          ZIP_SIZE=$(stat -c%s "${ZIPNAME}")
+          ZIP_SIZE_KB=$((ZIP_SIZE / 1024))
+
+          echo "zipname=${ZIPNAME}" >> $GITHUB_OUTPUT
+          echo "sha256=${SHA256}" >> $GITHUB_OUTPUT
+          echo "file_count=${FILE_COUNT}" >> $GITHUB_OUTPUT
+          echo "size_kb=${ZIP_SIZE_KB}" >> $GITHUB_OUTPUT
+
+          echo "ZIP: ${ZIPNAME} (${ZIP_SIZE_KB}KB, ${FILE_COUNT} files, sha256: ${SHA256:0:16}...)"
+
+      - name: Verify ZIP integrity
+        if: steps.ver.outputs.skip == 'false'
+        shell: bash
+        run: |
+          ZIPNAME="${{ steps.zip.outputs.zipname }}"
+          SHA256="${{ steps.zip.outputs.sha256 }}"
+
+          # Verify checksum
+          echo "${SHA256}  ${ZIPNAME}" | sha256sum -c -
+          echo "SHA256 verified OK"
+
+          # Verify ZIP structure
+          for f in mumu-menu.ps1 README.md SKILL.md .version; do
+            if ! unzip -l "${ZIPNAME}" | grep -q "$f"; then
+              echo "ERROR: $f missing from ZIP"
+              exit 1
+            fi
+          done
+          echo "ZIP structure verified OK"
+
+      - name: Create release
+        if: steps.ver.outputs.skip == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           VERSION="${{ steps.ver.outputs.version }}"
           PREV_TAG="${{ steps.ver.outputs.prev_tag }}"
-          echo "Version: $VERSION"
-          echo "Previous: ${PREV_TAG:-none}"
+          ZIPNAME="${{ steps.zip.outputs.zipname }}"
+          SHA256="${{ steps.zip.outputs.sha256 }}"
+          FILE_COUNT="${{ steps.zip.outputs.file_count }}"
+          SIZE_KB="${{ steps.zip.outputs.size_kb }}"
 
-          if git ls-remote --tags origin "refs/tags/${VERSION}" | grep -q "${VERSION}"; then
-            echo "Tag ${VERSION} already exists - nothing to release"
-            exit 0
-          fi
-
-          # Build ZIP
-          mkdir -p dist
-          for f in mumu-menu.ps1 README.md SKILL.md update-readme.ps1 .version; do
-            [ -f "$f" ] && cp "$f" dist/
-          done
-
-          ZIPNAME="MuMuManager-CLI-Menu-${VERSION}.zip"
-          (cd dist && zip -r "../${ZIPNAME}" .)
-
-          # Generate SHA256 checksum
-          SHA256=$(sha256sum "${ZIPNAME}" | cut -d' ' -f1)
-          echo "SHA256: ${SHA256}"
-          echo "${SHA256}  ${ZIPNAME}" > "${ZIPNAME}.sha256"
-
-          # Count files in ZIP
-          FILE_COUNT=$(unzip -l "../${ZIPNAME}" | tail -1 | awk '{print $2}')
-          ZIP_SIZE=$(stat -c%s "../${ZIPNAME}" 2>/dev/null || stat -f%z "../${ZIPNAME}")
-          ZIP_SIZE_KB=$((ZIP_SIZE / 1024))
-
-          # Extract changelog from README
+          # Changelog
           CHANGELOG=$(awk '/^## Что нового/{f=1; next} /^## /{if(f) f=0} f' README.md | sed '/^$/d' | head -40 || true)
 
-          # Build release notes
+          # Release notes
           {
             echo "## MuMuManager CLI Menu ${VERSION}"
             echo ""
@@ -90,17 +132,17 @@ jobs:
             echo ""
             if [ -n "$PREV_TAG" ]; then
               echo "### Сравнение"
-              echo "- Предыдущая версия: [\`$PREV_TAG\`](https://github.com/${{ github.repository }}/releases/tag/${PREV_TAG})"
+              echo "- Предыдущая версия: [\`${PREV_TAG}\`](https://github.com/${{ github.repository }}/releases/tag/${PREV_TAG})"
               echo "- Текущая версия: \`${VERSION}\`"
               echo ""
             fi
             echo "### Установка"
             echo ""
             echo "\`\`\`powershell"
-            echo "# Быстрый запуск (одна команда):"
+            echo "# Быстрый запуск:"
             echo "irm https://raw.githubusercontent.com/${{ github.repository }}/main/mumu-menu.ps1 -OutFile \$env:TEMP\\mumu-menu.ps1; & \$env:TEMP\\mumu-menu.ps1"
             echo ""
-            echo "# Или git clone + запуск:"
+            echo "# Или git clone:"
             echo "git clone https://github.com/${{ github.repository }}.git"
             echo "cd MuMuManager-CLI-Menu"
             echo ".\\mumu-menu.ps1"
@@ -110,29 +152,26 @@ jobs:
             echo "- Через меню: пункт \`[U] Check for updates\` → подтвердите загрузку"
             echo "- Скрипт сам скачает ZIP из этого релиза"
             echo ""
-            echo "### Проверено"
-            echo "- VirusTotal: 0 malicious / 0 suspicious"
-            echo "- PSScriptAnalyzer: 0 errors, 0 warnings"
-            echo ""
             echo "| Метрика | Значение |"
             echo "|---------|----------|"
-            echo "| Размер ZIP | ${ZIP_SIZE_KB} KB |"
+            echo "| Размер ZIP | ${SIZE_KB} KB |"
             echo "| Файлов в ZIP | ${FILE_COUNT} |"
             echo "| SHA256 | \`${SHA256:0:16}...\` |"
             echo ""
             echo "**Требования:** Windows 10/11 · PowerShell 5.1+ · MuMu Emulator 6.x"
           } > relnotes.md
 
-          # Create tag and release
+          # Tag & push
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag "${VERSION}"
           git push origin "${VERSION}"
 
+          # Create release with assets
           gh release create "${VERSION}" \
             "${ZIPNAME}" \
             "${ZIPNAME}.sha256" \
             --title "MuMuManager CLI Menu ${VERSION}" \
             --notes-file relnotes.md
 
-          echo "Release ${VERSION} created with SHA256: ${SHA256:0:16}..."
+          echo "Release ${VERSION} created"
