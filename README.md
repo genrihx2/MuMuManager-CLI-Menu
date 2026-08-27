@@ -354,6 +354,12 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Что нового
 
+### v1.8.0 (27.08.2026)
+- **[WEB] Dashboard**: локальный веб-интерфейс на localhost:8080 — статус эмуляторов, версии, токен
+- **[VT] VirusTotal**: сканирование скрипта/ZIP/хеша, авто-workflow при релизе, бейдж в README
+- **Token Security**: DPAPI + HMAC-SHA256 верификация целостности
+- **[U] Update**: retry логика (3 попытки), скорость загрузки, SHA256 retry
+
 ### v1.7.0 (27.08.2026)
 - **[U] Update**: retry логика (3 попытки), отображение скорости загрузки (KB/s), автоматический rollback при ошибке
 - **[U] Update**: SHA256 retry при mismatch (перекачка ZIP)
