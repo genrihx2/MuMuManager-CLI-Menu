@@ -326,39 +326,65 @@ function Update-FromGitHub {
 
         try {
             Write-Host "  Downloading $zipName..." -ForegroundColor Yellow
-            $dlArgs = @('-#', '--retry', '3', '--retry-delay', '2', '--connect-timeout', '15', '--max-time', '120', '-o', $tmp, $zipUrl)
+            $dlArgs = @('--silent', '--show-error', '--retry', '3', '--retry-delay', '2', '--connect-timeout', '15', '--max-time', '120', '-L', '-o', $tmp, $zipUrl)
             if ($GitHubToken) { $dlArgs += @('-H', "Authorization: token $GitHubToken") }
-            & curl.exe @dlArgs 2>$null
-            if ($LASTEXITCODE -eq 0 -and (Test-Path $tmp) -and (Get-Item $tmp).Length -gt 100) {
-                # Verify ZIP integrity
-                $zipSize = (Get-Item $tmp).Length
-                Write-Host "  Downloaded: $([math]::Round($zipSize/1KB, 1)) KB" -ForegroundColor DarkGray
+            & curl.exe @dlArgs 2>&1
+            $curlExit = $LASTEXITCODE
+            Write-Host "  curl exit: $curlExit" -ForegroundColor DarkGray
+            if ($curlExit -ne 0) { throw "curl failed with exit code $curlExit" }
+            if (-not (Test-Path $tmp)) { throw "ZIP file not created" }
+            $zipSize = (Get-Item $tmp).Length
+            if ($zipSize -lt 100) { throw "ZIP too small ($zipSize bytes) - download failed" }
+            Write-Host "  Downloaded: $([math]::Round($zipSize/1KB, 1)) KB" -ForegroundColor DarkGray
 
-                try {
-                    $zip = [System.IO.Compression.ZipFile]::OpenRead($tmp)
-                    $entryCount = $zip.Entries.Count
-                    $zip.Dispose()
-                    Write-Host "  ZIP valid: $entryCount file(s)" -ForegroundColor DarkGray
-                } catch {
-                    throw "ZIP archive is corrupted: $($_.Exception.Message)"
-                }
+            # Verify ZIP integrity
+            try {
+                $zip = [System.IO.Compression.ZipFile]::OpenRead($tmp)
+                $entryCount = $zip.Entries.Count
+                $zip.Dispose()
+                Write-Host "  ZIP valid: $entryCount file(s)" -ForegroundColor DarkGray
+            } catch {
+                throw "ZIP archive is corrupted: $($_.Exception.Message)"
+            }
 
-                New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
-                & tar.exe -xf $tmp -C $tmpDir 2>$null
-                if ($LASTEXITCODE -ne 0) { Expand-Archive -LiteralPath $tmp -DestinationPath $tmpDir -Force }
-                foreach ($f in $files) {
-                    $src = Get-ChildItem $tmpDir -Recurse -Filter $f | Select-Object -First 1
-                    if (-not $src) {
-                        # File not in this release ZIP — not fatal
-                        Write-Host "    $f (not in release, skipped)" -ForegroundColor DarkGray
-                        continue
+            # Verify SHA256 checksum
+            $sha256Name = "$zipName.sha256"
+            $sha256Url = "https://github.com/$GitHubRepo/releases/download/$tag/$sha256Name"
+            $sha256Tmp = Join-Path $env:TEMP "mumu_update_$stamp.sha256"
+            try {
+                $sha256Args = @('--silent', '--show-error', '--retry', '2', '--connect-timeout', '10', '--max-time', '30', '-L', '-o', $sha256Tmp, $sha256Url)
+                if ($GitHubToken) { $sha256Args += @('-H', "Authorization: token $GitHubToken") }
+                & curl.exe @sha256Args 2>&1 | Out-Null
+                if ($LASTEXITCODE -eq 0 -and (Test-Path $sha256Tmp)) {
+                    $sha256Content = (Get-Content $sha256Tmp -Raw).Trim()
+                    $expectedHash = ($sha256Content -split '\s+')[0].ToLower()
+                    $actualHash = (Get-FileHash -LiteralPath $tmp -Algorithm SHA256).Hash.ToLower()
+                    if ($expectedHash -ne $actualHash) {
+                        throw "SHA256 mismatch! Expected: $expectedHash, Got: $actualHash"
                     }
-                    $dest = Join-Path $ScriptDir $f
-                    Copy-Item -LiteralPath $src.FullName -Destination $dest -Force
-                    Write-Host "    $f OK" -ForegroundColor Green
+                    Write-Host "  SHA256 verified: $actualHash" -ForegroundColor DarkGray
+                } else {
+                    Write-Host "  SHA256 file not available, skipping verification" -ForegroundColor Yellow
                 }
-            } else {
-                throw "ZIP download failed (exit $LASTEXITCODE)"
+            } catch {
+                Write-Host "  SHA256 verification failed: $($_.Exception.Message)" -ForegroundColor Yellow
+                Write-Host "  Continuing anyway..." -ForegroundColor Yellow
+            } finally {
+                if (Test-Path $sha256Tmp) { Remove-Item $sha256Tmp -Force -ErrorAction SilentlyContinue }
+            }
+
+            New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
+            & tar.exe -xf $tmp -C $tmpDir 2>$null
+            if ($LASTEXITCODE -ne 0) { Expand-Archive -LiteralPath $tmp -DestinationPath $tmpDir -Force }
+            foreach ($f in $files) {
+                $src = Get-ChildItem $tmpDir -Recurse -Filter $f | Select-Object -First 1
+                if (-not $src) {
+                    Write-Host "    $f (not in release, skipped)" -ForegroundColor DarkGray
+                    continue
+                }
+                $dest = Join-Path $ScriptDir $f
+                Copy-Item -LiteralPath $src.FullName -Destination $dest -Force
+                Write-Host "    $f OK" -ForegroundColor Green
             }
         } catch {
             Write-Host "  ZIP method failed: $($_.Exception.Message)" -ForegroundColor Yellow
