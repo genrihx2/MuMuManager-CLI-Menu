@@ -1467,7 +1467,7 @@ function Show-VTResults {
         Write-Host ''
         Write-Host '  === Detections ===' -ForegroundColor Red
         foreach ($eng in $detections.Keys) {
-            Write-Host "    $eng: $($detections[$eng])" -ForegroundColor Red
+            Write-Host "    ${eng}: $($detections[$eng])" -ForegroundColor Red
         }
     } else {
         Write-Host ''
