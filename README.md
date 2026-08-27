@@ -351,6 +351,12 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Что нового
 
+### v1.5.0 (27.08.2026)
+- **Security**: Dependabot для GitHub Actions, все actions pinned to SHA
+- **Security**: ветка `main` защищена (нет force push, нет удаления)
+- **[U] Update**: SHA256 верификация ZIP, улучшенная обработка ошибок curl
+- **[K] Token Manager**: name/email/type/scope/rate limit, export в clipboard, secure wipe
+
 ### v1.4.0 (27.08.2026)
 - **[U] Update fix**: SHA256 checksum verification для ZIP, improved curl error handling (`--silent --show-error` вместо `-#`), download validation
 
