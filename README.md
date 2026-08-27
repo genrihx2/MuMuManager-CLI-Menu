@@ -351,6 +351,10 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Что нового
 
+### v1.6.0 (27.08.2026)
+- **Security**: документирование всех 4 Sigma FP правил (DMP/HDMP, LSASS, Web Requests, Certificate)
+- **SECURITY.md**: расширенная секция Out of Scope с объяснением каждого FP
+
 ### v1.5.1 (27.08.2026)
 - **[U] Update fix**: загрузка `System.IO.Compression` assembly перед ZIP валидацией (PS 5.1 compat)
 - **Dependabot**: `actions/checkout` 4.4.0 → 7.0.1 (SHA pinned)
