@@ -34,6 +34,9 @@ jobs:
           "version=$ver" >> $env:GITHUB_OUTPUT
           Write-Host "Version: $ver"
 
+          # Ensure tags are available locally
+          git fetch --tags 2>$null
+
           # Skip if tag already exists
           $existing = git ls-remote --tags origin "refs/tags/$ver" 2>$null
           if ($existing -match $ver) {
@@ -50,13 +53,11 @@ jobs:
             "prev_tag=$prev" >> $env:GITHUB_OUTPUT
             Write-Host "Previous tag: $prev"
 
-            # Commit stats
             $range = "$prev..HEAD"
             $commits = try { (git log --oneline $range 2>$null | Measure-Object).Count } catch { 0 }
             "commit_count=$commits" >> $env:GITHUB_OUTPUT
             Write-Host "Commits since $prev : $commits"
 
-            # Contributors
             $authors = try { git log --format='%an' $range 2>$null | Sort-Object -Unique } catch { @() }
             "contributors=$($authors -join ', ')" >> $env:GITHUB_OUTPUT
           } elseif ($tags.Count -gt 0 -and $tags[0] -ne $ver) {
