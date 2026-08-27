@@ -631,7 +631,6 @@ function Show-Menu {
     Write-Host '  --- Info ---' -ForegroundColor Green
     Write-Host '  [V] Version info' -ForegroundColor Yellow
     Write-Host '  [U] Check for updates' -ForegroundColor Yellow
-    Write-Host '  [WEB] Web dashboard (localhost:8080)' -ForegroundColor Yellow
     Write-Host '  [0] Exit' -ForegroundColor Yellow
     Write-Host ''
     Write-Host '======================================' -ForegroundColor Cyan
@@ -2953,128 +2952,6 @@ function Set-RandomDeviceIds {
 }
 
 # Main loop
-function Start-WebDashboard {
-    $port = 8080
-    $listener = New-Object System.Net.HttpListener
-    $listener.Prefixes.Add("http://localhost:$port/")
-    $listener.Start()
-
-    Write-Host ''
-    Write-Host "Web Dashboard started: http://localhost:$port" -ForegroundColor Green
-    Write-Host 'Press Ctrl+C to stop' -ForegroundColor DarkGray
-    Write-Host ''
-
-    while ($listener.IsListening) {
-        try {
-            $context = $listener.GetContext()
-            $request = $context.Request
-            $response = $context.Response
-
-            # Get emulator status
-            $emulatorInfo = try { & $MumuPath info -v all 2>$null | ConvertFrom-Json } catch { $null }
-            $running = 0
-            $total = 0
-            $instances = @()
-            if ($emulatorInfo) {
-                foreach ($key in $emulatorInfo.PSObject.Properties.Name) {
-                    $total++
-                    $inst = $emulatorInfo.$key
-                    $state = if ($inst.player_state) { $inst.player_state } else { 'stopped' }
-                    if ($state -eq 'running') { $running++ }
-                    $instances += [PSCustomObject]@{ Index = $key; Name = $inst.name; State = $state }
-                }
-            }
-
-            # Get version info
-            $muMuVersion = try { & $MumuPath version 2>$null } catch { '?' }
-            $tokenStatus = if ($GitHubToken) { 'Configured' } else { 'Not configured' }
-            $hmacStatus = if ($GitHubToken -and (Test-TokenIntegrity $GitHubToken)) { 'Verified' } else { 'N/A' }
-
-            $html = @"
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset='utf-8'>
-    <title>MuMuManager Dashboard</title>
-    <meta http-equiv='refresh' content='30'>
-    <style>
-        body { font-family: 'Segoe UI', sans-serif; margin: 20px; background: #1a1a2e; color: #eee; }
-        h1 { color: #00d4ff; }
-        .card { background: #16213e; border-radius: 10px; padding: 15px; margin: 10px 0; }
-        .status-ok { color: #00ff88; }
-        .status-warn { color: #ffaa00; }
-        .status-error { color: #ff4444; }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { padding: 8px; text-align: left; border-bottom: 1px solid #333; }
-        th { color: #00d4ff; }
-        .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; }
-        .badge-green { background: #00ff8833; color: #00ff88; }
-        .badge-red { background: #ff444433; color: #ff4444; }
-        .badge-yellow { background: #ffaa0033; color: #ffaa00; }
-    </style>
-</head>
-<body>
-    <h1>MuMuManager CLI Dashboard</h1>
-
-    <div class='card'>
-        <h2>System</h2>
-        <table>
-            <tr><th>Script Version</th><td>$scriptVer</td></tr>
-            <tr><th>MuMu Version</th><td>$muMuVersion</td></tr>
-            <tr><th>Instances</th><td><span class='badge badge-green'>$running running</span> / $total total</td></tr>
-            <tr><th>Token</th><td><span class='badge badge-$(if ($GitHubToken) { 'green' } else { 'yellow' })'>$tokenStatus</span></td></tr>
-            <tr><th>HMAC Integrity</th><td><span class='badge badge-green'>$hmacStatus</span></td></tr>
-        </table>
-    </div>
-
-    <div class='card'>
-        <h2>Emulator Instances</h2>
-        <table>
-            <tr><th>#</th><th>Name</th><th>Status</th></tr>
-            $(foreach ($inst in $instances) {
-                "<tr><td>$($inst.Index)</td><td>$($inst.Name)</td><td><span class='badge badge-$(if ($inst.State -eq 'running') { 'green' } else { 'red' })'>$($inst.State)</span></td></tr>"
-            })
-            $(if ($total -eq 0) { "<tr><td colspan='3'>No instances found</td></tr>" })
-        </table>
-    </div>
-
-    <div class='card'>
-        <h2>Security</h2>
-        <table>
-            <tr><th>Token Storage</th><td>DPAPI + HMAC-SHA256</td></tr>
-            <tr><th>VirusTotal</th><td><a href='https://www.virustotal.com/gui/file/622927ee00d66cfb978fac6141ddd2bbeb192ee58a2b25fa005e7a9a142501c0' style='color:#00d4ff'>View Report</a></td></tr>
-            <tr><th>Last Updated</th><td>$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')</td></tr>
-        </table>
-    </div>
-
-    <p style='color:#666; font-size:12px;'>Auto-refresh every 30 seconds | localhost:$port</p>
-</body>
-</html>
-"@
-
-            $buffer = [System.Text.Encoding]::UTF8.GetBytes($html)
-            $response.ContentLength64 = $buffer.Length
-            $response.OutputStream.Write($buffer, 0, $buffer.Length)
-            $response.Close()
-        } catch {
-            if ($listener.IsListening) {
-                Write-Verbose "Dashboard error: $($_.Exception.Message)"
-            }
-        }
-    }
-}
-
-do {
-    Show-Menu
-    $choice = Read-Host 'Select option (0/q = Exit)'
-
-    switch ($choice) {
-        '1' { Show-InstanceInfo }
-        '2' { Start-Emulator }
-        '3' { Stop-Emulator }
-        '4' { Restart-Emulator }
-        '5' { New-Emulator }
-        'c' { Copy-Emulator }
         'x' { Remove-Emulator }
         'n' { Rename-Emulator }
         '6' { Show-Apps }
@@ -3105,7 +2982,6 @@ do {
         'u' { Update-FromGitHub }
         'crt' { Create-Certificate }
         'vt' { Scan-VirusTotal }
-        'web' { Start-WebDashboard }
         'q' {
             Write-Host 'Goodbye!' -ForegroundColor Cyan
             exit
