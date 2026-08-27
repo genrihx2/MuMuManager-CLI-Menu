@@ -139,6 +139,7 @@ cd MuMuManager-CLI-Menu
   [BA] Backup instance data
   [K] Update GitHub token
   [CRT] Create/sign certificate
+  [VT] VirusTotal scan
   [Z] Security audit (disabled)
 
   --- Spoofing ---
