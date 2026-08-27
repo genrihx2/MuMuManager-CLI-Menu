@@ -43,11 +43,24 @@ jobs:
             "skip=false" >> $env:GITHUB_OUTPUT
           }
 
-          # Previous tag for changelog comparison
+          # Previous tag
           $tags = git tag -l 'v*' | Sort-Object { [version]($_ -replace '^v','') } -Descending
           if ($tags.Count -gt 0 -and $tags[0] -ne $ver) {
-            "prev_tag=$($tags[0])" >> $env:GITHUB_OUTPUT
-            Write-Host "Previous tag: $($tags[0])"
+            $prev = $tags[0]
+            "prev_tag=$prev" >> $env:GITHUB_OUTPUT
+            Write-Host "Previous tag: $prev"
+
+            # Commit stats
+            $commits = (git log --oneline "$prev..HEAD" 2>$null | Measure-Object).Count
+            "commit_count=$commits" >> $env:GITHUB_OUTPUT
+            Write-Host "Commits since $prev : $commits"
+
+            # Contributors
+            $authors = git log --format='%an' "$prev..HEAD" 2>$null | Sort-Object -Unique
+            "contributors=$($authors -join ', ')" >> $env:GITHUB_OUTPUT
+          } else {
+            "commit_count=0" >> $env:GITHUB_OUTPUT
+            "contributors=" >> $env:GITHUB_OUTPUT
           }
 
       - name: Build ZIP
@@ -79,27 +92,120 @@ jobs:
           echo "file_count=${FILE_COUNT}" >> $GITHUB_OUTPUT
           echo "size_kb=${ZIP_SIZE_KB}" >> $GITHUB_OUTPUT
 
-          echo "ZIP: ${ZIPNAME} (${ZIP_SIZE_KB}KB, ${FILE_COUNT} files, sha256: ${SHA256:0:16}...)"
+          echo "ZIP: ${ZIPNAME} (${ZIP_SIZE_KB}KB, ${FILE_COUNT} files)"
 
-      - name: Verify ZIP integrity
+      - name: Verify ZIP
         if: steps.ver.outputs.skip == 'false'
         shell: bash
         run: |
           ZIPNAME="${{ steps.zip.outputs.zipname }}"
           SHA256="${{ steps.zip.outputs.sha256 }}"
 
-          # Verify checksum
           echo "${SHA256}  ${ZIPNAME}" | sha256sum -c -
-          echo "SHA256 verified OK"
+          echo "SHA256: OK"
 
-          # Verify ZIP structure
           for f in mumu-menu.ps1 README.md SKILL.md .version; do
-            if ! unzip -l "${ZIPNAME}" | grep -q "$f"; then
-              echo "ERROR: $f missing from ZIP"
-              exit 1
-            fi
+            unzip -l "${ZIPNAME}" | grep -q "$f" || { echo "MISSING: $f"; exit 1; }
           done
-          echo "ZIP structure verified OK"
+          echo "Structure: OK"
+
+      - name: Generate release notes
+        if: steps.ver.outputs.skip == 'false'
+        id: notes
+        shell: bash
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          PREV_TAG="${{ steps.ver.outputs.prev_tag }}"
+          SHA256="${{ steps.zip.outputs.sha256 }}"
+          FILE_COUNT="${{ steps.zip.outputs.file_count }}"
+          SIZE_KB="${{ steps.zip.outputs.size_kb }}"
+          COMMIT_COUNT="${{ steps.ver.outputs.commit_count }}"
+
+          # Extract changelog from README
+          CHANGELOG=$(awk '/^## Что нового/{f=1; next} /^## /{if(f) f=0} f' README.md | sed '/^$/d' | head -40 || true)
+
+          # Generate commit list
+          COMMIT_LIST=""
+          if [ -n "$PREV_TAG" ]; then
+            COMMIT_LIST=$(git log --oneline --no-decorate "$PREV_TAG..HEAD" 2>/dev/null | head -20 || true)
+          fi
+
+          # Build notes
+          {
+            echo "## MuMuManager CLI Menu ${VERSION}"
+            echo ""
+            echo "Интерактивное PowerShell-меню для управления MuMu Emulator через \`MuMuManager.exe\`."
+            echo ""
+
+            # What's new
+            echo "### Что нового"
+            if [ -n "$CHANGELOG" ]; then
+              echo "$CHANGELOG"
+            else
+              echo "- Обновление файлов скрипта"
+            fi
+            echo ""
+
+            # Comparison
+            if [ -n "$PREV_TAG" ]; then
+              echo "### Сравнение"
+              echo "| | |"
+              echo "|---|---|"
+              echo "| Предыдущая версия | [\`${PREV_TAG}\`](../releases/tag/${PREV_TAG}) |"
+              echo "| Текущая версия | \`${VERSION}\` |"
+              echo "| Коммитов | ${COMMIT_COUNT} |"
+              echo ""
+            fi
+
+            # Commits
+            if [ -n "$COMMIT_LIST" ]; then
+              echo "### Коммиты"
+              echo '```'
+              echo "$COMMIT_LIST"
+              echo '```'
+              echo ""
+            fi
+
+            # Install
+            echo "### Установка"
+            echo ""
+            echo "**Быстрый запуск** (одна команда):"
+            echo '```powershell'
+            echo "irm https://raw.githubusercontent.com/${{ github.repository }}/main/mumu-menu.ps1 -OutFile \$env:TEMP\\mumu-menu.ps1; & \$env:TEMP\\mumu-menu.ps1"
+            echo '```'
+            echo ""
+            echo "**Git clone** (с автообновлением через \`[U]\`):"
+            echo '```powershell'
+            echo "git clone https://github.com/${{ github.repository }}.git"
+            echo "cd MuMuManager-CLI-Menu"
+            echo ".\\mumu-menu.ps1"
+            echo '```'
+            echo ""
+
+            # Verification
+            echo "### Верификация"
+            echo '```powershell'
+            echo "# Скачать SHA256:"
+            echo "curl -sL https://github.com/${{ github.repository }}/releases/download/${VERSION}/${ZIPNAME}.sha256 -o ${ZIPNAME}.sha256"
+            echo "# Проверить:"
+            echo "Get-FileHash ${ZIPNAME} -Algorithm SHA256 | Select -Expand Hash"
+            echo "# Сравнить с содержимым ${ZIPNAME}.sha256"
+            echo '```'
+            echo ""
+
+            # Metrics
+            echo "### Метрики"
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Размер ZIP | ${SIZE_KB} KB |"
+            echo "| Файлов | ${FILE_COUNT} |"
+            echo "| SHA256 | \`${SHA256:0:16}...\` |"
+            echo ""
+
+            echo "**Требования:** Windows 10/11 · PowerShell 5.1+ · MuMu Emulator 6.x"
+          } > relnotes.md
+
+          echo "Release notes generated ($(wc -l < relnotes.md) lines)"
 
       - name: Create release
         if: steps.ver.outputs.skip == 'false'
@@ -108,70 +214,18 @@ jobs:
         shell: bash
         run: |
           VERSION="${{ steps.ver.outputs.version }}"
-          PREV_TAG="${{ steps.ver.outputs.prev_tag }}"
           ZIPNAME="${{ steps.zip.outputs.zipname }}"
-          SHA256="${{ steps.zip.outputs.sha256 }}"
-          FILE_COUNT="${{ steps.zip.outputs.file_count }}"
-          SIZE_KB="${{ steps.zip.outputs.size_kb }}"
 
-          # Changelog
-          CHANGELOG=$(awk '/^## Что нового/{f=1; next} /^## /{if(f) f=0} f' README.md | sed '/^$/d' | head -40 || true)
-
-          # Release notes
-          {
-            echo "## MuMuManager CLI Menu ${VERSION}"
-            echo ""
-            echo "Интерактивное PowerShell-меню для управления MuMu Emulator через официальный \`MuMuManager.exe\`."
-            echo ""
-            echo "### Что нового"
-            if [ -n "$CHANGELOG" ]; then
-              echo "$CHANGELOG"
-            else
-              echo "- Обновление файлов скрипта"
-            fi
-            echo ""
-            if [ -n "$PREV_TAG" ]; then
-              echo "### Сравнение"
-              echo "- Предыдущая версия: [\`${PREV_TAG}\`](https://github.com/${{ github.repository }}/releases/tag/${PREV_TAG})"
-              echo "- Текущая версия: \`${VERSION}\`"
-              echo ""
-            fi
-            echo "### Установка"
-            echo ""
-            echo "\`\`\`powershell"
-            echo "# Быстрый запуск:"
-            echo "irm https://raw.githubusercontent.com/${{ github.repository }}/main/mumu-menu.ps1 -OutFile \$env:TEMP\\mumu-menu.ps1; & \$env:TEMP\\mumu-menu.ps1"
-            echo ""
-            echo "# Или git clone:"
-            echo "git clone https://github.com/${{ github.repository }}.git"
-            echo "cd MuMuManager-CLI-Menu"
-            echo ".\\mumu-menu.ps1"
-            echo "\`\`\`"
-            echo ""
-            echo "### Автообновление"
-            echo "- Через меню: пункт \`[U] Check for updates\` → подтвердите загрузку"
-            echo "- Скрипт сам скачает ZIP из этого релиза"
-            echo ""
-            echo "| Метрика | Значение |"
-            echo "|---------|----------|"
-            echo "| Размер ZIP | ${SIZE_KB} KB |"
-            echo "| Файлов в ZIP | ${FILE_COUNT} |"
-            echo "| SHA256 | \`${SHA256:0:16}...\` |"
-            echo ""
-            echo "**Требования:** Windows 10/11 · PowerShell 5.1+ · MuMu Emulator 6.x"
-          } > relnotes.md
-
-          # Tag & push
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag "${VERSION}"
           git push origin "${VERSION}"
 
-          # Create release with assets
           gh release create "${VERSION}" \
             "${ZIPNAME}" \
             "${ZIPNAME}.sha256" \
             --title "MuMuManager CLI Menu ${VERSION}" \
             --notes-file relnotes.md
 
-          echo "Release ${VERSION} created"
+          echo "=== Release ${VERSION} created ==="
+          echo "URL: https://github.com/${{ github.repository }}/releases/tag/${VERSION}"
