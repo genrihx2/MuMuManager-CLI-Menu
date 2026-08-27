@@ -1,6 +1,7 @@
 ﻿# MuMu Manager CLI Menu
 
 [![Code Scanning](https://github.com/genrihx2/MuMuManager-CLI-Menu/actions/workflows/security-scan.yml/badge.svg)](https://github.com/genrihx2/MuMuManager-CLI-Menu/actions/workflows/security-scan.yml)
+[![VirusTotal](https://img.shields.io/badge/VirusTotal-clean-brightgreen)](https://www.virustotal.com/gui/file/622927ee00d66cfb978fac6141ddd2bbeb192ee58a2b25fa005e7a9a142501c0)
 [![Latest Release](https://img.shields.io/github/v/release/genrihx2/MuMuManager-CLI-Menu?label=latest)](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest)
 [![Release Date](https://img.shields.io/github/release-date/genrihx2/MuMuManager-CLI-Menu)](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases)
 

@@ -570,6 +570,7 @@ function Show-Menu {
     Write-Host '  [BA] Backup instance data' -ForegroundColor Yellow
     Write-Host '  [K] Update GitHub token' -ForegroundColor Yellow
     Write-Host '  [CRT] Create/sign certificate' -ForegroundColor Yellow
+    Write-Host '  [VT] VirusTotal scan' -ForegroundColor Yellow
     Write-Host '  [Z] Security audit (disabled)' -ForegroundColor Yellow
     Write-Host ''
     Write-Host '  --- Spoofing ---' -ForegroundColor Green
@@ -1232,6 +1233,200 @@ function Test-Security {
         Write-Host '  STATUS: ISSUES FOUND' -ForegroundColor Red
     }
     Write-Host ''
+}
+
+function Scan-VirusTotal {
+    Write-Host ''
+    Write-Host 'VirusTotal Scanner' -ForegroundColor Cyan
+    Write-Host ''
+
+    # Check for VT API key
+    $vtKeyFile = Join-Path $ScriptDir '.vt-apikey'
+    $vtKey = ''
+    if (Test-Path -LiteralPath $vtKeyFile -PathType Leaf) {
+        try {
+            $enc = Get-Content -LiteralPath $vtKeyFile -Raw
+            $sec = ConvertTo-SecureString $enc
+            $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)
+            $vtKey = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+            [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+        } catch {}
+    }
+
+    if (-not $vtKey) {
+        Write-Host '  No VirusTotal API key configured.' -ForegroundColor Yellow
+        Write-Host '  Get a free key at: https://www.virustotal.com/gui/my-apikey' -ForegroundColor DarkGray
+        Write-Host ''
+        Write-Host '  [1] Enter API key' -ForegroundColor Yellow
+        Write-Host '  [0] Cancel' -ForegroundColor Yellow
+        $keyChoice = Read-Host 'Select option'
+        if ($keyChoice -ne '1') { return }
+
+        Write-Host ''
+        Write-Host 'Paste your VirusTotal API key:' -ForegroundColor Cyan
+        $vtKey = Read-Host -AsSecureString
+        $vtKeyPlain = $vtKey | ConvertFrom-SecureString | ForEach-Object {
+            $bstr2 = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($vtKey)
+            try { [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr2) }
+            finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr2) }
+        }
+        if (-not $vtKeyPlain) { Write-Host 'Cancelled.' -ForegroundColor Yellow; return }
+
+        # Save encrypted
+        ConvertFrom-SecureString -SecureString $vtKey |
+            Set-Content -LiteralPath $vtKeyFile -Force
+        (Get-Item -LiteralPath $vtKeyFile -Force).Attributes = 'Hidden, Archive'
+        $vtKey = $vtKeyPlain
+        Write-Host 'API key saved (DPAPI encrypted).' -ForegroundColor Green
+    }
+
+    Write-Host ''
+    Write-Host '  [1] Scan mumu-menu.ps1 (current script)' -ForegroundColor Yellow
+    Write-Host '  [2] Scan latest release ZIP' -ForegroundColor Yellow
+    Write-Host '  [3] Scan by SHA256 hash' -ForegroundColor Yellow
+    Write-Host '  [0] Cancel' -ForegroundColor Yellow
+    $scanChoice = Read-Host 'Select option'
+
+    if ($scanChoice -eq '3') {
+        # Scan by hash
+        $hash = Read-Host 'Enter SHA256 hash'
+        if (-not $hash) { return }
+        Write-Host ''
+        Write-Host 'Querying VirusTotal...' -ForegroundColor Yellow
+        $result = & curl.exe -s --connect-timeout 15 --max-time 30 `
+            -H "x-apikey: $vtKey" `
+            "https://www.virustotal.com/api/v3/files/$hash" 2>$null
+        Show-VTResults $result
+        return
+    }
+
+    if ($scanChoice -eq '2') {
+        # Scan release ZIP
+        $zipName = "MuMuManager-CLI-Menu-$scriptVer.zip"
+        $zipUrl = "https://github.com/$GitHubRepo/releases/download/v$scriptVer/$zipName"
+        $tmpZip = Join-Path $env:TEMP "vt_scan_$zipName"
+
+        Write-Host ''
+        Write-Host "Downloading $zipName for scan..." -ForegroundColor Yellow
+        & curl.exe -s --show-error --retry 2 --connect-timeout 15 --max-time 60 -L -o $tmpZip $zipUrl 2>&1
+        if (-not (Test-Path $tmpZip)) {
+            Write-Host 'Download failed!' -ForegroundColor Red
+            return
+        }
+
+        $zipHash = (Get-FileHash -LiteralPath $tmpZip -Algorithm SHA256).Hash
+        Write-Host "SHA256: $zipHash" -ForegroundColor DarkGray
+
+        # Upload to VT
+        Write-Host 'Uploading to VirusTotal...' -ForegroundColor Yellow
+        $uploadResult = & curl.exe -s --connect-timeout 30 --max-time 120 `
+            -X POST "https://www.virustotal.com/api/v3/files" `
+            -H "x-apikey: $vtKey" `
+            -F "file=@$tmpZip" 2>$null
+
+        Remove-Item $tmpZip -Force -ErrorAction SilentlyContinue
+
+        Show-VTResults $uploadResult
+        return
+    }
+
+    if ($scanChoice -ne '1') { return }
+
+    # Scan current script
+    $scriptPath = Join-Path $ScriptDir 'mumu-menu.ps1'
+    if (-not (Test-Path $scriptPath)) {
+        Write-Host 'Script not found!' -ForegroundColor Red
+        return
+    }
+
+    $fileHash = (Get-FileHash -LiteralPath $scriptPath -Algorithm SHA256).Hash
+    Write-Host "  File: mumu-menu.ps1" -ForegroundColor DarkGray
+    Write-Host "  SHA256: $fileHash" -ForegroundColor DarkGray
+    Write-Host "  Size: $([math]::Round((Get-Item $scriptPath).Length / 1KB, 1)) KB" -ForegroundColor DarkGray
+    Write-Host ''
+
+    # Try to get existing report first
+    Write-Host 'Querying VirusTotal...' -ForegroundColor Yellow
+    $existing = & curl.exe -s --connect-timeout 15 --max-time 30 `
+        -H "x-apikey: $vtKey" `
+        "https://www.virustotal.com/api/v3/files/$fileHash" 2>$null
+
+    $hasResults = ($existing | ConvertFrom-Json -ErrorAction SilentlyContinue).data.attributes.last_analysis_stats
+    if ($hasResults -and ($hasResults.malicious + $hasResults.suspicious + $hasResults.undetected) -gt 0) {
+        Show-VTResults $existing
+        return
+    }
+
+    # Upload for fresh scan
+    Write-Host 'Uploading to VirusTotal...' -ForegroundColor Yellow
+    $uploadResult = & curl.exe -s --connect-timeout 30 --max-time 120 `
+        -X POST "https://www.virustotal.com/api/v3/files" `
+        -H "x-apikey: $vtKey" `
+        -F "file=@$scriptPath" 2>$null
+
+    Show-VTResults $uploadResult
+}
+
+function Show-VTResults {
+    param([string]$JsonResponse)
+
+    if (-not $JsonResponse) {
+        Write-Host '  No response from VirusTotal' -ForegroundColor Red
+        return
+    }
+
+    try {
+        $data = $JsonResponse | ConvertFrom-Json
+    } catch {
+        Write-Host '  Invalid response from VirusTotal' -ForegroundColor Red
+        return
+    }
+
+    if ($data.error) {
+        Write-Host "  Error: $($data.error.message)" -ForegroundColor Red
+        return
+    }
+
+    $attrs = $data.data.attributes
+    $stats = $attrs.last_analysis_stats
+    $results = $attrs.last_analysis_results
+    $total = $stats.malicious + $stats.suspicious + $stats.undetected + $stats.harmless
+
+    Write-Host ''
+    Write-Host '=== VirusTotal Results ===' -ForegroundColor Cyan
+    Write-Host ''
+    Write-Host "  Engines: $total total" -ForegroundColor DarkGray
+    Write-Host "  Malicious:  $($stats.malicious)" -ForegroundColor $(if ($stats.malicious -gt 0) { 'Red' } else { 'Green' })
+    Write-Host "  Suspicious: $($stats.suspicious)" -ForegroundColor $(if ($stats.suspicious -gt 0) { 'Yellow' } else { 'Green' })
+    Write-Host "  Undetected: $($stats.undetected)" -ForegroundColor DarkGray
+    Write-Host "  Harmless:   $($stats.harmless)" -ForegroundColor DarkGray
+
+    # Show detections if any
+    $detections = @{}
+    if ($results) {
+        foreach ($engine in $results.PSObject.Properties) {
+            $cat = $engine.Value.category
+            if ($cat -eq 'malicious' -or $cat -eq 'suspicious') {
+                $detections[$engine.Name] = $cat
+            }
+        }
+    }
+
+    if ($detections.Count -gt 0) {
+        Write-Host ''
+        Write-Host '  === Detections ===' -ForegroundColor Red
+        foreach ($eng in $detections.Keys) {
+            Write-Host "    $eng: $($detections[$eng])" -ForegroundColor Red
+        }
+    } else {
+        Write-Host ''
+        Write-Host '  STATUS: CLEAN' -ForegroundColor Green
+    }
+
+    Write-Host ''
+    if ($attrs.sha256) {
+        Write-Host "  Report: https://www.virustotal.com/gui/file/$($attrs.sha256)" -ForegroundColor DarkGray
+    }
 }
 
 function Update-Token {
@@ -2747,6 +2942,7 @@ do {
         'v' { Show-VersionInfo }
         'u' { Update-FromGitHub }
         'crt' { Create-Certificate }
+        'vt' { Scan-VirusTotal }
         'q' {
             Write-Host 'Goodbye!' -ForegroundColor Cyan
             exit

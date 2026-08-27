@@ -1,0 +1,156 @@
+name: VirusTotal scan
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to scan (e.g. v1.7.0)'
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  virustotal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          elif [ -n "${{ github.event.release.tag_name }}" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+          else
+            TAG=$(cat .version)
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Scanning tag: $TAG"
+
+      - name: Download release assets
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          ZIPNAME="MuMuManager-CLI-Menu-${TAG}.zip"
+
+          echo "Downloading $ZIPNAME..."
+          curl -sL --retry 3 --connect-timeout 15 --max-time 120 \
+            -o "$ZIPNAME" \
+            "https://github.com/${{ github.repository }}/releases/download/${TAG}/${ZIPNAME}"
+
+          if [ ! -f "$ZIPNAME" ]; then
+            echo "Failed to download ZIP"
+            exit 1
+          fi
+
+          echo "Downloaded: $(stat -c%s "$ZIPNAME") bytes"
+          echo "SHA256: $(sha256sum "$ZIPNAME" | cut -d' ' -f1)"
+
+      - name: Upload to VirusTotal
+        id: vt
+        env:
+          VT_API_KEY: ${{ secrets.VT_API_KEY }}
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          ZIPNAME="MuMuManager-CLI-Menu-${TAG}.zip"
+
+          if [ -z "$VT_API_KEY" ]; then
+            echo "VT_API_KEY secret not configured"
+            echo "status=skipped" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "Uploading to VirusTotal..."
+          RESPONSE=$(curl -sL --connect-timeout 30 --max-time 120 \
+            -X POST "https://www.virustotal.com/api/v3/files" \
+            -H "x-apikey: $VT_API_KEY" \
+            -F "file=@$ZIPNAME")
+
+          ANALYSIS_ID=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('data',{}).get('id',''))" 2>/dev/null)
+
+          if [ -z "$ANALYSIS_ID" ]; then
+            echo "Upload failed"
+            echo "$RESPONSE" | head -5
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+          echo "Analysis ID: $ANALYSIS_ID"
+          echo "analysis_id=$ANALYSIS_ID" >> $GITHUB_OUTPUT
+          echo "status=uploaded" >> $GITHUB_OUTPUT
+
+      - name: Wait and get results
+        if: steps.vt.outputs.status == 'uploaded'
+        id: results
+        env:
+          VT_API_KEY: ${{ secrets.VT_API_KEY }}
+        run: |
+          ANALYSIS_ID="${{ steps.vt.outputs.analysis_id }}"
+          echo "Waiting for analysis to complete..."
+
+          for i in $(seq 1 12); do
+            sleep 15
+            RESPONSE=$(curl -sL "https://www.virustotal.com/api/v3/analyses/$ANALYSIS_ID" \
+              -H "x-apikey: $VT_API_KEY")
+            STATUS=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('data',{}).get('attributes',{}).get('status','unknown'))" 2>/dev/null)
+            echo "  Attempt $i: status=$STATUS"
+
+            if [ "$STATUS" = "completed" ]; then
+              STATS=$(echo "$RESPONSE" | python3 -c "
+import sys,json
+d = json.load(sys.stdin)
+s = d.get('data',{}).get('attributes',{}).get('stats',{})
+print(json.dumps(s))
+")
+              echo "stats=$STATS" >> $GITHUB_OUTPUT
+              echo "status=completed" >> $GITHUB_OUTPUT
+
+              MALICIOUS=$(echo "$STATS" | python3 -c "import sys,json; print(json.load(sys.stdin).get('malicious',0))")
+              SUSPICIOUS=$(echo "$STATS" | python3 -c "import sys,json; print(json.load(sys.stdin).get('suspicious',0))")
+
+              echo "malicious=$MALICIOUS" >> $GITHUB_OUTPUT
+              echo "suspicious=$SUSPICIOUS" >> $GITHUB_OUTPUT
+              break
+            fi
+          done
+
+          if [ "$STATUS" != "completed" ]; then
+            echo "Analysis timed out"
+            echo "status=timeout" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Summary
+        if: always()
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          STATUS="${{ steps.vt.outputs.status }}"
+
+          echo "### VirusTotal Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| | |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| Tag | \`$TAG\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Status | $STATUS |" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$STATUS" = "completed" ]; then
+            MALICIOUS="${{ steps.results.outputs.malicious }}"
+            SUSPICIOUS="${{ steps.results.outputs.suspicious }}"
+
+            echo "| Malicious | **$MALICIOUS** |" >> $GITHUB_STEP_SUMMARY
+            echo "| Suspicious | **$SUSPICIOUS** |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            if [ "$MALICIOUS" = "0" ] && [ "$SUSPICIOUS" = "0" ]; then
+              echo "**Status: CLEAN**" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "**Status: DETECTIONS FOUND**" >> $GITHUB_STEP_SUMMARY
+            fi
+          elif [ "$STATUS" = "skipped" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "VT_API_KEY secret not configured. Add it in Settings → Secrets." >> $GITHUB_STEP_SUMMARY
+          fi
