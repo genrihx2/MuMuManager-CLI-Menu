@@ -317,7 +317,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.8.5
+Script version: 1.8.3
 MuMu version: 6.5.2.0
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -352,9 +352,6 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 Для приватных репозиториев сохраните токен через пункт меню `[K] Update GitHub token` — он проверяется и хранится **зашифрованным через Windows DPAPI** в `.github-token.dpapi`; плейнтекстовый `.github-token` мигрируется в зашифрованное хранилище автоматически при первом запуске.
 
 ## Что нового
-
-### v1.8.5 (27.08.2026)
-- **Fix**: PS 5.1 — `KBps` `slash` → раздельн. `Write-Host` без `slash` (`mumu-menu.ps1:429`)
 
 ### v1.8.4 (27.08.2026)
 - **Fix**: PS 5.1 — `KB/s` slash в строке → `KBps` конкатенация (`mumu-menu.ps1:429`), `v/running` → конкатенация (`:573`)
