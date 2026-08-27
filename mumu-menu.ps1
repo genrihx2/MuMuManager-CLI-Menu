@@ -12,6 +12,11 @@
 #           privacy/testing feature for the USER'S OWN emulator instances only;
 #           requires explicit consent ([O]/[9] YES, [A] session consent). Not for
 #           unlawful use. See README "Примечание для AV-аналитиков" and SECURITY.md.
+# Web Requests: ALL network calls use curl.exe (Windows native) to api.github.com ONLY.
+#           Purpose: (1) startup version check (read-only, GET /releases/latest),
+#           (2) manual update [U] (download .ps1/.md from tagged releases),
+#           (3) token validation [K] (GET /user). No web scraping, no data exfil,
+#           no connections to unknown domains. HTTPS only, timeout 10-15s.
 # Security: the startup update check is READ-ONLY (a single version query).
 #           Self-update downloads TEXT files only (.ps1/.md) from tagged
 #           GitHub Releases of the repository above over HTTPS, and ONLY when
@@ -1910,7 +1915,8 @@ function Show-VersionInfo {
 
     # Check for updates
     try {
-        $latest = (Invoke-WebRequest -Uri "https://api.github.com/repos/$GitHubRepo/releases/latest" -UseBasicParsing -TimeoutSec 10).Content | ConvertFrom-Json
+        $latestRaw = & curl.exe -s --connect-timeout 10 --max-time 15 -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/$GitHubRepo/releases/latest" 2>$null
+        $latest = $latestRaw | ConvertFrom-Json
         $latestVer = $latest.tag_name -replace '^v',''
         if ($latestVer -ne $scriptVer) {
             Write-Host "  -> Update available: $latestVer (run [U] to update)" -ForegroundColor Yellow
