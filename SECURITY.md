@@ -122,8 +122,10 @@
 - Хранение GitHub-токена через Windows DPAPI (CurrentUser) — расшифровка возможна только от имени того же пользователя Windows
 - Read-only проверка обновлений при старте (HTTPS к `api.github.com`) — загрузка файлов происходит только вручную через `[U]`
 - Самообновление из тегов GitHub Releases с проверкой содержимого
-- **Sigma FP**: добавление сертификата в Trusted Root (`Root` store) через `[CRT]` — явное действие пользователя для доверия к Authenticode-подписи
-- **Sigma FP**: `Unsigned Image Loaded Into LSASS` — DPAPI через `ConvertFrom-SecureString` (.NET ProtectedData), без загрузки DLL/EXE в LSASS и без инъекции
+- **Sigma FP #1** (`DMP/HDMP File Creation`): скрипт **НЕ создаёт** .dmp/.hdmp файлы. DPAPI хранит зашифрованный текст в `.github-token.dpapi` — это не memory dump
+- **Sigma FP #2** (`Unsigned Image Loaded Into LSASS`): DPAPI через `ConvertFrom-SecureString` (.NET ProtectedData CurrentUser), **без** загрузки DLL/EXE в LSASS и **без** инъекции; скрипт подписан через `[CRT]`
+- **Sigma FP #3** (`Web Request Commands`): `curl.exe` (нативный Windows) используется **только** для `api.github.com` — проверка версий, загрузка обновлений, валидация токена; **без** `Invoke-WebRequest`, **без** exfiltration
+- **Sigma FP #4** (`New Root/CA Certificate`): `[CRT]` добавляет self-signed CodeSigning сертификат в Trusted Root — **явное действие пользователя** для Authenticode-подписи, **не** тихая установка
 
 ### Благодарности
 
@@ -180,5 +182,7 @@ Documented features are not vulnerabilities (see "Note for AV analysts" in READM
 - Device-model spoofing and random identifier generation (privacy for user-owned instances)
 - DPAPI-protected token storage (CurrentUser scope)
 - Read-only update check at startup over HTTPS
-- **Sigma FP**: Root/CA certificate via `[CRT]` — explicit user action
-- **Sigma FP**: DPAPI via `ConvertFrom-SecureString` — no DLL/EXE in LSASS, no injection
+- **Sigma FP #1** (`DMP/HDMP File Creation`): script does NOT create .dmp/.hdmp files — DPAPI stores encrypted text, not memory dumps
+- **Sigma FP #2** (`Unsigned Image Loaded Into LSASS`): DPAPI via `ConvertFrom-SecureString` (.NET ProtectedData) — no DLL/EXE in LSASS, no injection; script is Authenticode-signed
+- **Sigma FP #3** (`Web Request Commands`): `curl.exe` (Windows native) to `api.github.com` ONLY — version check, updates, token validation; no `Invoke-WebRequest`, no exfiltration
+- **Sigma FP #4** (`New Root/CA Certificate`): `[CRT]` adds self-signed CodeSigning cert to Trusted Root — explicit user action for Authenticode, not silent install

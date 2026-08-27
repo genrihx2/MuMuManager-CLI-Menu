@@ -3,6 +3,33 @@
 # License:  Open Source - MIT (see LICENSE)
 # Purpose:  launch/stop/restart emulator instances, install/uninstall APKs,
 #           tune performance, spoof device model/SIM operator, back up instance data.
+#
+# === SIGMA RULE FALSE POSITIVES (documented per Sigma FP policy) ===
+# This script triggers several Sigma heuristic rules due to legitimate features.
+# All are documented below and in SECURITY.md "Out of Scope" section.
+#
+# 1. "Potentially Suspicious DMP/HDMP File Creation" (Bencherchali)
+#    FALSE POSITIVE: This script does NOT create .dmp/.hdmp files.
+#    DPAPI token storage uses ConvertFrom-SecureString (.NET ProtectedData API)
+#    which writes encrypted text to .github-token.dpapi — NOT a memory dump.
+#
+# 2. "Unsigned Image Loaded Into LSASS Process" (Kheirkhabarov)
+#    FALSE POSITIVE: DPAPI via ConvertFrom-SecureString uses .NET ProtectedData
+#    (CurrentUser scope). NO DLL/EXE loaded into LSASS. NO process injection.
+#    Script is Authenticode-signed via [CRT] certificate.
+#
+# 3. "Usage Of Web Request Commands And Cmdlets" (Pemberton)
+#    FALSE POSITIVE: curl.exe (Windows native binary) used for HTTPS requests
+#    to api.github.com ONLY. Purpose: version check, update download, token
+#    validation. NO Invoke-WebRequest, NO web scraping, NO data exfiltration.
+#    All requests are user-initiated via menu selections.
+#
+# 4. "New Root or CA or AuthRoot Certificate to Store" (frack113)
+#    FALSE POSITIVE: [CRT] menu option adds self-signed CodeSigning certificate
+#    to Trusted Root store — EXPLICIT user action for Authenticode signing.
+#    NOT silent, NOT automatic. Requires menu selection + confirmation.
+#
+# === SECURITY MODEL ===
 # AV Analyst Note: This is NOT malware. All actions are LOCAL and USER-INITIATED
 #           via explicit menu selections. No silent execution, no persistence,
 #           no network exfiltration, no process injection. Emulator management
