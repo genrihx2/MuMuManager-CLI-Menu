@@ -1167,6 +1167,7 @@ function Update-Token {
 
     $stored = $false
     $tokenPath = $null
+    $plain = $null
     if (Test-Path -LiteralPath $DpapiTokenFile -PathType Leaf) {
         $tokenPath = $DpapiTokenFile
         $stored = $true
@@ -1176,51 +1177,116 @@ function Update-Token {
     }
 
     if ($stored) {
-        # Show token info
         try {
             $plain = if ($tokenPath -eq $DpapiTokenFile) {
                 $enc = Get-Content -LiteralPath $DpapiTokenFile -Raw
                 $sec = ConvertTo-SecureString $enc
                 ConvertFrom-SecureToken $sec
             } else {
-                Get-Content -LiteralPath $TokenFile -Raw
+                (Get-Content -LiteralPath $TokenFile -Raw).Trim()
             }
+        } catch {
+            Write-Host '  Failed to decrypt token' -ForegroundColor Red
+            $plain = $null
+        }
+
+        if ($plain) {
             $masked = if ($plain.Length -gt 8) {
                 $plain.Substring(0, 4) + '****' + $plain.Substring($plain.Length - 4)
             } else { '****' }
 
-            $rawUser = & curl.exe -s --connect-timeout 10 --max-time 15 -H "Authorization: token $plain" 'https://api.github.com/user' 2>$null
-            $user = (@($rawUser) | Out-String | ConvertFrom-Json)
-
-            if ($user.login) {
-                Write-Host "  Token:   $masked" -ForegroundColor Green
-                Write-Host "  User:    $($user.login)" -ForegroundColor Green
-                Write-Host "  Scope:   $($user.permissions -join ', ')" -ForegroundColor DarkGray
-                Write-Host "  Type:    $(if ($user.plan) { 'OAuth' } else { 'Classic PAT' })" -ForegroundColor DarkGray
-            } else {
-                Write-Host "  Token:   $masked (INVALID)" -ForegroundColor Red
+            # Validate token via API
+            $tmpHead = Join-Path $env:TEMP ("gh_" + [Guid]::NewGuid().ToString('N') + '.hdr')
+            $user = $null
+            $scopes = ''
+            $rateLimit = ''
+            $rateRemaining = ''
+            try {
+                $rawUser = & curl.exe -s --connect-timeout 10 --max-time 15 -D "$tmpHead" -H "Authorization: token $plain" 'https://api.github.com/user' 2>$null
+                $user = (@($rawUser) | Out-String | ConvertFrom-Json)
+                if (Test-Path $tmpHead) {
+                    $hdr = Get-Content $tmpHead
+                    $scopeLine = $hdr | Where-Object { $_ -match '(?i)^x-oauth-scopes:' } | Select-Object -First 1
+                    if ($scopeLine) { $scopes = ($scopeLine -split ':', 2)[1].Trim() }
+                    $rateLine = $hdr | Where-Object { $_ -match '(?i)^x-ratelimit-remaining:' } | Select-Object -First 1
+                    if ($rateLine) { $rateRemaining = ($rateLine -split ':', 2)[1].Trim() }
+                    $limitLine = $hdr | Where-Object { $_ -match '(?i)^x-ratelimit-limit:' } | Select-Object -First 1
+                    if ($limitLine) { $rateLimit = ($limitLine -split ':', 2)[1].Trim() }
+                }
+            } finally {
+                Remove-Item $tmpHead -Force -ErrorAction SilentlyContinue
             }
-        } catch {
-            Write-Host '  Token:   exists but cannot read' -ForegroundColor Yellow
+
+            # Token info
+            if ($user.login) {
+                Write-Host "  Token:    $masked" -ForegroundColor Green
+                Write-Host "  User:     $($user.login)" -ForegroundColor Green
+                Write-Host "  Name:     $($user.name)" -ForegroundColor DarkGray
+                Write-Host "  Email:    $($user.email)" -ForegroundColor DarkGray
+                $tokenType = if ($user.plan) { 'OAuth' } elseif ($plain.StartsWith('ghs_')) { 'App Installation' } else { 'Classic PAT' }
+                Write-Host "  Type:     $tokenType" -ForegroundColor DarkGray
+                if ($scopes) { Write-Host "  Scopes:   $scopes" -ForegroundColor DarkGray }
+                else { Write-Host '  Scopes:   none (limited access)' -ForegroundColor DarkGray }
+                if ($rateLimit) {
+                    $rlColor = if ([int]$rateRemaining -lt 10) { 'Red' } elseif ([int]$rateRemaining -lt 30) { 'Yellow' } else { 'DarkGray' }
+                    Write-Host "  Rate:     $rateRemaining / $rateLimit" -ForegroundColor $rlColor
+                }
+            } else {
+                Write-Host "  Token:    $masked (INVALID)" -ForegroundColor Red
+            }
         }
-        Write-Host "  Storage: $(if ($tokenPath -eq $DpapiTokenFile) { 'DPAPI encrypted' } else { 'Plaintext (legacy)' })" -ForegroundColor $(if ($tokenPath -eq $DpapiTokenFile) { 'Green' } else { 'Yellow' })
+
+        Write-Host "  Storage:  $(if ($tokenPath -eq $DpapiTokenFile) { 'DPAPI encrypted (.github-token.dpapi)' } else { 'Plaintext (.github-token) - legacy' })" -ForegroundColor $(if ($tokenPath -eq $DpapiTokenFile) { 'Green' } else { 'Yellow' })
         Write-Host ''
         Write-Host '  [1] Update token' -ForegroundColor Yellow
         Write-Host '  [2] Test token' -ForegroundColor Yellow
-        Write-Host '  [3] Remove token (public repo)' -ForegroundColor Yellow
+        Write-Host '  [3] Export token (plain text to clipboard)' -ForegroundColor Yellow
+        Write-Host '  [4] Remove token (public repo)' -ForegroundColor Yellow
         Write-Host '  [0] Cancel' -ForegroundColor Yellow
         $choice = Read-Host 'Select option'
 
-        if ($choice -eq '3') {
+        if ($choice -eq '4') {
+            # Secure wipe before delete
+            if ($tokenPath -eq $DpapiTokenFile -and $plain) {
+                try {
+                    $len = (Get-Item -LiteralPath $DpapiTokenFile).Length
+                    [System.IO.File]::WriteAllText($DpapiTokenFile, ('0' * [Math]::Max($len, 16)))
+                } catch {}
+            }
             Remove-Item -LiteralPath $DpapiTokenFile -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $TokenFile -Force -ErrorAction SilentlyContinue
+            $script:GitHubToken = ''
             Write-Host 'Token removed! Auto-update works without token for public repos.' -ForegroundColor Green
             return
         } elseif ($choice -eq '2') {
             if ($user.login) {
-                Write-Host "Token is valid for user: $($user.login)" -ForegroundColor Green
+                Write-Host ''
+                Write-Host 'Token is VALID' -ForegroundColor Green
+                Write-Host "  User:  $($user.login)" -ForegroundColor Green
+                if ($scopes) { Write-Host "  Scope: $scopes" -ForegroundColor DarkGray }
             } else {
-                Write-Host 'Token is invalid or expired!' -ForegroundColor Red
+                Write-Host ''
+                Write-Host 'Token is INVALID or EXPIRED' -ForegroundColor Red
+                Write-Host '  Update it with option [1]' -ForegroundColor Yellow
+            }
+            Write-Host ''
+            Read-Host 'Press Enter to continue'
+            return
+        } elseif ($choice -eq '3') {
+            if ($plain) {
+                try {
+                    Set-Clipboard -Value $plain
+                    Write-Host ''
+                    Write-Host 'Token copied to clipboard (plain text).' -ForegroundColor Green
+                    Write-Host 'Clipboard will be cleared in 30 seconds.' -ForegroundColor Yellow
+                    Start-Sleep -Seconds 30
+                    Set-Clipboard -Value ''
+                    Write-Host 'Clipboard cleared.' -ForegroundColor Green
+                } catch {
+                    Write-Host 'Clipboard not available on this system.' -ForegroundColor Red
+                }
+            } else {
+                Write-Host 'No token to export.' -ForegroundColor Red
             }
             return
         } elseif ($choice -ne '1') {
@@ -1229,6 +1295,10 @@ function Update-Token {
         }
     } else {
         Write-Host 'No token configured.' -ForegroundColor Yellow
+        Write-Host ''
+        Write-Host 'A token increases API rate limit from 60 to 5000 requests/hour.' -ForegroundColor DarkGray
+        Write-Host 'Required for: auto-update [U], token test [K], security audit [SEC].' -ForegroundColor DarkGray
+        Write-Host ''
         Write-Host '  [1] Add token' -ForegroundColor Yellow
         Write-Host '  [0] Cancel' -ForegroundColor Yellow
         $choice = Read-Host 'Select option'
@@ -1240,17 +1310,35 @@ function Update-Token {
 
     # Masked input: the token is captured as a SecureString and never echoed.
     Write-Host ''
-    Write-Host 'Enter new token (input hidden):' -ForegroundColor Cyan
+    Write-Host 'Paste your GitHub token (input hidden):' -ForegroundColor Cyan
+    Write-Host '  Create at: https://github.com/settings/tokens' -ForegroundColor DarkGray
+    Write-Host '  Scopes needed: none (public repo), repo (private repo)' -ForegroundColor DarkGray
+    Write-Host ''
     $sec = Read-Host -AsSecureString
     if (ConvertFrom-SecureToken $sec) {
         $plain = ConvertFrom-SecureToken $sec
-        Write-Host 'Testing...' -ForegroundColor Yellow
-        $rawUser = & curl.exe -s --connect-timeout 15 --max-time 20 -H "Authorization: token $plain" 'https://api.github.com/user' 2>$null
-        $user = (@($rawUser) | Out-String | ConvertFrom-Json)
-        if (-not $user.login) {
-            Write-Host 'Token invalid! Nothing was saved.' -ForegroundColor Red
+
+        # Validate prefix
+        if (-not ($plain -match '^(ghp_|gho_|ghu_|ghs_)')) {
+            Write-Host 'Invalid token format (expected ghp_/gho_/ghu_/ghs_ prefix). Nothing saved.' -ForegroundColor Red
             return
         }
+
+        Write-Host 'Validating...' -ForegroundColor Yellow
+        $tmpHead = Join-Path $env:TEMP ("gh_" + [Guid]::NewGuid().ToString('N') + '.hdr')
+        $user = $null
+        try {
+            $rawUser = & curl.exe -s --connect-timeout 15 --max-time 20 -D "$tmpHead" -H "Authorization: token $plain" 'https://api.github.com/user' 2>$null
+            $user = (@($rawUser) | Out-String | ConvertFrom-Json)
+        } finally {
+            Remove-Item $tmpHead -Force -ErrorAction SilentlyContinue
+        }
+
+        if (-not $user.login) {
+            Write-Host 'Token invalid or expired! Nothing was saved.' -ForegroundColor Red
+            return
+        }
+
         # Sigma FP: "Unsigned Image Loaded Into LSASS" - This is NOT LSASS injection.
         # Uses standard .NET DPAPI via ConvertFrom-SecureString (ProtectedData CurrentUser scope).
         # No DLL/EXE loads into LSASS, no process injection. Credential is per-user encrypted.
@@ -1259,8 +1347,14 @@ function Update-Token {
             Set-Content -LiteralPath $DpapiTokenFile -Force
         Remove-Item -LiteralPath $TokenFile -Force -ErrorAction SilentlyContinue
         $script:GitHubToken = $plain
-        Write-Host "Token valid! User: $($user.login)" -ForegroundColor Green
-        Write-Host 'Saved ENCRYPTED via DPAPI (.github-token.dpapi)' -ForegroundColor Green
+
+        # Set hidden attribute
+        (Get-Item -LiteralPath $DpapiTokenFile -Force).Attributes = 'Hidden, Archive'
+
+        Write-Host ''
+        Write-Host "Token saved! User: $($user.login)" -ForegroundColor Green
+        Write-Host 'Stored ENCRYPTED via DPAPI (.github-token.dpapi)' -ForegroundColor Green
+        Write-Host "Rate limit: 5000 requests/hour (vs 60 without token)" -ForegroundColor DarkGray
     } else {
         Write-Host 'Cancelled (empty input).' -ForegroundColor Yellow
     }
