@@ -351,6 +351,12 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Что нового
 
+### v1.2.0 (27.08.2026)
+- **Security**: заменён `Invoke-WebRequest` на `curl.exe` — устранено ложное срабатывание Sigma rule
+- **Security**: добавлены комментарии о сетевых запросах (только `api.github.com`, HTTPS, таймауты)
+- **SECURITY.md**: диаграмма архитектуры, модель угроз, описание безопасности токена/обновлений
+- **VirusTotal**: 0 malicious / 0 suspicious (61 engine)
+
 ### v1.1.0 (27.08.2026)
 - **Version info `[V]`**: проверка обновлений, .NET, arch, disk space, ADB, certificate expiry, token masking
 - **Token manager `[K]`**: показ логина/scope/типа, `[2] Test token`, masked вывод
