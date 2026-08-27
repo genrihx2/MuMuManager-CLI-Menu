@@ -351,6 +351,9 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Что нового
 
+### v1.4.0 (27.08.2026)
+- **[U] Update fix**: SHA256 checksum verification для ZIP, improved curl error handling (`--silent --show-error` вместо `-#`), download validation
+
 ### v1.3.0 (27.08.2026)
 - **[K] Token Manager**: name/email/type/scope из HTTP header, rate limit, export в clipboard, secure wipe при удалении, hidden attribute, валидация префикса
 
