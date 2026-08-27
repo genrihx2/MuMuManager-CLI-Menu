@@ -1160,39 +1160,86 @@ function Test-Security {
 function Update-Token {
     Write-Host ''
     Write-Host 'GitHub Token Manager' -ForegroundColor Cyan
+    Write-Host ''
 
     $stored = $false
+    $tokenPath = $null
     if (Test-Path -LiteralPath $DpapiTokenFile -PathType Leaf) {
-        Write-Host 'Current token: stored ENCRYPTED (.github-token.dpapi)' -ForegroundColor DarkGray
+        $tokenPath = $DpapiTokenFile
         $stored = $true
     } elseif (Test-Path -LiteralPath $TokenFile -PathType Leaf) {
-        Write-Host 'Current token: stored PLAINTEXT (legacy .github-token)' -ForegroundColor Yellow
+        $tokenPath = $TokenFile
         $stored = $true
     }
 
     if ($stored) {
+        # Show token info
+        try {
+            $plain = if ($tokenPath -eq $DpapiTokenFile) {
+                $enc = Get-Content -LiteralPath $DpapiTokenFile -Raw
+                $sec = ConvertTo-SecureString $enc
+                ConvertFrom-SecureToken $sec
+            } else {
+                Get-Content -LiteralPath $TokenFile -Raw
+            }
+            $masked = if ($plain.Length -gt 8) {
+                $plain.Substring(0, 4) + '****' + $plain.Substring($plain.Length - 4)
+            } else { '****' }
+
+            $rawUser = & curl.exe -s --connect-timeout 10 --max-time 15 -H "Authorization: token $plain" 'https://api.github.com/user' 2>$null
+            $user = (@($rawUser) | Out-String | ConvertFrom-Json)
+
+            if ($user.login) {
+                Write-Host "  Token:   $masked" -ForegroundColor Green
+                Write-Host "  User:    $($user.login)" -ForegroundColor Green
+                Write-Host "  Scope:   $($user.permissions -join ', ')" -ForegroundColor DarkGray
+                Write-Host "  Type:    $(if ($user.plan) { 'OAuth' } else { 'Classic PAT' })" -ForegroundColor DarkGray
+            } else {
+                Write-Host "  Token:   $masked (INVALID)" -ForegroundColor Red
+            }
+        } catch {
+            Write-Host '  Token:   exists but cannot read' -ForegroundColor Yellow
+        }
+        Write-Host "  Storage: $(if ($tokenPath -eq $DpapiTokenFile) { 'DPAPI encrypted' } else { 'Plaintext (legacy)' })" -ForegroundColor $(if ($tokenPath -eq $DpapiTokenFile) { 'Green' } else { 'Yellow' })
         Write-Host ''
         Write-Host '  [1] Update token' -ForegroundColor Yellow
-        Write-Host '  [2] Remove token (public repo)' -ForegroundColor Yellow
+        Write-Host '  [2] Test token' -ForegroundColor Yellow
+        Write-Host '  [3] Remove token (public repo)' -ForegroundColor Yellow
         Write-Host '  [0] Cancel' -ForegroundColor Yellow
         $choice = Read-Host 'Select option'
 
-        if ($choice -eq '2') {
+        if ($choice -eq '3') {
             Remove-Item -LiteralPath $DpapiTokenFile -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $TokenFile -Force -ErrorAction SilentlyContinue
             Write-Host 'Token removed! Auto-update works without token for public repos.' -ForegroundColor Green
             return
+        } elseif ($choice -eq '2') {
+            if ($user.login) {
+                Write-Host "Token is valid for user: $($user.login)" -ForegroundColor Green
+            } else {
+                Write-Host 'Token is invalid or expired!' -ForegroundColor Red
+            }
+            return
         } elseif ($choice -ne '1') {
+            Write-Host 'Cancelled.' -ForegroundColor Yellow
+            return
+        }
+    } else {
+        Write-Host 'No token configured.' -ForegroundColor Yellow
+        Write-Host '  [1] Add token' -ForegroundColor Yellow
+        Write-Host '  [0] Cancel' -ForegroundColor Yellow
+        $choice = Read-Host 'Select option'
+        if ($choice -ne '1') {
             Write-Host 'Cancelled.' -ForegroundColor Yellow
             return
         }
     }
 
     # Masked input: the token is captured as a SecureString and never echoed.
-    Write-Host 'Enter token (input hidden):' -ForegroundColor Cyan
+    Write-Host ''
+    Write-Host 'Enter new token (input hidden):' -ForegroundColor Cyan
     $sec = Read-Host -AsSecureString
     if (ConvertFrom-SecureToken $sec) {
-        # Validate BEFORE saving anything to disk.
         $plain = ConvertFrom-SecureToken $sec
         Write-Host 'Testing...' -ForegroundColor Yellow
         $rawUser = & curl.exe -s --connect-timeout 15 --max-time 20 -H "Authorization: token $plain" 'https://api.github.com/user' 2>$null
@@ -1209,7 +1256,8 @@ function Update-Token {
             Set-Content -LiteralPath $DpapiTokenFile -Force
         Remove-Item -LiteralPath $TokenFile -Force -ErrorAction SilentlyContinue
         $script:GitHubToken = $plain
-        Write-Host "Token valid ($($user.login)). Saved ENCRYPTED via DPAPI (.github-token.dpapi)." -ForegroundColor Green
+        Write-Host "Token valid! User: $($user.login)" -ForegroundColor Green
+        Write-Host 'Saved ENCRYPTED via DPAPI (.github-token.dpapi)' -ForegroundColor Green
     } else {
         Write-Host 'Cancelled (empty input).' -ForegroundColor Yellow
     }
@@ -1859,7 +1907,21 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    Write-Host 'Script version: 1.13.41' -ForegroundColor Green
+    $scriptVer = '1.13.41'
+    Write-Host "Script version: $scriptVer" -ForegroundColor Green
+
+    # Check for updates
+    try {
+        $latest = (Invoke-WebRequest -Uri "https://api.github.com/repos/$GitHubRepo/releases/latest" -UseBasicParsing -TimeoutSec 10).Content | ConvertFrom-Json
+        $latestVer = $latest.tag_name -replace '^v',''
+        if ($latestVer -ne $scriptVer) {
+            Write-Host "  -> Update available: $latestVer (run [U] to update)" -ForegroundColor Yellow
+        } else {
+            Write-Host '  -> Up to date' -ForegroundColor DarkGray
+        }
+    } catch {
+        Write-Host '  -> Cannot check updates' -ForegroundColor DarkGray
+    }
 
     # MuMu version
     try {
@@ -1880,14 +1942,26 @@ function Show-VersionInfo {
     $psVer = $PSVersionTable.PSVersion
     Write-Host "PowerShell: $psVer" -ForegroundColor $(if ($psVer -ge '5.1') { 'Green' } else { 'Yellow' })
 
+    # .NET version
+    $dotnet = [System.Runtime.InteropServices.RuntimeInformation]::FrameworkDescription
+    Write-Host ".NET: $dotnet" -ForegroundColor DarkGray
+
     # OS info
     $os = [System.Environment]::OSVersion.Version
-    Write-Host "OS: Windows $($os.Major).$($os.Minor)" -ForegroundColor DarkGray
+    $build = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction SilentlyContinue).CurrentBuild
+    Write-Host "OS: Windows $($os.Major).$($os.Minor) (Build $build)" -ForegroundColor DarkGray
+
+    # Architecture
+    $arch = if ([Environment]::Is64BitOperatingSystem) { 'x64' } else { 'x86' }
+    Write-Host "Arch: $arch" -ForegroundColor DarkGray
 
     # GitHub repo
-    Write-Host "Repository: $GitHubRepo" -ForegroundColor DarkGray    # Token status
+    Write-Host "Repository: $GitHubRepo" -ForegroundColor DarkGray
+
+    # Token status
     if ($GitHubToken) {
-        Write-Host 'GitHub token: configured' -ForegroundColor Green
+        $masked = $GitHubToken.Substring(0, [Math]::Min(4, $GitHubToken.Length)) + '***'
+        Write-Host "GitHub token: $masked (valid)" -ForegroundColor Green
     } else {
         Write-Host 'GitHub token: not configured' -ForegroundColor Yellow
     }
@@ -1903,6 +1977,37 @@ function Show-VersionInfo {
         Write-Host "Instances: $count ($running running)" -ForegroundColor Cyan
     } catch {
         Write-Host 'Instances: unknown' -ForegroundColor Yellow
+    }
+
+    # ADB server
+    try {
+        $adb = & adb.exe devices 2>$null
+        $adbCount = ($adb | Select-String 'device$').Count
+        Write-Host "ADB devices: $adbCount" -ForegroundColor Cyan
+    } catch {
+        Write-Host 'ADB: not found' -ForegroundColor DarkGray
+    }
+
+    # Disk space
+    try {
+        $drive = Get-WmiObject Win32_LogicalDisk -Filter "DeviceID='C:'" -ErrorAction SilentlyContinue
+        if ($drive) {
+            $freeGB = [math]::Round($drive.FreeSpace / 1GB, 1)
+            $totalGB = [math]::Round($drive.Size / 1GB, 0)
+            $pct = [math]::Round(($drive.FreeSpace / $drive.Size) * 100, 0)
+            $color = if ($pct -lt 10) { 'Red' } elseif ($pct -lt 25) { 'Yellow' } else { 'Green' }
+            Write-Host "Disk C: ${freeGB}GB free / ${totalGB}GB (${pct}%)" -ForegroundColor $color
+        }
+    } catch {}
+
+    # Certificate status
+    $cert = Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.FriendlyName -eq 'MuMuManager-CLI-Menu-Token' } | Select-Object -First 1
+    if ($cert) {
+        $daysLeft = ($cert.NotAfter - (Get-Date)).Days
+        $certColor = if ($daysLeft -lt 30) { 'Yellow' } else { 'Green' }
+        Write-Host "Certificate: valid ($($cert.Subject), expires in $daysLeft days)" -ForegroundColor $certColor
+    } else {
+        Write-Host 'Certificate: not created ([CRT] to create)' -ForegroundColor DarkGray
     }
 
     Write-Host ''
