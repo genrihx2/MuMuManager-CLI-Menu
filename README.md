@@ -351,6 +351,10 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Что нового
 
+### v1.5.1 (27.08.2026)
+- **[U] Update fix**: загрузка `System.IO.Compression` assembly перед ZIP валидацией (PS 5.1 compat)
+- **Dependabot**: `actions/checkout` 4.4.0 → 7.0.1 (SHA pinned)
+
 ### v1.5.0 (27.08.2026)
 - **Security**: Dependabot для GitHub Actions, все actions pinned to SHA
 - **Security**: ветка `main` защищена (нет force push, нет удаления)
