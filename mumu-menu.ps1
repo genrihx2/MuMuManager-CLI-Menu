@@ -106,7 +106,7 @@ try {
 
 function Invoke-GitHubGet {
     param([string]$Url, [int]$TimeoutSec = 30)
-    $curlArgs = @('-s', '--retry', '2', '--retry-delay', '2', '--connect-timeout', '15', '--max-time', "$TimeoutSec")
+    $curlArgs = @('-s', '--retry', '3', '--retry-delay', '3', '--connect-timeout', '30', '--max-time', "$TimeoutSec")
     if ($Url -match '^https://api\.github\.com/repos/.+/contents/') {
         $curlArgs += @('-H', 'Accept: application/vnd.github.raw')
     } elseif ($Url -match '^https://api\.github\.com/') {
@@ -252,11 +252,133 @@ function Update-FromGitHub {
             return
         }
 
-        Write-Host "  Update available! ($tag)" -ForegroundColor $(if ($Passive) { 'DarkGray' } else { 'Yellow' })
+        Write-Host "  Update available!" -ForegroundColor $(if ($Passive) { 'DarkGray' } else { 'Yellow' })
         if ($Passive) {
             Write-Host '  Nothing was downloaded. Select [U] Check for updates' -ForegroundColor DarkGray
             Write-Host '  in the menu to review and install it manually.' -ForegroundColor DarkGray
             return
+        }
+
+        # --- Release info panel ---
+        Write-Host ''
+        Write-Host '  ============================================' -ForegroundColor Cyan
+        Write-Host '    RELEASE  $tag' -ForegroundColor White
+        Write-Host '  ============================================' -ForegroundColor Cyan
+        # Tag info
+        Write-Host "  Tag:        $tag" -ForegroundColor White
+        if ($release.target_commitish) {
+            Write-Host "  Branch:     $($release.target_commitish)" -ForegroundColor DarkGray
+        }
+        if ($release.author -and $release.author.login) {
+            Write-Host "  Author:     $($release.author.login)" -ForegroundColor DarkGray
+        }
+        if ($release.prerelease) {
+            Write-Host '  Status:     Pre-release' -ForegroundColor Yellow
+        }
+        if ($remoteDate) {
+            $published = try { [datetime]::Parse($remoteDate).ToString('yyyy-MM-dd HH:mm') } catch { $remoteDate }
+            Write-Host "  Published:  $published" -ForegroundColor DarkGray
+        }
+        $releaseUrl = "https://github.com/$GitHubRepo/releases/tag/$tag"
+        Write-Host "  URL:        $releaseUrl" -ForegroundColor DarkGray
+        # Show asset list if available
+        if ($release.assets -and $release.assets.Count -gt 0) {
+            Write-Host "  Assets:     $($release.assets.Count) file(s)" -ForegroundColor DarkGray
+            foreach ($asset in $release.assets) {
+                $assetSize = if ($asset.size -gt 1MB) { "$([math]::Round($asset.size/1MB, 1)) MB" } elseif ($asset.size -gt 1KB) { "$([math]::Round($asset.size/1KB, 1)) KB" } else { "$($asset.size) B" }
+                Write-Host "               - $($asset.name) ($assetSize)" -ForegroundColor DarkGray
+            }
+        }
+        # Local version info
+        $localTag = ''
+        if (Test-Path -LiteralPath $VersionFile) {
+            try { $localTag = (Get-Content -LiteralPath $VersionFile -Raw).Trim() } catch { }
+        }
+        if ($localTag) {
+            Write-Host "  Current:    $localTag" -ForegroundColor DarkGray
+            Write-Host "  New:        $tag" -ForegroundColor Green
+        }
+        Write-Host '  ============================================' -ForegroundColor Cyan
+
+        # --- Releases list (all available releases) ---
+        try {
+            $releasesUrl = "https://api.github.com/repos/$GitHubRepo/releases"
+            $releasesJson = Invoke-GitHubGet $releasesUrl 15
+            $releasesList = $releasesJson | ConvertFrom-Json
+            if ($releasesList -and $releasesList.Count -gt 0) {
+                Write-Host ''
+                Write-Host '  ============================================' -ForegroundColor Cyan
+                Write-Host '    RELEASES' -ForegroundColor White
+                Write-Host '  ============================================' -ForegroundColor Cyan
+                foreach ($rel in $releasesList) {
+                    $rTag = $rel.tag_name
+                    $rTitle = if ($rel.name) { $rel.name } else { $rTag }
+                    $rAuthor = if ($rel.author -and $rel.author.login) { $rel.author.login } else { '' }
+                    $rDate = ''
+                    if ($rel.published_at) {
+                        try { $rDate = [datetime]::Parse($rel.published_at).ToString('yyyy-MM-dd HH:mm') } catch { $rDate = $rel.published_at }
+                    }
+                    $rBody = if ($rel.body) { $rel.body } else { '' }
+                    $rCommit = ''
+                    if ($rel.target_commitish) { $rCommit = $rel.target_commitish.Substring(0, [Math]::Min(7, $rel.target_commitish.Length)) }
+                    $rUrl = "https://github.com/$GitHubRepo/releases/tag/$rTag"
+                    $rZipUrl = "https://github.com/$GitHubRepo/releases/download/$rTag/MuMuManager-CLI-Menu-$rTag.zip"
+                    # Badge
+                    $badge = ''
+                    $badgeColor = 'DarkGray'
+                    if ($rel.prerelease) { $badge = ' [Pre-release]'; $badgeColor = 'Yellow' }
+                    elseif ($rel.tag_name -eq $tag) { $badge = ' [Latest]'; $badgeColor = 'Green' }
+                    # Version marker
+                    $marker = ''
+                    if ($rTag -eq $localTag -and $rTag -eq $tag) { $marker = ' <-- current (latest)' }
+                    elseif ($rTag -eq $localTag) { $marker = ' <-- current' }
+                    elseif ($rTag -eq $tag) { $marker = ' <-- latest' }
+                    # Header line: title + badge
+                    Write-Host ''
+                    Write-Host '  ----------------------------------------' -ForegroundColor DarkGray
+                    Write-Host "  $rTitle" -ForegroundColor White -NoNewline
+                    if ($badge) { Write-Host $badge -ForegroundColor $badgeColor -NoNewline }
+                    if ($marker) { Write-Host $marker -ForegroundColor Yellow -NoNewline }
+                    Write-Host ''
+                    # Meta line: author, date, tag, commit
+                    $meta = @()
+                    if ($rAuthor) { $meta += "by $rAuthor" }
+                    if ($rDate) { $meta += $rDate }
+                    if ($rTag) { $meta += "tag: $rTag" }
+                    if ($rCommit -and $rCommit -ne $rTag) { $meta += "commit: $rCommit" }
+                    if ($meta.Count -gt 0) {
+                        Write-Host "  $($meta -join ' | ')" -ForegroundColor DarkGray
+                    }
+                    # Release notes (first 8 lines)
+                    if ($rBody) {
+                        $rLines = $rBody -split "`n"
+                        $rShown = 0
+                        foreach ($rLine in $rLines) {
+                            if ($rShown -ge 8) {
+                                Write-Host '    ... (more in GitHub releases)' -ForegroundColor DarkGray
+                                break
+                            }
+                            if ($rLine.Trim()) {
+                                if ($rLine -match '^#{1,3}\s') {
+                                    Write-Host "    $rLine" -ForegroundColor Yellow
+                                } elseif ($rLine -match '^-\s|^-\s\[') {
+                                    Write-Host "    $rLine" -ForegroundColor Green
+                                } else {
+                                    Write-Host "    $rLine" -ForegroundColor White
+                                }
+                                $rShown++
+                            }
+                        }
+                    }
+                    # Links
+                    Write-Host "    $rUrl" -ForegroundColor DarkGray
+                    Write-Host "    Download: $rZipUrl" -ForegroundColor DarkGray
+                }
+                Write-Host ''
+                Write-Host '  ============================================' -ForegroundColor Cyan
+            }
+        } catch {
+            # Non-fatal: releases list is optional info
         }
 
         # Show changelog
@@ -266,19 +388,23 @@ function Update-FromGitHub {
             $lines = $remoteBody -split "`n"
             $shown = 0
             foreach ($line in $lines) {
-                if ($shown -ge 20) {
+                if ($shown -ge 30) {
                     Write-Host '  ... (more in GitHub releases)' -ForegroundColor DarkGray
                     break
                 }
                 if ($line.Trim()) {
-                    Write-Host "  $line" -ForegroundColor White
+                    # Highlight markdown headings
+                    if ($line -match '^#{1,3}\s') {
+                        Write-Host "  $line" -ForegroundColor Yellow
+                    } elseif ($line -match '^-\s|^-\s\[') {
+                        Write-Host "  $line" -ForegroundColor Green
+                    } else {
+                        Write-Host "  $line" -ForegroundColor White
+                    }
                     $shown++
                 }
             }
             Write-Host '  ---------------------' -ForegroundColor Cyan
-        }
-        if ($remoteDate) {
-            Write-Host "  Published: $remoteDate" -ForegroundColor DarkGray
         }
 
         # Check available disk space (need ~50KB for ZIP)
@@ -321,13 +447,19 @@ function Update-FromGitHub {
 
         try {
             Write-Host "  Downloading $zipName..." -ForegroundColor Yellow
-            $dlArgs = @('-#', '--retry', '3', '--retry-delay', '2', '--connect-timeout', '15', '--max-time', '120', '-o', $tmp, $zipUrl)
+            $dlArgs = @('--progress-bar', '--retry', '3', '--retry-delay', '3', '--connect-timeout', '30', '--max-time', '180', '-o', $tmp, $zipUrl)
             if ($GitHubToken) { $dlArgs += @('-H', "Authorization: token $GitHubToken") }
-            & curl.exe @dlArgs 2>$null
+            Write-Host "  URL: $zipUrl" -ForegroundColor DarkGray
+            Write-Host ''
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+            & curl.exe @dlArgs 2>&1
+            $sw.Stop()
             if ($LASTEXITCODE -eq 0 -and (Test-Path $tmp) -and (Get-Item $tmp).Length -gt 100) {
                 # Verify ZIP integrity
                 $zipSize = (Get-Item $tmp).Length
-                Write-Host "  Downloaded: $([math]::Round($zipSize/1KB, 1)) KB" -ForegroundColor DarkGray
+                $zipSizeStr = if ($zipSize -gt 1MB) { "$([math]::Round($zipSize/1MB, 1)) MB" } else { "$([math]::Round($zipSize/1KB, 1)) KB" }
+                Write-Host ''
+                Write-Host "  Downloaded: $zipSizeStr in $($sw.Elapsed.TotalSeconds.ToString('F1'))s" -ForegroundColor DarkGray
 
                 try {
                     $zip = [System.IO.Compression.ZipFile]::OpenRead($tmp)
@@ -1015,7 +1147,7 @@ function Test-Security {
     function Test-TokenHttp {
         $tmpHead = Join-Path $env:TEMP ("gh_" + [Guid]::NewGuid().ToString('N') + '.hdr')
         try {
-            $rawUser = & curl.exe -s --connect-timeout 15 --max-time 20 -D "$tmpHead" -H "Authorization: token $GitHubToken" 'https://api.github.com/user' 2>$null
+            $rawUser = & curl.exe -s --connect-timeout 30 --max-time 30 -D "$tmpHead" -H "Authorization: token $GitHubToken" 'https://api.github.com/user' 2>$null
             $user = (@($rawUser) | Out-String | ConvertFrom-Json)
             if (-not $user.login) { return $null }
             $scopes = ''
@@ -1184,7 +1316,7 @@ function Update-Token {
                 $plain.Substring(0, 4) + '****' + $plain.Substring($plain.Length - 4)
             } else { '****' }
 
-            $rawUser = & curl.exe -s --connect-timeout 10 --max-time 15 -H "Authorization: token $plain" 'https://api.github.com/user' 2>$null
+            $rawUser = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Authorization: token $plain" 'https://api.github.com/user' 2>$null
             $user = (@($rawUser) | Out-String | ConvertFrom-Json)
 
             if ($user.login) {
@@ -1240,7 +1372,7 @@ function Update-Token {
     if (ConvertFrom-SecureToken $sec) {
         $plain = ConvertFrom-SecureToken $sec
         Write-Host 'Testing...' -ForegroundColor Yellow
-        $rawUser = & curl.exe -s --connect-timeout 15 --max-time 20 -H "Authorization: token $plain" 'https://api.github.com/user' 2>$null
+        $rawUser = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Authorization: token $plain" 'https://api.github.com/user' 2>$null
         $user = (@($rawUser) | Out-String | ConvertFrom-Json)
         if (-not $user.login) {
             Write-Host 'Token invalid! Nothing was saved.' -ForegroundColor Red
