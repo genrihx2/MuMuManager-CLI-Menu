@@ -12,6 +12,7 @@ on:
       - '**/*.psd1'
       - '**/*.ps1xml'
       - '.github/workflows/security-scan.yml'
+      - 'PSScriptAnalyzerSettings.psd1'
   pull_request:
     paths:
       - '**/*.ps1'
@@ -19,6 +20,7 @@ on:
       - '**/*.psd1'
       - '**/*.ps1xml'
       - '.github/workflows/security-scan.yml'
+      - 'PSScriptAnalyzerSettings.psd1'
   schedule:
     - cron: '0 6 * * 1'
   workflow_dispatch:
@@ -26,6 +28,7 @@ on:
 permissions:
   contents: read
   security-events: write
+  pull-requests: write
 
 jobs:
   psscriptanalyzer:
@@ -35,6 +38,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run PSScriptAnalyzer
+        id: scan
         uses: microsoft/psscriptanalyzer-action@v1.0
         with:
           path: .\
@@ -48,3 +52,55 @@ jobs:
         with:
           sarif_file: results.sarif
           category: psscriptanalyzer
+
+      - name: Summary
+        if: always()
+        run: |
+          if [ ! -f results.sarif ]; then
+            echo "### PSScriptAnalyzer: no SARIF output generated" >> $GITHUB_STEP_SUMMARY
+            exit 0
+          fi
+          TOTAL=$(python3 -c "
+          import json, sys
+          with open('results.sarif') as f:
+              sarif = json.load(f)
+          count = 0
+          for run in sarif.get('runs', []):
+              count += len(run.get('results', []))
+          print(count)
+          ")
+          ERRORS=$(python3 -c "
+          import json
+          with open('results.sarif') as f:
+              sarif = json.load(f)
+          c = 0
+          for run in sarif.get('runs', []):
+              for r in run.get('results', []):
+                  if r.get('level') == 'error':
+                      c += 1
+          print(c)
+          ")
+          WARNINGS=$(python3 -c "
+          import json
+          with open('results.sarif') as f:
+              sarif = json.load(f)
+          c = 0
+          for run in sarif.get('runs', []):
+              for r in run.get('results', []):
+                  if r.get('level') == 'warning':
+                      c += 1
+          print(c)
+          ")
+          echo "### PSScriptAnalyzer Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Count |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Total findings | $TOTAL |" >> $GITHUB_STEP_SUMMARY
+          echo "| Errors | $ERRORS |" >> $GITHUB_STEP_SUMMARY
+          echo "| Warnings | $WARNINGS |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "$ERRORS" -gt 0 ]; then
+            echo "**Status: FAIL** ($ERRORS error(s))" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**Status: PASS**" >> $GITHUB_STEP_SUMMARY
+          fi
