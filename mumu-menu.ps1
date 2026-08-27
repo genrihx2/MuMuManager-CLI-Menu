@@ -1990,7 +1990,7 @@ function Show-VersionInfo {
 
     # Disk space
     try {
-        $drive = Get-WmiObject Win32_LogicalDisk -Filter "DeviceID='C:'" -ErrorAction SilentlyContinue
+        $drive = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'" -ErrorAction SilentlyContinue
         if ($drive) {
             $freeGB = [math]::Round($drive.FreeSpace / 1GB, 1)
             $totalGB = [math]::Round($drive.Size / 1GB, 0)
@@ -1998,7 +1998,9 @@ function Show-VersionInfo {
             $color = if ($pct -lt 10) { 'Red' } elseif ($pct -lt 25) { 'Yellow' } else { 'Green' }
             Write-Host "Disk C: ${freeGB}GB free / ${totalGB}GB (${pct}%)" -ForegroundColor $color
         }
-    } catch {}
+    } catch {
+        Write-Verbose "Disk info unavailable: $($_.Exception.Message)"
+    }
 
     # Certificate status
     $cert = Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.FriendlyName -eq 'MuMuManager-CLI-Menu-Token' } | Select-Object -First 1
