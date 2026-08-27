@@ -571,7 +571,7 @@ function Show-QuickStatus {
             $total++
             if ($info.$key.player_state -and $info.$key.player_state -notmatch 'stopped| shutting') { $running++ }
         }
-        Write-Host ("  v" + $scriptVer + " | MuMu " + $InstalledVersion + " | " + $running + " of " + $total + " running") -ForegroundColor DarkGray
+        Write-Host ("  v" + $scriptVer + " - MuMu " + $InstalledVersion + " - " + $running + " of " + $total + " running") -ForegroundColor DarkGray
     } catch {
         Write-Host "  v$scriptVer" -ForegroundColor DarkGray
     }
@@ -662,7 +662,7 @@ function Get-InstanceIndex {
 
     do {
         $validRange = ($instances | ForEach-Object { $_.Index }) -join '/'
-        $index = (Read-Host "$Prompt ($validRange, q=cancel)").Trim()
+        $index = (Read-Host ($Prompt + " (" + $validRange + " q=cancel)")).Trim()
         if ($index -eq 'q' -or $index -eq 'Q') { return $null }
 
         if (-not $index -and $instances.Count -gt 0) { $index = $instances[0].Index }
@@ -2327,7 +2327,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    $scriptVer = '1.8.5'
+    $scriptVer = '1.8.6'
     Write-Host "Script version: $scriptVer" -ForegroundColor Green
 
     # Check for updates
