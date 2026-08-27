@@ -23,9 +23,11 @@ jobs:
         shell: pwsh
         run: |
           $raw = Get-Content mumu-menu.ps1 -Raw
-          $m = [regex]::Match($raw, 'Script version:\s*([\d\.]+)')
+          # Match: $scriptVer = 'X.Y.Z' OR Write-Host 'Script version: X.Y.Z'
+          $m = [regex]::Match($raw, "scriptVer\s*=\s*'([\d\.]+)'|Script version:\s*([\d\.]+)")
           if (-not $m.Success) { throw 'Cannot find Script version' }
-          $ver = "v$($m.Groups[1].Value)"
+          $verNum = if ($m.Groups[1].Success) { $m.Groups[1].Value } else { $m.Groups[2].Value }
+          $ver = "v$verNum"
           "version=$ver" >> $env:GITHUB_OUTPUT
 
           # Get previous tag for comparison

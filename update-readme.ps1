@@ -25,9 +25,10 @@ $readme = [System.IO.File]::ReadAllText($readmePath)
 $newline = if ($readme -match "`r`n") { "`r`n" } else { "`n" }
 
 # 1. Extract version (strictly numeric, dotted)
-$verMatch = [regex]::Match($script, '(?m)^\s*Write-Host ''Script version:\s*(\d+(?:\.\d+){1,3})''')
-if (-not $verMatch.Success) { throw 'Cannot find a valid numeric "Script version" line in mumu-menu.ps1' }
-$version = $verMatch.Groups[1].Value
+# Match: $scriptVer = 'X.Y.Z' OR Write-Host 'Script version: X.Y.Z'
+$verMatch = [regex]::Match($script, "(?m)^\s*\`$scriptVer\s*=\s*'(\d+(?:\.\d+){1,3})'|Write-Host\s+['""]Script version:\s*(\d+(?:\.\d+){1,3})")
+if (-not $verMatch.Success) { throw 'Cannot find a valid numeric "Script version" in mumu-menu.ps1' }
+$version = if ($verMatch.Groups[1].Success) { $verMatch.Groups[1].Value } else { $verMatch.Groups[2].Value }
 
 # 2. Extract menu lines from Show-Menu body (function boundaries must be unique)
 $startIdx = $script.IndexOf('function Show-Menu')
