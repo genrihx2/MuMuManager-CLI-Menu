@@ -132,8 +132,6 @@ function Initialize-TokenStorage {
     }
 }
 
-$GitHubToken = Get-GitHubToken
-
 # --- HMAC Token Integrity ---------------------------------------------------
 $HmacKeyFile = Join-Path $ScriptDir '.token-hmac'
 
@@ -177,6 +175,8 @@ function Test-TokenIntegrity {
     $actualHmac = Get-TokenHmac $Token
     return $storedHmac -eq $actualHmac
 }
+
+$GitHubToken = Get-GitHubToken
 
 # Force TLS 1.2+ (PowerShell 5.1 defaults fail against GitHub with
 # "The underlying connection was closed: An unexpected error occurred on a send.")
@@ -422,7 +422,7 @@ function Update-FromGitHub {
                 if ($curlExit -ne 0) { throw "curl failed with exit code $curlExit" }
                 if (-not (Test-Path $tmp)) { throw "ZIP file not created" }
                 $zipSize = (Get-Item $tmp).Length
-                if ($zipSize -lt 100) { throw "ZIP too small ($zipSize bytes) - download failed" }
+                if ($zipSize -lt 100) { throw "ZIP too small (${zipSize} bytes) - download failed" }
 
                 $speed = if ($duration -gt 0) { [math]::Round($zipSize / $duration / 1KB, 1) } else { 0 }
                 Write-Host "  Downloaded: $([math]::Round($zipSize/1KB, 1)) KB ($speed KB/s)" -ForegroundColor DarkGray
