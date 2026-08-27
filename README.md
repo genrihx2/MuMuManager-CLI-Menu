@@ -1,6 +1,8 @@
 ﻿# MuMu Manager CLI Menu
 
 [![Code Scanning](https://github.com/genrihx2/MuMuManager-CLI-Menu/actions/workflows/security-scan.yml/badge.svg)](https://github.com/genrihx2/MuMuManager-CLI-Menu/actions/workflows/security-scan.yml)
+[![Latest Release](https://img.shields.io/github/v/release/genrihx2/MuMuManager-CLI-Menu?label=latest)](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest)
+[![Release Date](https://img.shields.io/github/release-date/genrihx2/MuMuManager-CLI-Menu)](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases)
 
 > **Открытый исходный код.** Скрипт предназначен исключительно для управления 
 > локальными инстансами MuMu Emulator на вашем компьютере. Функции подмены 
@@ -60,7 +62,22 @@ function mumu { & "C:\путь\к\mumu-menu.ps1" }
 
 ### Готовая сборка (Releases)
 Скачайте актуальный zip со страницы [Releases](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest), распакуйте и запустите `mumu-menu.ps1`.
-Релизы создаются автоматически при изменении версии в скрипте (GitHub Actions).
+
+**Как работают релизы:**
+- Релизы создаются **автоматически** (GitHub Actions) при изменении версии в `mumu-menu.ps1`
+- Каждый релиз привязан к **тегу** (например `v1.13.40`) — обновления берутся только из тегов
+- ZIP-архив содержит: `mumu-menu.ps1`, `README.md`, `SKILL.md`, `.version`
+- Теги нельзя удалить/перезаписать — это гарантирует целостность истории обновлений
+
+**Способы установки:**
+```powershell
+# Git clone
+git clone https://github.com/genrihx2/MuMuManager-CLI-Menu.git
+cd MuMuManager-CLI-Menu
+.\mumu-menu.ps1
+
+# Или скачать ZIP вручную и распаковать
+```
 
 ## Использование
 
@@ -318,9 +335,10 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 - Сравнивается **хеш содержимого** локального и удалённого `mumu-menu.ps1` (устойчиво к разнице CRLF/LF) — обновление предлагается только при реальных изменениях
 - Обновления берутся **только из тегов GitHub Releases**, а не из ветки `main`
-- Показывается название релиза
-- Перед перезаписью **предыдущие версии сохраняются** в `backup\<дата_время>\`
-- Каждый скачанный файл **проверяется на корректность** перед записью (только текстовые `.ps1`/`.md`)
+- Показывается **changelog** (до 20 строк) перед подтверждением
+- **Прогресс загрузки**ZIP-архива
+- **Проверка целостности** ZIP перед распаковкой
+- Перед перезаписью **предыдущие версии сохраняются** в `backup\<дата_время>\` (авто-очистка старше 5)
 - Таймауты и повторы всех сетевых запросов (через встроенный `curl.exe`)
 
 Для приватных репозиториев сохраните токен через пункт меню `[K] Update GitHub token` — он проверяется и хранится **зашифрованным через Windows DPAPI** в `.github-token.dpapi`; плейнтекстовый `.github-token` мигрируется в зашифрованное хранилище автоматически при первом запуске.
