@@ -426,7 +426,8 @@ function Update-FromGitHub {
                 if ($zipSize -lt 100) { throw ('ZIP too small ({0} bytes) - download failed' -f $zipSize) }
 
                 $speed = if ($duration -gt 0) { [math]::Round($zipSize / $duration / 1KB, 1) } else { 0 }
-                Write-Host ("  Downloaded: " + [math]::Round($zipSize/1KB, 1) + " KB (" + $speed + " KBps)") -ForegroundColor DarkGray
+                Write-Host ("  Downloaded: " + [math]::Round($zipSize/1KB, 1) + " KB") -ForegroundColor DarkGray
+                if ($speed) { Write-Host ("  Speed: " + $speed + " KB per sec") -ForegroundColor DarkGray }
 
                 # Verify ZIP integrity
                 Add-Type -AssemblyName System.IO.Compression -ErrorAction SilentlyContinue
@@ -570,7 +571,7 @@ function Show-QuickStatus {
             $total++
             if ($info.$key.player_state -and $info.$key.player_state -notmatch 'stopped| shutting') { $running++ }
         }
-        Write-Host ("  v" + $scriptVer + " | MuMu " + $InstalledVersion + " | " + $running + "/" + $total + " running") -ForegroundColor DarkGray
+        Write-Host ("  v" + $scriptVer + " | MuMu " + $InstalledVersion + " | " + $running + " of " + $total + " running") -ForegroundColor DarkGray
     } catch {
         Write-Host "  v$scriptVer" -ForegroundColor DarkGray
     }
@@ -2326,7 +2327,7 @@ function Show-VersionInfo {
     Write-Host ''
 
     # Script version
-    $scriptVer = '1.8.4'
+    $scriptVer = '1.8.5'
     Write-Host "Script version: $scriptVer" -ForegroundColor Green
 
     # Check for updates

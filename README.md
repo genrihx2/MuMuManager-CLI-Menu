@@ -353,6 +353,9 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Что нового
 
+### v1.8.5 (27.08.2026)
+- **Fix**: PS 5.1 — `KBps` `slash` → раздельн. `Write-Host` без `slash` (`mumu-menu.ps1:429`)
+
 ### v1.8.4 (27.08.2026)
 - **Fix**: PS 5.1 — `KB/s` slash в строке → `KBps` конкатенация (`mumu-menu.ps1:429`), `v/running` → конкатенация (`:573`)
 
