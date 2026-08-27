@@ -339,6 +339,7 @@ function Update-FromGitHub {
 
             # Verify ZIP integrity
             try {
+                Add-Type -AssemblyName System.IO.Compression
                 $zip = [System.IO.Compression.ZipFile]::OpenRead($tmp)
                 $entryCount = $zip.Entries.Count
                 $zip.Dispose()
