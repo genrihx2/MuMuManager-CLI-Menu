@@ -47,7 +47,7 @@ jobs:
           }
 
           # Previous tag
-          $tags = git tag -l 'v*' | Sort-Object { [version]($_ -replace '^v','') } -Descending
+          $tags = @(git tag -l 'v*' | Sort-Object { [version]($_ -replace '^v','') } -Descending)
           if ($tags.Count -gt 1 -and $tags[0] -eq $ver) {
             $prev = $tags[1]
             "prev_tag=$prev" >> $env:GITHUB_OUTPUT
