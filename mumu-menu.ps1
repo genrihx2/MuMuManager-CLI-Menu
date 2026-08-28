@@ -447,12 +447,13 @@ function Update-FromGitHub {
 
         try {
             Write-Host "  Downloading $zipName..." -ForegroundColor Yellow
-            $dlArgs = @('--progress-bar', '--retry', '3', '--retry-delay', '3', '--connect-timeout', '30', '--max-time', '180', '-o', $tmp, $zipUrl)
-            if ($GitHubToken) { $dlArgs += @('-H', "Authorization: token $GitHubToken") }
             Write-Host "  URL: $zipUrl" -ForegroundColor DarkGray
             Write-Host ''
             $sw = [System.Diagnostics.Stopwatch]::StartNew()
-            & curl.exe @dlArgs 2>&1
+            # Use cmd /c to run curl — avoids PS5.1 NativeCommandError on stderr
+            $curlArgStr = '--progress-bar --retry 3 --retry-delay 3 --connect-timeout 30 --max-time 180 -o "' + $tmp + '" "' + $zipUrl + '"'
+            if ($GitHubToken) { $curlArgStr += ' -H "Authorization: token ' + $GitHubToken + '"' }
+            cmd /c "curl.exe $curlArgStr 2>&1"
             $sw.Stop()
             if ($LASTEXITCODE -eq 0 -and (Test-Path $tmp) -and (Get-Item $tmp).Length -gt 100) {
                 # Verify ZIP integrity
@@ -481,6 +482,16 @@ function Update-FromGitHub {
                         continue
                     }
                     $dest = Join-Path $ScriptDir $f
+                    # Self-update: can't overwrite the running script directly.
+                    if ($f -eq 'mumu-menu.ps1' -and (Test-Path -LiteralPath $dest)) {
+                        $oldPath = $dest + '.old'
+                        try {
+                            if (Test-Path -LiteralPath $oldPath) { Remove-Item -LiteralPath $oldPath -Force -ErrorAction SilentlyContinue }
+                            Copy-Item -LiteralPath $dest -Destination $oldPath -Force
+                        } catch {
+                            Write-Host "    Warning: could not create .old backup: $($_.Exception.Message)" -ForegroundColor Yellow
+                        }
+                    }
                     Copy-Item -LiteralPath $src.FullName -Destination $dest -Force
                     Write-Host "    $f OK" -ForegroundColor Green
                 }
@@ -501,6 +512,17 @@ function Update-FromGitHub {
                     }
                     if ($f -eq 'mumu-menu.ps1' -and $content -notmatch '^# MuMuManager CLI') {
                         throw 'unexpected mumu-menu.ps1 content'
+                    }
+                    # Self-update: can't overwrite the running script directly.
+                    # Rename current to .old, write new file. Clean up .old on next startup.
+                    if ($f -eq 'mumu-menu.ps1' -and (Test-Path -LiteralPath $dest)) {
+                        $oldPath = $dest + '.old'
+                        try {
+                            if (Test-Path -LiteralPath $oldPath) { Remove-Item -LiteralPath $oldPath -Force -ErrorAction SilentlyContinue }
+                            Copy-Item -LiteralPath $dest -Destination $oldPath -Force
+                        } catch {
+                            Write-Host "    Warning: could not create .old backup: $($_.Exception.Message)" -ForegroundColor Yellow
+                        }
                     }
                     [System.IO.File]::WriteAllText($dest, $content, [System.Text.UTF8Encoding]::new($false))
                     Write-Host '    OK' -ForegroundColor Green
@@ -540,6 +562,14 @@ function Update-FromGitHub {
         }
     }
 }
+
+# Clean up .old backup from previous self-update
+try {
+    $selfOld = Join-Path $ScriptDir 'mumu-menu.ps1.old'
+    if (Test-Path -LiteralPath $selfOld) {
+        Remove-Item -LiteralPath $selfOld -Force -ErrorAction SilentlyContinue
+    }
+} catch { }
 
 # Read-only update check at startup; installs only via menu option [U]
 Update-FromGitHub -Passive
