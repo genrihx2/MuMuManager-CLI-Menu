@@ -295,7 +295,7 @@ function Update-FromGitHub {
             try {
                 $localTag = (Get-Content -LiteralPath $VersionFile -Raw).Trim()
             } catch {
-                # version file may not exist yet
+                Write-Debug "Version file read failed: $($_.Exception.Message)"
             }
         }
         if ($localTag) {
@@ -382,7 +382,6 @@ function Update-FromGitHub {
                 Write-Host '  ============================================' -ForegroundColor Cyan
             }
         } catch {
-            # Non-fatal: releases list is optional info
             Write-Debug "Releases list fetch failed: $($_.Exception.Message)"
         }
 
@@ -575,7 +574,7 @@ try {
         Remove-Item -LiteralPath $selfOld -Force -ErrorAction SilentlyContinue
     }
 } catch {
-    # .old cleanup is best-effort
+    Write-Debug ".old cleanup failed: $($_.Exception.Message)"
 }
 
 # Read-only update check at startup; installs only via menu option [U]
