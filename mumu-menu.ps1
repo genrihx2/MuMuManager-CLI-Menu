@@ -292,7 +292,11 @@ function Update-FromGitHub {
         # Local version info
         $localTag = ''
         if (Test-Path -LiteralPath $VersionFile) {
-            try { $localTag = (Get-Content -LiteralPath $VersionFile -Raw).Trim() } catch { }
+            try {
+                $localTag = (Get-Content -LiteralPath $VersionFile -Raw).Trim()
+            } catch {
+                # version file may not exist yet
+            }
         }
         if ($localTag) {
             Write-Host "  Current:    $localTag" -ForegroundColor DarkGray
@@ -379,6 +383,7 @@ function Update-FromGitHub {
             }
         } catch {
             # Non-fatal: releases list is optional info
+            Write-Debug "Releases list fetch failed: $($_.Exception.Message)"
         }
 
         # Show changelog
@@ -569,7 +574,9 @@ try {
     if (Test-Path -LiteralPath $selfOld) {
         Remove-Item -LiteralPath $selfOld -Force -ErrorAction SilentlyContinue
     }
-} catch { }
+} catch {
+    # .old cleanup is best-effort
+}
 
 # Read-only update check at startup; installs only via menu option [U]
 Update-FromGitHub -Passive
