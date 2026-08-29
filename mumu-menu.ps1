@@ -675,6 +675,7 @@ function Show-Menu {
     Write-Host '  --- Info ---' -ForegroundColor Green
     Write-Host '  [V] Version info' -ForegroundColor Yellow
     Write-Host '  [U] Check for updates' -ForegroundColor Yellow
+    Write-Host '  [CR] Create release' -ForegroundColor Yellow
     Write-Host '  [0] Exit' -ForegroundColor Yellow
     Write-Host ''
     Write-Host '======================================' -ForegroundColor Cyan
@@ -2066,6 +2067,231 @@ function Update-Token {
     }
 }
 
+function Create-GitHubRelease {
+    if (-not $GitHubToken) {
+        Write-Host ''
+        Write-Host 'GitHub token is required to create releases.' -ForegroundColor Red
+        Write-Host 'Add a token: menu option [K] Update GitHub token.' -ForegroundColor Yellow
+        return
+    }
+
+    Write-Host ''
+    Write-Host '=== Create GitHub Release ===' -ForegroundColor Cyan
+    Write-Host ''
+
+    # 1. Fetch existing tags
+    Write-Host 'Fetching tags...' -ForegroundColor DarkGray
+    $tagsJson = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/tags" 2>$null | Out-String
+    try { $tags = $tagsJson | ConvertFrom-Json } catch { $tags = @() }
+
+    if ($tags -and $tags.Count -gt 0) {
+        Write-Host "  Found $($tags.Count) tag(s)" -ForegroundColor DarkGray
+    } else {
+        Write-Host '  No tags found' -ForegroundColor Yellow
+    }
+
+    # 2. Fetch latest release to get default title
+    $latestTag = ''
+    $latestName = ''
+    if ($tags -and $tags.Count -gt 0) {
+        $latestTag = $tags[0].name
+        $latestName = $tags[0].name
+        if ($latestName -match '^v?([\d.]+)$') {
+            $latestName = "MuMuManager CLI Menu v$($Matches[1])"
+        }
+    }
+
+    # 3. Get next version suggestion
+    $suggestedVersion = ''
+    if ($latestTag -match 'v?(\d+)\.(\d+)\.(\d+)') {
+        $major = [int]$Matches[1]
+        $minor = [int]$Matches[2]
+        $patch = [int]$Matches[3]
+        $patch++
+        $suggestedVersion = "v$major.$minor.$patch"
+        $suggestedTitle = "MuMuManager CLI Menu $suggestedVersion"
+    } else {
+        $suggestedVersion = 'v1.0.0'
+        $suggestedTitle = 'MuMuManager CLI Menu v1.0.0'
+    }
+
+    # 4. Tag name
+    Write-Host ''
+    Write-Host "Suggested tag: $suggestedVersion" -ForegroundColor Cyan
+    $tagName = (Read-Host "Enter tag name (Enter=$suggestedVersion)").Trim()
+    if (-not $tagName) { $tagName = $suggestedVersion }
+
+    # 5. Release title
+    Write-Host ''
+    Write-Host "Suggested title: $suggestedTitle" -ForegroundColor Cyan
+    $title = (Read-Host "Enter release title (Enter='$suggestedTitle')").Trim()
+    if (-not $title) { $title = $suggestedTitle }
+
+    # 6. Select base tag for generated notes
+    $baseTag = ''
+    if ($tags -and $tags.Count -gt 0) {
+        Write-Host ''
+        Write-Host 'Select previous tag for release notes:' -ForegroundColor Cyan
+        Write-Host ''
+        Write-Host "  [0] (none - write notes manually)" -ForegroundColor DarkGray
+        for ($i = 0; $i -lt [Math]::Min($tags.Count, 10); $i++) {
+            $t = $tags[$i]
+            $marker = if ($i -eq 0) { ' <-- latest' } else { '' }
+            Write-Host "  [$($i + 1)] $($t.name)$marker" -ForegroundColor White
+        }
+        Write-Host ''
+        $tagSel = Read-Host 'Select base tag (number)'
+        if ($tagSel -match '^\d+$' -and [int]$tagSel -ge 1 -and [int]$tagSel -le [Math]::Min($tags.Count, 10)) {
+            $baseTag = $tags[[int]$tagSel - 1].name
+        }
+    }
+
+    # 7. Generate or write release notes
+    $notes = ''
+    if ($baseTag) {
+        # Generate notes from git log between base tag and HEAD
+        Write-Host ''
+        Write-Host "Generating notes from $baseTag to HEAD..." -ForegroundColor DarkGray
+
+        # Try git log first
+        $gitLog = & git log --oneline --no-decorate "$baseTag..HEAD" 2>&1 | Out-String
+        if ($gitLog -and $LASTEXITCODE -eq 0 -and $gitLog.Trim()) {
+            $lines = $gitLog.Trim() -split "`n" | Where-Object { $_.Trim() }
+            $notes = "## What's changed since $baseTag`n`n"
+            foreach ($line in $lines) {
+                $notes += "- $line`n"
+            }
+        } else {
+            # Fallback: use GitHub compare API
+            Write-Host '  git log unavailable, using GitHub API...' -ForegroundColor DarkGray
+            $compareJson = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/compare/$baseTag...$tagName" 2>$null | Out-String
+            try {
+                $compare = $compareJson | ConvertFrom-Json
+                if ($compare.commits) {
+                    $notes = "## What's changed since $baseTag`n`n"
+                    foreach ($c in $compare.commits) {
+                        $msg = ($c.commit.message -split "`n")[0]
+                        $sha = $c.sha.Substring(0, 7)
+                        $author = $c.commit.author.name
+                        $notes += "- $sha $msg ($author)`n"
+                    }
+                }
+            } catch {}
+        }
+
+        if ($notes) {
+            Write-Host ''
+            Write-Host '--- Generated release notes ---' -ForegroundColor Cyan
+            Write-Host $notes -ForegroundColor White
+            Write-Host '---' -ForegroundColor Cyan
+
+            $editAns = Read-Host 'Edit notes before publishing? (y/N)'
+            if ($editAns -eq 'y' -or $editAns -eq 'Y') {
+                Write-Host ''
+                Write-Host 'Enter release notes (empty line to finish):' -ForegroundColor Yellow
+                $notes = ''
+                while ($true) {
+                    $line = Read-Host ''
+                    if (-not $line) { break }
+                    $notes += "$line`n"
+                }
+            }
+        }
+    }
+
+    if (-not $notes) {
+        Write-Host ''
+        Write-Host 'Enter release notes (empty line to finish):' -ForegroundColor Yellow
+        while ($true) {
+            $line = Read-Host ''
+            if (-not $line) { break }
+            $notes += "$line`n"
+        }
+    }
+
+    # 8. Options
+    Write-Host ''
+    $prerelease = (Read-Host 'Mark as pre-release? (y/N)') -eq 'y'
+    $draft = (Read-Host 'Save as draft? (y/N)') -eq 'y'
+    $generateNotes = (Read-Host 'Auto-generate notes from GitHub? (y/N)') -eq 'y'
+
+    # 9. Upload ZIP asset
+    $zipPath = ''
+    Write-Host ''
+    $uploadAns = Read-Host 'Attach a ZIP file? (y/N)'
+    if ($uploadAns -eq 'y' -or $uploadAns -eq 'Y') {
+        Write-Host 'Enter path to ZIP file:' -ForegroundColor Yellow
+        $zipPath = (Read-Host '').Trim()
+        $zipPath = $zipPath.Trim('"').Trim()
+        if ($zipPath -and -not (Test-Path -LiteralPath $zipPath)) {
+            Write-Host "  File not found: $zipPath" -ForegroundColor Red
+            $zipPath = ''
+        } elseif ($zipPath) {
+            $zipSize = (Get-Item -LiteralPath $zipPath).Length
+            Write-Host "  Attached: $(Split-Path $zipPath -Leaf) ({0:N1} MB)" -f ($zipSize / 1MB) -ForegroundColor Green
+        }
+    }
+
+    # 10. Review
+    Write-Host ''
+    Write-Host '=== Release Summary ===' -ForegroundColor Cyan
+    Write-Host "  Tag:       $tagName" -ForegroundColor White
+    Write-Host "  Title:     $title" -ForegroundColor White
+    Write-Host "  Base:      $(if ($baseTag) { $baseTag } else { '(none)' })" -ForegroundColor White
+    Write-Host "  Draft:     $draft" -ForegroundColor White
+    Write-Host "  Pre-rel:   $prerelease" -ForegroundColor White
+    Write-Host "  Auto-notes: $generateNotes" -ForegroundColor White
+    if ($zipPath) { Write-Host "  Asset:     $(Split-Path $zipPath -Leaf)" -ForegroundColor White }
+    Write-Host ''
+    Write-Host '--- Notes ---' -ForegroundColor Cyan
+    Write-Host $notes -ForegroundColor White
+    Write-Host '---' -ForegroundColor Cyan
+    Write-Host ''
+
+    $confirm = Read-Host 'Create this release? (y/N)'
+    if ($confirm -ne 'y' -and $confirm -ne 'Y') {
+        Write-Host 'Cancelled.' -ForegroundColor Yellow
+        return
+    }
+
+    # 11. Write notes to temp file (avoid PS5.1 encoding issues)
+    $notesFile = Join-Path $env:TEMP ('release_notes_' + [Guid]::NewGuid().ToString('N') + '.md')
+    [System.IO.File]::WriteAllText($notesFile, $notes, [System.Text.UTF8Encoding]::new($false))
+
+    try {
+        # 12. Build command
+        $cmdParts = @(
+            'gh', 'release', 'create', $tagName,
+            '--repo', $GitHubRepo,
+            '--title', $title,
+            '--notes-file', $notesFile
+        )
+        if ($draft) { $cmdParts += '--draft' }
+        if ($prerelease) { $cmdParts += '--prerelease' }
+        if ($generateNotes) { $cmdParts += '--generate-notes' }
+        if ($zipPath) { $cmdParts += $zipPath }
+
+        Write-Host 'Creating release...' -ForegroundColor Cyan
+        $result = & gh @cmdParts 2>&1 | Out-String
+        $exitCode = $LASTEXITCODE
+
+        if ($exitCode -eq 0 -and $result -match 'https://') {
+            $releaseUrl = ($result -split "`n" | Where-Object { $_ -match 'https://' } | Select-Object -First 1).Trim()
+            Write-Host ''
+            Write-Host 'Release created successfully!' -ForegroundColor Green
+            Write-Host "  URL: $releaseUrl" -ForegroundColor Cyan
+            if ($zipPath) {
+                Write-Host "  Asset: $(Split-Path $zipPath -Leaf) uploaded" -ForegroundColor Green
+            }
+        } else {
+            Write-Host "Release creation failed!" -ForegroundColor Red
+            Write-Host $result -ForegroundColor Red
+        }
+    } finally {
+        Remove-Item -LiteralPath $notesFile -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Create-Certificate {
     while ($true) {
         Clear-Host
@@ -3379,6 +3605,7 @@ do {
         's' { Save-Screenshot }
         'v' { Show-VersionInfo }
         'u' { Update-FromGitHub }
+        'cr' { Create-GitHubRelease }
         'crt' { Create-Certificate }
         'q' {
             Write-Host 'Goodbye!' -ForegroundColor Cyan
