@@ -657,6 +657,7 @@ function Show-Menu {
     Write-Host '  [T] Start app' -ForegroundColor Yellow
     Write-Host '  [E] Export emulator data' -ForegroundColor Yellow
     Write-Host '  [BA] Backup instance data' -ForegroundColor Yellow
+    Write-Host '  [RE] Restore from backup' -ForegroundColor Yellow
     Write-Host '  [K] Update GitHub token' -ForegroundColor Yellow
     Write-Host '  [CRT] Create/sign certificate' -ForegroundColor Yellow
     Write-Host '  [Z] Security audit (disabled)' -ForegroundColor Yellow
@@ -1115,6 +1116,195 @@ function Backup-EmulatorData {
     if ($del -ne 'n' -and $del -ne 'N') {
         Remove-Item -LiteralPath $dest -Recurse -Force
         Write-Host 'Folder removed, archive kept.' -ForegroundColor DarkGray
+    }
+}
+
+function Restore-EmulatorData {
+    $backupRoot = Join-Path $ScriptDir 'backups'
+    if (-not (Test-Path -LiteralPath $backupRoot)) {
+        Write-Host 'No backups folder found.' -ForegroundColor Yellow
+        Write-Host "Expected: $backupRoot" -ForegroundColor DarkGray
+        return
+    }
+
+    # Collect all backup folders
+    $backups = Get-ChildItem -LiteralPath $backupRoot -Directory -ErrorAction SilentlyContinue |
+        Sort-Object Name -Descending
+
+    if ($backups.Count -eq 0) {
+        Write-Host 'No backups found.' -ForegroundColor Yellow
+        return
+    }
+
+    Write-Host ''
+    Write-Host 'Available backups:' -ForegroundColor Cyan
+    Write-Host ''
+    for ($i = 0; $i -lt $backups.Count; $i++) {
+        $b = $backups[$i]
+        $size = (Get-ChildItem -LiteralPath $b.FullName -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+        $age = (Get-Date) - $b.LastWriteTime
+        $ageStr = if ($age.TotalDays -ge 1) { "{0:N0}d ago" -f $age.TotalDays }
+                  elseif ($age.TotalHours -ge 1) { "{0:N0}h ago" -f $age.TotalHours }
+                  else { "{0:N0}m ago" -f $age.TotalMinutes }
+        # Extract instance index from folder name (emu_N_timestamp)
+        $instMatch = [regex]::Match($b.Name, 'emu_(\d+)_')
+        $instLabel = if ($instMatch.Success) { "instance #$($instMatch.Groups[1].Value)" } else { 'unknown' }
+
+        Write-Host "  [$($i + 1)] $($b.Name)" -ForegroundColor White
+        Write-Host "       Instance: $instLabel  |  Size: {0:N2} GB  |  $ageStr" -f ($size / 1GB) -ForegroundColor DarkGray
+    }
+
+    Write-Host ''
+    $sel = Read-Host 'Select backup to restore (number)'
+    if (-not ($sel -match '^\d+$' -and [int]$sel -ge 1 -and [int]$sel -le $backups.Count)) {
+        Write-Host 'Invalid selection.' -ForegroundColor Red
+        return
+    }
+    $chosen = $backups[[int]$sel - 1]
+    $src = $chosen.FullName
+
+    # Show contents
+    Write-Host ''
+    Write-Host "Contents of $($chosen.Name):" -ForegroundColor Cyan
+    $items = Get-ChildItem -LiteralPath $src -ErrorAction SilentlyContinue
+    foreach ($item in $items) {
+        if ($item.PSIsContainer) {
+            $itemSize = (Get-ChildItem -LiteralPath $item.FullName -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+            Write-Host "  [DIR]  $($item.Name)  ({0:N2} GB)" -f ($itemSize / 1GB) -ForegroundColor DarkGray
+        } else {
+            Write-Host "  [FILE] $($item.Name)  ({0:N2} MB)" -f ($item.Length / 1MB) -ForegroundColor DarkGray
+        }
+    }
+
+    # Extract instance index from folder name
+    $instMatch = [regex]::Match($chosen.Name, 'emu_(\d+)_')
+    $defaultIndex = if ($instMatch.Success) { $instMatch.Groups[1].Value } else { '' }
+
+    Write-Host ''
+    if ($defaultIndex) {
+        Write-Host "Detected instance: #$defaultIndex" -ForegroundColor Cyan
+        $indexInput = Read-Host "Press Enter for instance #$defaultIndex, or type a different index"
+        $index = if ($indexInput.Trim()) { $indexInput.Trim() } else { $defaultIndex }
+    } else {
+        $index = Get-InstanceIndex 'Target instance index to restore into'
+    }
+    if (-not $index) { return }
+
+    # Find target folder
+    $nxDir = Split-Path $MumuPath -Parent
+    $installRoot = Split-Path $nxDir -Parent
+    $vmsRoot = Join-Path $installRoot 'vms'
+
+    $targets = @()
+    if (Test-Path -LiteralPath $vmsRoot) {
+        foreach ($d in (Get-ChildItem -LiteralPath $vmsRoot -Directory)) {
+            $m = [regex]::Match($d.Name, '-(\d+)$')
+            if ($m.Success -and $m.Groups[1].Value -eq $index) {
+                $targets += $d.FullName
+            }
+        }
+    }
+
+    if ($targets.Count -gt 0) {
+        $dest = $targets[0]
+        if ($targets.Count -gt 1) {
+            Write-Host ''
+            Write-Host 'Multiple data folders found:' -ForegroundColor Yellow
+            for ($i = 0; $i -lt $targets.Count; $i++) {
+                Write-Host "  [$($i + 1)] $($targets[$i])" -ForegroundColor White
+            }
+            $tsel = Read-Host 'Select target folder (number)'
+            if ($tsel -match '^\d+$' -and [int]$tsel -ge 1 -and [int]$tsel -le $targets.Count) {
+                $dest = $targets[[int]$tsel - 1]
+            }
+        }
+    } else {
+        Write-Host "No data folder found for instance #$index under $vmsRoot" -ForegroundColor Yellow
+        $dest = (Read-Host 'Enter target folder path').Trim()
+    }
+
+    $customDest = (Read-Host "Press Enter to use: $dest`nOr type a different path").Trim()
+    if ($customDest) { $dest = $customDest }
+
+    if (-not ($dest -and (Test-Path -LiteralPath $dest))) {
+        Write-Host "Target folder not found: $dest" -ForegroundColor Red
+        return
+    }
+
+    # Check if instance is running
+    $info = & $MumuPath info -v $index 2>$null | ConvertFrom-Json
+    if ($info.is_process_started) {
+        Write-Host ''
+        Write-Host 'WARNING: instance is running. Restore may be inconsistent or fail.' -ForegroundColor Yellow
+        $ans = Read-Host 'Shutdown instance before restore? (Y/n)'
+        if ($ans -ne 'n' -and $ans -ne 'N') {
+            Write-Host 'Shutting down...' -ForegroundColor Cyan
+            & $MumuPath control -v $index shutdown 2>&1 | Out-Null
+            $tries = 0
+            do {
+                Start-Sleep -Seconds 3
+                $tries++
+                $st = (& $MumuPath info -v $index 2>$null | ConvertFrom-Json).is_process_started
+            } while ($st -eq $true -and $tries -lt 20)
+            if ($st -eq $true) {
+                Write-Host 'Instance did not stop. Restore cancelled.' -ForegroundColor Red
+                return
+            }
+            Write-Host 'Instance shut down.' -ForegroundColor Green
+        }
+    }
+
+    # Confirm overwrite
+    Write-Host ''
+    Write-Host "Target: $dest" -ForegroundColor Cyan
+    Write-Host 'All data in the target folder will be OVERWRITTEN.' -ForegroundColor Yellow
+    $confirm = Read-Host 'Type YES to confirm restore'
+    if ($confirm -ne 'YES') {
+        Write-Host 'Restore cancelled.' -ForegroundColor Yellow
+        return
+    }
+
+    # Optional: create safety backup of current data
+    $safetyAns = Read-Host 'Create safety backup of current data first? (Y/n)'
+    if ($safetyAns -ne 'n' -and $safetyAns -ne 'N') {
+        $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
+        $safetyDest = Join-Path $ScriptDir "backups\pre_restore_${index}_$stamp"
+        New-Item -ItemType Directory -Path $safetyDest -Force | Out-Null
+        Write-Host "  Safety backup -> $safetyDest" -ForegroundColor DarkGray
+        & robocopy $dest $safetyDest /E /NDL /NJH /NP /R:1 /W:1 | Out-Null
+        if ($LASTEXITCODE -lt 8) {
+            Write-Host '  Safety backup complete.' -ForegroundColor Green
+        } else {
+            Write-Host "  Safety backup warning (robocopy code: $($LASTEXITCODE))" -ForegroundColor Yellow
+        }
+    }
+
+    # Restore
+    Write-Host ''
+    Write-Host "Restoring from $($chosen.Name)..." -ForegroundColor Cyan
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+
+    # Clear target first, then copy
+    Get-ChildItem -LiteralPath $dest -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+    & robocopy $src $dest /E /NDL /NJH /NP /R:2 /W:2 | Out-Null
+    $code = $LASTEXITCODE
+    $sw.Stop()
+
+    if ($code -ge 8) {
+        Write-Host "Restore FAILED (robocopy exit code $code)" -ForegroundColor Red
+        return
+    }
+
+    $restored = (Get-ChildItem -LiteralPath $dest -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+    Write-Host ''
+    Write-Host ("Restore complete! {0:N2} GB in {1:mm\:ss}" -f ($restored / 1GB), $sw.Elapsed) -ForegroundColor Green
+    Write-Host "  Instance #$index data restored from: $($chosen.Name)" -ForegroundColor DarkGray
+
+    $startAns = Read-Host 'Start instance now? (y/N)'
+    if ($startAns -eq 'y' -or $startAns -eq 'Y') {
+        Write-Host 'Starting instance...' -ForegroundColor Cyan
+        & $MumuPath control -v $index launch 2>&1 | Out-Null
+        Write-Host 'Instance started.' -ForegroundColor Green
     }
 }
 
@@ -2727,6 +2917,7 @@ do {
         'sim' { Set-SimOperator }
         'di' { Set-RandomDeviceIds }
         'ba' { Backup-EmulatorData }
+        're' { Restore-EmulatorData }
         'a' { Invoke-ADBCommand }
         'b' { Start-All }
         'd' { Stop-All }
