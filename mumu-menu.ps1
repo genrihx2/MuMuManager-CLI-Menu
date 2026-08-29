@@ -30,6 +30,11 @@
 
 if ($PSScriptRoot) { $ScriptDir = $PSScriptRoot } else { $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path }
 if (-not $ScriptDir) { $ScriptDir = $PWD.Path }
+# Fix file:/// URL paths (PS5.1 edge case)
+if ($ScriptDir -match '^file:///') {
+    $ScriptDir = [System.Uri]::new($ScriptDir).LocalPath
+}
+$ScriptDir = $ScriptDir.TrimEnd('\', '/')
 $GitHubRepo = 'genrihx2/MuMuManager-CLI-Menu'
 $SkillPath = '.'
 $VersionFile = Join-Path $ScriptDir '.version'
