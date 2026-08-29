@@ -551,24 +551,12 @@ function Update-FromGitHub {
                     }
                     $dest = Join-Path $ScriptDir $f
                     # Self-update: can't overwrite the running script directly.
-                    if ($f -eq 'mumu-menu.ps1' -and (Test-Path -LiteralPath $dest)) {
-                        $oldPath = $dest + '.old'
-                        try {
-                            if (Test-Path -LiteralPath $oldPath) { Remove-Item -LiteralPath $oldPath -Force -ErrorAction SilentlyContinue }
-                            Copy-Item -LiteralPath $dest -Destination $oldPath -Force
-                        } catch {
-                            Write-Host "    Warning: could not create .old backup: $($_.Exception.Message)" -ForegroundColor Yellow
-                        }
-                        # Write to temp first, then rename (can't overwrite running file)
+                    # Write .new file, apply on next startup.
+                    if ($f -eq 'mumu-menu.ps1') {
+                        $newPath = $dest + '.new'
                         $newContent = [System.IO.File]::ReadAllText($src.FullName, [System.Text.Encoding]::UTF8)
-                        $tmpNew = $dest + '.new'
-                        [System.IO.File]::WriteAllText($tmpNew, $newContent, [System.Text.UTF8Encoding]::new($false))
-                        try {
-                            Remove-Item -LiteralPath $dest -Force -ErrorAction SilentlyContinue
-                            Rename-Item -LiteralPath $tmpNew -NewName (Split-Path $dest -Leaf) -Force
-                        } catch {
-                            Write-Host "    Warning: rename failed, .new kept: $($_.Exception.Message)" -ForegroundColor Yellow
-                        }
+                        [System.IO.File]::WriteAllText($newPath, $newContent, [System.Text.UTF8Encoding]::new($false))
+                        Write-Host "    $f saved as .new (will apply on restart)" -ForegroundColor Green
                     } else {
                         Copy-Item -LiteralPath $src.FullName -Destination $dest -Force
                     }
@@ -593,27 +581,15 @@ function Update-FromGitHub {
                         throw 'unexpected mumu-menu.ps1 content (no MuMuManager found)'
                     }
                     # Self-update: can't overwrite the running script directly.
-                    if ($f -eq 'mumu-menu.ps1' -and (Test-Path -LiteralPath $dest)) {
-                        $oldPath = $dest + '.old'
-                        try {
-                            if (Test-Path -LiteralPath $oldPath) { Remove-Item -LiteralPath $oldPath -Force -ErrorAction SilentlyContinue }
-                            Copy-Item -LiteralPath $dest -Destination $oldPath -Force
-                        } catch {
-                            Write-Host "    Warning: could not create .old backup: $($_.Exception.Message)" -ForegroundColor Yellow
-                        }
-                        # Write to temp first, then rename (can't overwrite running file)
-                        $tmpNew = $dest + '.new'
-                        [System.IO.File]::WriteAllText($tmpNew, $content, [System.Text.UTF8Encoding]::new($false))
-                        try {
-                            Remove-Item -LiteralPath $dest -Force -ErrorAction SilentlyContinue
-                            Rename-Item -LiteralPath $tmpNew -NewName (Split-Path $dest -Leaf) -Force
-                        } catch {
-                            Write-Host "    Warning: rename failed, .new kept: $($_.Exception.Message)" -ForegroundColor Yellow
-                        }
+                    # Write .new file, apply on next startup.
+                    if ($f -eq 'mumu-menu.ps1') {
+                        $newPath = $dest + '.new'
+                        [System.IO.File]::WriteAllText($newPath, $content, [System.Text.UTF8Encoding]::new($false))
+                        Write-Host "    $f saved as .new (will apply on restart)" -ForegroundColor Green
                     } else {
                         [System.IO.File]::WriteAllText($dest, $content, [System.Text.UTF8Encoding]::new($false))
+                        Write-Host '    OK' -ForegroundColor Green
                     }
-                    Write-Host '    OK' -ForegroundColor Green
                 } catch {
                     Write-Host "    Failed: $($_.Exception.Message)" -ForegroundColor Red
                     $failed++
@@ -651,18 +627,36 @@ function Update-FromGitHub {
     }
 }
 
-# Clean up .old and .new files from previous self-update
+# Apply pending self-update (.new file from previous [U] update)
+try {
+    $selfNew = Join-Path $ScriptDir 'mumu-menu.ps1.new'
+    if (Test-Path -LiteralPath $selfNew) {
+        $selfDest = Join-Path $ScriptDir 'mumu-menu.ps1'
+        $selfOld = $selfDest + '.old'
+        # Backup current to .old
+        if (Test-Path -LiteralPath $selfDest) {
+            try {
+                if (Test-Path -LiteralPath $selfOld) { Remove-Item -LiteralPath $selfOld -Force -ErrorAction SilentlyContinue }
+                Copy-Item -LiteralPath $selfDest -Destination $selfOld -Force
+            } catch {}
+        }
+        # Apply .new
+        Copy-Item -LiteralPath $selfNew -Destination $selfDest -Force
+        Remove-Item -LiteralPath $selfNew -Force -ErrorAction SilentlyContinue
+        Write-Host '  Applied pending update from .new file' -ForegroundColor Green
+    }
+} catch {
+    Write-Debug "Update apply failed: $($_.Exception.Message)"
+}
+
+# Clean up .old backup
 try {
     $selfOld = Join-Path $ScriptDir 'mumu-menu.ps1.old'
-    $selfNew = Join-Path $ScriptDir 'mumu-menu.ps1.new'
     if (Test-Path -LiteralPath $selfOld) {
         Remove-Item -LiteralPath $selfOld -Force -ErrorAction SilentlyContinue
     }
-    if (Test-Path -LiteralPath $selfNew) {
-        Remove-Item -LiteralPath $selfNew -Force -ErrorAction SilentlyContinue
-    }
 } catch {
-    Write-Debug ".old/.new cleanup failed: $($_.Exception.Message)"
+    Write-Debug ".old cleanup failed: $($_.Exception.Message)"
 }
 
 # Read-only update check at startup; installs only via menu option [U]
