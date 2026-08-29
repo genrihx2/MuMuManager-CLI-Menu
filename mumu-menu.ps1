@@ -693,6 +693,10 @@ function Show-Menu {
     Write-Host '  [SIM] Change SIM operator / country (MCC/MNC)' -ForegroundColor Yellow
     Write-Host '  [DI] Random device IDs' -ForegroundColor Yellow
     Write-Host ''
+    Write-Host '  --- Cloudsmith ---' -ForegroundColor Green
+    Write-Host '  [CS] List / download packages' -ForegroundColor Yellow
+    Write-Host '  [CU] Upload package to Cloudsmith' -ForegroundColor Yellow
+    Write-Host '  [CK] Set Cloudsmith API key' -ForegroundColor Yellow
     Write-Host ''
     Write-Host '  --- Info ---' -ForegroundColor Green
     Write-Host '  [V] Version info' -ForegroundColor Yellow
@@ -1531,7 +1535,7 @@ function Test-Security {
     function Test-TokenHttp {
         $tmpHead = Join-Path $env:TEMP ("gh_" + [Guid]::NewGuid().ToString('N') + '.hdr')
         try {
-            $rawUser = & curl.exe -s --connect-timeout 30 --max-time 30 -D "$tmpHead" -H "Accept: application/vnd.github.v3+json" -H "Authorization: token $GitHubToken" 'https://api.github.com/user' 2>$null
+            $rawUser = & curl.exe -s --connect-timeout 30 --max-time 30 -D "$tmpHead" -H "Authorization: token $GitHubToken" 'https://api.github.com/user' 2>$null
             $user = (@($rawUser) | Out-String | ConvertFrom-Json)
             if (-not $user.login) { return $null }
             $scopes = ''
@@ -2267,11 +2271,10 @@ function Update-Token {
             }
             $masked = if ($plain.Length -gt 8) {
                 $plain.Substring(0, 4) + '****' + $plain.Substring($plain.Length - 4)
-            } else { '****' }            $rawUser = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Accept: application/vnd.github.v3+json" -H "Authorization: token $plain" 'https://api.github.com/user' 2>$null
+            } else { '****' }
+
+            $rawUser = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Authorization: token $plain" 'https://api.github.com/user' 2>$null
             $user = (@($rawUser) | Out-String | ConvertFrom-Json)
-
-
-
 
             if ($user.login) {
                 Write-Host "  Token:   $masked" -ForegroundColor Green
@@ -2326,7 +2329,7 @@ function Update-Token {
     if (ConvertFrom-SecureToken $sec) {
         $plain = ConvertFrom-SecureToken $sec
         Write-Host 'Testing...' -ForegroundColor Yellow
-        $rawUser = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Accept: application/vnd.github.v3+json" -H "Authorization: token $plain" 'https://api.github.com/user' 2>$null
+        $rawUser = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Authorization: token $plain" 'https://api.github.com/user' 2>$null
         $user = (@($rawUser) | Out-String | ConvertFrom-Json)
         if (-not $user.login) {
             Write-Host 'Token invalid! Nothing was saved.' -ForegroundColor Red
@@ -2344,6 +2347,279 @@ function Update-Token {
         Write-Host 'Saved ENCRYPTED via DPAPI (.github-token.dpapi)' -ForegroundColor Green
     } else {
         Write-Host 'Cancelled (empty input).' -ForegroundColor Yellow
+    }
+}
+
+# --- Cloudsmith helper functions -----------------------------------------------
+$CloudsmithOwner = 'mumumanager'
+$CloudsmithRepo = 'mumumanager-cli-menu-test'
+$CloudsmithKeyFile = Join-Path $ScriptDir '.cloudsmith-token'
+
+function Get-CloudsmithKey {
+    if (Test-Path -LiteralPath $CloudsmithKeyFile) {
+        try { return (Get-Content -LiteralPath $CloudsmithKeyFile -Raw).Trim() } catch { Write-Debug "Cloudsmith key read failed: $($_.Exception.Message)" }
+    }
+    return ''
+}
+
+function Get-CloudsmithPackages {
+    $key = Get-CloudsmithKey
+    $apiUrl = "https://api.cloudsmith.io/packages/$CloudsmithOwner/$CloudsmithRepo/?page_size=50&sort=-version"
+    $tmpFile = Join-Path $env:TEMP ('cs_pkgs_' + [Guid]::NewGuid().ToString('N') + '.json')
+    $curlCmd = "curl.exe -s --connect-timeout 30 --max-time 60 -o `"$tmpFile`" "
+    if ($key) { $curlCmd += "-H `"Authorization: token $key`" " }
+    $curlCmd += $apiUrl
+    & cmd /c $curlCmd 2>$null
+    if (Test-Path -LiteralPath $tmpFile) {
+        $bytes = [System.IO.File]::ReadAllBytes($tmpFile)
+        Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue
+        $json = [System.Text.Encoding]::UTF8.GetString($bytes)
+        try { return ($json | ConvertFrom-Json) } catch { return $null }
+    }
+    return $null
+}
+
+function Get-CloudsmithList {
+    $raw = Get-CloudsmithPackages
+    $list = @()
+    if ($raw -is [array]) { $list = $raw }
+    elseif ($raw.data) { $list = $raw.data }
+    return $list
+}
+
+# [CS] List / download packages
+function Cloudsmith-ListDownload {
+    Write-Host ''
+    Write-Host '=== Cloudsmith Packages ===' -ForegroundColor Cyan
+    Write-Host "  Repo: $CloudsmithOwner/$CloudsmithRepo" -ForegroundColor DarkGray
+    Write-Host "  URL:  https://app.cloudsmith.com/$CloudsmithOwner/$CloudsmithRepo" -ForegroundColor DarkGray
+    Write-Host ''
+
+    Write-Host 'Options:' -ForegroundColor Yellow
+    Write-Host '  [1] List all packages' -ForegroundColor White
+    Write-Host '  [2] Download latest package' -ForegroundColor White
+    Write-Host '  [3] Download specific version' -ForegroundColor White
+    Write-Host ''
+    $csMethod = Read-Host 'Select (1/2/3)'
+
+    Write-Host ''
+    Write-Host 'Fetching packages...' -ForegroundColor DarkGray
+    $pkgsList = Get-CloudsmithList
+    if (-not $pkgsList -or $pkgsList.Count -eq 0) {
+        Write-Host 'No packages found.' -ForegroundColor Yellow
+        return
+    }
+
+    if ($csMethod -eq '1') {
+        # List packages
+        Write-Host ''
+        Write-Host '  ============================================' -ForegroundColor Cyan
+        Write-Host '    CLOUDSMITH PACKAGES' -ForegroundColor White
+        Write-Host '  ============================================' -ForegroundColor Cyan
+        foreach ($p in $pkgsList) {
+            $name = $p.name
+            $ver = $p.version
+            $fmt = $p.format
+            $date = ''
+            if ($p.uploaded_at) {
+                try { $date = [datetime]::Parse($p.uploaded_at).ToString('yyyy-MM-dd HH:mm') } catch { $date = $p.uploaded_at }
+            }
+            $size = ''
+            if ($p.files -and $p.files.Count -gt 0) {
+                $totalSize = ($p.files | Measure-Object -Property size -Sum).Sum
+                if ($totalSize -gt 1MB) { $size = "$([math]::Round($totalSize/1MB, 1)) MB" }
+                elseif ($totalSize -gt 1KB) { $size = "$([math]::Round($totalSize/1KB, 1)) KB" }
+                else { $size = "$totalSize B" }
+            }
+            $cdnUrl = $p.cdn_url
+            Write-Host ''
+            Write-Host "  $name v$ver" -ForegroundColor White -NoNewline
+            Write-Host " [$fmt]" -ForegroundColor DarkGray -NoNewline
+            if ($date) { Write-Host " | $date" -ForegroundColor DarkGray -NoNewline }
+            if ($size) { Write-Host " | $size" -ForegroundColor DarkGray -NoNewline }
+            Write-Host ''
+            if ($cdnUrl) { Write-Host "    $cdnUrl" -ForegroundColor DarkGray }
+        }
+        Write-Host ''
+        Write-Host '  ============================================' -ForegroundColor Cyan
+
+    } elseif ($csMethod -eq '2' -or $csMethod -eq '3') {
+        # Download package
+        $chosen = $null
+        if ($csMethod -eq '2') {
+            $chosen = $pkgsList[0]
+        } else {
+            Write-Host ''
+            for ($i = 0; $i -lt [Math]::Min($pkgsList.Count, 20); $i++) {
+                $p = $pkgsList[$i]
+                $marker = if ($i -eq 0) { ' <-- latest' } else { '' }
+                Write-Host "  [$($i + 1)] $($p.name) v$($p.version) [$($p.format)]$marker" -ForegroundColor White
+            }
+            Write-Host ''
+            $sel = Read-Host 'Select package (number)'
+            if (-not ($sel -match '^\d+$' -and [int]$sel -ge 1 -and [int]$sel -le $pkgsList.Count)) {
+                Write-Host 'Invalid selection.' -ForegroundColor Red
+                return
+            }
+            $chosen = $pkgsList[[int]$sel - 1]
+        }
+
+        $cdnUrl = $chosen.cdn_url
+        if (-not $cdnUrl) {
+            Write-Host 'No download URL found for this package.' -ForegroundColor Yellow
+            return
+        }
+
+        $fileName = $chosen.name
+        if ($chosen.version) { $fileName += "-$($chosen.version)" }
+        if ($chosen.format) { $fileName += ".$($chosen.format)" }
+
+        Write-Host ''
+        Write-Host "  Package:  $($chosen.name) v$($chosen.version)" -ForegroundColor White
+        Write-Host "  Format:  $($chosen.format)" -ForegroundColor DarkGray
+        Write-Host "  URL:     $cdnUrl" -ForegroundColor DarkGray
+        Write-Host "  File:    $fileName" -ForegroundColor DarkGray
+
+        Write-Host ''
+        Write-Host 'Quick paths:' -ForegroundColor DarkGray
+        Write-Host "  [D] Desktop" -ForegroundColor White
+        Write-Host "  [W] Downloads" -ForegroundColor White
+        Write-Host "  [C] Current folder ($PWD.Path)" -ForegroundColor White
+        Write-Host ''
+        $dlPath = (Read-Host 'Download to (D/W/C or path)').Trim()
+        $dlDir = switch ($dlPath.ToUpper()) {
+            'D' { [Environment]::GetFolderPath('Desktop') }
+            'W' { Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads' }
+            'C' { $PWD.Path }
+            default { if ($dlPath) { $dlPath } else { $PWD.Path } }
+        }
+
+        $destFile = Join-Path $dlDir $fileName
+        Write-Host ''
+        Write-Host "Downloading $fileName..." -ForegroundColor Cyan
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        $dlCmd = "curl.exe -# --connect-timeout 30 --max-time 300 --retry 3 -L -o `"$destFile`" $cdnUrl"
+        & cmd /c $dlCmd 2>$null
+        $sw.Stop()
+
+        if (Test-Path -LiteralPath $destFile) {
+            $actualSize = (Get-Item -LiteralPath $destFile).Length
+            Write-Host ''
+            Write-Host ("Downloaded: {0:N1} MB in {1:mm\:ss}" -f ($actualSize / 1MB), $sw.Elapsed) -ForegroundColor Green
+            Write-Host "  Location: $destFile" -ForegroundColor DarkGray
+        } else {
+            Write-Host 'Download failed!' -ForegroundColor Red
+        }
+    }
+}
+
+# [CU] Upload package to Cloudsmith
+function Cloudsmith-Upload {
+    Write-Host ''
+    Write-Host '=== Upload to Cloudsmith ===' -ForegroundColor Cyan
+    Write-Host "  Repo: $CloudsmithOwner/$CloudsmithRepo" -ForegroundColor DarkGray
+
+    $key = Get-CloudsmithKey
+    if (-not $key) {
+        Write-Host '  API key not set. Use [CK] to set it.' -ForegroundColor Yellow
+        return
+    }
+
+    # Read version
+    $version = '1.0.0'
+    if (Test-Path -LiteralPath $VersionFile) {
+        $version = (Get-Content -LiteralPath $VersionFile -Raw).Trim()
+        if ($version.StartsWith('v')) { $version = $version.Substring(1) }
+    }
+
+    Write-Host "  Version: $version" -ForegroundColor DarkGray
+
+    # File to upload
+    $filePath = Join-Path $ScriptDir 'mumu-menu.ps1'
+    if (-not (Test-Path -LiteralPath $filePath)) {
+        Write-Host '  mumu-menu.ps1 not found!' -ForegroundColor Red
+        return
+    }
+    $fileSize = (Get-Item -LiteralPath $filePath).Length
+    Write-Host "  File: mumu-menu.ps1 ($([math]::Round($fileSize / 1KB, 1)) KB)" -ForegroundColor DarkGray
+    Write-Host ''
+
+    $confirm = Read-Host '  Upload? (y/N)'
+    if ($confirm -ne 'y' -and $confirm -ne 'Y') { return }
+
+    # Step 1: PUT to upload URL
+    Write-Host ''
+    Write-Host '  Step 1: Uploading file...' -ForegroundColor Yellow
+    $uploadUrl = "https://upload.cloudsmith.io/$CloudsmithOwner/$CloudsmithRepo/mumu-menu.ps1"
+    $tmpResponse = Join-Path $env:TEMP 'cs_upload_response.txt'
+    $putCmd = "curl.exe -s -X PUT -H `"Authorization: token $key`" -T `"$filePath`" -o `"$tmpResponse`" $uploadUrl"
+    & cmd /c $putCmd 2>$null
+
+    if (-not (Test-Path -LiteralPath $tmpResponse)) {
+        Write-Host '  Upload failed - no response' -ForegroundColor Red
+        return
+    }
+    $response = Get-Content -LiteralPath $tmpResponse -Raw
+    Remove-Item $tmpResponse -Force -ErrorAction SilentlyContinue
+
+    $identifier = ''
+    if ($response -match '"identifier"\s*:\s*"([^"]+)"') {
+        $identifier = $Matches[1]
+    }
+    if (-not $identifier) {
+        Write-Host "  Failed: $($response.Substring(0, [Math]::Min(200, $response.Length)))" -ForegroundColor Red
+        return
+    }
+    Write-Host "  Identifier: $identifier" -ForegroundColor Green
+
+    # Step 2: POST to create package
+    Write-Host '  Step 2: Creating package...' -ForegroundColor Yellow
+    $createUrl = "https://api.cloudsmith.io/packages/$CloudsmithOwner/$CloudsmithRepo/upload/raw/"
+    $jsonBody = @{
+        package_file = $identifier
+        name = 'MuMuManager-CLI-Menu'
+        description = 'Interactive PowerShell menu for managing MuMu Emulator via MuMuManager.exe'
+        summary = 'MuMuManager CLI Menu'
+        version = $version
+    } | ConvertTo-Json
+    $jsonBytes = [System.Text.Encoding]::UTF8.GetBytes($jsonBody)
+    $tmpJson = Join-Path $env:TEMP 'cs_create_payload.json'
+    [System.IO.File]::WriteAllBytes($tmpJson, $jsonBytes)
+    $createCmd = "curl.exe -s -X POST -H `"Authorization: token $key`" -H `"Content-Type: application/json`" -d @$tmpJson $createUrl"
+    $createResponse = & cmd /c $createCmd 2>$null
+    Remove-Item $tmpJson -Force -ErrorAction SilentlyContinue
+
+    if ($createResponse -match '"cdn_url"\s*:\s*"([^"]+)"') {
+        Write-Host ''
+        Write-Host '  Upload complete!' -ForegroundColor Green
+        Write-Host "  CDN URL: $($Matches[1])" -ForegroundColor Cyan
+        Write-Host "  Web UI:  https://app.cloudsmith.com/$CloudsmithOwner/$CloudsmithRepo" -ForegroundColor DarkGray
+    } else {
+        Write-Host "  Response: $($createResponse.Substring(0, [Math]::Min(200, $createResponse.Length)))" -ForegroundColor Yellow
+    }
+}
+
+# [CK] Set Cloudsmith API key
+function Cloudsmith-SetKey {
+    Write-Host ''
+    Write-Host '=== Cloudsmith API Key ===' -ForegroundColor Cyan
+    Write-Host '  Get yours at: https://app.cloudsmith.com/user/settings/account/#api-key' -ForegroundColor DarkGray
+    Write-Host ''
+    $currentKey = Get-CloudsmithKey
+    if ($currentKey) {
+        $masked = $currentKey.Substring(0, [Math]::Min(8, $currentKey.Length)) + '...'
+        Write-Host "  Current key: $masked" -ForegroundColor DarkGray
+    }
+    Write-Host ''
+    $newKey = (Read-Host '  Enter API key (empty to clear)').Trim()
+    if ($newKey) {
+        Set-Content -Path $CloudsmithKeyFile -Value $newKey -NoNewline -Force
+        Write-Host '  API key saved.' -ForegroundColor Green
+    } else {
+        if (Test-Path -LiteralPath $CloudsmithKeyFile) {
+            Remove-Item -LiteralPath $CloudsmithKeyFile -Force
+            Write-Host '  API key cleared.' -ForegroundColor Yellow
+        }
     }
 }
 
@@ -2962,7 +3238,7 @@ function Create-GitHubRelease {
 
     # 1. Fetch existing tags
     Write-Host 'Fetching tags...' -ForegroundColor DarkGray
-    $tagsJson = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Accept: application/vnd.github.v3+json" -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/tags" 2>$null | Out-String
+    $tagsJson = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/tags" 2>$null | Out-String
     try { $tags = $tagsJson | ConvertFrom-Json } catch { $tags = @() }
 
     if ($tags -and $tags.Count -gt 0) {
@@ -3045,7 +3321,7 @@ function Create-GitHubRelease {
         } else {
             # Fallback: use GitHub compare API
             Write-Host '  git log unavailable, using GitHub API...' -ForegroundColor DarkGray
-            $compareJson = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Accept: application/vnd.github.v3+json" -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/compare/$baseTag...$tagName" 2>$null | Out-String
+            $compareJson = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/compare/$baseTag...$tagName" 2>$null | Out-String
             try {
                 $compare = $compareJson | ConvertFrom-Json
                 if ($compare.commits) {
@@ -3141,33 +3417,49 @@ function Create-GitHubRelease {
     [System.IO.File]::WriteAllText($notesFile, $notes, [System.Text.UTF8Encoding]::new($false))
 
     try {
-        # 12. Build command
-        $cmdParts = @(
-            'gh', 'release', 'create', $tagName,
-            '--repo', $GitHubRepo,
-            '--title', $title,
-            '--notes-file', $notesFile
-        )
-        if ($draft) { $cmdParts += '--draft' }
-        if ($prerelease) { $cmdParts += '--prerelease' }
-        if ($generateNotes) { $cmdParts += '--generate-notes' }
-        if ($zipPath) { $cmdParts += $zipPath }
-
+        # 12. Create release via GitHub API (no gh CLI required)
         Write-Host 'Creating release...' -ForegroundColor Cyan
-        $result = & gh @cmdParts 2>&1 | Out-String
-        $exitCode = $LASTEXITCODE
+        $body = @{
+            tag_name = $tagName
+            name = $title
+            body = $notes
+            draft = $draft
+            prerelease = $prerelease
+            generate_release_notes = $generateNotes
+        } | ConvertTo-Json -Depth 3
+        $bodyBytes = [System.Text.Encoding]::UTF8.GetBytes($body)
+        $tmpPayload = Join-Path $env:TEMP ('gh_release_' + [Guid]::NewGuid().ToString('N') + '.json')
+        [System.IO.File]::WriteAllBytes($tmpPayload, $bodyBytes)
 
-        if ($exitCode -eq 0 -and $result -match 'https://') {
-            $releaseUrl = ($result -split "`n" | Where-Object { $_ -match 'https://' } | Select-Object -First 1).Trim()
+        $releaseUrl = "https://api.github.com/repos/$GitHubRepo/releases"
+        $tmpResp = Join-Path $env:TEMP ('gh_release_resp_' + [Guid]::NewGuid().ToString('N') + '.txt')
+        $curlCmd = "curl.exe -s -X POST -H `"Authorization: token $GitHubToken`" -H `"Accept: application/vnd.github.v3+json`" -H `"Content-Type: application/json`" -d @$tmpPayload -o `"$tmpResp`" $releaseUrl"
+        & cmd /c $curlCmd 2>$null
+
+        $response = ''
+        if (Test-Path -LiteralPath $tmpResp) {
+            $response = Get-Content -LiteralPath $tmpResp -Raw
+            Remove-Item $tmpResp -Force -ErrorAction SilentlyContinue
+        }
+        Remove-Item $tmpPayload -Force -ErrorAction SilentlyContinue
+
+        $resultObj = $null
+        try { $resultObj = $response | ConvertFrom-Json } catch {}
+
+        if ($resultObj -and $resultObj.html_url) {
             Write-Host ''
             Write-Host 'Release created successfully!' -ForegroundColor Green
-            Write-Host "  URL: $releaseUrl" -ForegroundColor Cyan
+            Write-Host "  URL: $($resultObj.html_url)" -ForegroundColor Cyan
             if ($zipPath) {
-                Write-Host "  Asset: $(Split-Path $zipPath -Leaf) uploaded" -ForegroundColor Green
+                Write-Host "  Asset: $(Split-Path $zipPath -Leaf) will be uploaded" -ForegroundColor Green
             }
         } else {
             Write-Host "Release creation failed!" -ForegroundColor Red
-            Write-Host $result -ForegroundColor Red
+            if ($resultObj -and $resultObj.message) {
+                Write-Host "  $($resultObj.message)" -ForegroundColor Red
+            } else {
+                Write-Host "  Response: $($response.Substring(0, [Math]::Min(200, $response.Length)))" -ForegroundColor Red
+            }
         }
     } finally {
         Remove-Item -LiteralPath $notesFile -Force -ErrorAction SilentlyContinue
@@ -4489,6 +4781,9 @@ do {
         'v' { Show-VersionInfo }
         'u' { Update-FromGitHub }
         'dl' { Download-Repository }
+        'cs' { Cloudsmith-ListDownload }
+        'cu' { Cloudsmith-Upload }
+        'ck' { Cloudsmith-SetKey }
         'cr' { Create-GitHubRelease }
         'fr' { Fix-ReleaseEncoding }
         'crt' { Create-Certificate }
