@@ -157,6 +157,7 @@ cd MuMuManager-CLI-Menu
   [U] Check for updates
   [DL] Download repository
   [CR] Create release
+  [FR] Fix release encoding
   [0] Exit
 ======================================
 ```
