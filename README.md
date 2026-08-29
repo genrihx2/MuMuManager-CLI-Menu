@@ -152,11 +152,15 @@ cd MuMuManager-CLI-Menu
   [SIM] Change SIM operator / country (MCC/MNC)
   [DI] Random device IDs
 
+  --- Cloudsmith ---
+  [CS] List / download packages
+  [CU] Upload package to Cloudsmith
+  [CK] Set Cloudsmith API key
+
   --- Info ---
   [V] Version info
   [U] Check for updates
   [DL] Download repository
-  [CS] Cloudsmith packages
   [CR] Create release
   [FR] Fix release encoding
   [0] Exit
