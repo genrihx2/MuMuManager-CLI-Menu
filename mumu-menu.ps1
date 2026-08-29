@@ -2752,7 +2752,7 @@ function Download-Repository {
         # Get release assets
         Write-Host ''
         Write-Host "Fetching release $tagName..." -ForegroundColor DarkGray
-        $relJson = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/releases/tags/$tagName" 2>$null | Out-String
+        $relJson = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Accept: application/vnd.github.v3+json" -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/releases/tags/$tagName" 2>$null | Out-String
         try { $release = $relJson | ConvertFrom-Json } catch { $release = $null }
 
         if (-not $release -or -not $release.assets) {
@@ -2819,7 +2819,7 @@ function Download-Repository {
         # Latest release
         Write-Host ''
         Write-Host 'Fetching latest release...' -ForegroundColor DarkGray
-        $relJson = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/releases/latest" 2>$null | Out-String
+        $relJson = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Accept: application/vnd.github.v3+json" -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/releases/latest" 2>$null | Out-String
         try { $release = $relJson | ConvertFrom-Json } catch { $release = $null }
 
         if (-not $release -or -not $release.tag_name) {
@@ -2960,7 +2960,7 @@ function Download-Repository {
             Write-Host ''
 
             # Get latest release
-            $relJson = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/releases/latest" 2>$null | Out-String
+            $relJson = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Accept: application/vnd.github.v3+json" -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/releases/latest" 2>$null | Out-String
             try { $release = $relJson | ConvertFrom-Json } catch { $release = $null }
 
             if (-not $release -or -not $release.tag_name) {
@@ -3105,7 +3105,7 @@ function Fix-ReleaseEncoding {
 
     # Fetch releases
     Write-Host 'Fetching releases...' -ForegroundColor DarkGray
-    $relJson = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/releases" 2>$null | Out-String
+    $relJson = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Accept: application/vnd.github.v3+json" -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/releases" 2>$null | Out-String
     try { $releases = $relJson | ConvertFrom-Json } catch { $releases = @() }
 
     if (-not $releases -or $releases.Count -eq 0) {
