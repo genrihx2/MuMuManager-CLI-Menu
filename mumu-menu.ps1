@@ -2500,9 +2500,10 @@ function Download-Repository {
 
         Write-Host ''
         Write-Host "Downloading $($zipAsset.name)..." -ForegroundColor Cyan
-        $sw = [System.Diagnostics.Stopwatch]::StartNew()        $dlArgs = @('-#', '--connect-timeout', '30', '--max-time', '300', '--retry', '3', '--retry-delay', '3', '-L', '-o', $zipPath, $zipUrl)
-        if ($GitHubToken) { $dlArgs += @('-H', "Authorization: token $GitHubToken") }
-        & curl.exe @dlArgs 2>$null
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        $curlCmd = "curl.exe -# --connect-timeout 30 --max-time 300 --retry 3 --retry-delay 3 -L -o `"$zipPath`" $zipUrl"
+        if ($GitHubToken) { $curlCmd += " -H Authorization:token $GitHubToken" }
+        & cmd /c $curlCmd 2>$null
         $sw.Stop()
 
         if (-not (Test-Path -LiteralPath $zipPath)) {
@@ -2569,9 +2570,10 @@ function Download-Repository {
 
         Write-Host ''
         Write-Host "Downloading $($zipAsset.name)..." -ForegroundColor Cyan
-        $sw = [System.Diagnostics.Stopwatch]::StartNew()        $dlArgs = @('-#', '--connect-timeout', '30', '--max-time', '300', '--retry', '3', '--retry-delay', '3', '-L', '-o', $zipPath, $zipUrl)
-        if ($GitHubToken) { $dlArgs += @('-H', "Authorization: token $GitHubToken") }
-        & curl.exe @dlArgs 2>$null
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        $curlCmd = "curl.exe -# --connect-timeout 30 --max-time 300 --retry 3 --retry-delay 3 -L -o `"$zipPath`" $zipUrl"
+        if ($GitHubToken) { $curlCmd += " -H Authorization:token $GitHubToken" }
+        & cmd /c $curlCmd 2>$null
         $sw.Stop()
 
         if (-not (Test-Path -LiteralPath $zipPath)) {
@@ -2736,9 +2738,9 @@ function Download-Repository {
             Write-Host "  Downloading $($zipAsset.name)..." -ForegroundColor Cyan
             $sw = [System.Diagnostics.Stopwatch]::StartNew()
 
-            $dlArgs = @('-#', '--connect-timeout', '30', '--max-time', '300', '--retry', '3', '--retry-delay', '3', '-L', '-o', $tmp, $zipUrl)
-            if ($GitHubToken) { $dlArgs += @('-H', "Authorization: token $GitHubToken") }
-            & curl.exe @dlArgs 2>$null
+            $curlCmd = "curl.exe -# --connect-timeout 30 --max-time 300 --retry 3 --retry-delay 3 -L -o `"$tmp`" $zipUrl"
+            if ($GitHubToken) { $curlCmd += " -H Authorization:token $GitHubToken" }
+            & cmd /c $curlCmd 2>$null
             $sw.Stop()
 
             if (-not (Test-Path -LiteralPath $tmp)) {
