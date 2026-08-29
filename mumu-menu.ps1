@@ -115,11 +115,22 @@ function Invoke-GitHubGet {
     if ($GitHubToken) {
         $curlArgs += @('-H', "Authorization: token $GitHubToken")
     }
+    # Write to temp file for proper UTF-8 handling
+    $tmpFile = Join-Path $env:TEMP ('gh_resp_' + [Guid]::NewGuid().ToString('N') + '.json')
+    $curlArgs += @('-o', $tmpFile)
     for ($i = 1; $i -le 3; $i++) {
-        $out = & curl.exe @curlArgs $Url 2>$null
-        if ($LASTEXITCODE -eq 0 -and $out) { return (@($out) | Out-String).TrimEnd() }
+        & curl.exe @curlArgs $Url 2>$null
+        if ($LASTEXITCODE -eq 0 -and (Test-Path $tmpFile)) {
+            $bytes = [System.IO.File]::ReadAllBytes($tmpFile)
+            Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue
+            if ($bytes -and $bytes.Length -gt 0) {
+                $enc = [System.Text.Encoding]::UTF8
+                return $enc.GetString($bytes).TrimEnd()
+            }
+        }
         Start-Sleep -Seconds 2
     }
+    Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue
     throw "Request failed (exit $LASTEXITCODE): $Url"
 }
 
@@ -326,7 +337,6 @@ function Update-FromGitHub {
                     $rCommit = ''
                     if ($rel.target_commitish) { $rCommit = $rel.target_commitish.Substring(0, [Math]::Min(7, $rel.target_commitish.Length)) }
                     $rUrl = "https://github.com/$GitHubRepo/releases/tag/$rTag"
-                    $rZipUrl = "https://github.com/$GitHubRepo/releases/download/$rTag/MuMuManager-CLI-Menu-$rTag.zip"
                     # Badge
                     $badge = ''
                     $badgeColor = 'DarkGray'
@@ -337,14 +347,14 @@ function Update-FromGitHub {
                     if ($rTag -eq $localTag -and $rTag -eq $tag) { $marker = ' <-- current (latest)' }
                     elseif ($rTag -eq $localTag) { $marker = ' <-- current' }
                     elseif ($rTag -eq $tag) { $marker = ' <-- latest' }
-                    # Header line: title + badge
+                    # Header
                     Write-Host ''
                     Write-Host '  ----------------------------------------' -ForegroundColor DarkGray
                     Write-Host "  $rTitle" -ForegroundColor White -NoNewline
                     if ($badge) { Write-Host $badge -ForegroundColor $badgeColor -NoNewline }
                     if ($marker) { Write-Host $marker -ForegroundColor Yellow -NoNewline }
                     Write-Host ''
-                    # Meta line: author, date, tag, commit
+                    # Meta: author | date | tag | commit
                     $meta = @()
                     if ($rAuthor) { $meta += "by $rAuthor" }
                     if ($rDate) { $meta += $rDate }
@@ -353,12 +363,19 @@ function Update-FromGitHub {
                     if ($meta.Count -gt 0) {
                         Write-Host "  $($meta -join ' | ')" -ForegroundColor DarkGray
                     }
-                    # Release notes (first 8 lines)
+                    # Assets with sizes
+                    if ($rel.assets -and $rel.assets.Count -gt 0) {
+                        foreach ($asset in $rel.assets) {
+                            $aSize = if ($asset.size -gt 1MB) { "$([math]::Round($asset.size/1MB, 1)) MB" } elseif ($asset.size -gt 1KB) { "$([math]::Round($asset.size/1KB, 1)) KB" } else { "$($asset.size) B" }
+                            Write-Host "    $($asset.name) ($aSize)" -ForegroundColor DarkGray
+                        }
+                    }
+                    # Release notes (first 6 lines)
                     if ($rBody) {
                         $rLines = $rBody -split "`n"
                         $rShown = 0
                         foreach ($rLine in $rLines) {
-                            if ($rShown -ge 8) {
+                            if ($rShown -ge 6) {
                                 Write-Host '    ... (more in GitHub releases)' -ForegroundColor DarkGray
                                 break
                             }
@@ -376,13 +393,46 @@ function Update-FromGitHub {
                     }
                     # Links
                     Write-Host "    $rUrl" -ForegroundColor DarkGray
-                    Write-Host "    Download: $rZipUrl" -ForegroundColor DarkGray
                 }
                 Write-Host ''
                 Write-Host '  ============================================' -ForegroundColor Cyan
             }
         } catch {
             Write-Debug "Releases list fetch failed: $($_.Exception.Message)"
+        }
+
+        # --- Tags panel ---
+        try {
+            $tagsUrl = "https://api.github.com/repos/$GitHubRepo/tags"
+            $tagsJson = Invoke-GitHubGet $tagsUrl 15
+            $tagsList = $tagsJson | ConvertFrom-Json
+            if ($tagsList -and $tagsList.Count -gt 0) {
+                Write-Host ''
+                Write-Host '  ============================================' -ForegroundColor Cyan
+                Write-Host '    TAGS' -ForegroundColor White
+                Write-Host '  ============================================' -ForegroundColor Cyan
+                foreach ($t in $tagsList) {
+                    $tName = $t.name
+                    $tCommit = ''
+                    if ($t.commit -and $t.commit.sha) {
+                        $tCommit = $t.commit.sha.Substring(0, [Math]::Min(7, $t.commit.sha.Length))
+                    }
+                    $tMarker = ''
+                    if ($tName -eq $localTag -and $tName -eq $tag) { $tMarker = ' <-- current (latest)' }
+                    elseif ($tName -eq $localTag) { $tMarker = ' <-- current' }
+                    elseif ($tName -eq $tag) { $tMarker = ' <-- latest' }
+                    $tColor = if ($tMarker -match 'current') { 'Green' } elseif ($tMarker -match 'latest') { 'Green' } else { 'White' }
+                    Write-Host "  $tName" -ForegroundColor $tColor -NoNewline
+                    if ($tCommit) { Write-Host "  ($tCommit)" -ForegroundColor DarkGray -NoNewline }
+                    if ($tMarker) { Write-Host $tMarker -ForegroundColor Yellow -NoNewline }
+                    Write-Host ''
+                }
+                Write-Host '  ----------------------------------------' -ForegroundColor DarkGray
+                Write-Host ''
+                Write-Host '  ============================================' -ForegroundColor Cyan
+            }
+        } catch {
+            Write-Debug "Tags fetch failed: $($_.Exception.Message)"
         }
 
         # Show changelog
