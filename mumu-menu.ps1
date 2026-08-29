@@ -576,7 +576,7 @@ try {
             try {
                 if (Test-Path -LiteralPath $selfOld) { Remove-Item -LiteralPath $selfOld -Force -ErrorAction SilentlyContinue }
                 Copy-Item -LiteralPath $selfDest -Destination $selfOld -Force
-            } catch {}
+            } catch { Write-Debug "Backup old script failed: $($_.Exception.Message)" }
         }
         # Apply .new
         Copy-Item -LiteralPath $selfNew -Destination $selfDest -Force
@@ -2361,9 +2361,9 @@ function Download-Repository {
         Write-Host "  [C] Current folder ($PWD.Path)" -ForegroundColor White
         Write-Host "  [B] Browse for folder..." -ForegroundColor White
         Write-Host ''
-        $input = (Read-Host "$Prompt (D/W/C/B or path)").Trim()
-        $input = $input.Trim('"').Trim()
-        switch ($input.ToUpper()) {
+        $userInput = (Read-Host "$Prompt (D/W/C/B or path)").Trim()
+        $userInput = $userInput.Trim('"').Trim()
+        switch ($userInput.ToUpper()) {
             'D' { return Join-Path ([Environment]::GetFolderPath('Desktop')) 'MuMuManager-CLI-Menu' }
             'W' { return Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads\MuMuManager-CLI-Menu' }
             'C' { return $PWD.Path }
@@ -2612,7 +2612,7 @@ function Download-Repository {
         try {
             & git rev-parse --git-dir 2>$null | Out-Null
             $inGitRepo = $LASTEXITCODE -eq 0
-        } catch {}
+        } catch { Write-Debug "Git detection failed: $($_.Exception.Message)" }
 
         if ($inGitRepo) {
             # Git repo - use git pull
@@ -2705,7 +2705,7 @@ function Download-Repository {
             # Check current version
             $localVer = ''
             if (Test-Path -LiteralPath $VersionFile) {
-                try { $localVer = (Get-Content -LiteralPath $VersionFile -Raw).Trim() } catch {}
+                try { $localVer = (Get-Content -LiteralPath $VersionFile -Raw).Trim() } catch { Write-Debug "Version file read failed: $($_.Exception.Message)" }
             }
             if ($localVer) {
                 Write-Host "  Current: $localVer" -ForegroundColor DarkGray
@@ -3055,7 +3055,7 @@ function Create-GitHubRelease {
                         $notes += "- $sha $msg ($author)`n"
                     }
                 }
-            } catch {}
+            } catch { Write-Debug "Release notes generation failed: $($_.Exception.Message)" }
         }
 
         if ($notes) {

@@ -11,7 +11,7 @@ Write-Host "Target: $TargetDir" -ForegroundColor DarkGray
 Write-Host ""
 
 # Force TLS 1.2
-try { [Net.ServicePointManager]::SecurityProtocol = ([Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12) } catch {}
+try { [Net.ServicePointManager]::SecurityProtocol = ([Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12) } catch { Write-Debug "TLS 1.2 enable failed: $($_.Exception.Message)" }
 
 $repo = 'genrihx2/MuMuManager-CLI-Menu'
 $files = @('mumu-menu.ps1', 'SKILL.md', 'README.md')
@@ -25,7 +25,7 @@ $fail = 0
 foreach ($f in $files) {
     $dest = Join-Path $TargetDir $f
     $url = "https://raw.githubusercontent.com/$repo/main/$f"
-    
+
     Write-Host "  Downloading $f..." -ForegroundColor Yellow -NoNewline
     try {
         $bytes = $wc.DownloadData($url)
@@ -37,7 +37,7 @@ foreach ($f in $files) {
             $errMsg = if ($text -match '"message"\s*:\s*"([^"]+)"') { $Matches[1] } else { 'API error' }
             throw $errMsg
         }
-        
+
         # For mumu-menu.ps1: check if file is locked (running), save as .new
         if ($f -eq 'mumu-menu.ps1') {
             $newPath = $dest + '.new'
