@@ -2385,7 +2385,7 @@ function Download-Repository {
                 }
             }
             default {
-                if ($input) { return $input }
+                if ($userInput) { return $userInput }
                 else { return Join-Path $PWD.Path 'MuMuManager-CLI-Menu' }
             }
         }
@@ -2500,17 +2500,16 @@ function Download-Repository {
 
         Write-Host ''
         Write-Host "Downloading $($zipAsset.name)..." -ForegroundColor Cyan
-        $sw = [System.Diagnostics.Stopwatch]::StartNew()
-
-        $dlArgs = @('-#', '--connect-timeout', '30', '--max-time', '300', '--retry', '3', '--retry-delay', '3', '-L', '-o', $zipPath, $zipUrl)
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()        $dlArgs = @('-#', '--connect-timeout', '30', '--max-time', '300', '--retry', '3', '--retry-delay', '3', '-L', '-o', $zipPath, $zipUrl)
         if ($GitHubToken) { $dlArgs += @('-H', "Authorization: token $GitHubToken") }
-        & cmd /c "curl.exe $($dlArgs -join ' ')" 2>&1
+        & curl.exe @dlArgs 2>$null
         $sw.Stop()
 
         if (-not (Test-Path -LiteralPath $zipPath)) {
             Write-Host 'Download failed!' -ForegroundColor Red
             return
         }
+
 
         $actualSize = (Get-Item -LiteralPath $zipPath).Length
         Write-Host ''
@@ -2570,17 +2569,16 @@ function Download-Repository {
 
         Write-Host ''
         Write-Host "Downloading $($zipAsset.name)..." -ForegroundColor Cyan
-        $sw = [System.Diagnostics.Stopwatch]::StartNew()
-
-        $dlArgs = @('-#', '--connect-timeout', '30', '--max-time', '300', '--retry', '3', '--retry-delay', '3', '-L', '-o', $zipPath, $zipUrl)
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()        $dlArgs = @('-#', '--connect-timeout', '30', '--max-time', '300', '--retry', '3', '--retry-delay', '3', '-L', '-o', $zipPath, $zipUrl)
         if ($GitHubToken) { $dlArgs += @('-H', "Authorization: token $GitHubToken") }
-        & cmd /c "curl.exe $($dlArgs -join ' ')" 2>&1
+        & curl.exe @dlArgs 2>$null
         $sw.Stop()
 
         if (-not (Test-Path -LiteralPath $zipPath)) {
             Write-Host 'Download failed!' -ForegroundColor Red
             return
         }
+
 
         $actualSize = (Get-Item -LiteralPath $zipPath).Length
         Write-Host ''
@@ -2740,7 +2738,7 @@ function Download-Repository {
 
             $dlArgs = @('-#', '--connect-timeout', '30', '--max-time', '300', '--retry', '3', '--retry-delay', '3', '-L', '-o', $tmp, $zipUrl)
             if ($GitHubToken) { $dlArgs += @('-H', "Authorization: token $GitHubToken") }
-            & cmd /c "curl.exe $($dlArgs -join ' ')" 2>&1
+            & curl.exe @dlArgs 2>$null
             $sw.Stop()
 
             if (-not (Test-Path -LiteralPath $tmp)) {
