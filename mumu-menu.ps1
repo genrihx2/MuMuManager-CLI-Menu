@@ -1177,33 +1177,41 @@ function Backup-EmulatorData {
 }
 
 function Restore-EmulatorData {
-    $backupRoot = Join-Path $ScriptDir 'backups'
-    if (-not (Test-Path -LiteralPath $backupRoot)) {
-        Write-Host 'No backups folder found.' -ForegroundColor Yellow
-        Write-Host "Expected: $backupRoot" -ForegroundColor DarkGray
+    # Check both backup folders (backups/ for emulator data, backup/ for script updates)
+    $backupDirs = @()
+    $b1 = Join-Path $ScriptDir 'backups'
+    $b2 = Join-Path $ScriptDir 'backup'
+    if (Test-Path -LiteralPath $b1) { $backupDirs += $b1 }
+    if (Test-Path -LiteralPath $b2) { $backupDirs += $b2 }
+
+    if ($backupDirs.Count -eq 0) {
+        Write-Host 'No backup folders found.' -ForegroundColor Yellow
+        Write-Host "Expected: $b1 or $b2" -ForegroundColor DarkGray
         return
     }
 
-    # Collect backup folders AND .zip archives
+    # Collect backup folders AND .zip archives from all backup dirs
     $entries = @()
-    Get-ChildItem -LiteralPath $backupRoot -Directory -ErrorAction SilentlyContinue | ForEach-Object {
-        $entries += [pscustomobject]@{
-            Name = $_.Name
-            Path = $_.FullName
-            IsZip = $false
-            Size = (Get-ChildItem -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
-            LastWriteTime = $_.LastWriteTime
+    foreach ($backupRoot in $backupDirs) {
+        Get-ChildItem -LiteralPath $backupRoot -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+            $entries += [pscustomobject]@{
+                Name = $_.Name
+                Path = $_.FullName
+                IsZip = $false
+                Size = (Get-ChildItem -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+                LastWriteTime = $_.LastWriteTime
+            }
         }
-    }
-    Get-ChildItem -LiteralPath $backupRoot -Filter '*.zip' -File -ErrorAction SilentlyContinue | ForEach-Object {
-        $entries += [pscustomobject]@{
-            Name = $_.Name
-            Path = $_.FullName
-            IsZip = $true
-            Size = $_.Length
-            LastWriteTime = $_.LastWriteTime
+        Get-ChildItem -LiteralPath $backupRoot -Filter '*.zip' -File -ErrorAction SilentlyContinue | ForEach-Object {
+            $entries += [pscustomobject]@{
+                Name = $_.Name
+                Path = $_.FullName
+                IsZip = $true
+                Size = $_.Length
+                LastWriteTime = $_.LastWriteTime
+            }
         }
-    }
+    } # end foreach backupRoot
     $entries = $entries | Sort-Object LastWriteTime -Descending
 
     if ($entries.Count -eq 0) {
