@@ -504,100 +504,41 @@ function Update-FromGitHub {
         $tmpDir = Join-Path $env:TEMP "mumu_update_$stamp"
         $failed = 0
 
-        try {
-            Write-Host "  Downloading $zipName..." -ForegroundColor Yellow
-            Write-Host "  URL: $zipUrl" -ForegroundColor DarkGray
-            Write-Host ''
-            $sw = [System.Diagnostics.Stopwatch]::StartNew()
-            # Use cmd /c to run curl — avoids PS5.1 NativeCommandError on stderr
-            $curlArgStr = '--progress-bar --retry 3 --retry-delay 3 --connect-timeout 30 --max-time 180 -o "' + $tmp + '" "' + $zipUrl + '"'
-            if ($GitHubToken) { $curlArgStr += ' -H "Authorization: token ' + $GitHubToken + '"' }
-            # Write exit code to temp file (cmd /c always returns 0)
-            $exitFile = Join-Path $env:TEMP ('curl_exit_' + [Guid]::NewGuid().ToString('N') + '.txt')
-            cmd /c "curl.exe $curlArgStr 2>&1 & echo %ERRORLEVEL% > \"$exitFile\""
-            $sw.Stop()
-            $curlExit = 0
-            if (Test-Path $exitFile) {
-                try { $curlExit = [int](Get-Content $exitFile -Raw).Trim() } catch { $curlExit = 0 }
-                Remove-Item $exitFile -Force -ErrorAction SilentlyContinue
-            }
-            $zipExists = Test-Path $tmp
-            $zipSize = if ($zipExists) { (Get-Item $tmp).Length } else { 0 }
-            if ($curlExit -eq 0 -and $zipExists -and $zipSize -gt 100) {
-                # Verify ZIP integrity
-                $zipSize = (Get-Item $tmp).Length
-                $zipSizeStr = if ($zipSize -gt 1MB) { "$([math]::Round($zipSize/1MB, 1)) MB" } else { "$([math]::Round($zipSize/1KB, 1)) KB" }
-                Write-Host ''
-                Write-Host "  Downloaded: $zipSizeStr in $($sw.Elapsed.TotalSeconds.ToString('F1'))s" -ForegroundColor DarkGray
+        # Download files using PowerShell native WebClient (reliable, no curl complexity)
+        $headers = @{}
+        if ($GitHubToken) { $headers['Authorization'] = "token $GitHubToken" }
+        $webClient = New-Object System.Net.WebClient
+        foreach ($key in $headers.Keys) { $webClient.Headers.Add($key, $headers[$key]) }
 
-                try {
-                    $zip = [System.IO.Compression.ZipFile]::OpenRead($tmp)
-                    $entryCount = $zip.Entries.Count
-                    $zip.Dispose()
-                    Write-Host "  ZIP valid: $entryCount file(s)" -ForegroundColor DarkGray
-                } catch {
-                    throw "ZIP archive is corrupted: $($_.Exception.Message)"
+        foreach ($f in $files) {
+            $dest = Join-Path $ScriptDir $f
+            $rawUrl = "https://raw.githubusercontent.com/$GitHubRepo/$tag/$SkillPath/$f"
+            Write-Host "  Downloading $f..." -ForegroundColor Yellow
+            try {
+                $bytes = $webClient.DownloadData($rawUrl)
+                if (-not $bytes -or $bytes.Length -eq 0) { throw 'empty download' }
+
+                # Check for JSON error response
+                $text = [System.Text.Encoding]::UTF8.GetString($bytes)
+                if ($text.Length -lt 500 -and $text -match '"message"\s*:\s*"') {
+                    $errMsg = if ($text -match '"message"\s*:\s*"([^"]+)"') { $Matches[1] } else { 'API error' }
+                    throw $errMsg
                 }
 
-                New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
-                & tar.exe -xf $tmp -C $tmpDir 2>$null
-                if ($LASTEXITCODE -ne 0) { Expand-Archive -LiteralPath $tmp -DestinationPath $tmpDir -Force }
-                foreach ($f in $files) {
-                    $src = Get-ChildItem $tmpDir -Recurse -Filter $f | Select-Object -First 1
-                    if (-not $src) {
-                        # File not in this release ZIP — not fatal
-                        Write-Host "    $f (not in release, skipped)" -ForegroundColor DarkGray
-                        continue
-                    }
-                    $dest = Join-Path $ScriptDir $f
-                    # Self-update: can't overwrite the running script directly.
-                    # Write .new file, apply on next startup.
-                    if ($f -eq 'mumu-menu.ps1') {
-                        $newPath = $dest + '.new'
-                        $newContent = [System.IO.File]::ReadAllText($src.FullName, [System.Text.Encoding]::UTF8)
-                        [System.IO.File]::WriteAllText($newPath, $newContent, [System.Text.UTF8Encoding]::new($false))
-                        Write-Host "    $f saved as .new (will apply on restart)" -ForegroundColor Green
-                    } else {
-                        Copy-Item -LiteralPath $src.FullName -Destination $dest -Force
-                    }
+                # Self-update: can't overwrite the running script directly.
+                # Write .new file, apply on next startup.
+                if ($f -eq 'mumu-menu.ps1') {
+                    $newPath = $dest + '.new'
+                    [System.IO.File]::WriteAllBytes($newPath, $bytes)
+                    Write-Host "    $f saved as .new (will apply on restart)" -ForegroundColor Green
+                } else {
+                    [System.IO.File]::WriteAllBytes($dest, $bytes)
                     Write-Host "    $f OK" -ForegroundColor Green
                 }
-            } else {
-                throw "ZIP download failed (exit $LASTEXITCODE)"
+            } catch {
+                Write-Host "    Failed: $($_.Exception.Message)" -ForegroundColor Red
+                $failed++
             }
-        } catch {
-            Write-Host "  ZIP method failed: $($_.Exception.Message)" -ForegroundColor Yellow
-            Write-Host "  Falling back to per-file API download..." -ForegroundColor DarkGray
-            foreach ($f in $files) {
-                $dest = Join-Path $ScriptDir $f
-                Write-Host "  Downloading $f..." -ForegroundColor Yellow
-                try {
-                    $content = Get-RemoteFile $f $tag
-                    if (-not $content) { throw 'empty response' }
-                    if ($content.TrimStart().StartsWith('{') -and $content -match '"\s*:\s*"') {
-                        throw 'received JSON metadata instead of file content'
-                    }
-                    if ($f -eq 'mumu-menu.ps1' -and $content.Length -gt 100 -and $content -notmatch 'MuMuManager') {
-                        throw 'unexpected mumu-menu.ps1 content (no MuMuManager found)'
-                    }
-                    # Self-update: can't overwrite the running script directly.
-                    # Write .new file, apply on next startup.
-                    if ($f -eq 'mumu-menu.ps1') {
-                        $newPath = $dest + '.new'
-                        [System.IO.File]::WriteAllText($newPath, $content, [System.Text.UTF8Encoding]::new($false))
-                        Write-Host "    $f saved as .new (will apply on restart)" -ForegroundColor Green
-                    } else {
-                        [System.IO.File]::WriteAllText($dest, $content, [System.Text.UTF8Encoding]::new($false))
-                        Write-Host '    OK' -ForegroundColor Green
-                    }
-                } catch {
-                    Write-Host "    Failed: $($_.Exception.Message)" -ForegroundColor Red
-                    $failed++
-                }
-            }
-        } finally {
-            if (Test-Path $tmp) { Remove-Item $tmp -Force -ErrorAction SilentlyContinue }
-            if (Test-Path $tmpDir) { Remove-Item $tmpDir -Recurse -Force -ErrorAction SilentlyContinue }
         }
 
         if ($failed -gt 0) {
