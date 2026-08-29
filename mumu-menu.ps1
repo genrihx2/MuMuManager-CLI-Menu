@@ -507,9 +507,18 @@ function Update-FromGitHub {
             # Use cmd /c to run curl — avoids PS5.1 NativeCommandError on stderr
             $curlArgStr = '--progress-bar --retry 3 --retry-delay 3 --connect-timeout 30 --max-time 180 -o "' + $tmp + '" "' + $zipUrl + '"'
             if ($GitHubToken) { $curlArgStr += ' -H "Authorization: token ' + $GitHubToken + '"' }
-            cmd /c "curl.exe $curlArgStr 2>&1"
+            # Write exit code to temp file (cmd /c always returns 0)
+            $exitFile = Join-Path $env:TEMP ('curl_exit_' + [Guid]::NewGuid().ToString('N') + '.txt')
+            cmd /c "curl.exe $curlArgStr 2>&1 & echo %ERRORLEVEL% > \"$exitFile\""
             $sw.Stop()
-            if ($LASTEXITCODE -eq 0 -and (Test-Path $tmp) -and (Get-Item $tmp).Length -gt 100) {
+            $curlExit = 0
+            if (Test-Path $exitFile) {
+                try { $curlExit = [int](Get-Content $exitFile -Raw).Trim() } catch { $curlExit = 0 }
+                Remove-Item $exitFile -Force -ErrorAction SilentlyContinue
+            }
+            $zipExists = Test-Path $tmp
+            $zipSize = if ($zipExists) { (Get-Item $tmp).Length } else { 0 }
+            if ($curlExit -eq 0 -and $zipExists -and $zipSize -gt 100) {
                 # Verify ZIP integrity
                 $zipSize = (Get-Item $tmp).Length
                 $zipSizeStr = if ($zipSize -gt 1MB) { "$([math]::Round($zipSize/1MB, 1)) MB" } else { "$([math]::Round($zipSize/1KB, 1)) KB" }
@@ -545,8 +554,19 @@ function Update-FromGitHub {
                         } catch {
                             Write-Host "    Warning: could not create .old backup: $($_.Exception.Message)" -ForegroundColor Yellow
                         }
+                        # Write to temp first, then rename (can't overwrite running file)
+                        $newContent = [System.IO.File]::ReadAllText($src.FullName, [System.Text.Encoding]::UTF8)
+                        $tmpNew = $dest + '.new'
+                        [System.IO.File]::WriteAllText($tmpNew, $newContent, [System.Text.UTF8Encoding]::new($false))
+                        try {
+                            Remove-Item -LiteralPath $dest -Force -ErrorAction SilentlyContinue
+                            Rename-Item -LiteralPath $tmpNew -NewName (Split-Path $dest -Leaf) -Force
+                        } catch {
+                            Write-Host "    Warning: rename failed, .new kept: $($_.Exception.Message)" -ForegroundColor Yellow
+                        }
+                    } else {
+                        Copy-Item -LiteralPath $src.FullName -Destination $dest -Force
                     }
-                    Copy-Item -LiteralPath $src.FullName -Destination $dest -Force
                     Write-Host "    $f OK" -ForegroundColor Green
                 }
             } else {
@@ -564,11 +584,10 @@ function Update-FromGitHub {
                     if ($content.TrimStart().StartsWith('{') -and $content -match '"\s*:\s*"') {
                         throw 'received JSON metadata instead of file content'
                     }
-                    if ($f -eq 'mumu-menu.ps1' -and $content -notmatch '^# MuMuManager CLI') {
-                        throw 'unexpected mumu-menu.ps1 content'
+                    if ($f -eq 'mumu-menu.ps1' -and $content.Length -gt 100 -and $content -notmatch 'MuMuManager') {
+                        throw 'unexpected mumu-menu.ps1 content (no MuMuManager found)'
                     }
                     # Self-update: can't overwrite the running script directly.
-                    # Rename current to .old, write new file. Clean up .old on next startup.
                     if ($f -eq 'mumu-menu.ps1' -and (Test-Path -LiteralPath $dest)) {
                         $oldPath = $dest + '.old'
                         try {
@@ -577,8 +596,18 @@ function Update-FromGitHub {
                         } catch {
                             Write-Host "    Warning: could not create .old backup: $($_.Exception.Message)" -ForegroundColor Yellow
                         }
+                        # Write to temp first, then rename (can't overwrite running file)
+                        $tmpNew = $dest + '.new'
+                        [System.IO.File]::WriteAllText($tmpNew, $content, [System.Text.UTF8Encoding]::new($false))
+                        try {
+                            Remove-Item -LiteralPath $dest -Force -ErrorAction SilentlyContinue
+                            Rename-Item -LiteralPath $tmpNew -NewName (Split-Path $dest -Leaf) -Force
+                        } catch {
+                            Write-Host "    Warning: rename failed, .new kept: $($_.Exception.Message)" -ForegroundColor Yellow
+                        }
+                    } else {
+                        [System.IO.File]::WriteAllText($dest, $content, [System.Text.UTF8Encoding]::new($false))
                     }
-                    [System.IO.File]::WriteAllText($dest, $content, [System.Text.UTF8Encoding]::new($false))
                     Write-Host '    OK' -ForegroundColor Green
                 } catch {
                     Write-Host "    Failed: $($_.Exception.Message)" -ForegroundColor Red
@@ -617,14 +646,18 @@ function Update-FromGitHub {
     }
 }
 
-# Clean up .old backup from previous self-update
+# Clean up .old and .new files from previous self-update
 try {
     $selfOld = Join-Path $ScriptDir 'mumu-menu.ps1.old'
+    $selfNew = Join-Path $ScriptDir 'mumu-menu.ps1.new'
     if (Test-Path -LiteralPath $selfOld) {
         Remove-Item -LiteralPath $selfOld -Force -ErrorAction SilentlyContinue
     }
+    if (Test-Path -LiteralPath $selfNew) {
+        Remove-Item -LiteralPath $selfNew -Force -ErrorAction SilentlyContinue
+    }
 } catch {
-    Write-Debug ".old cleanup failed: $($_.Exception.Message)"
+    Write-Debug ".old/.new cleanup failed: $($_.Exception.Message)"
 }
 
 # Read-only update check at startup; installs only via menu option [U]
