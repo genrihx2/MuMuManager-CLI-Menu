@@ -2137,8 +2137,9 @@ function Download-Repository {
     Write-Host '  [1] Git clone (full repo with history)' -ForegroundColor White
     Write-Host '  [2] Download release ZIP (specific version)' -ForegroundColor White
     Write-Host '  [3] Download latest release ZIP' -ForegroundColor White
+    Write-Host '  [4] Update from GitHub (pull latest changes)' -ForegroundColor White
     Write-Host ''
-    $method = Read-Host 'Select method (1/2/3)'
+    $method = Read-Host 'Select method (1/2/3/4)'
 
     if ($method -eq '1') {
         # Git clone
@@ -2343,6 +2344,216 @@ function Download-Repository {
                 Expand-Archive -Path $zipPath -DestinationPath $targetDir -Force
             }
             Write-Host "  Extracted to: $extractDir" -ForegroundColor Green
+        }
+    } elseif ($method -eq '4') {
+        # Update from GitHub
+        Write-Host ''
+        Write-Host '=== Update from GitHub ===' -ForegroundColor Cyan
+        Write-Host ''
+
+        # Check if we're in a git repo
+        $inGitRepo = $false
+        try {
+            & git rev-parse --git-dir 2>$null | Out-Null
+            $inGitRepo = $LASTEXITCODE -eq 0
+        } catch {}
+
+        if ($inGitRepo) {
+            # Git repo - use git pull
+            Write-Host 'Detected git repository. Using git pull...' -ForegroundColor Cyan
+            Write-Host ''
+
+            # Check current branch
+            $currentBranch = & git branch --show-current 2>$null | Out-String
+            $currentBranch = $currentBranch.Trim()
+            Write-Host "  Current branch: $currentBranch" -ForegroundColor DarkGray
+
+            # Check remote status
+            Write-Host '  Fetching from remote...' -ForegroundColor DarkGray
+            & git fetch origin 2>&1 | Out-Null
+
+            # Check if there are changes
+            $localHash = & git rev-parse HEAD 2>$null | Out-String
+            $remoteHash = & git rev-parse "origin/$currentBranch" 2>$null | Out-String
+            $localHash = $localHash.Trim()
+            $remoteHash = $remoteHash.Trim()
+
+            if ($localHash -eq $remoteHash) {
+                Write-Host '  Already up to date!' -ForegroundColor Green
+                return
+            }
+
+            # Show what will be updated
+            Write-Host ''
+            Write-Host '  Changes available:' -ForegroundColor Yellow
+            $commits = & git log --oneline "$localHash..origin/$currentBranch" 2>&1 | Out-String
+            if ($commits) {
+                $commitLines = $commits.Trim() -split "`n" | Select-Object -First 10
+                foreach ($line in $commitLines) {
+                    Write-Host "    $line" -ForegroundColor White
+                }
+                $totalCommits = ($commits.Trim() -split "`n").Count
+                if ($totalCommits -gt 10) {
+                    Write-Host "    ... and $($totalCommits - 10) more commits" -ForegroundColor DarkGray
+                }
+            }
+
+            Write-Host ''
+            $confirm = Read-Host '  Pull changes? (Y/n)'
+            if ($confirm -eq 'n' -or $confirm -eq 'N') {
+                Write-Host '  Cancelled.' -ForegroundColor Yellow
+                return
+            }
+
+            Write-Host ''
+            Write-Host '  Pulling changes...' -ForegroundColor Cyan
+            $result = & git pull origin $currentBranch 2>&1 | Out-String
+            $exitCode = $LASTEXITCODE
+
+            if ($exitCode -eq 0) {
+                Write-Host ''
+                Write-Host '  Update complete!' -ForegroundColor Green
+                Write-Host "  $result" -ForegroundColor DarkGray
+            } else {
+                Write-Host ''
+                Write-Host '  Pull failed!' -ForegroundColor Red
+                Write-Host "  $result" -ForegroundColor Red
+            }
+
+        } else {
+            # Not a git repo - download latest release ZIP
+            Write-Host 'Not a git repository. Downloading latest release ZIP...' -ForegroundColor Cyan
+            Write-Host ''
+
+            # Get latest release
+            $relJson = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/releases/latest" 2>$null | Out-String
+            try { $release = $relJson | ConvertFrom-Json } catch { $release = $null }
+
+            if (-not $release -or -not $release.tag_name) {
+                Write-Host 'No releases found.' -ForegroundColor Yellow
+                return
+            }
+
+            Write-Host "  Latest: $($release.name) ($($release.tag_name))" -ForegroundColor Green
+
+            $zipAsset = $release.assets | Where-Object { $_.name -match '\.zip$' } | Select-Object -First 1
+            if (-not $zipAsset) {
+                Write-Host 'No ZIP asset found.' -ForegroundColor Yellow
+                return
+            }
+
+            $zipUrl = $zipAsset.browser_download_url
+            $zipSize = '{0:N1} MB' -f ($zipAsset.size / 1MB)
+            Write-Host "  Asset:  $($zipAsset.name) ($zipSize)" -ForegroundColor White
+
+            # Check current version
+            $localVer = ''
+            if (Test-Path -LiteralPath $VersionFile) {
+                try { $localVer = (Get-Content -LiteralPath $VersionFile -Raw).Trim() } catch {}
+            }
+            if ($localVer) {
+                Write-Host "  Current: $localVer" -ForegroundColor DarkGray
+            }
+
+            $confirm = Read-Host '  Download and update? (Y/n)'
+            if ($confirm -eq 'n' -or $confirm -eq 'N') {
+                Write-Host '  Cancelled.' -ForegroundColor Yellow
+                return
+            }
+
+            # Backup current files
+            $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
+            $backupDir = Join-Path $ScriptDir "backup\$stamp"
+            $filesToBackup = @('mumu-menu.ps1', 'SKILL.md', 'README.md', '.version')
+            foreach ($f in $filesToBackup) {
+                $p = Join-Path $ScriptDir $f
+                if (Test-Path $p) {
+                    New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
+                    Copy-Item -LiteralPath $p -Destination (Join-Path $backupDir $f) -Force
+                }
+            }
+            if (Test-Path $backupDir) {
+                Write-Host "  Backup saved: backup\$stamp" -ForegroundColor DarkGray
+            }
+
+            # Download ZIP
+            $tmp = Join-Path $env:TEMP "mumu_update_$stamp.zip"
+            Write-Host ''
+            Write-Host "  Downloading $($zipAsset.name)..." -ForegroundColor Cyan
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+
+            $dlArgs = @('-#', '--connect-timeout', '30', '--max-time', '300', '--retry', '3', '--retry-delay', '3', '-L', '-o', $tmp, $zipUrl)
+            if ($GitHubToken) { $dlArgs += @('-H', "Authorization: token $GitHubToken") }
+            & cmd /c "curl.exe $($dlArgs -join ' ')" 2>&1
+            $sw.Stop()
+
+            if (-not (Test-Path -LiteralPath $tmp)) {
+                Write-Host '  Download failed!' -ForegroundColor Red
+                return
+            }
+
+            $actualSize = (Get-Item -LiteralPath $tmp).Length
+            Write-Host ''
+            Write-Host ("  Downloaded: {0:N1} MB in {1:mm\:ss}" -f ($actualSize / 1MB), $sw.Elapsed) -ForegroundColor Green
+
+            # Extract and update
+            Write-Host ''
+            Write-Host '  Extracting and updating files...' -ForegroundColor Cyan
+            $tmpDir = Join-Path $env:TEMP "mumu_update_$stamp"
+            New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
+
+            $tarExe = Join-Path $env:SystemRoot 'System32\tar.exe'
+            if (Test-Path $tarExe) {
+                & $tarExe -xf $tmp -C $tmpDir 2>$null
+            } else {
+                Expand-Archive -Path $tmp -DestinationPath $tmpDir -Force
+            }
+
+            # Find extracted folder
+            $extractedDir = Get-ChildItem -LiteralPath $tmpDir -Directory | Select-Object -First 1
+            if (-not $extractedDir) {
+                $extractedDir = [pscustomobject]@{ FullName = $tmpDir }
+            }
+
+            # Copy files
+            $updated = 0
+            $failed = 0
+            foreach ($f in $filesToBackup) {
+                $src = Join-Path $extractedDir.FullName $f
+                $dst = Join-Path $ScriptDir $f
+                if (Test-Path -LiteralPath $src) {
+                    try {
+                        # Handle self-update: rename running script first
+                        if ($f -eq 'mumu-menu.ps1') {
+                            $oldFile = "$dst.old"
+                            if (Test-Path -LiteralPath $oldFile) {
+                                Remove-Item -LiteralPath $oldFile -Force -ErrorAction SilentlyContinue
+                            }
+                            Copy-Item -LiteralPath $dst -Destination $oldFile -Force -ErrorAction SilentlyContinue
+                        }
+                        Copy-Item -LiteralPath $src -Destination $dst -Force
+                        $updated++
+                    } catch {
+                        Write-Host "    Failed: $f - $($_.Exception.Message)" -ForegroundColor Red
+                        $failed++
+                    }
+                }
+            }
+
+            # Cleanup
+            Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
+
+            Write-Host ''
+            if ($updated -gt 0) {
+                Write-Host "  Updated $updated file(s)!" -ForegroundColor Green
+            }
+            if ($failed -gt 0) {
+                Write-Host "  Failed: $failed file(s)" -ForegroundColor Red
+            }
+            Write-Host "  Backup: backup\$stamp" -ForegroundColor DarkGray
+            Write-Host ''
+            Write-Host '  Restart the script to use the updated version.' -ForegroundColor Yellow
         }
     }
 }
