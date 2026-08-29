@@ -2723,7 +2723,7 @@ function Download-Repository {
         # Specific release
         Write-Host ''
         Write-Host 'Fetching releases...' -ForegroundColor DarkGray
-        $tagsJson = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/tags" 2>$null | Out-String
+        $tagsJson = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Accept: application/vnd.github.v3+json" -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/tags" 2>$null | Out-String
         try { $tags = $tagsJson | ConvertFrom-Json } catch { $tags = @() }
 
         if (-not $tags -or $tags.Count -eq 0) {
