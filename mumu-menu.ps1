@@ -2357,7 +2357,7 @@ $CloudsmithKeyFile = Join-Path $ScriptDir '.cloudsmith-token'
 
 function Get-CloudsmithKey {
     if (Test-Path -LiteralPath $CloudsmithKeyFile) {
-        try { return (Get-Content -LiteralPath $CloudsmithKeyFile -Raw).Trim() } catch {}
+        try { return (Get-Content -LiteralPath $CloudsmithKeyFile -Raw).Trim() } catch { Write-Debug "Cloudsmith key read failed: $($_.Exception.Message)" }
     }
     return ''
 }
