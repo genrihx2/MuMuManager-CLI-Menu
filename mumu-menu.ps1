@@ -728,6 +728,7 @@ function Show-Menu {
     Write-Host '  [U] Check for updates' -ForegroundColor Yellow
     Write-Host '  [DL] Download repository' -ForegroundColor Yellow
     Write-Host '  [CR] Create release' -ForegroundColor Yellow
+    Write-Host '  [FR] Fix release encoding' -ForegroundColor Yellow
     Write-Host '  [0] Exit' -ForegroundColor Yellow
     Write-Host ''
     Write-Host '======================================' -ForegroundColor Cyan
@@ -2806,6 +2807,138 @@ function Download-Repository {
     }
 }
 
+function Fix-ReleaseEncoding {
+    if (-not $GitHubToken) {
+        Write-Host ''
+        Write-Host 'GitHub token is required.' -ForegroundColor Red
+        return
+    }
+
+    Write-Host ''
+    Write-Host '=== Fix Release Encoding ===' -ForegroundColor Cyan
+    Write-Host ''
+
+    # Fetch releases
+    Write-Host 'Fetching releases...' -ForegroundColor DarkGray
+    $relJson = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/releases" 2>$null | Out-String
+    try { $releases = $relJson | ConvertFrom-Json } catch { $releases = @() }
+
+    if (-not $releases -or $releases.Count -eq 0) {
+        Write-Host 'No releases found.' -ForegroundColor Yellow
+        return
+    }
+
+    Write-Host ''
+    Write-Host 'Releases:' -ForegroundColor Cyan
+    Write-Host ''
+    for ($i = 0; $i -lt $releases.Count; $i++) {
+        $r = $releases[$i]
+        $hasCyrillic = $false
+        if ($r.body) {
+            foreach ($ch in $r.body.ToCharArray()) {
+                $cp = [int]$ch
+                if ($cp -ge 0x0400 -and $cp -le 0x04FF) { $hasCyrillic = $true; break }
+            }
+        }
+        $status = if ($hasCyrillic) { 'OK' } else { 'CHECK' }
+        $color = if ($hasCyrillic) { 'Green' } else { 'Yellow' }
+        $marker = if ($i -eq 0) { ' <-- latest' } else { '' }
+        Write-Host "  [$($i + 1)] $($r.tag_name) [$status]$marker" -ForegroundColor $color
+    }
+
+    Write-Host ''
+    $sel = Read-Host 'Select release to fix (number, or Enter to cancel)'
+    if (-not ($sel -match '^\d+$' -and [int]$sel -ge 1 -and [int]$sel -le $releases.Count)) {
+        return
+    }
+    $chosen = $releases[[int]$sel - 1]
+
+    Write-Host ''
+    Write-Host "Release: $($chosen.tag_name)" -ForegroundColor Cyan
+    Write-Host "Title:   $($chosen.name)" -ForegroundColor White
+
+    # Check current body for encoding issues
+    $body = if ($chosen.body) { $chosen.body } else { '' }
+    $hasCyrillic = $false
+    $hasMojibake = $false
+    foreach ($ch in $body.ToCharArray()) {
+        $cp = [int]$ch
+        if ($cp -ge 0x0400 -and $cp -le 0x04FF) { $hasCyrillic = $true }
+        if ($cp -ge 0xC0 -and $cp -le 0xFF -and $cp -ne 0x2013 -and $cp -ne 0x2014) { $hasMojibake = $true }
+    }
+
+    if ($hasCyrillic -and -not $hasMojibake) {
+        Write-Host '  Encoding: OK (valid Cyrillic detected)' -ForegroundColor Green
+        $fix = Read-Host '  Re-encode anyway? (y/N)'
+        if ($fix -ne 'y' -and $fix -ne 'Y') { return }
+    } elseif ($hasMojibake) {
+        Write-Host '  Encoding: MOJIBAKE DETECTED' -ForegroundColor Red
+    } else {
+        Write-Host '  Encoding: No Cyrillic in body' -ForegroundColor Yellow
+    }
+
+    # New notes
+    Write-Host ''
+    Write-Host 'Enter new release notes (empty line to finish):' -ForegroundColor Yellow
+    $newNotes = ''
+    while ($true) {
+        $line = Read-Host ''
+        if (-not $line) { break }
+        $newNotes += "$line`n"
+    }
+
+    if (-not $newNotes) {
+        Write-Host 'No notes entered. Cancelled.' -ForegroundColor Yellow
+        return
+    }
+
+    # Write notes as UTF-8 bytes (avoids PS5.1 corruption)
+    $bodyFile = Join-Path $env:TEMP ('fix_body_' + [Guid]::NewGuid().ToString('N') + '.txt')
+    [System.IO.File]::WriteAllText($bodyFile, $newNotes, [System.Text.UTF8Encoding]::new($false))
+
+    # Build JSON
+    $jsonObj = [ordered]@{
+        body = $newNotes
+    }
+    $jsonStr = $jsonObj | ConvertTo-Json -Depth 5
+    $jsonFile = Join-Path $env:TEMP ('fix_release_' + [Guid]::NewGuid().ToString('N') + '.json')
+    $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+    [System.IO.File]::WriteAllText($jsonFile, $jsonStr, $utf8NoBom)
+
+    Write-Host ''
+    Write-Host 'Updating release notes...' -ForegroundColor Cyan
+    $result = & curl.exe -s --connect-timeout 30 --max-time 60 -X PATCH -H "Authorization: token $GitHubToken" -H "Accept: application/vnd.github.v3+json" -H "Content-Type: application/json; charset=utf-8" -d "@$jsonFile" "https://api.github.com/repos/$GitHubRepo/releases/$($chosen.id)" 2>$null | Out-String
+
+    Remove-Item $jsonFile -Force -ErrorAction SilentlyContinue
+    Remove-Item $bodyFile -Force -ErrorAction SilentlyContinue
+
+    try {
+        $updated = $result | ConvertFrom-Json
+        if ($updated.html_url) {
+            Write-Host ''
+            Write-Host 'Release updated successfully!' -ForegroundColor Green
+            Write-Host "  URL: $($updated.html_url)" -ForegroundColor Cyan
+
+            # Verify encoding
+            $verifyBody = if ($updated.body) { $updated.body } else { '' }
+            $verifyCyrillic = $false
+            foreach ($ch in $verifyBody.ToCharArray()) {
+                $cp = [int]$ch
+                if ($cp -ge 0x0400 -and $cp -le 0x04FF) { $verifyCyrillic = $true; break }
+            }
+            if ($verifyCyrillic) {
+                Write-Host '  Encoding verified: Cyrillic OK' -ForegroundColor Green
+            } else {
+                Write-Host '  Warning: No Cyrillic detected in updated body' -ForegroundColor Yellow
+            }
+        } else {
+            Write-Host "Error: $($updated.message)" -ForegroundColor Red
+        }
+    } catch {
+        Write-Host "Failed: $result" -ForegroundColor Red
+    }
+}
+
 function Create-GitHubRelease {
     if (-not $GitHubToken) {
         Write-Host ''
@@ -4348,6 +4481,7 @@ do {
         'u' { Update-FromGitHub }
         'dl' { Download-Repository }
         'cr' { Create-GitHubRelease }
+        'fr' { Fix-ReleaseEncoding }
         'crt' { Create-Certificate }
         'q' {
             Write-Host 'Goodbye!' -ForegroundColor Cyan
