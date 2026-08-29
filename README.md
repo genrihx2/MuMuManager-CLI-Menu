@@ -3,7 +3,7 @@
 [![Code Scanning](https://github.com/genrihx2/MuMuManager-CLI-Menu/actions/workflows/security-scan.yml/badge.svg)](https://github.com/genrihx2/MuMuManager-CLI-Menu/actions/workflows/security-scan.yml)
 [![Latest Release](https://img.shields.io/github/v/release/genrihx2/MuMuManager-CLI-Menu?label=latest)](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest)
 [![Release Date](https://img.shields.io/github/release-date/genrihx2/MuMuManager-CLI-Menu)](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases)
-[![Cloudsmith](https://img.shields.io/badge/Cloudsmith-Packages-blue)](https://app.cloudsmith.com/mumumanager/r/mumumanager-cli-menu)
+[![Cloudsmith](https://img.shields.io/badge/Cloudsmith-Packages-blue)](https://app.cloudsmith.com/mumumanager/r/mumumanager-cli-menu-test)
 
 > **Открытый исходный код.** Скрипт предназначен исключительно для управления 
 > локальными инстансами MuMu Emulator на вашем компьютере. Функции подмены 
@@ -86,10 +86,10 @@ cd MuMuManager-CLI-Menu
 
 3. **Скачать ZIP** вручную со страницы [Releases](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest), распаковать и запустить `mumu-menu.ps1`.
 
-4. **Cloudsmith** — скачать из [Cloudsmith репозитория](https://app.cloudsmith.com/mumumanager/r/mumumanager-cli-menu):
+4. **Cloudsmith** — скачать из [Cloudsmith репозитория](https://app.cloudsmith.com/mumumanager/r/mumumanager-cli-menu-test):
 ```powershell
 # Скачать через CDN
-irm https://dl.cloudsmith.io/basic/mumumanager/mumumanager-cli-menu/raw/names/MuMuManager-CLI-Menu/versions/latest/mumu-menu.ps1 -OutFile mumu-menu.ps1
+irm https://dl.cloudsmith.io/basic/mumumanager/mumumanager-cli-menu-test/raw/names/MuMuManager-CLI-Menu/versions/latest/mumu-menu.ps1 -OutFile mumu-menu.ps1
 .\mumu-menu.ps1
 ```
 

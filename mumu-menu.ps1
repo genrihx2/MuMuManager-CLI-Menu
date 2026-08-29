@@ -2352,7 +2352,7 @@ function Update-Token {
 
 # --- Cloudsmith helper functions -----------------------------------------------
 $CloudsmithOwner = 'mumumanager'
-$CloudsmithRepo = 'mumumanager-cli-menu'
+$CloudsmithRepo = 'mumumanager-cli-menu-test'
 $CloudsmithKeyFile = Join-Path $ScriptDir '.cloudsmith-token'
 
 function Get-CloudsmithKey {
