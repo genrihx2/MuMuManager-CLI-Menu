@@ -675,6 +675,7 @@ function Show-Menu {
     Write-Host '  --- Info ---' -ForegroundColor Green
     Write-Host '  [V] Version info' -ForegroundColor Yellow
     Write-Host '  [U] Check for updates' -ForegroundColor Yellow
+    Write-Host '  [DL] Download repository' -ForegroundColor Yellow
     Write-Host '  [CR] Create release' -ForegroundColor Yellow
     Write-Host '  [0] Exit' -ForegroundColor Yellow
     Write-Host ''
@@ -2064,6 +2065,227 @@ function Update-Token {
         Write-Host 'Saved ENCRYPTED via DPAPI (.github-token.dpapi)' -ForegroundColor Green
     } else {
         Write-Host 'Cancelled (empty input).' -ForegroundColor Yellow
+    }
+}
+
+function Download-Repository {
+    Write-Host ''
+    Write-Host '=== Download Repository ===' -ForegroundColor Cyan
+    Write-Host "  Repo: $GitHubRepo" -ForegroundColor DarkGray
+    Write-Host ''
+
+    # 1. Choose download method
+    Write-Host 'Download method:' -ForegroundColor Yellow
+    Write-Host '  [1] Git clone (full repo with history)' -ForegroundColor White
+    Write-Host '  [2] Download release ZIP (specific version)' -ForegroundColor White
+    Write-Host '  [3] Download latest release ZIP' -ForegroundColor White
+    Write-Host ''
+    $method = Read-Host 'Select method (1/2/3)'
+
+    if ($method -eq '1') {
+        # Git clone
+        $targetDir = (Read-Host 'Target directory (Enter=current folder)').Trim()
+        $targetDir = $targetDir.Trim('"').Trim()
+        if (-not $targetDir) { $targetDir = $PWD.Path }
+
+        $branch = (Read-Host 'Branch (Enter=main)').Trim()
+        if (-not $branch) { $branch = 'main' }
+
+        $repoName = ($GitHubRepo -split '/')[-1]
+        $clonePath = Join-Path $targetDir $repoName
+
+        if (Test-Path -LiteralPath $clonePath) {
+            Write-Host "  Directory already exists: $clonePath" -ForegroundColor Yellow
+            $over = Read-Host 'Overwrite? (y/N)'
+            if ($over -ne 'y' -and $over -ne 'Y') { return }
+            Remove-Item -LiteralPath $clonePath -Recurse -Force -ErrorAction SilentlyContinue
+        }
+
+        Write-Host ''
+        Write-Host "Cloning $GitHubRepo ($branch)..." -ForegroundColor Cyan
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        $cloneUrl = "https://github.com/$GitHubRepo.git"
+        if ($GitHubToken) {
+            $cloneUrl = "https://$($GitHubToken)@github.com/$GitHubRepo.git"
+        }
+        & git clone -b $branch $cloneUrl $clonePath 2>&1 | ForEach-Object {
+            if ($_ -match 'Receiving objects.*?(\d+%)') {
+                Write-Host "  `r$($_.Trim())" -NoNewline -ForegroundColor DarkGray
+            }
+        }
+        $sw.Stop()
+        Write-Host ''
+
+        if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $clonePath)) {
+            $size = (Get-ChildItem -LiteralPath $clonePath -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+            Write-Host ("Clone complete! {0:N2} MB in {1:mm\:ss}" -f ($size / 1MB), $sw.Elapsed) -ForegroundColor Green
+            Write-Host "  Location: $clonePath" -ForegroundColor DarkGray
+        } else {
+            Write-Host 'Clone failed!' -ForegroundColor Red
+        }
+
+    } elseif ($method -eq '2') {
+        # Specific release
+        Write-Host ''
+        Write-Host 'Fetching releases...' -ForegroundColor DarkGray
+        $tagsJson = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/tags" 2>$null | Out-String
+        try { $tags = $tagsJson | ConvertFrom-Json } catch { $tags = @() }
+
+        if (-not $tags -or $tags.Count -eq 0) {
+            Write-Host 'No releases found.' -ForegroundColor Yellow
+            return
+        }
+
+        Write-Host ''
+        Write-Host 'Available releases:' -ForegroundColor Cyan
+        Write-Host ''
+        for ($i = 0; $i -lt $tags.Count; $i++) {
+            $t = $tags[$i]
+            $marker = if ($i -eq 0) { ' <-- latest' } else { '' }
+            Write-Host "  [$($i + 1)] $($t.name)$marker" -ForegroundColor White
+        }
+
+        Write-Host ''
+        $sel = Read-Host 'Select release (number)'
+        if (-not ($sel -match '^\d+$' -and [int]$sel -ge 1 -and [int]$sel -le $tags.Count)) {
+            Write-Host 'Invalid selection.' -ForegroundColor Red
+            return
+        }
+        $chosen = $tags[[int]$sel - 1]
+        $tagName = $chosen.name
+
+        # Get release assets
+        Write-Host ''
+        Write-Host "Fetching release $tagName..." -ForegroundColor DarkGray
+        $relJson = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/releases/tags/$tagName" 2>$null | Out-String
+        try { $release = $relJson | ConvertFrom-Json } catch { $release = $null }
+
+        if (-not $release -or -not $release.assets) {
+            Write-Host 'Release not found or no assets.' -ForegroundColor Yellow
+            return
+        }
+
+        $zipAsset = $release.assets | Where-Object { $_.name -match '\.zip$' } | Select-Object -First 1
+        if (-not $zipAsset) {
+            Write-Host 'No ZIP asset found.' -ForegroundColor Yellow
+            return
+        }
+
+        $zipUrl = $zipAsset.browser_download_url
+        $zipSize = '{0:N1} MB' -f ($zipAsset.size / 1MB)
+        Write-Host "  Asset: $($zipAsset.name) ($zipSize)" -ForegroundColor White
+
+        # Download location
+        $targetDir = (Read-Host 'Download to (Enter=current folder)').Trim()
+        $targetDir = $targetDir.Trim('"').Trim()
+        if (-not $targetDir) { $targetDir = $PWD.Path }
+
+        $zipPath = Join-Path $targetDir $zipAsset.name
+
+        Write-Host ''
+        Write-Host "Downloading $($zipAsset.name)..." -ForegroundColor Cyan
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+
+        $dlArgs = @('-#', '--connect-timeout', '30', '--max-time', '300', '--retry', '3', '--retry-delay', '3', '-L', '-o', $zipPath, $zipUrl)
+        if ($GitHubToken) { $dlArgs += @('-H', "Authorization: token $GitHubToken") }
+        & cmd /c "curl.exe $($dlArgs -join ' ')" 2>&1
+        $sw.Stop()
+
+        if (-not (Test-Path -LiteralPath $zipPath)) {
+            Write-Host 'Download failed!' -ForegroundColor Red
+            return
+        }
+
+        $actualSize = (Get-Item -LiteralPath $zipPath).Length
+        Write-Host ''
+        Write-Host ("Downloaded: {0:N1} MB in {1:mm\:ss}" -f ($actualSize / 1MB), $sw.Elapsed) -ForegroundColor Green
+
+        # Extract
+        $extract = Read-Host 'Extract now? (Y/n)'
+        if ($extract -ne 'n' -and $extract -ne 'N') {
+            $extractDir = Join-Path $targetDir ($zipAsset.name -replace '\.zip$', '')
+            if (Test-Path -LiteralPath $extractDir) {
+                Write-Host "  Extract dir exists: $extractDir" -ForegroundColor Yellow
+                $ow = Read-Host 'Overwrite? (y/N)'
+                if ($ow -ne 'y' -and $ow -ne 'Y') { return }
+                Remove-Item -LiteralPath $extractDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+
+            Write-Host 'Extracting...' -ForegroundColor Cyan
+            $tarExe = Join-Path $env:SystemRoot 'System32\tar.exe'
+            if (Test-Path $tarExe) {
+                & $tarExe -xf $zipPath -C $targetDir 2>&1 | Out-Null
+            } else {
+                Expand-Archive -Path $zipPath -DestinationPath $targetDir -Force
+            }
+            Write-Host "  Extracted to: $extractDir" -ForegroundColor Green
+        }
+
+    } elseif ($method -eq '3') {
+        # Latest release
+        Write-Host ''
+        Write-Host 'Fetching latest release...' -ForegroundColor DarkGray
+        $relJson = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/releases/latest" 2>$null | Out-String
+        try { $release = $relJson | ConvertFrom-Json } catch { $release = $null }
+
+        if (-not $release -or -not $release.tag_name) {
+            Write-Host 'No releases found.' -ForegroundColor Yellow
+            return
+        }
+
+        Write-Host ''
+        Write-Host "  Latest: $($release.name) ($($release.tag_name))" -ForegroundColor Green
+        Write-Host "  Date:   $($release.published_at)" -ForegroundColor DarkGray
+
+        $zipAsset = $release.assets | Where-Object { $_.name -match '\.zip$' } | Select-Object -First 1
+        if (-not $zipAsset) {
+            Write-Host 'No ZIP asset found.' -ForegroundColor Yellow
+            return
+        }
+
+        $zipUrl = $zipAsset.browser_download_url
+        $zipSize = '{0:N1} MB' -f ($zipAsset.size / 1MB)
+        Write-Host "  Asset:  $($zipAsset.name) ($zipSize)" -ForegroundColor White
+
+        $targetDir = (Read-Host 'Download to (Enter=current folder)').Trim()
+        $targetDir = $targetDir.Trim('"').Trim()
+        if (-not $targetDir) { $targetDir = $PWD.Path }
+
+        $zipPath = Join-Path $targetDir $zipAsset.name
+
+        Write-Host ''
+        Write-Host "Downloading $($zipAsset.name)..." -ForegroundColor Cyan
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+
+        $dlArgs = @('-#', '--connect-timeout', '30', '--max-time', '300', '--retry', '3', '--retry-delay', '3', '-L', '-o', $zipPath, $zipUrl)
+        if ($GitHubToken) { $dlArgs += @('-H', "Authorization: token $GitHubToken") }
+        & cmd /c "curl.exe $($dlArgs -join ' ')" 2>&1
+        $sw.Stop()
+
+        if (-not (Test-Path -LiteralPath $zipPath)) {
+            Write-Host 'Download failed!' -ForegroundColor Red
+            return
+        }
+
+        $actualSize = (Get-Item -LiteralPath $zipPath).Length
+        Write-Host ''
+        Write-Host ("Downloaded: {0:N1} MB in {1:mm\:ss}" -f ($actualSize / 1MB), $sw.Elapsed) -ForegroundColor Green
+
+        $extract = Read-Host 'Extract now? (Y/n)'
+        if ($extract -ne 'n' -and $extract -ne 'N') {
+            $extractDir = Join-Path $targetDir ($zipAsset.name -replace '\.zip$', '')
+            if (Test-Path -LiteralPath $extractDir) {
+                Remove-Item -LiteralPath $extractDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            Write-Host 'Extracting...' -ForegroundColor Cyan
+            $tarExe = Join-Path $env:SystemRoot 'System32\tar.exe'
+            if (Test-Path $tarExe) {
+                & $tarExe -xf $zipPath -C $targetDir 2>&1 | Out-Null
+            } else {
+                Expand-Archive -Path $zipPath -DestinationPath $targetDir -Force
+            }
+            Write-Host "  Extracted to: $extractDir" -ForegroundColor Green
+        }
     }
 }
 
@@ -3605,6 +3827,7 @@ do {
         's' { Save-Screenshot }
         'v' { Show-VersionInfo }
         'u' { Update-FromGitHub }
+        'dl' { Download-Repository }
         'cr' { Create-GitHubRelease }
         'crt' { Create-Certificate }
         'q' {
