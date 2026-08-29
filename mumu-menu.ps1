@@ -2396,8 +2396,12 @@ function Download-Cloudsmith {
         # List packages
         Write-Host ''
         Write-Host 'Fetching packages...' -ForegroundColor DarkGray
-        $pkgs = Get-CloudsmithPackages
-        if (-not $pkgs -or -not $pkgs.data -or $pkgs.data.Count -eq 0) {
+        $pkgsRaw = Get-CloudsmithPackages
+        # Cloudsmith API returns either an array [] or object {data:[]}
+        $pkgsList = @()
+        if ($pkgsRaw -is [array]) { $pkgsList = $pkgsRaw }
+        elseif ($pkgsRaw.data) { $pkgsList = $pkgsRaw.data }
+        if (-not $pkgsList -or $pkgsList.Count -eq 0) {
             Write-Host 'No packages found.' -ForegroundColor Yellow
             return
         }
@@ -2406,7 +2410,7 @@ function Download-Cloudsmith {
         Write-Host '  ============================================' -ForegroundColor Cyan
         Write-Host '    CLOUDSMITH PACKAGES' -ForegroundColor White
         Write-Host '  ============================================' -ForegroundColor Cyan
-        foreach ($p in $pkgs.data) {
+        foreach ($p in $pkgsList) {
             $name = $p.name
             $ver = $p.version
             $fmt = $p.format
@@ -2437,30 +2441,33 @@ function Download-Cloudsmith {
         # Download package
         Write-Host ''
         Write-Host 'Fetching packages...' -ForegroundColor DarkGray
-        $pkgs = Get-CloudsmithPackages
-        if (-not $pkgs -or -not $pkgs.data -or $pkgs.data.Count -eq 0) {
+        $pkgsRaw = Get-CloudsmithPackages
+        $pkgsList = @()
+        if ($pkgsRaw -is [array]) { $pkgsList = $pkgsRaw }
+        elseif ($pkgsRaw.data) { $pkgsList = $pkgsRaw.data }
+        if (-not $pkgsList -or $pkgsList.Count -eq 0) {
             Write-Host 'No packages found.' -ForegroundColor Yellow
             return
         }
 
         if ($csMethod -eq '2') {
             # Download latest
-            $chosen = $pkgs.data[0]
+            $chosen = $pkgsList[0]
         } else {
             # Select specific version
             Write-Host ''
-            for ($i = 0; $i -lt [Math]::Min($pkgs.data.Count, 20); $i++) {
-                $p = $pkgs.data[$i]
+            for ($i = 0; $i -lt [Math]::Min($pkgsList.Count, 20); $i++) {
+                $p = $pkgsList[$i]
                 $marker = if ($i -eq 0) { ' <-- latest' } else { '' }
                 Write-Host "  [$($i + 1)] $($p.name) v$($p.version) [$($p.format)]$marker" -ForegroundColor White
             }
             Write-Host ''
             $sel = Read-Host 'Select package (number)'
-            if (-not ($sel -match '^\d+$' -and [int]$sel -ge 1 -and [int]$sel -le $pkgs.data.Count)) {
+            if (-not ($sel -match '^\d+$' -and [int]$sel -ge 1 -and [int]$sel -le $pkgsList.Count)) {
                 Write-Host 'Invalid selection.' -ForegroundColor Red
                 return
             }
-            $chosen = $pkgs.data[[int]$sel - 1]
+            $chosen = $pkgsList[[int]$sel - 1]
         }
 
         # Get download URL
