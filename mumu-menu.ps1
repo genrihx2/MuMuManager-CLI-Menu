@@ -716,6 +716,7 @@ function Show-Menu {
     Write-Host '  [TC] Connection test' -ForegroundColor Yellow
     Write-Host '  [TN] Network test' -ForegroundColor Yellow
     Write-Host '  [TD] Dependencies test' -ForegroundColor Yellow
+    Write-Host '  [UW] Fix Unicode / encoding' -ForegroundColor Yellow
     Write-Host ''
     Write-Host '  --- Spoofing ---' -ForegroundColor Green
     Write-Host '  [DM] Spoof device model' -ForegroundColor Yellow
@@ -1903,6 +1904,248 @@ function Test-Network {
 
     Write-Host ''
     Write-Host 'Test complete.' -ForegroundColor Green
+}
+
+function Fix-Unicode {
+    Write-Host ''
+    Write-Host '=== Fix Unicode / Encoding ===' -ForegroundColor Cyan
+    Write-Host ''
+
+    Write-Host 'Options:' -ForegroundColor Yellow
+    Write-Host '  [1] Scan files for encoding issues' -ForegroundColor White
+    Write-Host '  [2] Fix file encoding (convert to UTF-8)' -ForegroundColor White
+    Write-Host '  [3] Fix mojibake (garbled Cyrillic/Unicode)' -ForegroundColor White
+    Write-Host '  [4] Show file encoding info' -ForegroundColor White
+    Write-Host ''
+    $mode = Read-Host 'Select option (1/2/3/4)'
+
+    if ($mode -eq '1') {
+        # Scan for encoding issues
+        Write-Host ''
+        Write-Host 'Scanning files...' -ForegroundColor Cyan
+        $files = Get-ChildItem -LiteralPath $ScriptDir -File -Include '*.ps1','*.md','*.txt','*.yml','*.json' -Recurse -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -notmatch '\\.git\\' -and $_.FullName -notmatch '\\.freebuff\\' }
+
+        $ok = 0
+        $warn = 0
+        $bad = 0
+
+        foreach ($f in $files) {
+            $bytes = [System.IO.File]::ReadAllBytes($f.FullName)
+            $hasBOM = ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)
+            $hasHighBytes = $false
+            $mojibake = $false
+
+            # Check for mojibake patterns (CP1251 encoded UTF-8)
+            $text = [System.Text.Encoding]::GetEncoding(28591).GetString($bytes)
+            if ($text -match '[\xC0-\xFF][\x80-\xBF]') { $hasHighBytes = $true }
+
+            # Check for double-encoded UTF-8 (common mojibake)
+            $utf8Text = [System.Text.Encoding]::UTF8.GetString($bytes)
+            if ($utf8Text -match '\u00C2[\x80-\xBF]|\u00C3[\x80-\xBF]') { $mojibake = $true }
+
+            # Check for replacement characters
+            $hasReplacement = $utf8Text -match '\uFFFD'
+
+            $status = 'OK'
+            $color = 'Green'
+            if ($mojibake -or $hasReplacement) {
+                $status = 'MOJIBAKE'
+                $color = 'Red'
+                $bad++
+            } elseif ($hasBOM) {
+                $status = 'UTF-8 BOM (OK but BOM present)'
+                $color = 'Yellow'
+                $warn++
+            } else {
+                $ok++
+            }
+
+            $rel = $f.FullName.Substring($ScriptDir.Length + 1)
+            Write-Host "  [$status] $rel" -ForegroundColor $color
+        }
+
+        Write-Host ''
+        Write-Host "  OK: $ok  |  Warnings: $warn  |  Mojibake: $bad" -ForegroundColor Cyan
+
+    } elseif ($mode -eq '2') {
+        # Fix encoding - convert to UTF-8 without BOM
+        Write-Host ''
+        $path = (Read-Host 'Enter file path (or folder)').Trim()
+        $path = $path.Trim('"').Trim()
+
+        if (-not (Test-Path -LiteralPath $path)) {
+            Write-Host 'Path not found.' -ForegroundColor Red
+            return
+        }
+
+        $files = if ((Get-Item -LiteralPath $path).PSIsContainer) {
+            Get-ChildItem -LiteralPath $path -File -Include '*.ps1','*.md','*.txt','*.yml','*.json' -Recurse -ErrorAction SilentlyContinue
+        } else {
+            Get-Item -LiteralPath $path
+        }
+
+        foreach ($f in $files) {
+            $bytes = [System.IO.File]::ReadAllBytes($f.FullName)
+
+            # Detect encoding
+            $encoding = 'unknown'
+            $startOffset = 0
+
+            if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
+                $encoding = 'UTF-8 BOM'
+                $startOffset = 3
+            } elseif ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFF -and $bytes[1] -eq 0xFE) {
+                $encoding = 'UTF-16 LE BOM'
+                $startOffset = 2
+            } elseif ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFE -and $bytes[1] -eq 0xFF) {
+                $encoding = 'UTF-16 BE BOM'
+                $startOffset = 2
+            } else {
+                # Try to detect UTF-8 without BOM
+                $isUtf8 = $true
+                try {
+                    $dec = [System.Text.UTF8Encoding]::new($false, $true, $true)
+                    $null = $dec.GetString($bytes)
+                } catch {
+                    $isUtf8 = $false
+                }
+                if ($isUtf8) { $encoding = 'UTF-8 no BOM' }
+                else { $encoding = 'ANSI/other' }
+            }
+
+            if ($encoding -eq 'UTF-8 no BOM') {
+                Write-Host "  $($f.Name): already UTF-8 no BOM - skipped" -ForegroundColor DarkGray
+                continue
+            }
+
+            # Convert to UTF-8 without BOM
+            $content = [System.IO.File]::ReadAllText($f.FullName)
+            $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+            [System.IO.File]::WriteAllText($f.FullName, $content, $utf8NoBom)
+
+            $rel = $f.FullName.Substring($ScriptDir.Length + 1)
+            Write-Host "  Fixed: $rel ($encoding -> UTF-8 no BOM)" -ForegroundColor Green
+        }
+
+    } elseif ($mode -eq '3') {
+        # Fix mojibake
+        Write-Host ''
+        Write-Host 'Fix mojibake (garbled Cyrillic/Unicode)...' -ForegroundColor Cyan
+        Write-Host ''
+        $path = (Read-Host 'Enter file path').Trim()
+        $path = $path.Trim('"').Trim()
+
+        if (-not (Test-Path -LiteralPath $path)) {
+            Write-Host 'File not found.' -ForegroundColor Red
+            return
+        }
+
+        $bytes = [System.IO.File]::ReadAllBytes($path)
+
+        # Common mojibake: CP1251 bytes interpreted as Latin-1
+        # Try CP1251 -> UTF-8
+        $cp1251 = [System.Text.Encoding]::GetEncoding(1251)
+        $utf8 = [System.Text.Encoding]::UTF8
+
+        # Read raw bytes as CP1251
+        $decoded = $cp1251.GetString($bytes)
+
+        # Check if it looks like real Cyrillic (not random garbage)
+        $cyrillicCount = 0
+        foreach ($ch in $decoded.ToCharArray()) {
+            $cp = [int]$ch
+            if ($cp -ge 0x0400 -and $cp -le 0x04FF) { $cyrillicCount++ }
+        }
+
+        $totalChars = $decoded.Length
+        $cyrillicPct = if ($totalChars -gt 0) { ($cyrillicCount / $totalChars) * 100 } else { 0 }
+
+        if ($cyrillicPct -gt 5) {
+            # Looks like valid Cyrillic encoded in CP1251
+            $fixed = $utf8.GetBytes($decoded)
+            [System.IO.File]::WriteAllBytes($path, $fixed)
+            Write-Host "  Fixed: $path" -ForegroundColor Green
+            Write-Host "  Detected: CP1251 ($([math]::Round($cyrillicPct, 1))% Cyrillic)" -ForegroundColor DarkGray
+            Write-Host "  Converted to: UTF-8" -ForegroundColor DarkGray
+        } else {
+            # Try UTF-8
+            $utf8Decoded = $utf8.GetString($bytes)
+            $hasCyrillic = $false
+            foreach ($ch in $utf8Decoded.ToCharArray()) {
+                $cp = [int]$ch
+                if ($cp -ge 0x0400 -and $cp -le 0x04FF) { $hasCyrillic = $true; break }
+            }
+            if ($hasCyrillic) {
+                Write-Host "  File is already valid UTF-8 with Cyrillic" -ForegroundColor Green
+            } else {
+                Write-Host "  Cannot detect encoding - file may not contain Cyrillic" -ForegroundColor Yellow
+            }
+        }
+
+    } elseif ($mode -eq '4') {
+        # Show encoding info
+        Write-Host ''
+        $path = (Read-Host 'Enter file path').Trim()
+        $path = $path.Trim('"').Trim()
+
+        if (-not (Test-Path -LiteralPath $path)) {
+            Write-Host 'File not found.' -ForegroundColor Red
+            return
+        }
+
+        $bytes = [System.IO.File]::ReadAllBytes($path)
+        $size = (Get-Item -LiteralPath $path).Length
+
+        Write-Host "  File: $path" -ForegroundColor White
+        Write-Host "  Size: $size bytes" -ForegroundColor DarkGray
+
+        # BOM detection
+        if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
+            Write-Host '  BOM: UTF-8 BOM' -ForegroundColor Yellow
+        } elseif ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFF -and $bytes[1] -eq 0xFE) {
+            Write-Host '  BOM: UTF-16 LE BOM' -ForegroundColor Yellow
+        } elseif ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFE -and $bytes[1] -eq 0xFF) {
+            Write-Host '  BOM: UTF-16 BE BOM' -ForegroundColor Yellow
+        } else {
+            Write-Host '  BOM: None' -ForegroundColor DarkGray
+        }
+
+        # UTF-8 validation
+        $isUtf8 = $true
+        try {
+            $dec = [System.Text.UTF8Encoding]::new($false, $true, $true)
+            $null = $dec.GetString($bytes)
+        } catch {
+            $isUtf8 = $false
+        }
+        Write-Host "  Valid UTF-8: $(if ($isUtf8) { 'YES' } else { 'NO' })" -ForegroundColor $(if ($isUtf8) { 'Green' } else { 'Red' })
+
+        # High bytes analysis
+        $highCount = 0
+        foreach ($b in $bytes) { if ($b -gt 127) { $highCount++ } }
+        Write-Host "  High bytes (>127): $highCount" -ForegroundColor DarkGray
+
+        # Cyrillic detection
+        if ($isUtf8) {
+            $text = [System.Text.Encoding]::UTF8.GetString($bytes)
+            $cyrillicCount = 0
+            foreach ($ch in $text.ToCharArray()) {
+                $cp = [int]$ch
+                if ($cp -ge 0x0400 -and $cp -le 0x04FF) { $cyrillicCount++ }
+            }
+            if ($cyrillicCount -gt 0) {
+                Write-Host "  Cyrillic chars: $cyrillicCount" -ForegroundColor Cyan
+            }
+        }
+
+        # First 200 chars preview
+        if ($isUtf8) {
+            $text = [System.Text.Encoding]::UTF8.GetString($bytes)
+            $preview = $text.Substring(0, [Math]::Min(200, $text.Length))
+            Write-Host "  Preview: $preview" -ForegroundColor DarkGray
+        }
+    }
 }
 
 function Test-ScriptDependencies {
@@ -4086,6 +4329,7 @@ do {
         'tc' { Test-EmulatorConnection }
         'tn' { Test-Network }
         'td' { Test-ScriptDependencies }
+        'uw' { Fix-Unicode }
         'dm' { Set-DeviceModel }
         'sim' { Set-SimOperator }
         'di' { Set-RandomDeviceIds }
