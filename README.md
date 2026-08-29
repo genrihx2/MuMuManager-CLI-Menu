@@ -1,4 +1,4 @@
-# MuMu Manager CLI Menu
+﻿# MuMu Manager CLI Menu
 
 [![Code Scanning](https://github.com/genrihx2/MuMuManager-CLI-Menu/actions/workflows/security-scan.yml/badge.svg)](https://github.com/genrihx2/MuMuManager-CLI-Menu/actions/workflows/security-scan.yml)
 [![Latest Release](https://img.shields.io/github/v/release/genrihx2/MuMuManager-CLI-Menu?label=latest)](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest)
@@ -152,6 +152,11 @@ cd MuMuManager-CLI-Menu
   [DM] Spoof device model
   [SIM] Change SIM operator / country (MCC/MNC)
   [DI] Random device IDs
+
+  --- Cloudsmith ---
+  [CS] List / download packages
+  [CU] Upload package to Cloudsmith
+  [CK] Set Cloudsmith API key
 
   --- Info ---
   [V] Version info
