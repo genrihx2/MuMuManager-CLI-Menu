@@ -662,6 +662,11 @@ function Show-Menu {
     Write-Host '  [CRT] Create/sign certificate' -ForegroundColor Yellow
     Write-Host '  [Z] Security audit (disabled)' -ForegroundColor Yellow
     Write-Host ''
+    Write-Host '  --- Tests ---' -ForegroundColor Green
+    Write-Host '  [TC] Connection test' -ForegroundColor Yellow
+    Write-Host '  [TN] Network test' -ForegroundColor Yellow
+    Write-Host '  [TD] Dependencies test' -ForegroundColor Yellow
+    Write-Host ''
     Write-Host '  --- Spoofing ---' -ForegroundColor Green
     Write-Host '  [DM] Spoof device model' -ForegroundColor Yellow
     Write-Host '  [SIM] Change SIM operator / country (MCC/MNC)' -ForegroundColor Yellow
@@ -1509,6 +1514,333 @@ function Test-Security {
         Write-Host '  STATUS: SECURE' -ForegroundColor Green
     } else {
         Write-Host '  STATUS: ISSUES FOUND' -ForegroundColor Red
+    }
+    Write-Host ''
+}
+
+function Test-EmulatorConnection {
+    $index = Get-InstanceIndex 'Select instance to test'
+    if (-not $index) { return }
+    Write-Host ''
+    Write-Host '=== Emulator Connection Test ===' -ForegroundColor Cyan
+    Write-Host ''
+
+    # 1. Instance status
+    Write-Host '[1] Instance status' -ForegroundColor Yellow
+    $info = & $MumuPath info -v $index 2>$null | ConvertFrom-Json
+    if ($info.is_process_started) {
+        Write-Host '  Running: YES' -ForegroundColor Green
+    } else {
+        Write-Host '  Running: NO' -ForegroundColor Red
+        Write-Host '  Cannot test ADB connection on stopped instance.' -ForegroundColor Yellow
+        return
+    }
+
+    # 2. MuMuManager ADB connection
+    Write-Host ''
+    Write-Host '[2] MuMuManager ADB' -ForegroundColor Yellow
+    $connect = & $MumuPath connect -v $index 2>&1 | Out-String
+    if ($connect -match '"errcode"\s*:\s*0') {
+        Write-Host '  Connected: YES' -ForegroundColor Green
+    } else {
+        Write-Host "  Connected: NO ($($connect.Trim()))" -ForegroundColor Red
+    }
+
+    # 3. ADB device check
+    Write-Host ''
+    Write-Host '[3] ADB devices' -ForegroundColor Yellow
+    $adb = Join-Path (Split-Path $MumuPath -Parent) 'shell\adb.exe'
+    if (-not (Test-Path $adb)) {
+        # Try system ADB
+        $adb = 'adb.exe'
+    }
+    $devices = & $adb devices 2>&1 | Out-String
+    $lines = $devices -split "`n" | Where-Object { $_ -match '\s+device$' -and $_ -notmatch '^List' }
+    if ($lines.Count -gt 0) {
+        Write-Host "  Devices: $($lines.Count) connected" -ForegroundColor Green
+        foreach ($l in $lines) {
+            $serial = ($l -split "\t")[0]
+            Write-Host "    - $serial" -ForegroundColor DarkGray
+        }
+    } else {
+        Write-Host '  Devices: NONE connected' -ForegroundColor Red
+    }
+
+    # 4. ADB shell test
+    Write-Host ''
+    Write-Host '[4] ADB shell' -ForegroundColor Yellow
+    $shellResult = & $adb shell 'echo ok' 2>&1 | Out-String
+    if ($shellResult.Trim() -eq 'ok') {
+        Write-Host '  Shell: OK' -ForegroundColor Green
+    } else {
+        Write-Host "  Shell: FAILED ($($shellResult.Trim()))" -ForegroundColor Red
+    }
+
+    # 5. ADB properties
+    Write-Host ''
+    Write-Host '[5] Device properties' -ForegroundColor Yellow
+    $props = @('ro.build.display.id', 'ro.product.model', 'ro.build.version.sdk', 'ro.product.cpu.abi', 'ro.build.version.release')
+    foreach ($p in $props) {
+        $val = (& $adb shell "getprop $p" 2>&1 | Out-String).Trim()
+        if ($val) {
+            $short = $p -replace '^ro\.', ''
+            Write-Host "  ${short}: $val" -ForegroundColor White
+        }
+    }
+
+    # 6. Internet connectivity
+    Write-Host ''
+    Write-Host '[6] Internet test' -ForegroundColor Yellow
+    $netResult = & $adb shell 'ping -c 2 -W 5 8.8.8.8' 2>&1 | Out-String
+    if ($netResult -match '(\d+) packets transmitted') {
+        $sent = [int]($Matches[1])
+        $recv = if ($netResult -match '(\d+) received') { [int]($Matches[1]) } else { 0 }
+        if ($recv -gt 0) {
+            $loss = (($sent - $recv) / $sent) * 100
+            Write-Host "  Ping: OK (sent=$sent recv=$recv loss=$loss%)" -ForegroundColor Green
+        } else {
+            Write-Host '  Ping: FAILED (0 received)' -ForegroundColor Red
+        }
+    } else {
+        Write-Host "  Ping: FAILED" -ForegroundColor Red
+    }
+
+    # 7. Memory
+    Write-Host ''
+    Write-Host '[7] Memory' -ForegroundColor Yellow
+    $memInfo = & $adb shell 'cat /proc/meminfo' 2>&1 | Out-String
+    if ($memInfo -match 'MemTotal:\s+(\d+)') {
+        $totalMB = [int]$Matches[1] / 1024
+        $freeMB = 0
+        if ($memInfo -match 'MemAvailable:\s+(\d+)') { $freeMB = [int]$Matches[1] / 1024 }
+        elseif ($memInfo -match 'MemFree:\s+(\d+)') { $freeMB = [int]$Matches[1] / 1024 }
+        $usedMB = $totalMB - $freeMB
+        $pct = if ($totalMB -gt 0) { ($usedMB / $totalMB) * 100 } else { 0 }
+        $color = if ($pct -gt 90) { 'Red' } elseif ($pct -gt 70) { 'Yellow' } else { 'Green' }
+        Write-Host ("  RAM: {0:N0} MB / {1:N0} MB ({2:N1}% used)" -f $usedMB, $totalMB, $pct) -ForegroundColor $color
+    }
+
+    # 8. Storage
+    Write-Host ''
+    Write-Host '[8] Storage' -ForegroundColor Yellow
+    $storage = & $adb shell 'df /data' 2>&1 | Out-String
+    $storLines = $storage -split "`n" | Where-Object { $_ -match '/data$' }
+    if ($storLines) {
+        $parts = $storLines[0] -split '\s+'
+        if ($parts.Count -ge 4) {
+            $totalGB = [int]$parts[1] / 1048576
+            $usedGB = [int]$parts[2] / 1048576
+            $availGB = [int]$parts[3] / 1048576
+            Write-Host ("  /data: {0:N1} GB / {1:N1} GB used ({2:N1} GB free)" -f $usedGB, $totalGB, $availGB) -ForegroundColor White
+        }
+    }
+
+    Write-Host ''
+    Write-Host 'Test complete.' -ForegroundColor Green
+}
+
+function Test-Network {
+    $index = Get-InstanceIndex 'Select instance to test'
+    if (-not $index) { return }
+    Write-Host ''
+    Write-Host '=== Network Test ===' -ForegroundColor Cyan
+    Write-Host ''
+
+    $info = & $MumuPath info -v $index 2>$null | ConvertFrom-Json
+    if (-not $info.is_process_started) {
+        Write-Host 'Instance is not running.' -ForegroundColor Red
+        return
+    }
+
+    $adb = Join-Path (Split-Path $MumuPath -Parent) 'shell\adb.exe'
+    if (-not (Test-Path $adb)) { $adb = 'adb.exe' }
+
+    # Ping test
+    Write-Host '[1] Ping test' -ForegroundColor Yellow
+    $targets = @('8.8.8.8', '1.1.1.1', '223.5.5.5', 'google.com', 'github.com')
+    foreach ($t in $targets) {
+        $result = & $adb shell "ping -c 2 -W 5 $t" 2>&1 | Out-String
+        if ($result -match 'rtt min.*=\s*([\d.]+)/([\d.]+)/([\d.]+)') {
+            Write-Host "  $t : OK (avg $($Matches[2])ms)" -ForegroundColor Green
+        } elseif ($result -match '(\d+) received') {
+            $recv = [int]$Matches[1]
+            if ($recv -gt 0) { Write-Host "  $t : OK" -ForegroundColor Green }
+            else { Write-Host "  $t : FAILED" -ForegroundColor Red }
+        } else {
+            Write-Host "  $t : FAILED" -ForegroundColor Red
+        }
+    }
+
+    # DNS resolution
+    Write-Host ''
+    Write-Host '[2] DNS resolution' -ForegroundColor Yellow
+    $dnsTargets = @('google.com', 'github.com', 'baidu.com')
+    foreach ($d in $dnsTargets) {
+        $result = & $adb shell "nslookup $d" 2>&1 | Out-String
+        if ($result -match 'Address:\s+\d') {
+            Write-Host "  $d : OK" -ForegroundColor Green
+        } else {
+            Write-Host "  $d : FAILED" -ForegroundColor Red
+        }
+    }
+
+    # HTTP test
+    Write-Host ''
+    Write-Host '[3] HTTP test' -ForegroundColor Yellow
+    $httpTargets = @(
+        @{ Url = 'http://connectivitycheck.gstatic.com/generate_204'; Name = 'Google' },
+        @{ Url = 'http://www.baidu.com'; Name = 'Baidu' },
+        @{ Url = 'https://github.com'; Name = 'GitHub' }
+    )
+    foreach ($h in $httpTargets) {
+        $result = & $adb shell "curl -s -o /dev/null -w '%{http_code}' --max-time 10 $($h.Url)" 2>&1 | Out-String
+        $code = $result.Trim()
+        if ($code -match '^(200|301|302|204)$') {
+            Write-Host "  $($h.Name) ($code) : OK" -ForegroundColor Green
+        } else {
+            Write-Host "  $($h.Name) ($code) : FAILED" -ForegroundColor Red
+        }
+    }
+
+    # WiFi info
+    Write-Host ''
+    Write-Host '[4] WiFi info' -ForegroundColor Yellow
+    $wifi = & $adb shell 'dumpsys wifi | grep "mWifiInfo"' 2>&1 | Out-String
+    if ($wifi) {
+        if ($wifi -match 'SSID:\s*"([^"]+)"') {
+            Write-Host "  SSID: $($Matches[1])" -ForegroundColor White
+        }
+        if ($wifi -match 'link speed:\s*(\d+)') {
+            Write-Host "  Speed: $($Matches[1]) Mbps" -ForegroundColor White
+        }
+    } else {
+        # Fallback: try ip addr
+        $ipInfo = & $adb shell 'ip addr show wlan0 2>/dev/null || ip addr show eth0' 2>&1 | Out-String
+        if ($ipInfo -match 'inet (\d+[\.\d]+)') {
+            Write-Host "  IP: $($Matches[1])" -ForegroundColor White
+        }
+    }
+
+    Write-Host ''
+    Write-Host 'Test complete.' -ForegroundColor Green
+}
+
+function Test-ScriptDependencies {
+    Write-Host ''
+    Write-Host '=== Script Dependencies Test ===' -ForegroundColor Cyan
+    Write-Host ''
+
+    $ok = 0
+    $fail = 0
+
+    # 1. MuMuManager.exe
+    Write-Host '[1] MuMuManager.exe' -ForegroundColor Yellow
+    if (Test-Path -LiteralPath $MumuPath) {
+        Write-Host "  Path: $MumuPath" -ForegroundColor DarkGray
+        $ver = & $MumuPath version 2>&1 | Out-String
+        Write-Host "  Version: $($ver.Trim())" -ForegroundColor Green
+        $ok++
+    } else {
+        Write-Host "  NOT FOUND: $MumuPath" -ForegroundColor Red
+        $fail++
+    }
+
+    # 2. ADB
+    Write-Host ''
+    Write-Host '[2] ADB' -ForegroundColor Yellow
+    $adb = Join-Path (Split-Path $MumuPath -Parent) 'shell\adb.exe'
+    if (Test-Path $adb) {
+        $adbVer = & $adb version 2>&1 | Out-String
+        Write-Host "  Path: $adb" -ForegroundColor DarkGray
+        Write-Host "  $($adbVer.Trim().Split("`n")[0])" -ForegroundColor Green
+        $ok++
+    } else {
+        $sysAdb = Get-Command adb.exe -ErrorAction SilentlyContinue
+        if ($sysAdb) {
+            Write-Host "  System ADB: $($sysAdb.Source)" -ForegroundColor Green
+            $ok++
+        } else {
+            Write-Host '  NOT FOUND' -ForegroundColor Red
+            $fail++
+        }
+    }
+
+    # 3. Java
+    Write-Host ''
+    Write-Host '[3] Java' -ForegroundColor Yellow
+    $java = Get-Command java.exe -ErrorAction SilentlyContinue
+    if ($java) {
+        $javaVer = & java.exe -version 2>&1 | Out-String
+        Write-Host "  $($javaVer.Trim().Split("`n")[0])" -ForegroundColor Green
+        $ok++
+    } else {
+        Write-Host '  NOT FOUND (optional for ADB-based features)' -ForegroundColor DarkGray
+    }
+
+    # 4. tar.exe
+    Write-Host ''
+    Write-Host '[4] tar.exe' -ForegroundColor Yellow
+    $tar = Join-Path $env:SystemRoot 'System32\tar.exe'
+    if (Test-Path $tar) {
+        Write-Host '  Available' -ForegroundColor Green
+        $ok++
+    } else {
+        Write-Host '  NOT FOUND (backup archiving will use Compress-Archive)' -ForegroundColor DarkGray
+    }
+
+    # 5. robocopy
+    Write-Host ''
+    Write-Host '[5] robocopy' -ForegroundColor Yellow
+    $robocopy = Get-Command robocopy.exe -ErrorAction SilentlyContinue
+    if ($robocopy) {
+        Write-Host '  Available' -ForegroundColor Green
+        $ok++
+    } else {
+        Write-Host '  NOT FOUND (backup/restore will use Copy-Item)' -ForegroundColor Red
+        $fail++
+    }
+
+    # 6. curl.exe
+    Write-Host ''
+    Write-Host '[6] curl.exe' -ForegroundColor Yellow
+    $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
+    if ($curl) {
+        Write-Host '  Available' -ForegroundColor Green
+        $ok++
+    } else {
+        Write-Host '  NOT FOUND (updates will not work)' -ForegroundColor Red
+        $fail++
+    }
+
+    # 7. gh CLI
+    Write-Host ''
+    Write-Host '[7] GitHub CLI (gh)' -ForegroundColor Yellow
+    $gh = Get-Command gh.exe -ErrorAction SilentlyContinue
+    if ($gh) {
+        Write-Host '  Available' -ForegroundColor Green
+        $ok++
+    } else {
+        Write-Host '  NOT FOUND (optional)' -ForegroundColor DarkGray
+    }
+
+    # 8. GitHub token
+    Write-Host ''
+    Write-Host '[8] GitHub token' -ForegroundColor Yellow
+    if ($GitHubToken) {
+        Write-Host '  Loaded: YES' -ForegroundColor Green
+        $ok++
+    } else {
+        Write-Host '  Loaded: NO (public repo OK, private needs token)' -ForegroundColor DarkGray
+    }
+
+    # Summary
+    Write-Host ''
+    Write-Host '=== Summary ===' -ForegroundColor Cyan
+    Write-Host "  OK: $ok  |  Failed: $fail" -ForegroundColor $(if ($fail -gt 0) { 'Yellow' } else { 'Green' })
+    if ($fail -eq 0) {
+        Write-Host '  STATUS: ALL DEPENDENCIES OK' -ForegroundColor Green
+    } else {
+        Write-Host '  STATUS: SOME DEPENDENCIES MISSING' -ForegroundColor Yellow
     }
     Write-Host ''
 }
@@ -2913,6 +3245,9 @@ do {
         'e' { Export-Emulator }
         'k' { Update-Token }
         'z' { Test-Security }
+        'tc' { Test-EmulatorConnection }
+        'tn' { Test-Network }
+        'td' { Test-ScriptDependencies }
         'dm' { Set-DeviceModel }
         'sim' { Set-SimOperator }
         'di' { Set-RandomDeviceIds }
