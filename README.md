@@ -141,6 +141,11 @@ cd MuMuManager-CLI-Menu
   [CRT] Create/sign certificate
   [Z] Security audit (disabled)
 
+  --- Tests ---
+  [TC] Connection test
+  [TN] Network test
+  [TD] Dependencies test
+
   --- Spoofing ---
   [DM] Spoof device model
   [SIM] Change SIM operator / country (MCC/MNC)
