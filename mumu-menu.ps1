@@ -2414,6 +2414,46 @@ function Download-Repository {
     Write-Host "  Repo: $GitHubRepo" -ForegroundColor DarkGray
     Write-Host ''
 
+    # Helper: get target path with shortcuts
+    function Get-TargetPath {
+        param([string]$Prompt = 'Target directory')
+        Write-Host ''
+        Write-Host 'Quick paths:' -ForegroundColor DarkGray
+        Write-Host "  [D] Desktop\MuMuManager-CLI-Menu" -ForegroundColor White
+        Write-Host "  [W] Downloads\MuMuManager-CLI-Menu" -ForegroundColor White
+        Write-Host "  [C] Current folder ($PWD.Path)" -ForegroundColor White
+        Write-Host "  [B] Browse for folder..." -ForegroundColor White
+        Write-Host ''
+        $input = (Read-Host "$Prompt (D/W/C/B or path)").Trim()
+        $input = $input.Trim('"').Trim()
+        switch ($input.ToUpper()) {
+            'D' { return Join-Path ([Environment]::GetFolderPath('Desktop')) 'MuMuManager-CLI-Menu' }
+            'W' { return Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads\MuMuManager-CLI-Menu' }
+            'C' { return $PWD.Path }
+            'B' {
+                try {
+                    Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
+                    $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+                    $dialog.Description = 'Select folder for MuMuManager-CLI-Menu'
+                    $dialog.ShowNewFolderButton = $true
+                    $dialog.SelectedPath = $PWD.Path
+                    if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+                        return Join-Path $dialog.SelectedPath 'MuMuManager-CLI-Menu'
+                    }
+                    return $null
+                } catch {
+                    Write-Host '  Folder browser unavailable, enter path manually' -ForegroundColor Yellow
+                    $manual = (Read-Host 'Enter full path').Trim()
+                    return $manual.Trim('"').Trim()
+                }
+            }
+            default {
+                if ($input) { return $input }
+                else { return Join-Path $PWD.Path 'MuMuManager-CLI-Menu' }
+            }
+        }
+    }
+
     # 1. Choose download method
     Write-Host 'Download method:' -ForegroundColor Yellow
     Write-Host '  [1] Git clone (full repo with history)' -ForegroundColor White
@@ -2425,9 +2465,8 @@ function Download-Repository {
 
     if ($method -eq '1') {
         # Git clone
-        $targetDir = (Read-Host 'Target directory (Enter=current folder)').Trim()
-        $targetDir = $targetDir.Trim('"').Trim()
-        if (-not $targetDir) { $targetDir = $PWD.Path }
+        $targetDir = Get-TargetPath 'Clone to'
+        if (-not $targetDir) { return }
 
         $branch = (Read-Host 'Branch (Enter=main)').Trim()
         if (-not $branch) { $branch = 'main' }
@@ -2517,9 +2556,8 @@ function Download-Repository {
         Write-Host "  Asset: $($zipAsset.name) ($zipSize)" -ForegroundColor White
 
         # Download location
-        $targetDir = (Read-Host 'Download to (Enter=current folder)').Trim()
-        $targetDir = $targetDir.Trim('"').Trim()
-        if (-not $targetDir) { $targetDir = $PWD.Path }
+        $targetDir = Get-TargetPath 'Download to'
+        if (-not $targetDir) { return }
 
         $zipPath = Join-Path $targetDir $zipAsset.name
 
@@ -2588,9 +2626,8 @@ function Download-Repository {
         $zipSize = '{0:N1} MB' -f ($zipAsset.size / 1MB)
         Write-Host "  Asset:  $($zipAsset.name) ($zipSize)" -ForegroundColor White
 
-        $targetDir = (Read-Host 'Download to (Enter=current folder)').Trim()
-        $targetDir = $targetDir.Trim('"').Trim()
-        if (-not $targetDir) { $targetDir = $PWD.Path }
+        $targetDir = Get-TargetPath 'Download to'
+        if (-not $targetDir) { return }
 
         $zipPath = Join-Path $targetDir $zipAsset.name
 
