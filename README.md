@@ -145,6 +145,7 @@ cd MuMuManager-CLI-Menu
   [TC] Connection test
   [TN] Network test
   [TD] Dependencies test
+  [UW] Fix Unicode / encoding
 
   --- Spoofing ---
   [DM] Spoof device model
