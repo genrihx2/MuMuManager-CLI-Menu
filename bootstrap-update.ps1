@@ -30,7 +30,7 @@ foreach ($f in $files) {
     try {
         $bytes = $wc.DownloadData($url)
         if (-not $bytes -or $bytes.Length -eq 0) { throw 'empty download' }
-        
+
         # Check for JSON error
         $text = [System.Text.Encoding]::UTF8.GetString($bytes)
         if ($text.Length -lt 500 -and $text -match '"message"\s*:\s*"') {
