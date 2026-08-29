@@ -697,6 +697,7 @@ function Show-Menu {
     Write-Host '  [V] Version info' -ForegroundColor Yellow
     Write-Host '  [U] Check for updates' -ForegroundColor Yellow
     Write-Host '  [DL] Download repository' -ForegroundColor Yellow
+    Write-Host '  [CS] Cloudsmith packages' -ForegroundColor Yellow
     Write-Host '  [CR] Create release' -ForegroundColor Yellow
     Write-Host '  [FR] Fix release encoding' -ForegroundColor Yellow
     Write-Host '  [0] Exit' -ForegroundColor Yellow
@@ -2342,6 +2343,192 @@ function Update-Token {
         Write-Host 'Saved ENCRYPTED via DPAPI (.github-token.dpapi)' -ForegroundColor Green
     } else {
         Write-Host 'Cancelled (empty input).' -ForegroundColor Yellow
+    }
+}
+
+function Download-Cloudsmith {
+    Write-Host ''
+    Write-Host '=== Cloudsmith Repository ===' -ForegroundColor Cyan
+    $csOwner = 'mumumanager'
+    $csRepo = 'mumumanager-cli-menu'
+    Write-Host "  Repo: $csOwner/$csRepo" -ForegroundColor DarkGray
+    Write-Host "  URL:  https://app.cloudsmith.com/$csOwner/$csRepo" -ForegroundColor DarkGray
+    Write-Host ''
+
+    # Cloudsmith API key (optional for public repos)
+    $csKey = ''
+    $csKeyFile = Join-Path $ScriptDir '.cloudsmith-token'
+    if (Test-Path -LiteralPath $csKeyFile) {
+        try { $csKey = (Get-Content -LiteralPath $csKeyFile -Raw).Trim() } catch {}
+    }
+
+    Write-Host 'Options:' -ForegroundColor Yellow
+    Write-Host '  [1] List packages' -ForegroundColor White
+    Write-Host '  [2] Download latest package' -ForegroundColor White
+    Write-Host '  [3] Download specific version' -ForegroundColor White
+    Write-Host '  [4] Set API key' -ForegroundColor White
+    Write-Host ''
+    $csMethod = Read-Host 'Select (1/2/3/4)'
+
+    # Build API headers
+    $csHeaders = @{}
+    if ($csKey) { $csHeaders['Authorization'] = "token $csKey" }
+
+    function Get-CloudsmithPackages {
+        $apiUrl = "https://api.cloudsmith.io/packages/$csOwner/$csRepo/?page_size=50&sort=-version"
+        $tmpFile = Join-Path $env:TEMP ('cs_pkgs_' + [Guid]::NewGuid().ToString('N') + '.json')
+        $curlCmd = "curl.exe -s --connect-timeout 30 --max-time 60 -o `"$tmpFile`" "
+        foreach ($h in $csHeaders.Keys) {
+            $curlCmd += "-H `"$h`: $($csHeaders[$h])" "
+        }
+        $curlCmd += $apiUrl
+        & cmd /c $curlCmd 2>$null
+        if (Test-Path -LiteralPath $tmpFile) {
+            $bytes = [System.IO.File]::ReadAllBytes($tmpFile)
+            Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue
+            $json = [System.Text.Encoding]::UTF8.GetString($bytes)
+            try { return ($json | ConvertFrom-Json) } catch { return $null }
+        }
+        return $null
+    }
+
+    if ($csMethod -eq '1') {
+        # List packages
+        Write-Host ''
+        Write-Host 'Fetching packages...' -ForegroundColor DarkGray
+        $pkgs = Get-CloudsmithPackages
+        if (-not $pkgs -or -not $pkgs.data -or $pkgs.data.Count -eq 0) {
+            Write-Host 'No packages found.' -ForegroundColor Yellow
+            return
+        }
+
+        Write-Host ''
+        Write-Host '  ============================================' -ForegroundColor Cyan
+        Write-Host '    CLOUDSMITH PACKAGES' -ForegroundColor White
+        Write-Host '  ============================================' -ForegroundColor Cyan
+        foreach ($p in $pkgs.data) {
+            $name = $p.name
+            $ver = $p.version
+            $fmt = $p.format
+            $date = ''
+            if ($p.uploaded_at) {
+                try { $date = [datetime]::Parse($p.uploaded_at).ToString('yyyy-MM-dd HH:mm') } catch { $date = $p.uploaded_at }
+            }
+            $size = ''
+            if ($p.files -and $p.files.Count -gt 0) {
+                $totalSize = ($p.files | Measure-Object -Property size -Sum).Sum
+                if ($totalSize -gt 1MB) { $size = "$([math]::Round($totalSize/1MB, 1)) MB" }
+                elseif ($totalSize -gt 1KB) { $size = "$([math]::Round($totalSize/1KB, 1)) KB" }
+                else { $size = "$totalSize B" }
+            }
+            $cdnUrl = $p.cdn_url
+            Write-Host ''
+            Write-Host "  $name v$ver" -ForegroundColor White -NoNewline
+            Write-Host " [$fmt]" -ForegroundColor DarkGray -NoNewline
+            if ($date) { Write-Host " | $date" -ForegroundColor DarkGray -NoNewline }
+            if ($size) { Write-Host " | $size" -ForegroundColor DarkGray -NoNewline }
+            Write-Host ''
+            if ($cdnUrl) { Write-Host "    $cdnUrl" -ForegroundColor DarkGray }
+        }
+        Write-Host ''
+        Write-Host '  ============================================' -ForegroundColor Cyan
+
+    } elseif ($csMethod -eq '2' -or $csMethod -eq '3') {
+        # Download package
+        Write-Host ''
+        Write-Host 'Fetching packages...' -ForegroundColor DarkGray
+        $pkgs = Get-CloudsmithPackages
+        if (-not $pkgs -or -not $pkgs.data -or $pkgs.data.Count -eq 0) {
+            Write-Host 'No packages found.' -ForegroundColor Yellow
+            return
+        }
+
+        if ($csMethod -eq '2') {
+            # Download latest
+            $chosen = $pkgs.data[0]
+        } else {
+            # Select specific version
+            Write-Host ''
+            for ($i = 0; $i -lt [Math]::Min($pkgs.data.Count, 20); $i++) {
+                $p = $pkgs.data[$i]
+                $marker = if ($i -eq 0) { ' <-- latest' } else { '' }
+                Write-Host "  [$($i + 1)] $($p.name) v$($p.version) [$($p.format)]$marker" -ForegroundColor White
+            }
+            Write-Host ''
+            $sel = Read-Host 'Select package (number)'
+            if (-not ($sel -match '^\d+$' -and [int]$sel -ge 1 -and [int]$sel -le $pkgs.data.Count)) {
+                Write-Host 'Invalid selection.' -ForegroundColor Red
+                return
+            }
+            $chosen = $pkgs.data[[int]$sel - 1]
+        }
+
+        # Get download URL
+        $cdnUrl = $chosen.cdn_url
+        if (-not $cdnUrl) {
+            Write-Host 'No download URL found for this package.' -ForegroundColor Yellow
+            return
+        }
+
+        # Determine filename
+        $fileName = $chosen.name
+        if ($chosen.version) { $fileName += "-$($chosen.version)" }
+        if ($chosen.format) { $fileName += ".$($chosen.format)" }
+
+        Write-Host ''
+        Write-Host "  Package:  $($chosen.name) v$($chosen.version)" -ForegroundColor White
+        Write-Host "  Format:  $($chosen.format)" -ForegroundColor DarkGray
+        Write-Host "  URL:     $cdnUrl" -ForegroundColor DarkGray
+        Write-Host "  File:    $fileName" -ForegroundColor DarkGray
+
+        # Download location
+        Write-Host ''
+        Write-Host 'Quick paths:' -ForegroundColor DarkGray
+        Write-Host "  [D] Desktop" -ForegroundColor White
+        Write-Host "  [W] Downloads" -ForegroundColor White
+        Write-Host "  [C] Current folder ($PWD.Path)" -ForegroundColor White
+        Write-Host ''
+        $dlPath = (Read-Host 'Download to (D/W/C or path)').Trim()
+        $dlDir = switch ($dlPath.ToUpper()) {
+            'D' { [Environment]::GetFolderPath('Desktop') }
+            'W' { Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads' }
+            'C' { $PWD.Path }
+            default { if ($dlPath) { $dlPath } else { $PWD.Path } }
+        }
+
+        $destFile = Join-Path $dlDir $fileName
+        Write-Host ''
+        Write-Host "Downloading $fileName..." -ForegroundColor Cyan
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        $dlCmd = "curl.exe -# --connect-timeout 30 --max-time 300 --retry 3 -L -o `"$destFile`" $cdnUrl"
+        & cmd /c $dlCmd 2>$null
+        $sw.Stop()
+
+        if (Test-Path -LiteralPath $destFile) {
+            $actualSize = (Get-Item -LiteralPath $destFile).Length
+            Write-Host ''
+            Write-Host ("Downloaded: {0:N1} MB in {1:mm\:ss}" -f ($actualSize / 1MB), $sw.Elapsed) -ForegroundColor Green
+            Write-Host "  Location: $destFile" -ForegroundColor DarkGray
+        } else {
+            Write-Host 'Download failed!' -ForegroundColor Red
+        }
+
+    } elseif ($csMethod -eq '4') {
+        # Set API key
+        Write-Host ''
+        Write-Host 'Cloudsmith API Key' -ForegroundColor Cyan
+        Write-Host 'Get yours at: https://app.cloudsmith.com/user/settings/account/#api-key' -ForegroundColor DarkGray
+        Write-Host ''
+        $newKey = (Read-Host 'Enter API key (empty to clear)').Trim()
+        if ($newKey) {
+            Set-Content -Path $csKeyFile -Value $newKey -NoNewline -Force
+            Write-Host 'API key saved.' -ForegroundColor Green
+        } else {
+            if (Test-Path -LiteralPath $csKeyFile) {
+                Remove-Item -LiteralPath $csKeyFile -Force
+                Write-Host 'API key cleared.' -ForegroundColor Yellow
+            }
+        }
     }
 }
 
@@ -4487,6 +4674,7 @@ do {
         'v' { Show-VersionInfo }
         'u' { Update-FromGitHub }
         'dl' { Download-Repository }
+        'cs' { Download-Cloudsmith }
         'cr' { Create-GitHubRelease }
         'fr' { Fix-ReleaseEncoding }
         'crt' { Create-Certificate }
