@@ -154,6 +154,7 @@ cd MuMuManager-CLI-Menu
   --- Info ---
   [V] Version info
   [U] Check for updates
+  [DL] Download repository
   [CR] Create release
   [0] Exit
 ======================================
