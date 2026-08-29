@@ -2951,7 +2951,7 @@ function Fix-ReleaseEncoding {
     Write-Host 'Enter new release notes (empty line to finish):' -ForegroundColor Yellow
     $newNotes = ''
     while ($true) {
-        $line = Read-Host ''
+        $line = Read-Host '> '
         if (-not $line) { break }
         $newNotes += "$line`n"
     }
@@ -3132,7 +3132,7 @@ function Create-GitHubRelease {
                 Write-Host 'Enter release notes (empty line to finish):' -ForegroundColor Yellow
                 $notes = ''
                 while ($true) {
-                    $line = Read-Host ''
+                    $line = Read-Host '> '
                     if (-not $line) { break }
                     $notes += "$line`n"
                 }
@@ -3144,7 +3144,7 @@ function Create-GitHubRelease {
         Write-Host ''
         Write-Host 'Enter release notes (empty line to finish):' -ForegroundColor Yellow
         while ($true) {
-            $line = Read-Host ''
+            $line = Read-Host '> '
             if (-not $line) { break }
             $notes += "$line`n"
         }
@@ -3162,7 +3162,7 @@ function Create-GitHubRelease {
     $uploadAns = Read-Host 'Attach a ZIP file? (y/N)'
     if ($uploadAns -eq 'y' -or $uploadAns -eq 'Y') {
         Write-Host 'Enter path to ZIP file:' -ForegroundColor Yellow
-        $zipPath = (Read-Host '').Trim()
+        $zipPath = (Read-Host 'Path').Trim()
         $zipPath = $zipPath.Trim('"').Trim()
         if ($zipPath -and -not (Test-Path -LiteralPath $zipPath)) {
             Write-Host "  File not found: $zipPath" -ForegroundColor Red
