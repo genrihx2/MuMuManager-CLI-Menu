@@ -1191,28 +1191,30 @@ function Restore-EmulatorData {
     }
 
     # Collect backup folders AND .zip archives from all backup dirs
-    $entries = @()
+    $entries = [System.Collections.ArrayList]::new()
     foreach ($backupRoot in $backupDirs) {
-        Get-ChildItem -LiteralPath $backupRoot -Directory -ErrorAction SilentlyContinue | ForEach-Object {
-            $entries += [pscustomobject]@{
-                Name = $_.Name
-                Path = $_.FullName
+        $dirs = Get-ChildItem -LiteralPath $backupRoot -Directory -ErrorAction SilentlyContinue
+        foreach ($d in $dirs) {
+            $null = $entries.Add([pscustomobject]@{
+                Name = $d.Name
+                Path = $d.FullName
                 IsZip = $false
-                Size = (Get-ChildItem -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
-                LastWriteTime = $_.LastWriteTime
-            }
+                Size = (Get-ChildItem -LiteralPath $d.FullName -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+                LastWriteTime = $d.LastWriteTime
+            })
         }
-        Get-ChildItem -LiteralPath $backupRoot -Filter '*.zip' -File -ErrorAction SilentlyContinue | ForEach-Object {
-            $entries += [pscustomobject]@{
-                Name = $_.Name
-                Path = $_.FullName
+        $zips = Get-ChildItem -LiteralPath $backupRoot -Filter '*.zip' -File -ErrorAction SilentlyContinue
+        foreach ($z in $zips) {
+            $null = $entries.Add([pscustomobject]@{
+                Name = $z.Name
+                Path = $z.FullName
                 IsZip = $true
-                Size = $_.Length
-                LastWriteTime = $_.LastWriteTime
-            }
+                Size = $z.Length
+                LastWriteTime = $z.LastWriteTime
+            })
         }
     } # end foreach backupRoot
-    $entries = $entries | Sort-Object LastWriteTime -Descending
+    $entries = @($entries | Sort-Object LastWriteTime -Descending)
 
     if ($entries.Count -eq 0) {
         Write-Host 'No backups found.' -ForegroundColor Yellow
