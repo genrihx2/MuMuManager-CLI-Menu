@@ -1132,11 +1132,29 @@ function Restore-EmulatorData {
         return
     }
 
-    # Collect all backup folders
-    $backups = Get-ChildItem -LiteralPath $backupRoot -Directory -ErrorAction SilentlyContinue |
-        Sort-Object Name -Descending
+    # Collect backup folders AND .zip archives
+    $entries = @()
+    Get-ChildItem -LiteralPath $backupRoot -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+        $entries += [pscustomobject]@{
+            Name = $_.Name
+            Path = $_.FullName
+            IsZip = $false
+            Size = (Get-ChildItem -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+            LastWriteTime = $_.LastWriteTime
+        }
+    }
+    Get-ChildItem -LiteralPath $backupRoot -Filter '*.zip' -File -ErrorAction SilentlyContinue | ForEach-Object {
+        $entries += [pscustomobject]@{
+            Name = $_.Name
+            Path = $_.FullName
+            IsZip = $true
+            Size = $_.Length
+            LastWriteTime = $_.LastWriteTime
+        }
+    }
+    $entries = $entries | Sort-Object LastWriteTime -Descending
 
-    if ($backups.Count -eq 0) {
+    if ($entries.Count -eq 0) {
         Write-Host 'No backups found.' -ForegroundColor Yellow
         return
     }
@@ -1144,45 +1162,93 @@ function Restore-EmulatorData {
     Write-Host ''
     Write-Host 'Available backups:' -ForegroundColor Cyan
     Write-Host ''
-    for ($i = 0; $i -lt $backups.Count; $i++) {
-        $b = $backups[$i]
-        $size = (Get-ChildItem -LiteralPath $b.FullName -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
-        $age = (Get-Date) - $b.LastWriteTime
+    for ($i = 0; $i -lt $entries.Count; $i++) {
+        $e = $entries[$i]
+        $age = (Get-Date) - $e.LastWriteTime
         $ageStr = if ($age.TotalDays -ge 1) { "{0:N0}d ago" -f $age.TotalDays }
                   elseif ($age.TotalHours -ge 1) { "{0:N0}h ago" -f $age.TotalHours }
                   else { "{0:N0}m ago" -f $age.TotalMinutes }
-        # Extract instance index from folder name (emu_N_timestamp)
-        $instMatch = [regex]::Match($b.Name, 'emu_(\d+)_')
+        $instMatch = [regex]::Match($e.Name, 'emu_(\d+)_')
         $instLabel = if ($instMatch.Success) { "instance #$($instMatch.Groups[1].Value)" } else { 'unknown' }
+        $typeTag = if ($e.IsZip) { 'ZIP' } else { 'DIR' }
+        $sizeStr = if ($e.Size / 1GB -ge 1) { "{0:N2} GB" -f ($e.Size / 1GB) } else { "{0:N2} MB" -f ($e.Size / 1MB) }
 
-        Write-Host "  [$($i + 1)] $($b.Name)" -ForegroundColor White
-        Write-Host "       Instance: $instLabel  |  Size: {0:N2} GB  |  $ageStr" -f ($size / 1GB) -ForegroundColor DarkGray
+        $tagColor = if ($e.IsZip) { 'Cyan' } else { 'DarkGray' }
+        Write-Host "  [$($i + 1)] $($e.Name)" -NoNewline -ForegroundColor White
+        Write-Host "  [$typeTag]" -ForegroundColor $tagColor
+        Write-Host "       Instance: $instLabel  |  Size: $sizeStr  |  $ageStr" -ForegroundColor DarkGray
     }
 
     Write-Host ''
     $sel = Read-Host 'Select backup to restore (number)'
-    if (-not ($sel -match '^\d+$' -and [int]$sel -ge 1 -and [int]$sel -le $backups.Count)) {
+    if (-not ($sel -match '^\d+$' -and [int]$sel -ge 1 -and [int]$sel -le $entries.Count)) {
         Write-Host 'Invalid selection.' -ForegroundColor Red
         return
     }
-    $chosen = $backups[[int]$sel - 1]
-    $src = $chosen.FullName
+    $chosen = $entries[[int]$sel - 1]
+    $isZipRestore = $chosen.IsZip
 
     # Show contents
     Write-Host ''
     Write-Host "Contents of $($chosen.Name):" -ForegroundColor Cyan
-    $items = Get-ChildItem -LiteralPath $src -ErrorAction SilentlyContinue
-    foreach ($item in $items) {
-        if ($item.PSIsContainer) {
-            $itemSize = (Get-ChildItem -LiteralPath $item.FullName -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
-            Write-Host "  [DIR]  $($item.Name)  ({0:N2} GB)" -f ($itemSize / 1GB) -ForegroundColor DarkGray
-        } else {
-            Write-Host "  [FILE] $($item.Name)  ({0:N2} MB)" -f ($item.Length / 1MB) -ForegroundColor DarkGray
+
+    if ($isZipRestore) {
+        # Show zip contents
+        $zipSize = '{0:N2} MB' -f ($chosen.Size / 1MB)
+        Write-Host "  [ZIP] $($chosen.Name)  ($zipSize)" -ForegroundColor Cyan
+        Write-Host ''
+        Write-Host '  Extracting contents list...' -ForegroundColor DarkGray
+        $tmpExtract = Join-Path $env:TEMP ("mumu_list_" + [Guid]::NewGuid().ToString('N'))
+        try {
+            $tarExe = Join-Path $env:SystemRoot 'System32\tar.exe'
+            if (Test-Path $tarExe) {
+                New-Item -ItemType Directory -Path $tmpExtract -Force | Out-Null
+                & $tarExe -xf $chosen.Path -C $tmpExtract 2>&1 | Out-Null
+            } else {
+                $zip = [System.IO.Compression.ZipFile]::OpenRead($chosen.Path)
+                try {
+                    foreach ($entry in $zip.Entries) {
+                        $destPath = Join-Path $tmpExtract $entry.FullName
+                        $dir = Split-Path $destPath -Parent
+                        if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+                        if ($entry.Name) { [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $destPath, $true) }
+                    }
+                } finally {
+                    $zip.Dispose()
+                }
+            }
+            $zipItems = Get-ChildItem -LiteralPath $tmpExtract -Recurse -ErrorAction SilentlyContinue | Select-Object -First 20
+            $totalItems = (Get-ChildItem -LiteralPath $tmpExtract -Recurse -ErrorAction SilentlyContinue | Measure-Object).Count
+            foreach ($item in $zipItems) {
+                $rel = $item.FullName.Substring($tmpExtract.Length + 1)
+                if ($item.PSIsContainer) {
+                    Write-Host "  [DIR]  $rel" -ForegroundColor DarkGray
+                } else {
+                    Write-Host "  [FILE] $rel  ({0:N2} MB)" -f ($item.Length / 1MB) -ForegroundColor DarkGray
+                }
+            }
+            if ($totalItems -gt 20) {
+                Write-Host "  ... and $($totalItems - 20) more items" -ForegroundColor DarkGray
+            }
+        } catch {
+            Write-Host "  Failed to list ZIP contents: $($_.Exception.Message)" -ForegroundColor Yellow
+        } finally {
+            if (Test-Path $tmpExtract) { Remove-Item -LiteralPath $tmpExtract -Recurse -Force -ErrorAction SilentlyContinue }
+        }
+    } else {
+        $items = Get-ChildItem -LiteralPath $chosen.Path -ErrorAction SilentlyContinue
+        foreach ($item in $items) {
+            if ($item.PSIsContainer) {
+                $itemSize = (Get-ChildItem -LiteralPath $item.FullName -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+                Write-Host "  [DIR]  $($item.Name)  ({0:N2} GB)" -f ($itemSize / 1GB) -ForegroundColor DarkGray
+            } else {
+                Write-Host "  [FILE] $($item.Name)  ({0:N2} MB)" -f ($item.Length / 1MB) -ForegroundColor DarkGray
+            }
         }
     }
 
-    # Extract instance index from folder name
-    $instMatch = [regex]::Match($chosen.Name, 'emu_(\d+)_')
+    # Extract instance index from name (folder or zip)
+    $instMatch = [regex]::Match($chosen.Name, 'emu_(\d+)[_.]')
     $defaultIndex = if ($instMatch.Success) { $instMatch.Groups[1].Value } else { '' }
 
     Write-Host ''
@@ -1289,10 +1355,58 @@ function Restore-EmulatorData {
     Write-Host "Restoring from $($chosen.Name)..." -ForegroundColor Cyan
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
 
-    # Clear target first, then copy
     Get-ChildItem -LiteralPath $dest -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-    & robocopy $src $dest /E /NDL /NJH /NP /R:2 /W:2 | Out-Null
-    $code = $LASTEXITCODE
+
+    if ($isZipRestore) {
+        # Extract ZIP to temp, then robocopy from there
+        $tmpZip = Join-Path $env:TEMP ("mumu_restore_" + [Guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $tmpZip -Force | Out-Null
+        try {
+            $tarExe = Join-Path $env:SystemRoot 'System32\tar.exe'
+            if (Test-Path $tarExe) {
+                & $tarExe -xf $chosen.Path -C $tmpZip 2>&1 | Out-Null
+                $extractCode = $LASTEXITCODE
+            } else {
+                $zip = [System.IO.Compression.ZipFile]::OpenRead($chosen.Path)
+                try {
+                    foreach ($entry in $zip.Entries) {
+                        $entryDest = Join-Path $tmpZip $entry.FullName
+                        $entryDir = Split-Path $entryDest -Parent
+                        if ($entryDir -and -not (Test-Path $entryDir)) {
+                            New-Item -ItemType Directory -Path $entryDir -Force | Out-Null
+                        }
+                        if ($entry.Name) {
+                            [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $entryDest, $true)
+                        }
+                    }
+                } finally {
+                    $zip.Dispose()
+                }
+                $extractCode = 0
+            }
+
+            if ($extractCode -ge 8) {
+                Write-Host "ZIP extraction FAILED (exit code $extractCode)" -ForegroundColor Red
+                return
+            }
+
+            # The ZIP may contain a nested folder (e.g. emu_1_20260828_123456/)
+            $zipContents = Get-ChildItem -LiteralPath $tmpZip -ErrorAction SilentlyContinue
+            $srcPath = if ($zipContents.Count -eq 1 -and $zipContents[0].PSIsContainer) {
+                $zipContents[0].FullName
+            } else {
+                $tmpZip
+            }
+
+            & robocopy $srcPath $dest /E /NDL /NJH /NP /R:2 /W:2 | Out-Null
+            $code = $LASTEXITCODE
+        } finally {
+            Remove-Item -LiteralPath $tmpZip -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    } else {
+        & robocopy $chosen.Path $dest /E /NDL /NJH /NP /R:2 /W:2 | Out-Null
+        $code = $LASTEXITCODE
+    }
     $sw.Stop()
 
     if ($code -ge 8) {
@@ -1303,7 +1417,8 @@ function Restore-EmulatorData {
     $restored = (Get-ChildItem -LiteralPath $dest -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
     Write-Host ''
     Write-Host ("Restore complete! {0:N2} GB in {1:mm\:ss}" -f ($restored / 1GB), $sw.Elapsed) -ForegroundColor Green
-    Write-Host "  Instance #$index data restored from: $($chosen.Name)" -ForegroundColor DarkGray
+    $srcType = if ($isZipRestore) { 'ZIP archive' } else { 'backup folder' }
+    Write-Host "  Instance #${index} data restored from ${srcType}: $($chosen.Name)" -ForegroundColor DarkGray
 
     $startAns = Read-Host 'Start instance now? (y/N)'
     if ($startAns -eq 'y' -or $startAns -eq 'Y') {
