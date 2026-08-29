@@ -156,6 +156,7 @@ cd MuMuManager-CLI-Menu
   [V] Version info
   [U] Check for updates
   [DL] Download repository
+  [CS] Cloudsmith packages
   [CR] Create release
   [FR] Fix release encoding
   [0] Exit
