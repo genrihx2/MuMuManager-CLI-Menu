@@ -1286,7 +1286,8 @@ function Restore-EmulatorData {
                 if ($item.PSIsContainer) {
                     Write-Host "  [DIR]  $rel" -ForegroundColor DarkGray
                 } else {
-                    Write-Host "  [FILE] $rel  ({0:N2} MB)" -f ($item.Length / 1MB) -ForegroundColor DarkGray
+                    $sz = '{0:N2} MB' -f ($item.Length / 1MB)
+                    Write-Host "  [FILE] $rel  ($sz)" -ForegroundColor DarkGray
                 }
             }
             if ($totalItems -gt 20) {
@@ -1302,9 +1303,11 @@ function Restore-EmulatorData {
         foreach ($item in $items) {
             if ($item.PSIsContainer) {
                 $itemSize = (Get-ChildItem -LiteralPath $item.FullName -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
-                Write-Host "  [DIR]  $($item.Name)  ({0:N2} GB)" -f ($itemSize / 1GB) -ForegroundColor DarkGray
+                $sz = '{0:N2} GB' -f ($itemSize / 1GB)
+                Write-Host "  [DIR]  $($item.Name)  ($sz)" -ForegroundColor DarkGray
             } else {
-                Write-Host "  [FILE] $($item.Name)  ({0:N2} MB)" -f ($item.Length / 1MB) -ForegroundColor DarkGray
+                $sz = '{0:N2} MB' -f ($item.Length / 1MB)
+                Write-Host "  [FILE] $($item.Name)  ($sz)" -ForegroundColor DarkGray
             }
         }
     }
@@ -2721,7 +2724,8 @@ function Create-GitHubRelease {
             $zipPath = ''
         } elseif ($zipPath) {
             $zipSize = (Get-Item -LiteralPath $zipPath).Length
-            Write-Host "  Attached: $(Split-Path $zipPath -Leaf) ({0:N1} MB)" -f ($zipSize / 1MB) -ForegroundColor Green
+            $sz = '{0:N1} MB' -f ($zipSize / 1MB)
+            Write-Host "  Attached: $(Split-Path $zipPath -Leaf) ($sz)" -ForegroundColor Green
         }
     }
 
