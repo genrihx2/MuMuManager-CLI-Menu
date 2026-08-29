@@ -174,6 +174,9 @@ if (-not (Test-Path $MumuPath)) {
 function Get-ContentHash {
     param([string]$Text)
     $norm = $Text -replace "`r", ''
+    # Strip UTF-8 BOM (U+FEFF) so local ReadAllText (which strips BOM)
+    # and raw remote bytes (which include BOM) produce the same hash.
+    $norm = $norm.TrimStart([char]0xFEFF)
     $sha = [System.Security.Cryptography.SHA256]::Create()
     try {
         ([BitConverter]::ToString($sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($norm))) -replace '-', '')
@@ -496,12 +499,6 @@ function Update-FromGitHub {
         # Clean up old backups
         Remove-OldBackups
 
-        # Primary: download the release ZIP asset (one request, no API rate limits).
-        # Fallback: fetch individual files via the GitHub contents API.
-        $zipName = "MuMuManager-CLI-Menu-$tag.zip"
-        $zipUrl = "https://github.com/$GitHubRepo/releases/download/$tag/$zipName"
-        $tmp = Join-Path $env:TEMP "mumu_update_$stamp.zip"
-        $tmpDir = Join-Path $env:TEMP "mumu_update_$stamp"
         $failed = 0
 
         # Download files using PowerShell native WebClient (reliable, no curl complexity)
