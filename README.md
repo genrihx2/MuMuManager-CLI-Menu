@@ -136,6 +136,7 @@ cd MuMuManager-CLI-Menu
   [T] Start app
   [E] Export emulator data
   [BA] Backup instance data
+  [RE] Restore from backup
   [K] Update GitHub token
   [CRT] Create/sign certificate
   [Z] Security audit (disabled)
