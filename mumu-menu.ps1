@@ -693,11 +693,15 @@ function Show-Menu {
     Write-Host '  [SIM] Change SIM operator / country (MCC/MNC)' -ForegroundColor Yellow
     Write-Host '  [DI] Random device IDs' -ForegroundColor Yellow
     Write-Host ''
+    Write-Host '  --- Cloudsmith ---' -ForegroundColor Green
+    Write-Host '  [CS] List / download packages' -ForegroundColor Yellow
+    Write-Host '  [CU] Upload package to Cloudsmith' -ForegroundColor Yellow
+    Write-Host '  [CK] Set Cloudsmith API key' -ForegroundColor Yellow
+    Write-Host ''
     Write-Host '  --- Info ---' -ForegroundColor Green
     Write-Host '  [V] Version info' -ForegroundColor Yellow
     Write-Host '  [U] Check for updates' -ForegroundColor Yellow
     Write-Host '  [DL] Download repository' -ForegroundColor Yellow
-    Write-Host '  [CS] Cloudsmith packages' -ForegroundColor Yellow
     Write-Host '  [CR] Create release' -ForegroundColor Yellow
     Write-Host '  [FR] Fix release encoding' -ForegroundColor Yellow
     Write-Host '  [0] Exit' -ForegroundColor Yellow
@@ -2346,66 +2350,68 @@ function Update-Token {
     }
 }
 
-function Download-Cloudsmith {
-    Write-Host ''
-    Write-Host '=== Cloudsmith Repository ===' -ForegroundColor Cyan
-    $csOwner = 'mumumanager'
-    $csRepo = 'mumumanager-cli-menu'
-    Write-Host "  Repo: $csOwner/$csRepo" -ForegroundColor DarkGray
-    Write-Host "  URL:  https://app.cloudsmith.com/$csOwner/$csRepo" -ForegroundColor DarkGray
-    Write-Host ''
+# --- Cloudsmith helper functions -----------------------------------------------
+$CloudsmithOwner = 'mumumanager'
+$CloudsmithRepo = 'mumumanager-cli-menu'
+$CloudsmithKeyFile = Join-Path $ScriptDir '.cloudsmith-token'
 
-    # Cloudsmith API key (optional for public repos)
-    $csKey = ''
-    $csKeyFile = Join-Path $ScriptDir '.cloudsmith-token'
-    if (Test-Path -LiteralPath $csKeyFile) {
-        try { $csKey = (Get-Content -LiteralPath $csKeyFile -Raw).Trim() } catch {}
+function Get-CloudsmithKey {
+    if (Test-Path -LiteralPath $CloudsmithKeyFile) {
+        try { return (Get-Content -LiteralPath $CloudsmithKeyFile -Raw).Trim() } catch {}
     }
+    return ''
+}
+
+function Get-CloudsmithPackages {
+    $key = Get-CloudsmithKey
+    $apiUrl = "https://api.cloudsmith.io/packages/$CloudsmithOwner/$CloudsmithRepo/?page_size=50&sort=-version"
+    $tmpFile = Join-Path $env:TEMP ('cs_pkgs_' + [Guid]::NewGuid().ToString('N') + '.json')
+    $curlCmd = "curl.exe -s --connect-timeout 30 --max-time 60 -o `"$tmpFile`" "
+    if ($key) { $curlCmd += "-H `"Authorization: token $key`" " }
+    $curlCmd += $apiUrl
+    & cmd /c $curlCmd 2>$null
+    if (Test-Path -LiteralPath $tmpFile) {
+        $bytes = [System.IO.File]::ReadAllBytes($tmpFile)
+        Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue
+        $json = [System.Text.Encoding]::UTF8.GetString($bytes)
+        try { return ($json | ConvertFrom-Json) } catch { return $null }
+    }
+    return $null
+}
+
+function Get-CloudsmithList {
+    $raw = Get-CloudsmithPackages
+    $list = @()
+    if ($raw -is [array]) { $list = $raw }
+    elseif ($raw.data) { $list = $raw.data }
+    return $list
+}
+
+# [CS] List / download packages
+function Cloudsmith-ListDownload {
+    Write-Host ''
+    Write-Host '=== Cloudsmith Packages ===' -ForegroundColor Cyan
+    Write-Host "  Repo: $CloudsmithOwner/$CloudsmithRepo" -ForegroundColor DarkGray
+    Write-Host "  URL:  https://app.cloudsmith.com/$CloudsmithOwner/$CloudsmithRepo" -ForegroundColor DarkGray
+    Write-Host ''
 
     Write-Host 'Options:' -ForegroundColor Yellow
-    Write-Host '  [1] List packages' -ForegroundColor White
+    Write-Host '  [1] List all packages' -ForegroundColor White
     Write-Host '  [2] Download latest package' -ForegroundColor White
     Write-Host '  [3] Download specific version' -ForegroundColor White
-    Write-Host '  [4] Set API key' -ForegroundColor White
     Write-Host ''
-    $csMethod = Read-Host 'Select (1/2/3/4)'
+    $csMethod = Read-Host 'Select (1/2/3)'
 
-    # Build API headers
-    $csHeaders = @{}
-    if ($csKey) { $csHeaders['Authorization'] = "token $csKey" }
-
-    function Get-CloudsmithPackages {
-        $apiUrl = "https://api.cloudsmith.io/packages/$csOwner/$csRepo/?page_size=50&sort=-version"
-        $tmpFile = Join-Path $env:TEMP ('cs_pkgs_' + [Guid]::NewGuid().ToString('N') + '.json')
-        $curlCmd = "curl.exe -s --connect-timeout 30 --max-time 60 -o `"$tmpFile`" "
-        foreach ($h in $csHeaders.Keys) {
-            $curlCmd += "-H `"$h`: $($csHeaders[$h])" "
-        }
-        $curlCmd += $apiUrl
-        & cmd /c $curlCmd 2>$null
-        if (Test-Path -LiteralPath $tmpFile) {
-            $bytes = [System.IO.File]::ReadAllBytes($tmpFile)
-            Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue
-            $json = [System.Text.Encoding]::UTF8.GetString($bytes)
-            try { return ($json | ConvertFrom-Json) } catch { return $null }
-        }
-        return $null
+    Write-Host ''
+    Write-Host 'Fetching packages...' -ForegroundColor DarkGray
+    $pkgsList = Get-CloudsmithList
+    if (-not $pkgsList -or $pkgsList.Count -eq 0) {
+        Write-Host 'No packages found.' -ForegroundColor Yellow
+        return
     }
 
     if ($csMethod -eq '1') {
         # List packages
-        Write-Host ''
-        Write-Host 'Fetching packages...' -ForegroundColor DarkGray
-        $pkgsRaw = Get-CloudsmithPackages
-        # Cloudsmith API returns either an array [] or object {data:[]}
-        $pkgsList = @()
-        if ($pkgsRaw -is [array]) { $pkgsList = $pkgsRaw }
-        elseif ($pkgsRaw.data) { $pkgsList = $pkgsRaw.data }
-        if (-not $pkgsList -or $pkgsList.Count -eq 0) {
-            Write-Host 'No packages found.' -ForegroundColor Yellow
-            return
-        }
-
         Write-Host ''
         Write-Host '  ============================================' -ForegroundColor Cyan
         Write-Host '    CLOUDSMITH PACKAGES' -ForegroundColor White
@@ -2439,22 +2445,10 @@ function Download-Cloudsmith {
 
     } elseif ($csMethod -eq '2' -or $csMethod -eq '3') {
         # Download package
-        Write-Host ''
-        Write-Host 'Fetching packages...' -ForegroundColor DarkGray
-        $pkgsRaw = Get-CloudsmithPackages
-        $pkgsList = @()
-        if ($pkgsRaw -is [array]) { $pkgsList = $pkgsRaw }
-        elseif ($pkgsRaw.data) { $pkgsList = $pkgsRaw.data }
-        if (-not $pkgsList -or $pkgsList.Count -eq 0) {
-            Write-Host 'No packages found.' -ForegroundColor Yellow
-            return
-        }
-
+        $chosen = $null
         if ($csMethod -eq '2') {
-            # Download latest
             $chosen = $pkgsList[0]
         } else {
-            # Select specific version
             Write-Host ''
             for ($i = 0; $i -lt [Math]::Min($pkgsList.Count, 20); $i++) {
                 $p = $pkgsList[$i]
@@ -2470,14 +2464,12 @@ function Download-Cloudsmith {
             $chosen = $pkgsList[[int]$sel - 1]
         }
 
-        # Get download URL
         $cdnUrl = $chosen.cdn_url
         if (-not $cdnUrl) {
             Write-Host 'No download URL found for this package.' -ForegroundColor Yellow
             return
         }
 
-        # Determine filename
         $fileName = $chosen.name
         if ($chosen.version) { $fileName += "-$($chosen.version)" }
         if ($chosen.format) { $fileName += ".$($chosen.format)" }
@@ -2488,7 +2480,6 @@ function Download-Cloudsmith {
         Write-Host "  URL:     $cdnUrl" -ForegroundColor DarkGray
         Write-Host "  File:    $fileName" -ForegroundColor DarkGray
 
-        # Download location
         Write-Host ''
         Write-Host 'Quick paths:' -ForegroundColor DarkGray
         Write-Host "  [D] Desktop" -ForegroundColor White
@@ -2519,22 +2510,115 @@ function Download-Cloudsmith {
         } else {
             Write-Host 'Download failed!' -ForegroundColor Red
         }
+    }
+}
 
-    } elseif ($csMethod -eq '4') {
-        # Set API key
+# [CU] Upload package to Cloudsmith
+function Cloudsmith-Upload {
+    Write-Host ''
+    Write-Host '=== Upload to Cloudsmith ===' -ForegroundColor Cyan
+    Write-Host "  Repo: $CloudsmithOwner/$CloudsmithRepo" -ForegroundColor DarkGray
+
+    $key = Get-CloudsmithKey
+    if (-not $key) {
+        Write-Host '  API key not set. Use [CK] to set it.' -ForegroundColor Yellow
+        return
+    }
+
+    # Read version
+    $version = '1.0.0'
+    if (Test-Path -LiteralPath $VersionFile) {
+        $version = (Get-Content -LiteralPath $VersionFile -Raw).Trim()
+        if ($version.StartsWith('v')) { $version = $version.Substring(1) }
+    }
+
+    Write-Host "  Version: $version" -ForegroundColor DarkGray
+
+    # File to upload
+    $filePath = Join-Path $ScriptDir 'mumu-menu.ps1'
+    if (-not (Test-Path -LiteralPath $filePath)) {
+        Write-Host '  mumu-menu.ps1 not found!' -ForegroundColor Red
+        return
+    }
+    $fileSize = (Get-Item -LiteralPath $filePath).Length
+    Write-Host "  File: mumu-menu.ps1 ($([math]::Round($fileSize / 1KB, 1)) KB)" -ForegroundColor DarkGray
+    Write-Host ''
+
+    $confirm = Read-Host '  Upload? (y/N)'
+    if ($confirm -ne 'y' -and $confirm -ne 'Y') { return }
+
+    # Step 1: PUT to upload URL
+    Write-Host ''
+    Write-Host '  Step 1: Uploading file...' -ForegroundColor Yellow
+    $uploadUrl = "https://upload.cloudsmith.io/$CloudsmithOwner/$CloudsmithRepo/mumu-menu.ps1"
+    $tmpResponse = Join-Path $env:TEMP 'cs_upload_response.txt'
+    $putCmd = "curl.exe -s -X PUT -H `"Authorization: token $key`" -T `"$filePath`" -o `"$tmpResponse`" $uploadUrl"
+    & cmd /c $putCmd 2>$null
+
+    if (-not (Test-Path -LiteralPath $tmpResponse)) {
+        Write-Host '  Upload failed - no response' -ForegroundColor Red
+        return
+    }
+    $response = Get-Content -LiteralPath $tmpResponse -Raw
+    Remove-Item $tmpResponse -Force -ErrorAction SilentlyContinue
+
+    $identifier = ''
+    if ($response -match '"identifier"\s*:\s*"([^"]+)"') {
+        $identifier = $Matches[1]
+    }
+    if (-not $identifier) {
+        Write-Host "  Failed: $($response.Substring(0, [Math]::Min(200, $response.Length)))" -ForegroundColor Red
+        return
+    }
+    Write-Host "  Identifier: $identifier" -ForegroundColor Green
+
+    # Step 2: POST to create package
+    Write-Host '  Step 2: Creating package...' -ForegroundColor Yellow
+    $createUrl = "https://api.cloudsmith.io/packages/$CloudsmithOwner/$CloudsmithRepo/upload/raw/"
+    $jsonBody = @{
+        package_file = $identifier
+        name = 'MuMuManager-CLI-Menu'
+        description = 'Interactive PowerShell menu for managing MuMu Emulator via MuMuManager.exe'
+        summary = 'MuMuManager CLI Menu'
+        version = $version
+    } | ConvertTo-Json
+    $jsonBytes = [System.Text.Encoding]::UTF8.GetBytes($jsonBody)
+    $tmpJson = Join-Path $env:TEMP 'cs_create_payload.json'
+    [System.IO.File]::WriteAllBytes($tmpJson, $jsonBytes)
+    $createCmd = "curl.exe -s -X POST -H `"Authorization: token $key`" -H `"Content-Type: application/json`" -d @$tmpJson $createUrl"
+    $createResponse = & cmd /c $createCmd 2>$null
+    Remove-Item $tmpJson -Force -ErrorAction SilentlyContinue
+
+    if ($createResponse -match '"cdn_url"\s*:\s*"([^"]+)"') {
         Write-Host ''
-        Write-Host 'Cloudsmith API Key' -ForegroundColor Cyan
-        Write-Host 'Get yours at: https://app.cloudsmith.com/user/settings/account/#api-key' -ForegroundColor DarkGray
-        Write-Host ''
-        $newKey = (Read-Host 'Enter API key (empty to clear)').Trim()
-        if ($newKey) {
-            Set-Content -Path $csKeyFile -Value $newKey -NoNewline -Force
-            Write-Host 'API key saved.' -ForegroundColor Green
-        } else {
-            if (Test-Path -LiteralPath $csKeyFile) {
-                Remove-Item -LiteralPath $csKeyFile -Force
-                Write-Host 'API key cleared.' -ForegroundColor Yellow
-            }
+        Write-Host '  Upload complete!' -ForegroundColor Green
+        Write-Host "  CDN URL: $($Matches[1])" -ForegroundColor Cyan
+        Write-Host "  Web UI:  https://app.cloudsmith.com/$CloudsmithOwner/$CloudsmithRepo" -ForegroundColor DarkGray
+    } else {
+        Write-Host "  Response: $($createResponse.Substring(0, [Math]::Min(200, $createResponse.Length)))" -ForegroundColor Yellow
+    }
+}
+
+# [CK] Set Cloudsmith API key
+function Cloudsmith-SetKey {
+    Write-Host ''
+    Write-Host '=== Cloudsmith API Key ===' -ForegroundColor Cyan
+    Write-Host '  Get yours at: https://app.cloudsmith.com/user/settings/account/#api-key' -ForegroundColor DarkGray
+    Write-Host ''
+    $currentKey = Get-CloudsmithKey
+    if ($currentKey) {
+        $masked = $currentKey.Substring(0, [Math]::Min(8, $currentKey.Length)) + '...'
+        Write-Host "  Current key: $masked" -ForegroundColor DarkGray
+    }
+    Write-Host ''
+    $newKey = (Read-Host '  Enter API key (empty to clear)').Trim()
+    if ($newKey) {
+        Set-Content -Path $CloudsmithKeyFile -Value $newKey -NoNewline -Force
+        Write-Host '  API key saved.' -ForegroundColor Green
+    } else {
+        if (Test-Path -LiteralPath $CloudsmithKeyFile) {
+            Remove-Item -LiteralPath $CloudsmithKeyFile -Force
+            Write-Host '  API key cleared.' -ForegroundColor Yellow
         }
     }
 }
@@ -4681,7 +4765,9 @@ do {
         'v' { Show-VersionInfo }
         'u' { Update-FromGitHub }
         'dl' { Download-Repository }
-        'cs' { Download-Cloudsmith }
+        'cs' { Cloudsmith-ListDownload }
+        'cu' { Cloudsmith-Upload }
+        'ck' { Cloudsmith-SetKey }
         'cr' { Create-GitHubRelease }
         'fr' { Fix-ReleaseEncoding }
         'crt' { Create-Certificate }
