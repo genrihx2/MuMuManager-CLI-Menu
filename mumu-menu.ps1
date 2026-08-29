@@ -1535,7 +1535,7 @@ function Test-Security {
     function Test-TokenHttp {
         $tmpHead = Join-Path $env:TEMP ("gh_" + [Guid]::NewGuid().ToString('N') + '.hdr')
         try {
-            $rawUser = & curl.exe -s --connect-timeout 30 --max-time 30 -D "$tmpHead" -H "Authorization: token $GitHubToken" 'https://api.github.com/user' 2>$null
+            $rawUser = & curl.exe -s --connect-timeout 30 --max-time 30 -D "$tmpHead" -H "Accept: application/vnd.github.v3+json" -H "Authorization: token $GitHubToken" 'https://api.github.com/user' 2>$null
             $user = (@($rawUser) | Out-String | ConvertFrom-Json)
             if (-not $user.login) { return $null }
             $scopes = ''
@@ -2271,10 +2271,11 @@ function Update-Token {
             }
             $masked = if ($plain.Length -gt 8) {
                 $plain.Substring(0, 4) + '****' + $plain.Substring($plain.Length - 4)
-            } else { '****' }
-
-            $rawUser = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Authorization: token $plain" 'https://api.github.com/user' 2>$null
+            } else { '****' }            $rawUser = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Accept: application/vnd.github.v3+json" -H "Authorization: token $plain" 'https://api.github.com/user' 2>$null
             $user = (@($rawUser) | Out-String | ConvertFrom-Json)
+
+
+
 
             if ($user.login) {
                 Write-Host "  Token:   $masked" -ForegroundColor Green
@@ -2329,7 +2330,7 @@ function Update-Token {
     if (ConvertFrom-SecureToken $sec) {
         $plain = ConvertFrom-SecureToken $sec
         Write-Host 'Testing...' -ForegroundColor Yellow
-        $rawUser = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Authorization: token $plain" 'https://api.github.com/user' 2>$null
+        $rawUser = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Accept: application/vnd.github.v3+json" -H "Authorization: token $plain" 'https://api.github.com/user' 2>$null
         $user = (@($rawUser) | Out-String | ConvertFrom-Json)
         if (-not $user.login) {
             Write-Host 'Token invalid! Nothing was saved.' -ForegroundColor Red
@@ -3238,7 +3239,7 @@ function Create-GitHubRelease {
 
     # 1. Fetch existing tags
     Write-Host 'Fetching tags...' -ForegroundColor DarkGray
-    $tagsJson = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/tags" 2>$null | Out-String
+    $tagsJson = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Accept: application/vnd.github.v3+json" -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/tags" 2>$null | Out-String
     try { $tags = $tagsJson | ConvertFrom-Json } catch { $tags = @() }
 
     if ($tags -and $tags.Count -gt 0) {
@@ -3321,7 +3322,7 @@ function Create-GitHubRelease {
         } else {
             # Fallback: use GitHub compare API
             Write-Host '  git log unavailable, using GitHub API...' -ForegroundColor DarkGray
-            $compareJson = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/compare/$baseTag...$tagName" 2>$null | Out-String
+            $compareJson = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Accept: application/vnd.github.v3+json" -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/compare/$baseTag...$tagName" 2>$null | Out-String
             try {
                 $compare = $compareJson | ConvertFrom-Json
                 if ($compare.commits) {
