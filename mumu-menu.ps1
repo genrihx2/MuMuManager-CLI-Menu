@@ -2461,7 +2461,10 @@ function Download-Repository {
         # Specific release
         Write-Host ''
         Write-Host 'Fetching releases...' -ForegroundColor DarkGray
-        $tagsJson = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Accept: application/vnd.github.v3+json" -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/tags" 2>$null | Out-String
+        $tagsCmd = "curl.exe -s --connect-timeout 30 --max-time 30 -H `"Accept: application/vnd.github.v3+json`""
+        if ($GitHubToken) { $tagsCmd += " -H `"Authorization: token $GitHubToken`"" }
+        $tagsCmd += " `"https://api.github.com/repos/$GitHubRepo/tags`""
+        $tagsJson = & cmd /c $tagsCmd 2>$null | Out-String
         try { $tags = $tagsJson | ConvertFrom-Json } catch { $tags = @() }
 
         if (-not $tags -or $tags.Count -eq 0) {
@@ -2490,7 +2493,10 @@ function Download-Repository {
         # Get release assets
         Write-Host ''
         Write-Host "Fetching release $tagName..." -ForegroundColor DarkGray
-        $relJson = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Accept: application/vnd.github.v3+json" -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/releases/tags/$tagName" 2>$null | Out-String
+        $relCmd = "curl.exe -s --connect-timeout 30 --max-time 30 -H `"Accept: application/vnd.github.v3+json`""
+        if ($GitHubToken) { $relCmd += " -H `"Authorization: token $GitHubToken`"" }
+        $relCmd += " `"https://api.github.com/repos/$GitHubRepo/releases/tags/$tagName`""
+        $relJson = & cmd /c $relCmd 2>$null | Out-String
         try { $release = $relJson | ConvertFrom-Json } catch { $release = $null }
 
         if (-not $release -or -not $release.assets) {
@@ -2557,7 +2563,10 @@ function Download-Repository {
         # Latest release
         Write-Host ''
         Write-Host 'Fetching latest release...' -ForegroundColor DarkGray
-        $relJson = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Accept: application/vnd.github.v3+json" -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/releases/latest" 2>$null | Out-String
+        $relCmd = "curl.exe -s --connect-timeout 30 --max-time 30 -H `"Accept: application/vnd.github.v3+json`""
+        if ($GitHubToken) { $relCmd += " -H `"Authorization: token $GitHubToken`"" }
+        $relCmd += " `"https://api.github.com/repos/$GitHubRepo/releases/latest`""
+        $relJson = & cmd /c $relCmd 2>$null | Out-String
         try { $release = $relJson | ConvertFrom-Json } catch { $release = $null }
 
         if (-not $release -or -not $release.tag_name) {
@@ -2698,7 +2707,10 @@ function Download-Repository {
             Write-Host ''
 
             # Get latest release
-            $relJson = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Accept: application/vnd.github.v3+json" -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/releases/latest" 2>$null | Out-String
+            $relCmd = "curl.exe -s --connect-timeout 30 --max-time 30 -H `"Accept: application/vnd.github.v3+json`""
+        if ($GitHubToken) { $relCmd += " -H `"Authorization: token $GitHubToken`"" }
+        $relCmd += " `"https://api.github.com/repos/$GitHubRepo/releases/latest`""
+        $relJson = & cmd /c $relCmd 2>$null | Out-String
             try { $release = $relJson | ConvertFrom-Json } catch { $release = $null }
 
             if (-not $release -or -not $release.tag_name) {
