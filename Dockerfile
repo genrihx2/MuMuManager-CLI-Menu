@@ -2,7 +2,7 @@
 # PowerShell-based project — uses pwsh base image for SARIF scan.
 # This image is NOT for running the tool (MuMuManager.exe requires Windows).
 
-FROM mcr.microsoft.com/powershell:lts-7.4-bookworm-slim
+FROM mcr.microsoft.com/dotnet/sdk:8.0
 
 LABEL maintainer="genrihx2"
 LABEL description="MuMuManager CLI Menu — PowerShell interactive menu for Netease MuMu Emulator"
