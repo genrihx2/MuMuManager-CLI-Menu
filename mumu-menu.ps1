@@ -703,6 +703,9 @@ function Show-Menu {
     Write-Host '  --- Tools ---' -ForegroundColor Green
     Write-Host '  [S] Take screenshot' -ForegroundColor Yellow
     Write-Host '  [A] Run ADB command' -ForegroundColor Yellow
+    Write-Host '  [AF] ADB file transfer (push/pull/list)' -ForegroundColor Yellow
+    Write-Host '  [AS] ADB screen capture (screenshot/record)' -ForegroundColor Yellow
+    Write-Host '  [AH] ADB interactive shell' -ForegroundColor Yellow
     Write-Host '  [O] Clear app data' -ForegroundColor Yellow
     Write-Host '  [P] Force stop app' -ForegroundColor Yellow
     Write-Host '  [T] Start app' -ForegroundColor Yellow
@@ -4082,6 +4085,130 @@ function Invoke-ADBCommand {
     Invoke-Mumu adb -v $index -c $cmd
 }
 
+function ADB-FileTransfer {
+    $index = Get-InstanceIndex 'Select instance'
+    if (-not $index) { return }
+    if (-not (Confirm-AdbConsent)) { return }
+    Write-Host ''
+    Write-Host 'ADB File Transfer' -ForegroundColor Cyan
+    Write-Host ''
+    Write-Host '  [1] Push file TO emulator' -ForegroundColor White
+    Write-Host '  [2] Pull file FROM emulator' -ForegroundColor White
+    Write-Host '  [3] List files on emulator' -ForegroundColor White
+    Write-Host ''
+    $mode = Read-Host 'Select (1/2/3)'
+
+    if ($mode -eq '1') {
+        # Push
+        $localPath = (Read-Host 'Local file path').Trim().Trim('"')
+        if (-not $localPath -or -not (Test-Path -LiteralPath $localPath)) {
+            Write-Host 'File not found.' -ForegroundColor Red
+            return
+        }
+        $remotePath = (Read-Host 'Remote path on emulator (e.g. /sdcard/Download/)').Trim()
+        if (-not $remotePath) { $remotePath = '/sdcard/Download/' }
+        $size = '{0:N1} KB' -f ((Get-Item -LiteralPath $localPath).Length / 1KB)
+        Write-Host "  Pushing $(Split-Path $localPath -Leaf) ($size) to $remotePath..." -ForegroundColor Cyan
+        $result = & $MumuPath adb -v $index -c "push \"$localPath\" $remotePath" 2>&1 | Out-String
+        if ($result -match 'pushed|bytes') {
+            Write-Host '  Done!' -ForegroundColor Green
+        } else {
+            Write-Host "  Result: $($result.Trim())" -ForegroundColor Yellow
+        }
+    } elseif ($mode -eq '2') {
+        # Pull
+        $remotePath = (Read-Host 'Remote file path (e.g. /sdcard/Download/file.txt)').Trim()
+        if (-not $remotePath) { Write-Host 'Cancelled.' -ForegroundColor Yellow; return }
+        $localDir = (Read-Host 'Local save directory (Enter=current)').Trim().Trim('"')
+        if (-not $localDir) { $localDir = $PWD.Path }
+        if (-not (Test-Path -LiteralPath $localDir)) {
+            New-Item -ItemType Directory -Path $localDir -Force | Out-Null
+        }
+        Write-Host "  Pulling $remotePath..." -ForegroundColor Cyan
+        $result = & $MumuPath adb -v $index -c "pull $remotePath \"$localDir\"" 2>&1 | Out-String
+        if ($result -match 'pulled|bytes') {
+            Write-Host "  Saved to: $localDir" -ForegroundColor Green
+        } else {
+            Write-Host "  Result: $($result.Trim())" -ForegroundColor Yellow
+        }
+    } elseif ($mode -eq '3') {
+        # List
+        $path = (Read-Host 'Path to list (Enter=/sdcard/)').Trim()
+        if (-not $path) { $path = '/sdcard/' }
+        Write-Host "  Listing $path..." -ForegroundColor Cyan
+        $result = & $MumuPath adb -v $index -c "shell ls -la $path" 2>&1
+        $result | ForEach-Object { Write-Host "  $_" -ForegroundColor White }
+    }
+}
+
+function ADB-ScreenCapture {
+    $index = Get-InstanceIndex 'Select instance'
+    if (-not $index) { return }
+    if (-not (Confirm-AdbConsent)) { return }
+    Write-Host ''
+    Write-Host 'ADB Screen Capture' -ForegroundColor Cyan
+    Write-Host ''
+    Write-Host '  [1] Take screenshot' -ForegroundColor White
+    Write-Host '  [2] Record screen (max 180s)' -ForegroundColor White
+    Write-Host ''
+    $mode = Read-Host 'Select (1/2)'
+
+    if ($mode -eq '1') {
+        # Screenshot
+        $remotePath = '/sdcard/screenshot.png'
+        $localDir = (Read-Host 'Save to directory (Enter=current)').Trim().Trim('"')
+        if (-not $localDir) { $localDir = $PWD.Path }
+        Write-Host '  Taking screenshot...' -ForegroundColor Cyan
+        & $MumuPath adb -v $index -c "shell screencap -p $remotePath" 2>&1 | Out-Null
+        $result = & $MumuPath adb -v $index -c "pull $remotePath \"$localDir\screenshot_$($index).png\"" 2>&1 | Out-String
+        & $MumuPath adb -v $index -c "shell rm $remotePath" 2>&1 | Out-Null
+        if ($result -match 'pulled|bytes') {
+            $file = Join-Path $localDir "screenshot_$($index).png"
+            $size = '{0:N1} KB' -f ((Get-Item -LiteralPath $file).Length / 1KB)
+            Write-Host "  Saved: $file ($size)" -ForegroundColor Green
+        } else {
+            Write-Host "  Failed: $($result.Trim())" -ForegroundColor Red
+        }
+    } elseif ($mode -eq '2') {
+        # Screen record
+        $duration = (Read-Host 'Duration in seconds (max 180, Enter=30)').Trim()
+        if (-not $duration -or -not ($duration -match '^\d+$')) { $duration = 30 }
+        $duration = [Math]::Min([int]$duration, 180)
+        $remotePath = '/sdcard/recording.mp4'
+        $localDir = (Read-Host 'Save to directory (Enter=current)').Trim().Trim('"')
+        if (-not $localDir) { $localDir = $PWD.Path }
+        Write-Host "  Recording screen for ${duration}s... (Ctrl+C to stop early)" -ForegroundColor Cyan
+        try {
+            & $MumuPath adb -v $index -c "shell screenrecord --time-limit $duration $remotePath" 2>&1 | Out-Null
+        } catch { Write-Debug "Recording interrupted: $($_.Exception.Message)" }
+        $result = & $MumuPath adb -v $index -c "pull $remotePath \"$localDir\ recording_$($index).mp4\"" 2>&1 | Out-String
+        & $MumuPath adb -v $index -c "shell rm $remotePath" 2>&1 | Out-Null
+        if ($result -match 'pulled|bytes') {
+            $file = Join-Path $localDir "recording_$($index).mp4"
+            $size = '{0:N1} KB' -f ((Get-Item -LiteralPath $file).Length / 1KB)
+            Write-Host "  Saved: $file ($size)" -ForegroundColor Green
+        } else {
+            Write-Host "  Failed: $($result.Trim())" -ForegroundColor Red
+        }
+    }
+}
+
+function ADB-InteractiveShell {
+    $index = Get-InstanceIndex 'Select instance'
+    if (-not $index) { return }
+    if (-not (Confirm-AdbConsent)) { return }
+    Write-Host ''
+    Write-Host "Interactive ADB shell (instance $index)" -ForegroundColor Cyan
+    Write-Host '  Type commands directly. Type "exit" to return.' -ForegroundColor DarkGray
+    Write-Host ''
+    while ($true) {
+        $cmd = (Read-Host 'adb>').Trim()
+        if (-not $cmd -or $cmd -eq 'exit' -or $cmd -eq 'quit') { break }
+        & $MumuPath adb -v $index -c "shell $cmd" 2>&1 | ForEach-Object { Write-Host "  $_" }
+    }
+    Write-Host 'Shell closed.' -ForegroundColor DarkGray
+}
+
 # Consent gate for identifier/model spoofing options: shown once per
 # session, requires explicit acknowledgement. Documents intended use
 # (privacy/testing on the user's own instances) and rejects otherwise.
@@ -4534,6 +4661,9 @@ do {
         'ba' { Backup-EmulatorData }
         're' { Restore-EmulatorData }
         'a' { Invoke-ADBCommand }
+        'af' { ADB-FileTransfer }
+        'as' { ADB-ScreenCapture }
+        'ah' { ADB-InteractiveShell }
         'b' { Start-All }
         'd' { Stop-All }
         'r' { Restart-All }
