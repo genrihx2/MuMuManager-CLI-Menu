@@ -131,6 +131,9 @@ cd MuMuManager-CLI-Menu
   --- Tools ---
   [S] Take screenshot
   [A] Run ADB command
+  [AF] ADB file transfer (push/pull/list)
+  [AS] ADB screen capture (screenshot/record)
+  [AH] ADB interactive shell
   [O] Clear app data
   [P] Force stop app
   [T] Start app
