@@ -2431,6 +2431,7 @@ function Download-Repository {
     Write-Host '  [2] Download release ZIP (specific version)' -ForegroundColor White
     Write-Host '  [3] Download latest release ZIP' -ForegroundColor White
     Write-Host '  [4] Update from GitHub (pull latest changes)' -ForegroundColor White
+    Write-Host '  [5] Download single file from repo' -ForegroundColor White
     Write-Host ''
     $method = Read-Host 'Select method (1/2/3/4)'
 
@@ -2439,7 +2440,23 @@ function Download-Repository {
         $targetDir = Get-TargetPath 'Clone to'
         if (-not $targetDir) { return }
 
-        $branch = (Read-Host 'Branch (Enter=main)').Trim()
+        # Fetch available branches
+        Write-Host ''
+        Write-Host 'Fetching branches...' -ForegroundColor DarkGray
+        $branchCmd = "curl.exe -s --connect-timeout 15 --max-time 15 -H `"Accept: application/vnd.github.v3+json`""
+        if ($GitHubToken) { $branchCmd += " -H `"Authorization: token $GitHubToken`"" }
+        $branchCmd += " `"https://api.github.com/repos/$GitHubRepo/branches`""
+        $branchJson = & cmd /c $branchCmd 2>$null | Out-String
+        try { $branches = $branchJson | ConvertFrom-Json } catch { $branches = @() }
+
+        if ($branches -and $branches.Count -gt 0) {
+            Write-Host '  Available branches:' -ForegroundColor DarkGray
+            foreach ($b in $branches) {
+                $marker = if ($b.name -eq 'main') { ' <-- default' } else { '' }
+                Write-Host "    $($b.name)$marker" -ForegroundColor White
+            }
+        }
+        $branch = (Read-Host "Branch (Enter=main)").Trim()
         if (-not $branch) { $branch = 'main' }
 
         $repoName = ($GitHubRepo -split '/')[-1]
@@ -2856,6 +2873,120 @@ function Download-Repository {
             Write-Host "  Backup: backup\$stamp" -ForegroundColor DarkGray
             Write-Host ''
             Write-Host '  Restart the script to use the updated version.' -ForegroundColor Yellow
+        }
+
+    } elseif ($method -eq '5') {
+        # Download single file
+        Write-Host ''
+        Write-Host 'Download single file from repository' -ForegroundColor Cyan
+        Write-Host ''
+
+        # Choose source
+        Write-Host 'Source:' -ForegroundColor Yellow
+        Write-Host '  [1] From latest release' -ForegroundColor White
+        Write-Host '  [2] From specific tag/branch' -ForegroundColor White
+        Write-Host ''
+        $src = Read-Host 'Select (1/2)'
+        $ref = ''
+        if ($src -eq '2') {
+            $ref = (Read-Host 'Tag or branch name (Enter=main)').Trim()
+            if (-not $ref) { $ref = 'main' }
+        } else {
+            # Get latest tag
+            $ltCmd = "curl.exe -s --connect-timeout 15 -H `"Accept: application/vnd.github.v3+json`""
+            if ($GitHubToken) { $ltCmd += " -H `"Authorization: token $GitHubToken`"" }
+            $ltCmd += " `"https://api.github.com/repos/$GitHubRepo/releases/latest`""
+            $ltJson = & cmd /c $ltCmd 2>$null | Out-String
+            try { $lt = $ltJson | ConvertFrom-Json } catch { $lt = $null }
+            if ($lt.tag_name) { $ref = $lt.tag_name; Write-Host "  Using: $ref" -ForegroundColor DarkGray }
+            else { $ref = 'main'; Write-Host '  Using: main (no releases found)' -ForegroundColor DarkGray }
+        }
+
+        # List files in repo root
+        Write-Host ''
+        Write-Host "Fetching file list ($ref)..." -ForegroundColor DarkGray
+        $listCmd = "curl.exe -s --connect-timeout 15 -H `"Accept: application/vnd.github.v3+json`""
+        if ($GitHubToken) { $listCmd += " -H `"Authorization: token $GitHubToken`"" }
+        $listCmd += " `"https://api.github.com/repos/$GitHubRepo/contents/?ref=$ref`""
+        $listJson = & cmd /c $listCmd 2>$null | Out-String
+        try { $files = $listJson | ConvertFrom-Json } catch { $files = @() }
+
+        if (-not $files -or $files.Count -eq 0) {
+            Write-Host 'No files found.' -ForegroundColor Yellow
+            return
+        }
+
+        # Show files
+        Write-Host ''
+        $idx = 0
+        $fileList = @()
+        foreach ($f in $files) {
+            if ($f.type -eq 'file') {
+                $idx++
+                $sz = if ($f.size -gt 1MB) { "$([math]::Round($f.size/1MB, 1)) MB" }
+                      elseif ($f.size -gt 1KB) { "$([math]::Round($f.size/1KB, 1)) KB" }
+                      else { "$($f.size) B" }
+                Write-Host "  [$idx] $($f.name) ($sz)" -ForegroundColor White
+                $fileList += $f
+            }
+        }
+
+        if ($fileList.Count -eq 0) {
+            Write-Host 'No files in repository root.' -ForegroundColor Yellow
+            return
+        }
+
+        # Also allow manual path entry
+        Write-Host ''
+        Write-Host "  [0] Enter file path manually" -ForegroundColor DarkGray
+        Write-Host ''
+        $fSel = Read-Host "Select file (1-$($fileList.Count) or 0 for manual path)"
+
+        $downloadUrl = ''
+        $fileName = ''
+        if ($fSel -eq '0') {
+            $filePath = (Read-Host 'File path (e.g. mumu-menu.ps1)').Trim()
+            if (-not $filePath) { return }
+            $fileName = Split-Path $filePath -Leaf
+            $downloadUrl = "https://api.github.com/repos/$GitHubRepo/contents/$filePath`?ref=$ref"
+        } elseif ($fSel -match '^\d+$' -and [int]$fSel -ge 1 -and [int]$fSel -le $fileList.Count) {
+            $chosen = $fileList[[int]$fSel - 1]
+            $fileName = $chosen.name
+            $downloadUrl = $chosen.url
+        } else {
+            Write-Host 'Invalid selection.' -ForegroundColor Red
+            return
+        }
+
+        # Download
+        $targetDir = Get-TargetPath 'Save to'
+        if (-not $targetDir) { return }
+
+        Write-Host ''
+        Write-Host "Downloading $fileName from $ref..." -ForegroundColor Cyan
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        $dlCmd = 'curl.exe -sL --connect-timeout 30 --max-time 120 -o "' + (Join-Path $targetDir $fileName) + '"'
+        if ($GitHubToken) { $dlCmd += ' -H "Authorization: token ' + $GitHubToken + '"' }
+        $dlCmd += ' -H "Accept: application/vnd.github.v3+json" "' + $downloadUrl + '"'
+        & cmd /c $dlCmd 2>&1 | Out-Null
+        $sw.Stop()
+
+        $destFile = Join-Path $targetDir $fileName
+        if (Test-Path -LiteralPath $destFile) {
+            $size = (Get-Item -LiteralPath $destFile).Length
+            if ($size -gt 100 -and $size -lt 600) {
+                # Might be JSON error response
+                $content = Get-Content -LiteralPath $destFile -Raw -ErrorAction SilentlyContinue
+                if ($content -match '"message"') {
+                    Remove-Item -LiteralPath $destFile -Force
+                    Write-Host "  API error: $(($content | ConvertFrom-Json).message)" -ForegroundColor Red
+                    return
+                }
+            }
+            $sz = '{0:N1} KB' -f ($size / 1KB)
+            Write-Host ("  Saved: $fileName ($sz) in {0:mm\:ss}" -f $sw.Elapsed) -ForegroundColor Green
+        } else {
+            Write-Host '  Download failed!' -ForegroundColor Red
         }
     }
 }
