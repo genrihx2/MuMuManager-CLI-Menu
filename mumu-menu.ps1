@@ -514,9 +514,10 @@ function Update-FromGitHub {
             Write-Host "  Downloading $f..." -ForegroundColor Yellow
             try {
                 $tmpDl = Join-Path $env:TEMP ('mumu_dl_' + [Guid]::NewGuid().ToString('N') + '.tmp')
-                $dlArgs = @('-#', '--retry', '3', '--retry-delay', '3', '--connect-timeout', '30', '--max-time', '120',
-                           '-L', '-o', $tmpDl) + $dlHeaders + @($rawUrl)
-                $dlOutput = & curl.exe @dlArgs 2>&1 | Out-String
+                $dlCmd = "curl.exe -# --retry 3 --retry-delay 3 --connect-timeout 30 --max-time 120 -L -o \"$tmpDl\""
+                if ($GitHubToken) { $dlCmd += " -H \"Authorization: token $GitHubToken\"" }
+                $dlCmd += " \"$rawUrl\""
+                $dlOutput = & cmd /c $dlCmd 2>&1 | Out-String
                 if ($LASTEXITCODE -ne 0 -or -not (Test-Path $tmpDl)) {
                     $detail = if ($dlOutput) { $dlOutput.Trim() } else { "exit code $LASTEXITCODE" }
                     throw "curl failed for $f — $detail"
