@@ -1,0 +1,17 @@
+backup/
+backups/
+screenshots/
+.freebuff/
+.github/
+.git/
+*.dpapi
+*.old
+*.new
+*.zip
+*.log
+.gitattributes
+.gitignore
+LICENSE
+SECURITY.md
+PSScriptAnalyzerSettings.psd1
+relnotes.md
