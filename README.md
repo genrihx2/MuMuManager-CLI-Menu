@@ -85,7 +85,6 @@ cd MuMuManager-CLI-Menu
 
 3. **Скачать ZIP** вручную со страницы [Releases](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest), распаковать и запустить `mumu-menu.ps1`.
 
-
 ## Использование
 
 ### Запуск меню
