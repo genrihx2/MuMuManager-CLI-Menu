@@ -261,7 +261,20 @@ function Update-FromGitHub {
             $remoteMsg = (($remoteBody -split "`n") | Where-Object { $_.Trim() } | Select-Object -First 1)
         }
 
-        # Compare actual file content (line-ending tolerant) against the release tag
+        # Fast check: compare local version tag against release tag (no download)
+        $localTag = ''
+        if (Test-Path -LiteralPath $VersionFile) {
+            try { $localTag = (Get-Content -LiteralPath $VersionFile -Raw).Trim() } catch { Write-Debug "Version file read failed: $($_.Exception.Message)" }
+        }
+
+        if ($localTag -eq $tag) {
+            if (-not $Passive) {
+                Write-Host "  Up to date ($tag)" -ForegroundColor DarkGray
+            }
+            return
+        }
+
+        # Tag mismatch — verify by comparing file content (handles manual edits)
         $localMenuPath = Join-Path $ScriptDir 'mumu-menu.ps1'
         $localText = [System.IO.File]::ReadAllText($localMenuPath)
         $remoteText = Get-RemoteFile 'mumu-menu.ps1' $tag
