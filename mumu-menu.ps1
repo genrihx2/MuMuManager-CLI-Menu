@@ -516,9 +516,10 @@ function Update-FromGitHub {
                 $tmpDl = Join-Path $env:TEMP ('mumu_dl_' + [Guid]::NewGuid().ToString('N') + '.tmp')
                 $dlArgs = @('-#', '--retry', '3', '--retry-delay', '3', '--connect-timeout', '30', '--max-time', '120',
                            '-L', '-o', $tmpDl) + $dlHeaders + @($rawUrl)
-                & curl.exe @dlArgs 2>$null
+                $dlOutput = & curl.exe @dlArgs 2>&1 | Out-String
                 if ($LASTEXITCODE -ne 0 -or -not (Test-Path $tmpDl)) {
-                    throw "curl failed (exit $LASTEXITCODE) for $f"
+                    $detail = if ($dlOutput) { $dlOutput.Trim() } else { "exit code $LASTEXITCODE" }
+                    throw "curl failed for $f — $detail"
                 }
                 $bytes = [System.IO.File]::ReadAllBytes($tmpDl)
                 Remove-Item $tmpDl -Force -ErrorAction SilentlyContinue
