@@ -2541,7 +2541,33 @@ function Download-Repository {
 
         $zipAsset = $release.assets | Where-Object { $_.name -match '\.zip$' } | Select-Object -First 1
         if (-not $zipAsset) {
-            Write-Host 'No ZIP asset found.' -ForegroundColor Yellow
+            Write-Host ''
+            Write-Host '  No ZIP asset attached to this release.' -ForegroundColor Yellow
+            Write-Host '  Falling back to individual file download...' -ForegroundColor DarkGray
+
+            $targetDir = Get-TargetPath 'Download to'
+            if (-not $targetDir) { return }
+
+            $dlFiles = @('mumu-menu.ps1', 'README.md', 'SKILL.md', '.version')
+            $ok = 0; $fail = 0
+            foreach ($f in $dlFiles) {
+                $fUrl = "https://raw.githubusercontent.com/$GitHubRepo/$tagName/$f"
+                $fDest = Join-Path $targetDir $f
+                Write-Host "  $f" -ForegroundColor Yellow -NoNewline
+                $fCmd = "curl.exe -sS --fail --retry 2 --connect-timeout 30 --max-time 60 -L -o `"$fDest`" $fUrl"
+                if ($GitHubToken) { $fCmd += " -H Authorization:token $GitHubToken" }
+                & cmd /c $fCmd 2>$null
+                if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $fDest) -and (Get-Item -LiteralPath $fDest).Length -gt 0) {
+                    $sz = '{0:N0}' -f ((Get-Item -LiteralPath $fDest).Length / 1KB)
+                    Write-Host "  OK  ${sz} KB" -ForegroundColor Green
+                    $ok++
+                } else {
+                    Write-Host "  FAILED" -ForegroundColor Red
+                    $fail++
+                }
+            }
+            Write-Host ''
+            Write-Host "Downloaded: $ok ok, $fail failed" -ForegroundColor $(if ($fail -gt 0) { 'Yellow' } else { 'Green' })
             return
         }
 
@@ -2615,7 +2641,34 @@ function Download-Repository {
 
         $zipAsset = $release.assets | Where-Object { $_.name -match '\.zip$' } | Select-Object -First 1
         if (-not $zipAsset) {
-            Write-Host 'No ZIP asset found.' -ForegroundColor Yellow
+            Write-Host ''
+            Write-Host '  No ZIP asset attached to this release.' -ForegroundColor Yellow
+            Write-Host '  Falling back to individual file download...' -ForegroundColor DarkGray
+
+            $targetDir = Get-TargetPath 'Download to'
+            if (-not $targetDir) { return }
+
+            $tag = $release.tag_name
+            $dlFiles = @('mumu-menu.ps1', 'README.md', 'SKILL.md', '.version')
+            $ok = 0; $fail = 0
+            foreach ($f in $dlFiles) {
+                $fUrl = "https://raw.githubusercontent.com/$GitHubRepo/$tag/$f"
+                $fDest = Join-Path $targetDir $f
+                Write-Host "  $f" -ForegroundColor Yellow -NoNewline
+                $fCmd = "curl.exe -sS --fail --retry 2 --connect-timeout 30 --max-time 60 -L -o `"$fDest`" $fUrl"
+                if ($GitHubToken) { $fCmd += " -H Authorization:token $GitHubToken" }
+                & cmd /c $fCmd 2>$null
+                if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $fDest) -and (Get-Item -LiteralPath $fDest).Length -gt 0) {
+                    $sz = '{0:N0}' -f ((Get-Item -LiteralPath $fDest).Length / 1KB)
+                    Write-Host "  OK  ${sz} KB" -ForegroundColor Green
+                    $ok++
+                } else {
+                    Write-Host "  FAILED" -ForegroundColor Red
+                    $fail++
+                }
+            }
+            Write-Host ''
+            Write-Host "Downloaded: $ok ok, $fail failed" -ForegroundColor $(if ($fail -gt 0) { 'Yellow' } else { 'Green' })
             return
         }
 
