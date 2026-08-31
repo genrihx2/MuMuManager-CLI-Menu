@@ -2811,8 +2811,8 @@ function Download-Repository {
             }
 
         } else {
-            # Not a git repo - download latest release ZIP
-            Write-Host 'Not a git repository. Downloading latest release ZIP...' -ForegroundColor Cyan
+            # Not a git repo - download latest release
+            Write-Host 'Not a git repository. Checking for updates...' -ForegroundColor Cyan
             Write-Host ''
 
             # Get latest release
@@ -2827,17 +2827,74 @@ function Download-Repository {
                 return
             }
 
-            Write-Host "  Latest: $($release.name) ($($release.tag_name))" -ForegroundColor Green
+            # Check current version
+            $localVer = ''
+            if (Test-Path -LiteralPath $VersionFile) {
+                try { $localVer = (Get-Content -LiteralPath $VersionFile -Raw).Trim() } catch { Write-Debug "Version file read failed: $($_.Exception.Message)" }
+            }
+
+            $remoteTag = $release.tag_name
+            if ($localVer -eq $remoteTag) {
+                Write-Host "  Up to date ($remoteTag)" -ForegroundColor Green
+                return
+            }
+
+            # Show release info
+            Write-Host "  Latest: $($release.name) ($remoteTag)" -ForegroundColor Green
+            if ($release.published_at) {
+                $published = try { [datetime]::Parse($release.published_at).ToString('yyyy-MM-dd HH:mm') } catch { $release.published_at }
+                Write-Host "  Date:   $published" -ForegroundColor DarkGray
+            }
+            if ($localVer) {
+                Write-Host "  Current: $localVer" -ForegroundColor DarkGray
+            }
+
+            # Show changelog
+            if ($release.body) {
+                Write-Host ''
+                Write-Host '  --- Release notes ---' -ForegroundColor Cyan
+                $lines = $release.body -split "`n"
+                $shown = 0
+                foreach ($line in $lines) {
+                    if ($shown -ge 15) {
+                        Write-Host '  ... (more in GitHub releases)' -ForegroundColor DarkGray
+                        break
+                    }
+                    if ($line.Trim()) {
+                        if ($line -match '^#{1,3}\s') {
+                            Write-Host "  $line" -ForegroundColor Yellow
+                        } elseif ($line -match '^-\s|^-\s\[') {
+                            Write-Host "  $line" -ForegroundColor Green
+                        } else {
+                            Write-Host "  $line" -ForegroundColor White
+                        }
+                        $shown++
+                    }
+                }
+                Write-Host '  ---------------------' -ForegroundColor Cyan
+            }
 
             $zipAsset = $release.assets | Where-Object { $_.name -match '\.zip$' } | Select-Object -First 1
+            if ($zipAsset) {
+                $zipSize = '{0:N1} MB' -f ($zipAsset.size / 1MB)
+                Write-Host "  Asset:  $($zipAsset.name) ($zipSize)" -ForegroundColor White
+            }
+
+            $confirm = Read-Host '  Download and update? (Y/n)'
+            if ($confirm -eq 'n' -or $confirm -eq 'N') {
+                Write-Host '  Cancelled.' -ForegroundColor Yellow
+                return
+            }
+
             if (-not $zipAsset) {
                 # Fallback: download files individually from the release tag
+                Write-Host ''
                 Write-Host '  No ZIP asset found. Downloading files individually...' -ForegroundColor Yellow
                 Write-Host ''
                 $dlFiles = @('mumu-menu.ps1', 'README.md', 'SKILL.md', '.version')
                 $ok = 0; $fail = 0
                 foreach ($f in $dlFiles) {
-                    $fUrl = "https://api.github.com/repos/$GitHubRepo/contents/$f?ref=$($release.tag_name)"
+                    $fUrl = "https://api.github.com/repos/$GitHubRepo/contents/$f?ref=$remoteTag"
                     $fDest = Join-Path $ScriptDir $f
                     Write-Host "  $f" -ForegroundColor Yellow -NoNewline
                     $dlCmd = "curl.exe -sS --fail --retry 2 --connect-timeout 30 --max-time 60 -L -H `"Accept: application/vnd.github.v3.raw`" -o `"$fDest`" $fUrl"
@@ -2861,27 +2918,13 @@ function Download-Repository {
                     }
                 }
                 Write-Host ''
-                Write-Host "  Updated $ok file(s), failed $fail" -ForegroundColor $(if ($fail -gt 0) { 'Yellow' } else { 'Green' })
+                if ($fail -eq 0) {
+                    Set-Content -Path $VersionFile -Value $remoteTag -NoNewline -ErrorAction SilentlyContinue
+                    Write-Host "  Updated $ok file(s) to $remoteTag" -ForegroundColor Green
+                } else {
+                    Write-Host "  Updated $ok file(s), failed $fail" -ForegroundColor Yellow
+                }
                 Write-Host '  Restart the script to use the updated version.' -ForegroundColor Yellow
-                return
-            }
-
-            $zipUrl = $zipAsset.browser_download_url
-            $zipSize = '{0:N1} MB' -f ($zipAsset.size / 1MB)
-            Write-Host "  Asset:  $($zipAsset.name) ($zipSize)" -ForegroundColor White
-
-            # Check current version
-            $localVer = ''
-            if (Test-Path -LiteralPath $VersionFile) {
-                try { $localVer = (Get-Content -LiteralPath $VersionFile -Raw).Trim() } catch { Write-Debug "Version file read failed: $($_.Exception.Message)" }
-            }
-            if ($localVer) {
-                Write-Host "  Current: $localVer" -ForegroundColor DarkGray
-            }
-
-            $confirm = Read-Host '  Download and update? (Y/n)'
-            if ($confirm -eq 'n' -or $confirm -eq 'N') {
-                Write-Host '  Cancelled.' -ForegroundColor Yellow
                 return
             }
 
@@ -2964,13 +3007,24 @@ function Download-Repository {
                 }
             }
 
+            # Update .version file
+            if ($updated -gt 0 -and $failed -eq 0) {
+                try {
+                    Set-Content -Path $VersionFile -Value $remoteTag -NoNewline -Encoding UTF8 -Force
+                } catch {
+                    Write-Host "  Warning: Could not update .version ($($_.Exception.Message))" -ForegroundColor Yellow
+                }
+            }
+
             # Cleanup
             Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
 
             Write-Host ''
-            if ($updated -gt 0) {
-                Write-Host "  Updated $updated file(s)!" -ForegroundColor Green
+            if ($updated -gt 0 -and $failed -eq 0) {
+                Write-Host "  Updated $updated file(s) to $remoteTag!" -ForegroundColor Green
+            } elseif ($updated -gt 0) {
+                Write-Host "  Updated $updated file(s), failed $failed" -ForegroundColor Yellow
             }
             if ($failed -gt 0) {
                 Write-Host "  Failed: $failed file(s)" -ForegroundColor Red
