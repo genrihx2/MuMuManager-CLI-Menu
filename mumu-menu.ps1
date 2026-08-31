@@ -519,27 +519,30 @@ function Update-FromGitHub {
 
         foreach ($f in $files) {
             $dest = Join-Path $ScriptDir $f
-            $rawUrl = "https://raw.githubusercontent.com/$GitHubRepo/$tag/$SkillPath/$f"
+            $rawUrl = "https://api.github.com/repos/$GitHubRepo/contents/$SkillPath/$f`?ref=$tag"
             Write-Host "  Downloading $f..." -ForegroundColor Yellow
             try {
                 $tmpDl = Join-Path $env:TEMP ('mumu_dl_' + [Guid]::NewGuid().ToString('N') + '.tmp')
-                $dlCmd = 'curl.exe -# --retry 3 --retry-delay 3 --connect-timeout 30 --max-time 120 -L -o "' + $tmpDl + '"'
+                $dlCmd = 'curl.exe -# --retry 3 --retry-delay 3 --connect-timeout 30 --max-time 120 -L -H "Accept: application/vnd.github.v3.raw" -o "' + $tmpDl + '"'
                 if ($GitHubToken) { $dlCmd += ' -H "Authorization: token ' + $GitHubToken + '"' }
                 $dlCmd += ' "' + $rawUrl + '"'
                 $dlOutput = & cmd /c $dlCmd 2>&1 | Out-String
                 if ($LASTEXITCODE -ne 0 -or -not (Test-Path $tmpDl)) {
                     $detail = if ($dlOutput) { $dlOutput.Trim() } else { "exit code $LASTEXITCODE" }
-                    throw "curl failed for $f — $detail"
+                    throw "curl failed for $f - $detail"
                 }
                 $bytes = [System.IO.File]::ReadAllBytes($tmpDl)
                 Remove-Item $tmpDl -Force -ErrorAction SilentlyContinue
                 if (-not $bytes -or $bytes.Length -eq 0) { throw 'empty download' }
 
-                # Check for JSON error response
+                # Check for JSON error response or base64-encoded API response
                 $text = [System.Text.Encoding]::UTF8.GetString($bytes)
-                if ($text.Length -lt 500 -and $text -match '"message"\s*:\s*"') {
+                if ($text -match '"message"\s*:\s*"') {
                     $errMsg = if ($text -match '"message"\s*:\s*"([^"]+)"') { $Matches[1] } else { 'API error' }
                     throw $errMsg
+                }
+                if ($text -match '"encoding"\s*:\s*"base64"') {
+                    throw 'Received base64 JSON instead of raw content - Accept header may be missing'
                 }
 
                 $dlSize = if ($bytes.Length -gt 1MB) { "$([math]::Round($bytes.Length / 1MB, 1)) MB" }
