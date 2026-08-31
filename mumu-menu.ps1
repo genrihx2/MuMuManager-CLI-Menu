@@ -722,6 +722,7 @@ function Show-Menu {
     Write-Host '  [TC] Connection test' -ForegroundColor Yellow
     Write-Host '  [TN] Network test' -ForegroundColor Yellow
     Write-Host '  [TD] Dependencies test' -ForegroundColor Yellow
+    Write-Host '  [VT] VirusTotal scan' -ForegroundColor Yellow
     Write-Host '  [UW] Fix Unicode / encoding' -ForegroundColor Yellow
     Write-Host ''
     Write-Host '  --- Spoofing ---' -ForegroundColor Green
@@ -1911,6 +1912,102 @@ function Test-Network {
 
     Write-Host ''
     Write-Host 'Test complete.' -ForegroundColor Green
+}
+
+function Scan-VirusTotal {
+    Write-Host ''
+    Write-Host '=== VirusTotal Scan ===' -ForegroundColor Cyan
+    Write-Host ''
+
+    # Check for API key (stored in .vt-apikey or env:VT_API_KEY)
+    $apiKey = $null
+    $keyFile = Join-Path $ScriptDir '.vt-apikey'
+    if (Test-Path -LiteralPath $keyFile) {
+        try { $apiKey = (Get-Content -LiteralPath $keyFile -Raw).Trim() } catch { Write-Debug "VT key read failed: $($_.Exception.Message)" }
+    }
+    if (-not $apiKey -and $env:VT_API_KEY) { $apiKey = $env:VT_API_KEY }
+
+    if (-not $apiKey) {
+        Write-Host '  No API key found.' -ForegroundColor Yellow
+        Write-Host '  Options:' -ForegroundColor White
+        Write-Host '    1. Set env variable: $env:VT_API_KEY = "your_key"' -ForegroundColor DarkGray
+        Write-Host '    2. Save to file: your_key | Out-File .vt-apikey' -ForegroundColor DarkGray
+        Write-Host '    3. Get free key at: https://www.virustotal.com/gui/my-apikey' -ForegroundColor DarkGray
+        Write-Host ''
+        $manual = Read-Host '  Open VirusTotal in browser instead? (Y/n)'
+        if ($manual -ne 'n' -and $manual -ne 'N') {
+            Start-Process 'https://www.virustotal.com/gui/home/upload'
+        }
+        return
+    }
+
+    # Files to scan
+    $files = @()
+    $menuPath = Join-Path $ScriptDir 'mumu-menu.ps1'
+    $bootPath = Join-Path $ScriptDir 'bootstrap-update.ps1'
+    if (Test-Path -LiteralPath $menuPath) { $files += @{ Name = 'mumu-menu.ps1'; Path = $menuPath } }
+    if (Test-Path -LiteralPath $bootPath) { $files += @{ Name = 'bootstrap-update.ps1'; Path = $bootPath } }
+
+    if ($files.Count -eq 0) {
+        Write-Host '  No script files found.' -ForegroundColor Yellow
+        return
+    }
+
+    Write-Host '  Scanning files...' -ForegroundColor Cyan
+    Write-Host ''
+
+    $clean = 0
+    $dirty = 0
+
+    foreach ($f in $files) {
+        $hash = (Get-FileHash -Path $f.Path -Algorithm SHA256).Hash.ToLower()
+        Write-Host "  $($f.Name)" -ForegroundColor White -NoNewline
+        Write-Host "  SHA256: $($hash.Substring(0,16))..." -ForegroundColor DarkGray -NoNewline
+
+        # Check if already scanned
+        try {
+            $url = "https://www.virustotal.com/api/v3/files/$hash"
+            $result = Invoke-RestMethod -Uri $url -Headers @{ 'x-apikey' = $apiKey } -ErrorAction Stop
+            $stats = $result.data.attributes.last_analysis_stats
+            $m = $stats.malicious; $s = $stats.suspicious; $u = $stats.undetected; $h = $stats.harmless
+            $t = $m + $s + $u + $h
+            if ($m -gt 0 -or $s -gt 0) {
+                Write-Host "  $m恶意 $s可疑 / $t ($u clean)" -ForegroundColor Red
+                $dirty++
+            } else {
+                Write-Host "  0/$t clean" -ForegroundColor Green
+                $clean++
+            }
+            Write-Host "    https://www.virustotal.com/gui/file/$hash" -ForegroundColor DarkGray
+        } catch {
+            # Not on VT yet - upload
+            Write-Host '  uploading...' -ForegroundColor Yellow -NoNewline
+            try {
+                $boundary = [Guid]::NewGuid().ToString()
+                $fileName = [IO.Path]::GetFileName($f.Path)
+                $fileBytes = [IO.File]::ReadAllBytes($f.Path)
+                $hdr = [Text.Encoding]::UTF8.GetBytes("--$boundary`r`nContent-Disposition: form-data; name=`"file`"; filename=`"$fileName`"`r`nContent-Type: application/octet-stream`r`n`r`n")
+                $ftr = [Text.Encoding]::UTF8.GetBytes("`r`n--$boundary--`r`n")
+                $body = New-Object byte[] ($hdr.Length + $fileBytes.Length + $ftr.Length)
+                [Buffer]::BlockCopy($hdr, 0, $body, 0, $hdr.Length)
+                [Buffer]::BlockCopy($fileBytes, 0, $body, $hdr.Length, $fileBytes.Length)
+                [Buffer]::BlockCopy($ftr, 0, $body, $hdr.Length + $fileBytes.Length, $ftr.Length)
+                $null = Invoke-RestMethod -Uri 'https://www.virustotal.com/api/v3/files' -Method Post -Headers @{ 'x-apikey' = $apiKey } -ContentType "multipart/form-data; boundary=$boundary" -Body $body -ErrorAction Stop
+                Write-Host ' done (analyzing...)' -ForegroundColor Green
+                Write-Host "    https://www.virustotal.com/gui/file/$hash" -ForegroundColor DarkGray
+            } catch {
+                Write-Host " FAILED" -ForegroundColor Red
+                Write-Host "    Error: $($_.Exception.Message)" -ForegroundColor Red
+            }
+        }
+    }
+
+    Write-Host ''
+    if ($clean -gt 0 -and $dirty -eq 0) {
+        Write-Host "  All $clean file(s) clean!" -ForegroundColor Green
+    } elseif ($dirty -gt 0) {
+        Write-Host "  WARNING: $dirty file(s) detected!" -ForegroundColor Red
+    }
 }
 
 function Fix-Unicode {
@@ -4945,6 +5042,7 @@ do {
         'tc' { Test-EmulatorConnection }
         'tn' { Test-Network }
         'td' { Test-ScriptDependencies }
+        'vt' { Scan-VirusTotal }
         'uw' { Fix-Unicode }
         'dm' { Set-DeviceModel }
         'sim' { Set-SimOperator }
