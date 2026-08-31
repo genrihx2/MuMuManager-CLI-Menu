@@ -1,4 +1,4 @@
-﻿# Bootstrap Update Script - Run this SEPARATELY from PowerShell
+# Bootstrap Update Script - Run this SEPARATELY from PowerShell
 # Downloads the latest mumu-menu.ps1 and replaces the old one.
 # Use when the [U] menu option is broken (e.g. after a failed update).
 #
@@ -55,78 +55,51 @@ if (Test-Path -LiteralPath $tokenFile) {
     }
 }
 
-$headers = @{
-    'Accept'     = 'application/vnd.github.v3+json'
-    'User-Agent' = 'MuMuManager-CLI-Menu-Bootstrap'
-}
 if ($token) {
-    $headers['Authorization'] = "token $token"
     Write-Host "  Token: loaded" -ForegroundColor DarkGray
 } else {
     Write-Host "  Token: not found (60 req/hr limit)" -ForegroundColor DarkGray
 }
 Write-Host ''
 
-# ── Helper: HTTP GET with retry ─────────────────────────────────────
-function Invoke-GitHubGet {
-    param([string]$Url, [int]$TimeoutSec = 30)
+# ── Helper: curl GET with retry ──────────────────────────────────────
+function Invoke-CurlGet {
+    param([string]$Url)
     for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
-        try {
-            $resp = Invoke-WebRequest -Uri $Url -Headers $headers -UseBasicParsing -TimeoutSec $TimeoutSec
-            return $resp.Content
-        } catch {
-            $code = $null
-            if ($_.Exception.Response) { $code = [int]$_.Exception.Response.StatusCode }
-            if ($code -eq 403 -or $code -eq 429) {
-                Write-Host "  Rate limited ($code) - retrying in ${retryDelay}s..." -ForegroundColor Yellow
-            } elseif ($attempt -lt $maxRetries) {
-                Write-Host "  Attempt $attempt failed ($code) - retrying in ${retryDelay}s..." -ForegroundColor Yellow
-            } else {
-                throw
-            }
+        $headers = @('-H', 'Accept: application/vnd.github.v3+json')
+        if ($token) { $headers += @('-H', "Authorization: token $token") }
+        $result = & curl.exe -sS --fail --connect-timeout 30 --max-time 30 @headers $Url 2>$null | Out-String
+        if ($LASTEXITCODE -eq 0 -and $result.Trim()) {
+            return $result
+        }
+        if ($attempt -lt $maxRetries) {
+            Write-Host "  Attempt $attempt failed - retrying in ${retryDelay}s..." -ForegroundColor Yellow
             Start-Sleep -Seconds $retryDelay
         }
     }
+    return $null
 }
 
-# ── Helper: Download file with progress ──────────────────────────────
+# ── Helper: Download file with curl ──────────────────────────────────
 function Download-File {
     param([string]$Url, [string]$Dest)
     for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
-        try {
-            $tmpFile = $Dest + '.tmp'
-            # Use curl.exe for progress bar (matches main script behavior)
-            $curlArgs = @('-s', '-S', '--fail', '--retry', '2', '--retry-delay', '2',
-                          '--connect-timeout', '30', '--max-time', '120',
-                          '-L', '-o', $tmpFile)
-            if ($token) { $curlArgs += @('-H', "Authorization: token $token") }
-            $curlArgs += $Url
-
-            $prevBg = $Host.UI.RawUI.BackgroundColor
-            & curl.exe @curlArgs 2>&1 | Out-Null
-            $exitCode = $LASTEXITCODE
-
-            if ($exitCode -ne 0 -or -not (Test-Path -LiteralPath $tmpFile)) {
-                throw "curl exit code $exitCode"
-            }
-
+        $tmpFile = $Dest + '.tmp'
+        $headers = @()
+        if ($token) { $headers += @('-H', "Authorization: token $token") }
+        & curl.exe -sS --fail --retry 2 --connect-timeout 30 --max-time 120 -L -o $tmpFile @headers $Url 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $tmpFile) -and (Get-Item -LiteralPath $tmpFile).Length -gt 0) {
             $size = (Get-Item -LiteralPath $tmpFile).Length
-            if ($size -eq 0) { throw 'downloaded file is empty' }
-
             Move-Item -LiteralPath $tmpFile -Destination $Dest -Force
             return $size
-        } catch {
-            if (Test-Path -LiteralPath ($Dest + '.tmp')) {
-                Remove-Item -LiteralPath ($Dest + '.tmp') -Force -ErrorAction SilentlyContinue
-            }
-            if ($attempt -lt $maxRetries) {
-                Write-Host "  Attempt $attempt failed - retrying in ${retryDelay}s..." -ForegroundColor Yellow
-                Start-Sleep -Seconds $retryDelay
-            } else {
-                throw
-            }
+        }
+        if (Test-Path -LiteralPath $tmpFile) { Remove-Item -LiteralPath $tmpFile -Force -ErrorAction SilentlyContinue }
+        if ($attempt -lt $maxRetries) {
+            Write-Host "  Attempt $attempt failed - retrying in ${retryDelay}s..." -ForegroundColor Yellow
+            Start-Sleep -Seconds $retryDelay
         }
     }
+    return 0
 }
 
 # ── Fast version check ──────────────────────────────────────────────
@@ -138,15 +111,22 @@ if (Test-Path -LiteralPath $versionFile) {
 
 $remoteTag = ''
 $remoteBody = ''
-try {
-    $releaseJson = Invoke-GitHubGet "$apiBase/releases/latest" 15
-    $release = $releaseJson | ConvertFrom-Json
-    if ($release.tag_name) {
-        $remoteTag  = $release.tag_name
-        $remoteBody = if ($release.body) { $release.body } else { '' }
+$releaseJson = Invoke-CurlGet "$apiBase/releases/latest"
+if ($releaseJson) {
+    try {
+        $release = $releaseJson | ConvertFrom-Json
+        if ($release.tag_name) {
+            $remoteTag  = $release.tag_name
+            $remoteBody = if ($release.body) { $release.body } else { '' }
+        }
+    } catch {
+        Write-Host "  Could not parse release: $($_.Exception.Message)" -ForegroundColor Yellow
     }
-} catch {
-    Write-Host "  Could not check releases: $($_.Exception.Message)" -ForegroundColor Yellow
+}
+
+if (-not $remoteTag) {
+    Write-Host "  Could not check releases. Run with -Force to download anyway." -ForegroundColor Yellow
+    if (-not $Force) { exit 1 }
 }
 
 if ($localTag -eq $remoteTag -and -not $Force) {
@@ -187,17 +167,17 @@ $fail = 0
 
 foreach ($f in $files) {
     $dest = Join-Path $TargetDir $f
-    # Download from the tagged release via raw content endpoint
-    $url = "https://raw.githubusercontent.com/$repo/$remoteTag/$f"
+    $tag = if ($remoteTag) { $remoteTag } else { 'main' }
+    $url = "https://api.github.com/repos/$repo/contents/$f`?ref=$tag"
 
     Write-Host "  $f" -ForegroundColor Yellow -NoNewline
-    try {
-        $size = Download-File $url $dest
+    $size = Download-File $url $dest
+    if ($size -gt 0) {
         $sizeKB = '{0:N1}' -f ($size / 1024)
         Write-Host "  OK  ${sizeKB} KB" -ForegroundColor Green
         $ok++
-    } catch {
-        Write-Host "  FAILED: $($_.Exception.Message)" -ForegroundColor Red
+    } else {
+        Write-Host "  FAILED" -ForegroundColor Red
         $fail++
     }
 }
