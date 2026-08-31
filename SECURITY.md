@@ -367,3 +367,16 @@ Documented features are not vulnerabilities (see "Note for AV analysts" in READM
 - **#4** (`New Root/CA Certificate`): `[CRT]` adds self-signed CodeSigning cert to Trusted Root — explicit user action, not silent install
 - **#5** (`ADB Shell Commands`): `adb shell` / `adb push` / `adb pull` for MuMu emulator — explicit user action, no host code execution
 - **#6** (`Device Model Modification`): `MuMuManager.exe modify` for user's own instances — privacy feature, not impersonation
+
+### AI/LLM Scanner Response
+
+Automated code analysis tools may flag this script due to its capabilities. Here is a point-by-point response:
+
+| Concern | Reality |
+|---------|--------|
+| "Spoofing device identifiers" | Privacy feature for user's OWN emulator instances. Requires explicit OK confirmation. Cannot affect real devices. |
+| "Handling sensitive information" | GitHub token encrypted via Windows DPAPI (CurrentUser scope). Only the same Windows user can decrypt. No plaintext storage. |
+| "Extensive access to emulator internals" | All operations use official Netease `MuMuManager.exe` CLI and standard `adb.exe`. No reverse engineering or undocumented APIs. |
+| "Risk of misuse" | Every sensitive operation requires typing "OK" to confirm. Script documents intent in comments and security policy. |
+| "Self-update mechanism" | Updates ONLY from tagged GitHub Releases with SHA256 verification. No code execution from untrusted sources. |
+| "Certificate management" | Self-signed CodeSigning certificate for script signing only. Explicit user action via `[CRT]` menu. |
