@@ -2494,13 +2494,13 @@ function Download-Repository {
         # Specific release
         Write-Host ''
         Write-Host 'Fetching releases...' -ForegroundColor DarkGray
-        $tagsCmd = "curl.exe -s --connect-timeout 30 --max-time 30 -H `"Accept: application/vnd.github.v3+json`""
-        if ($GitHubToken) { $tagsCmd += " -H `"Authorization: token $GitHubToken`"" }
-        $tagsCmd += " `"https://api.github.com/repos/$GitHubRepo/tags`""
-        $tagsJson = & cmd /c $tagsCmd 2>$null | Out-String
-        try { $tags = $tagsJson | ConvertFrom-Json } catch { $tags = @() }
+        $relListCmd = "curl.exe -s --connect-timeout 30 --max-time 30 -H `"Accept: application/vnd.github.v3+json`""
+        if ($GitHubToken) { $relListCmd += " -H `"Authorization: token $GitHubToken`"" }
+        $relListCmd += " `"https://api.github.com/repos/$GitHubRepo/releases?per_page=20`""
+        $relListJson = & cmd /c $relListCmd 2>$null | Out-String
+        try { $releases = $relListJson | ConvertFrom-Json } catch { $releases = @() }
 
-        if (-not $tags -or $tags.Count -eq 0) {
+        if (-not $releases -or $releases.Count -eq 0) {
             Write-Host 'No releases found.' -ForegroundColor Yellow
             return
         }
@@ -2508,35 +2508,41 @@ function Download-Repository {
         Write-Host ''
         Write-Host 'Available releases:' -ForegroundColor Cyan
         Write-Host ''
-        for ($i = 0; $i -lt $tags.Count; $i++) {
-            $t = $tags[$i]
+        for ($i = 0; $i -lt $releases.Count; $i++) {
+            $r = $releases[$i]
             $marker = if ($i -eq 0) { ' <-- latest' } else { '' }
-            Write-Host "  [$($i + 1)] $($t.name)$marker" -ForegroundColor White
+            $date = if ($r.published_at) { ($r.published_at -replace 'T.*','') } else { '' }
+            $assetInfo = if ($r.assets -and $r.assets.Count -gt 0) {
+                $zipCount = ($r.assets | Where-Object { $_.name -match '\.zip$' }).Count
+                if ($zipCount -gt 0) { " [$zipCount ZIP]" } else { " [$($r.assets.Count) assets]" }
+            } else { ' [no assets]' }
+            $bodyPreview = if ($r.body) { ($r.body -split "`n" | Select-Object -First 1).Trim() } else { '' }
+            if ($bodyPreview.Length -gt 60) { $bodyPreview = $bodyPreview.Substring(0, 57) + '...' }
+            Write-Host "  [$($i + 1)] $($r.tag_name)  $date$assetInfo$marker" -ForegroundColor White
+            if ($bodyPreview) { Write-Host "      $bodyPreview" -ForegroundColor DarkGray }
         }
 
         Write-Host ''
         $sel = Read-Host 'Select release (number)'
-        if (-not ($sel -match '^\d+$' -and [int]$sel -ge 1 -and [int]$sel -le $tags.Count)) {
+        if (-not ($sel -match '^\d+$' -and [int]$sel -ge 1 -and [int]$sel -le $releases.Count)) {
             Write-Host 'Invalid selection.' -ForegroundColor Red
             return
         }
-        $chosen = $tags[[int]$sel - 1]
-        $tagName = $chosen.name
+        $release = $releases[[int]$sel - 1]
+        $tagName = $release.tag_name
 
-        # Get release assets
+        # Show release details
         Write-Host ''
-        Write-Host "Fetching release $tagName..." -ForegroundColor DarkGray
-        $relCmd = "curl.exe -s --connect-timeout 30 --max-time 30 -H `"Accept: application/vnd.github.v3+json`""
-        if ($GitHubToken) { $relCmd += " -H `"Authorization: token $GitHubToken`"" }
-        $relCmd += " `"https://api.github.com/repos/$GitHubRepo/releases/tags/$tagName`""
-        $relJson = & cmd /c $relCmd 2>$null | Out-String
-        try { $release = $relJson | ConvertFrom-Json } catch { $release = $null }
-
-        $hasRelease = $release -and $release.tag_name -and $release.assets
-        $zipAsset = $null
-        if ($hasRelease) {
-            $zipAsset = $release.assets | Where-Object { $_.name -match '\.zip$' } | Select-Object -First 1
+        Write-Host "  Release: $($release.name)" -ForegroundColor Cyan
+        Write-Host "  Tag:     $tagName" -ForegroundColor DarkGray
+        if ($release.body) {
+            $bodyLines = $release.body -split "`n" | Select-Object -First 5
+            foreach ($line in $bodyLines) {
+                if ($line.Trim()) { Write-Host "  $($line.Trim())" -ForegroundColor DarkGray }
+            }
         }
+
+        $zipAsset = $release.assets | Where-Object { $_.name -match '\.zip$' } | Select-Object -First 1
 
         if (-not $zipAsset) {
             Write-Host ''
@@ -2590,7 +2596,7 @@ function Download-Repository {
         Write-Host ''
         Write-Host "Downloading $($zipAsset.name)..." -ForegroundColor Cyan
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
-        $curlCmd = "curl.exe -# --connect-timeout 30 --max-time 300 --retry 3 --retry-delay 3 -L -o `"$zipPath`" $zipUrl"
+        $curlCmd = "curl.exe -# --fail --connect-timeout 30 --max-time 300 --retry 3 --retry-delay 3 -L -o `"$zipPath`" $zipUrl"
         if ($GitHubToken) { $curlCmd += " -H Authorization:token $GitHubToken" }
         & cmd /c $curlCmd 2>$null
         $sw.Stop()
@@ -2699,7 +2705,7 @@ function Download-Repository {
         Write-Host ''
         Write-Host "Downloading $($zipAsset.name)..." -ForegroundColor Cyan
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
-        $curlCmd = "curl.exe -# --connect-timeout 30 --max-time 300 --retry 3 --retry-delay 3 -L -o `"$zipPath`" $zipUrl"
+        $curlCmd = "curl.exe -# --fail --connect-timeout 30 --max-time 300 --retry 3 --retry-delay 3 -L -o `"$zipPath`" $zipUrl"
         if ($GitHubToken) { $curlCmd += " -H Authorization:token $GitHubToken" }
         & cmd /c $curlCmd 2>$null
         $sw.Stop()
@@ -2825,7 +2831,38 @@ function Download-Repository {
 
             $zipAsset = $release.assets | Where-Object { $_.name -match '\.zip$' } | Select-Object -First 1
             if (-not $zipAsset) {
-                Write-Host 'No ZIP asset found.' -ForegroundColor Yellow
+                # Fallback: download files individually from the release tag
+                Write-Host '  No ZIP asset found. Downloading files individually...' -ForegroundColor Yellow
+                Write-Host ''
+                $dlFiles = @('mumu-menu.ps1', 'README.md', 'SKILL.md', '.version')
+                $ok = 0; $fail = 0
+                foreach ($f in $dlFiles) {
+                    $fUrl = "https://api.github.com/repos/$GitHubRepo/contents/$f?ref=$($release.tag_name)"
+                    $fDest = Join-Path $ScriptDir $f
+                    Write-Host "  $f" -ForegroundColor Yellow -NoNewline
+                    $dlCmd = "curl.exe -sS --fail --retry 2 --connect-timeout 30 --max-time 60 -L -H `"Accept: application/vnd.github.v3.raw`" -o `"$fDest`" $fUrl"
+                    if ($GitHubToken) { $dlCmd += " -H `"Authorization: token $GitHubToken`"" }
+                    cmd /c $dlCmd 2>$null | Out-Null
+                    if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $fDest) -and (Get-Item -LiteralPath $fDest).Length -gt 0) {
+                        $fContent = Get-Content -LiteralPath $fDest -Raw -ErrorAction SilentlyContinue
+                        if ($fContent -and $fContent.TrimStart().StartsWith('{') -and $fContent -match '"name"|"_links"|"encoding"') {
+                            Remove-Item -LiteralPath $fDest -Force
+                            Write-Host '  FAILED (JSON metadata)' -ForegroundColor Red
+                            $fail++
+                        } else {
+                            $sz = '{0:N0}' -f ((Get-Item -LiteralPath $fDest).Length / 1KB)
+                            Write-Host "  OK  ${sz} KB" -ForegroundColor Green
+                            $ok++
+                        }
+                    } else {
+                        if (Test-Path -LiteralPath $fDest) { Remove-Item -LiteralPath $fDest -Force -ErrorAction SilentlyContinue }
+                        Write-Host '  FAILED' -ForegroundColor Red
+                        $fail++
+                    }
+                }
+                Write-Host ''
+                Write-Host "  Updated $ok file(s), failed $fail" -ForegroundColor $(if ($fail -gt 0) { 'Yellow' } else { 'Green' })
+                Write-Host '  Restart the script to use the updated version.' -ForegroundColor Yellow
                 return
             }
 
@@ -2869,7 +2906,7 @@ function Download-Repository {
             Write-Host "  Downloading $($zipAsset.name)..." -ForegroundColor Cyan
             $sw = [System.Diagnostics.Stopwatch]::StartNew()
 
-            $curlCmd = "curl.exe -# --connect-timeout 30 --max-time 300 --retry 3 --retry-delay 3 -L -o `"$tmp`" $zipUrl"
+            $curlCmd = "curl.exe -# --fail --connect-timeout 30 --max-time 300 --retry 3 --retry-delay 3 -L -o `"$tmp`" $zipUrl"
             if ($GitHubToken) { $curlCmd += " -H Authorization:token $GitHubToken" }
             & cmd /c $curlCmd 2>$null
             $sw.Stop()
