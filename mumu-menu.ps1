@@ -2551,17 +2551,18 @@ function Download-Repository {
             $dlFiles = @('mumu-menu.ps1', 'README.md', 'SKILL.md', '.version')
             $ok = 0; $fail = 0
             foreach ($f in $dlFiles) {
-                $fUrl = "https://raw.githubusercontent.com/$GitHubRepo/$tagName/$f"
+                $fUrl = "https://api.github.com/repos/$GitHubRepo/contents/$f?ref=$tagName"
                 $fDest = Join-Path $targetDir $f
                 Write-Host "  $f" -ForegroundColor Yellow -NoNewline
-                $fCmd = "curl.exe -sS --fail --retry 2 --connect-timeout 30 --max-time 60 -L -o `"$fDest`" $fUrl"
-                if ($GitHubToken) { $fCmd += " -H Authorization:token $GitHubToken" }
-                & cmd /c $fCmd 2>$null
+                $dlCmd = "curl.exe -sS --fail --retry 2 --connect-timeout 30 --max-time 60 -L -H `"Accept: application/vnd.github.v3.raw`" -o `"$fDest`" $fUrl"
+                if ($GitHubToken) { $dlCmd += " -H `"Authorization: token $GitHubToken`"" }
+                $null = & cmd /c "$dlCmd 2>nul"
                 if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $fDest) -and (Get-Item -LiteralPath $fDest).Length -gt 0) {
                     $sz = '{0:N0}' -f ((Get-Item -LiteralPath $fDest).Length / 1KB)
                     Write-Host "  OK  ${sz} KB" -ForegroundColor Green
                     $ok++
                 } else {
+                    if (Test-Path -LiteralPath $fDest) { Remove-Item -LiteralPath $fDest -Force -ErrorAction SilentlyContinue }
                     Write-Host "  FAILED" -ForegroundColor Red
                     $fail++
                 }
@@ -2652,17 +2653,18 @@ function Download-Repository {
             $dlFiles = @('mumu-menu.ps1', 'README.md', 'SKILL.md', '.version')
             $ok = 0; $fail = 0
             foreach ($f in $dlFiles) {
-                $fUrl = "https://raw.githubusercontent.com/$GitHubRepo/$tag/$f"
+                $fUrl = "https://api.github.com/repos/$GitHubRepo/contents/$f?ref=$tag"
                 $fDest = Join-Path $targetDir $f
                 Write-Host "  $f" -ForegroundColor Yellow -NoNewline
-                $fCmd = "curl.exe -sS --fail --retry 2 --connect-timeout 30 --max-time 60 -L -o `"$fDest`" $fUrl"
-                if ($GitHubToken) { $fCmd += " -H Authorization:token $GitHubToken" }
-                & cmd /c $fCmd 2>$null
+                $dlCmd = "curl.exe -sS --fail --retry 2 --connect-timeout 30 --max-time 60 -L -H `"Accept: application/vnd.github.v3.raw`" -o `"$fDest`" $fUrl"
+                if ($GitHubToken) { $dlCmd += " -H `"Authorization: token $GitHubToken`"" }
+                $null = & cmd /c "$dlCmd 2>nul"
                 if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $fDest) -and (Get-Item -LiteralPath $fDest).Length -gt 0) {
                     $sz = '{0:N0}' -f ((Get-Item -LiteralPath $fDest).Length / 1KB)
                     Write-Host "  OK  ${sz} KB" -ForegroundColor Green
                     $ok++
                 } else {
+                    if (Test-Path -LiteralPath $fDest) { Remove-Item -LiteralPath $fDest -Force -ErrorAction SilentlyContinue }
                     Write-Host "  FAILED" -ForegroundColor Red
                     $fail++
                 }
