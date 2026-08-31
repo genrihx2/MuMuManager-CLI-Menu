@@ -34,46 +34,61 @@
 
 ### Сроки ответа
 
-- Первичный ответ: **до 72 часов**
-- Оценка и план исправления: до 7 дней
-- Критичные уязвимости — патч вне очереди, в приоритете
+| Приоритет | Срок |
+|-----------|------|
+| Первичный ответ | **до 72 часов** |
+| Оценка и план исправления | до 7 дней |
+| Критичные уязвимости | патч вне очереди, в приоритете |
+| Подтверждение получения | **до 24 часов** |
 
 ### Архитектура безопасности
 
 ```
-┌──────────────────────────────────────────────────────┐
-│                    mumu-menu.ps1                     │
-│                                                      │
-│  ┌─────────┐  ┌──────────┐  ┌────────────────────┐  │
-│  │ Token   │  │Certificate│  │ ADB Management     │  │
-│  │ DPAPI   │  │ Self-signed│  │ File Transfer      │  │
-│  │ Encrypt │  │ CodeSign  │  │ Screen Capture     │  │
-│  └─────────┘  └──────────┘  │ Interactive Shell   │  │
-│                              └────────────────────┘  │
-│  ┌──────────────────────────────────────────────┐    │
-│  │              MuMuManager.exe                 │    │
-│  │     (Official Netease CLI tool)              │    │
-│  │  clone · launch · quit · modify · adb · backup│   │
-│  └──────────────────────────────────────────────┘    │
-│                                                      │
-│  ┌──────────────────────────────────────────────┐    │
-│  │              GitHub API (curl.exe)            │    │
-│  │   api.github.com  ·  raw.githubusercontent.com│   │
-│  └──────────────────────────────────────────────┘    │
-└──────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────┐
+│                        mumu-menu.ps1                          │
+│                                                                │
+│  ┌──────────┐  ┌────────────┐  ┌───────────────────────────┐  │
+│  │  Token   │  │ Certificate│  │     ADB Management        │  │
+│  │  DPAPI   │  │ Self-signed│  │ [AF] push/pull/list       │  │
+│  │  Encrypt │  │ CodeSign   │  │ [AS] screencap/record     │  │
+│  └──────────┘  └────────────┘  │ [AH] interactive shell    │  │
+│                                 └───────────────────────────┘  │
+│  ┌────────────────────────────────────────────────────────┐    │
+│  │                   MuMuManager.exe                      │    │
+│  │          (Official Netease CLI tool)                   │    │
+│  │  clone · launch · quit · modify · adb · backup        │    │
+│  └────────────────────────────────────────────────────────┘    │
+│                                                                │
+│  ┌────────────────────────────────────────────────────────┐    │
+│  │                  GitHub API (curl.exe)                  │    │
+│  │        api.github.com · raw.githubusercontent.com     │    │
+│  └────────────────────────────────────────────────────────┘    │
+└────────────────────────────────────────────────────────────────┘
 ```
 
 ### Модель угроз
 
-| Угроза | Митигация |
-|--------|-----------|
-| Токен в открытом виде | DPAPI-шифрование (CurrentUser), `.gitignore` для `.github-token` |
-| Подмена скрипта | Authenticode-подпись через `[CRT]`, проверка SHA256 при обновлении |
-| MITM при обновлении | HTTPS через `api.github.com` / `raw.githubusercontent.com`, проверка содержимого перед записью |
-| Вредоносный ZIP | Валидация структуры ZIP, проверка наличия всех файлов |
-| Инъекция команд | Параметризованные вызовы `MuMuManager.exe`, escaping аргументов |
-| ADB-инъекция | Параметризованные вызовы `adb push/pull/shell`, escaping аргументов |
-| LSASS injection | Нет — DPAPI через .NET `ProtectedData`, без DLL/EXE в LSASS |
+| Угроза | Митигация | Уровень |
+|--------|-----------|---------|
+| Токен в открытом виде | DPAPI-шифрование (CurrentUser), `.gitignore` для `.github-token` | 🔴 Критический |
+| Подмена скрипта | Authenticode-подпись через `[CRT]`, проверка SHA256 при обновлении | 🔴 Критический |
+| MITM при обновлении | HTTPS через `api.github.com` / `raw.githubusercontent.com`, проверка содержимого | 🟠 Высокий |
+| Инъекция команд | Параметризованные вызовы `MuMuManager.exe`, escaping аргументов | 🔴 Критический |
+| ADB-инъекция | Параметризованные вызовы `adb push/pull/shell`, escaping аргументов | 🟠 Высокий |
+| Вредоносный ZIP | Валидация структуры ZIP, проверка наличия всех файлов | 🟠 Высокий |
+| Replay-атака на токен | Токен одноразовый для API, не передаётся в URL-параметрах | 🟡 Средний |
+| LSASS injection | Нет — DPAPI через .NET `ProtectedData`, без DLL/EXE в LSASS | ✅ Нет риска |
+
+### Сетевые эндпоинты
+
+Скрипт обращается **только** к следующим доменам:
+
+| Домен | Протокол | Использование | Аутентификация |
+|-------|----------|---------------|----------------|
+| `api.github.com` | HTTPS (TLS 1.2+) | Проверка версий, загрузка обновлений, валидация токена | Bearer token (опционально) |
+| `raw.githubusercontent.com` | HTTPS (TLS 1.2+) | Загрузка файлов обновления | Bearer token (опционально) |
+
+**Не используются:** `Invoke-WebRequest`, `Invoke-RestMethod`, WebSocket, SMTP, FTP, DNS-over-HTTPS.
 
 ### Токен безопасности
 
@@ -81,6 +96,7 @@
 - Windows DPAPI (scope: CurrentUser) в `.github-token.dpapi`
 - Плейнтекстовый `.github-token` автоматически мигрируется при первом запуске
 - `.gitignore` исключает оба файла из репозитория
+- Миграция включает **затирание нулями** плейнтекста перед удалением (secure wipe)
 
 **Использование:**
 - Только для GitHub API (проверка версий, загрузка обновлений)
@@ -91,17 +107,20 @@
 - Тест токена перед сохранением (запрос к `/user`)
 - Маскированный вывод: `ghp_***3L0a9i`
 - Проверка scope и типа при отображении
+- Автоматическое обнаружение и миграция legacy-токенов
 
 ### Код-подпись
 
 **Создание:** `[CRT] Create certificate`
 - Self-signed сертификат (RSA 2048, SHA256)
+- Code Signing EKU (1.3.6.1.5.5.7.3.3) для Authenticode
 - Добавление в Trusted Root — **явное действие пользователя**
 - Lifetime: 1 год (проверка через `[V] Version info`)
 
 **Подписание:** автоматическое при обновлении через `[U]`
 - `Set-AuthenticodeSignature` на `mumu-menu.ps1`
 - PowerShell ExecutionPolicy: `RemoteSigned` или `Bypass`
+- Подпись через копию в temp (нельзя подписать запущенный файл)
 
 ### Безопасность обновлений
 
@@ -119,32 +138,96 @@
 - Никаких исполняемых файлов
 - Никаких скрытых загрузок
 - Пользователь подтверждает каждое действие
+- Бэкап перед перезаписью (авто-очистка старше 5)
 
 ### Управление ADB
 
 Функции управления ADB (`[AF]`, `[AS]`, `[AH]`) работают через локальный ADB-клиент с подключённым эмулятором:
 
-- **File Transfer** (`adb push/pull`): копирование файлов между PC и эмулятором
-- **Screen Capture** (`adb shell screencap/screenrecord`): скриншоты и запись экрана
-- **Interactive Shell** (`adb shell`): прямой доступ к shell эмулятора
+| Функция | Команды ADB | Описание |
+|---------|-------------|----------|
+| File Transfer `[AF]` | `adb push`, `adb pull`, `adb shell ls` | Копирование файлов между PC и эмулятором |
+| Screen Capture `[AS]` | `adb shell screencap`, `adb shell screenrecord` | Скриншоты и запись экрана (до 180с) |
+| Interactive Shell `[AH]` | `adb shell` | Прямой доступ к shell эмулятора |
 
-Все операции ADB требуют согласия пользователя (`Confirm-AdbConsent`). ADB-команды передаются параметризованно — аргументы экранируются.
+**Безопасность ADB:**
+- Все операции требуют согласия пользователя (`Confirm-AdbConsent`)
+- ADB-команды передаются параметризованно — аргументы экранируются
+- Команды выполняются **только внутри ВМ эмулятора**, хост-машина недоступна
+- Session-consent перед первым произвольным ADB-шеллом
+
+### Политика выполнения (Execution Policy)
+
+Рекомендуемые политики PowerShell:
+
+| Политика | Описание | Рекомендация |
+|----------|----------|--------------|
+| `RemoteSigned` | Скрипты с подписью запускаются без запроса | ✅ Рекомендуется |
+| `AllSigned` | Все скрипты должны быть подписаны | ⚠️ Требует подписи через `[CRT]` |
+| `Bypass` | Без ограничений | 🔴 Только для тестирования |
+
+**Установка:**
+```powershell
+# Текущий пользователь
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+
+# Все пользователи (требует администратора)
+Set-ExecutionPolicy -Scope LocalMachine -ExecutionPolicy RemoteSigned
+```
+
+### Безопасная установка
+
+1. **Скачайте** скрипт только из [Releases](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest)
+2. **Проверьте** цифровую подпись: `[V] Version info` → статус подписи
+3. **Настройте** ExecutionPolicy: `RemoteSigned` (см. выше)
+4. **Создайте** сертификат: `[CRT] Create certificate` → подпишите скрипт
+5. **Настройте** токен: `[K] Update GitHub token` (DPAPI-шифрование)
+6. **Проверьте** зависимости: `[TD] Dependencies test`
+
+### Тестирование безопасности
+
+Для проверки безопасности скрипта:
+
+1. **PSScriptAnalyzer:**
+   ```powershell
+   Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
+   Invoke-ScriptAnalyzer -Path mumu-menu.ps1 -Severity Warning
+   ```
+
+2. **VirusTotal:** проверьте файлы на [virustotal.com](https://www.virustotal.com) (0/75 — чисто)
+
+3. **Подпись:** `[V] Version info` → статус подписи должен быть `Valid`
+
+4. **Сетевой трафик:** мониторьте с помощью Wireshark — только HTTPS к `api.github.com`
 
 ### Что НЕ считается уязвимостью
 
 Это задокументированные возможности проекта (см. «Примечание для AV-аналитиков» в README):
 
-- Спуфинг модели устройства и генерация IMEI / Android ID / MAC — функции приватности для **собственных** инстансов пользователя
-- Хранение GitHub-токена через Windows DPAPI (CurrentUser) — расшифровка возможна только от имени того же пользователя Windows
-- Read-only проверка обновлений при старте (HTTPS к `api.github.com`) — загрузка файлов происходит только вручную через `[U]`
+**Функции приватности (явное действие пользователя):**
+- Спуфинг модели устройства и генерация IMEI / Android ID / MAC — для **собственных** инстансов
+- `[DM]` Spoof device model — изменение brand/model/code
+- `[DI]` Random device IDs — генерация случайных идентификаторов
+- `[SIM]` Change SIM operator — смена MCC/MNC для TikTok и др.
+
+**Хранение токена:**
+- Windows DPAPI (CurrentUser) — расшифровка возможна только от имени того же пользователя Windows
+- Legacy `.github-token` автоматически мигрируется с secure wipe
+
+**Обновления:**
+- Read-only проверка при старте (HTTPS к `api.github.com`) — загрузка только через `[U]`
 - Самообновление из тегов GitHub Releases с проверкой содержимого
-- ADB shell / push / pull — управление эмулятором, выполняется только по явному запросу пользователя
-- **Sigma FP #1** (`DMP/HDMP File Creation`): скрипт **НЕ создаёт** .dmp/.hdmp файлы. DPAPI хранит зашифрованный текст в `.github-token.dpapi` — это не memory dump
-- **Sigma FP #2** (`Unsigned Image Loaded Into LSASS`): DPAPI через `ConvertFrom-SecureString` (.NET ProtectedData CurrentUser), **без** загрузки DLL/EXE в LSASS и **без** инъекции; скрипт подписан через `[CRT]`
-- **Sigma FP #3** (`Web Request Commands`): `curl.exe` (нативный Windows) используется для `api.github.com` (проверка версий, загрузка обновлений, валидация токена) и `raw.githubusercontent.com` (загрузка файлов обновления); **без** `Invoke-WebRequest`, **без** exfiltration
-- **Sigma FP #4** (`New Root/CA Certificate`): `[CRT]` добавляет self-signed CodeSigning сертификат в Trusted Root — **явное действие пользователя** для Authenticode-подписи, **не** тихая установка
-- **Sigma FP #5** (`ADB Shell Commands`): `adb shell` / `adb push` / `adb pull` используются для управления эмулятором MuMu (спуфинг ID, скриншоты, передача файлов) — **явное действие пользователя**, **без** выполнения кода на хост-машине
-- **Sigma FP #6** (`Device Model Modification`): `MuMuManager.exe modify` изменяет модель устройства для **собственных** инстансов — функция приватности, **не** подмена чужих устройств
+
+**ADB:**
+- ADB shell / push / pull — управление эмулятором, только по явному запросу пользователя
+
+**Sigma False Positives:**
+- **#1** (`DMP/HDMP File Creation`): скрипт **НЕ создаёт** .dmp/.hdmp файлы. DPAPI хранит зашифрованный текст — это не memory dump
+- **#2** (`Unsigned Image Loaded Into LSASS`): DPAPI через .NET ProtectedData CurrentUser, **без** загрузки DLL/EXE в LSASS и **без** инъекции; скрипт подписан через `[CRT]`
+- **#3** (`Web Request Commands`): `curl.exe` (нативный Windows) используется **только** для `api.github.com` и `raw.githubusercontent.com` — **без** `Invoke-WebRequest`, **без** exfiltration
+- **#4** (`New Root/CA Certificate`): `[CRT]` добавляет self-signed CodeSigning сертификат в Trusted Root — **явное действие пользователя**, **не** тихая установка
+- **#5** (`ADB Shell Commands`): `adb shell` / `adb push` / `adb pull` для управления эмулятором — **явное действие пользователя**, **без** выполнения кода на хост-машине
+- **#6** (`Device Model Modification`): `MuMuManager.exe modify` изменяет модель устройства для **собственных** инстансов — функция приватности, **не** подмена чужих устройств
 
 ### Благодарности
 
@@ -174,40 +257,113 @@ Use a private channel:
 
 Please include: description and impact, reproduction steps (PoC welcome), script version (`[V] Version info`), OS / PowerShell / MuMu versions.
 
-You will receive an initial response within **72 hours**. Critical issues are patched with priority.
+| Priority | SLA |
+|----------|-----|
+| Initial response | **within 72 hours** |
+| Assessment and fix plan | within 7 days |
+| Critical vulnerabilities | emergency patch, highest priority |
+| Receipt confirmation | **within 24 hours** |
 
 ### Security Architecture
 
-**Token:** DPAPI-encrypted (CurrentUser scope), `.gitignore`-excluded, masked in output, validated before save.
+**Token:** DPAPI-encrypted (CurrentUser scope), `.gitignore`-excluded, masked in output, validated before save. Legacy plaintext tokens are migrated with secure wipe (zero-fill before delete).
 
-**Code signing:** Self-signed certificate via `[CRT]`, added to Trusted Root (explicit user action), Authenticode signature on `mumu-menu.ps1`.
+**Code signing:** Self-signed certificate via `[CRT]`, Code Signing EKU (1.3.6.1.5.5.7.3.3), added to Trusted Root (explicit user action), Authenticode signature on `mumu-menu.ps1`.
 
-**Update integrity:** HTTPS only, retry with backoff (3 attempts), backup before overwrite, version comparison before download.
+**Update integrity:** HTTPS only (TLS 1.2+), retry with backoff (3 attempts), backup before overwrite, version comparison before download. Only `.ps1` and `.md` files are downloaded.
 
-**ADB management:** File transfer (`push/pull`), screen capture, interactive shell — all require explicit user consent.
+**ADB management:** File transfer (`push/pull`), screen capture, interactive shell — all require explicit user consent. Commands are parameterized with argument escaping. Executes only inside the emulator VM.
+
+### Network Endpoints
+
+The script connects **only** to:
+
+| Domain | Protocol | Purpose | Auth |
+|--------|----------|---------|------|
+| `api.github.com` | HTTPS (TLS 1.2+) | Version check, updates, token validation | Bearer token (optional) |
+| `raw.githubusercontent.com` | HTTPS (TLS 1.2+) | Update file download | Bearer token (optional) |
+
+**Not used:** `Invoke-WebRequest`, `Invoke-RestMethod`, WebSocket, SMTP, FTP, DNS-over-HTTPS.
 
 ### Threat Model
 
-| Threat | Mitigation |
-|--------|------------|
-| Token leakage | DPAPI encryption, `.gitignore`, masked output |
-| Script tampering | Authenticode signing, SHA256 verification |
-| MITM on update | HTTPS, GitHub API only, content validation |
-| Malicious ZIP | Structure validation, file presence check |
-| Command injection | Parameterized MuMuManager calls |
-| ADB injection | Parameterized adb calls with argument escaping |
-| LSASS injection | No — DPAPI via .NET ProtectedData only |
+| Threat | Mitigation | Severity |
+|--------|------------|----------|
+| Token leakage | DPAPI encryption, `.gitignore`, masked output, secure wipe | 🔴 Critical |
+| Script tampering | Authenticode signing, SHA256 verification | 🔴 Critical |
+| MITM on update | HTTPS only, GitHub API only, content validation | 🟠 High |
+| Command injection | Parameterized MuMuManager calls with escaping | 🔴 Critical |
+| ADB injection | Parameterized adb calls with argument escaping | 🟠 High |
+| Malicious ZIP | Structure validation, file presence check | 🟠 High |
+| Token replay | Token used for API only, never in URL parameters | 🟡 Medium |
+| LSASS injection | No — DPAPI via .NET ProtectedData only | ✅ No risk |
+
+### Execution Policy
+
+Recommended PowerShell policies:
+
+| Policy | Description | Recommendation |
+|--------|-------------|----------------|
+| `RemoteSigned` | Signed scripts run without prompt | ✅ Recommended |
+| `AllSigned` | All scripts must be signed | ⚠️ Requires `[CRT]` signing |
+| `Bypass` | No restrictions | 🔴 Testing only |
+
+```powershell
+# Current user
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+
+# All users (requires admin)
+Set-ExecutionPolicy -Scope LocalMachine -ExecutionPolicy RemoteSigned
+```
+
+### Secure Installation
+
+1. **Download** script only from [Releases](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest)
+2. **Verify** digital signature: `[V] Version info` → signature status
+3. **Set** ExecutionPolicy: `RemoteSigned` (see above)
+4. **Create** certificate: `[CRT] Create certificate` → sign the script
+5. **Configure** token: `[K] Update GitHub token` (DPAPI-encrypted)
+6. **Test** dependencies: `[TD] Dependencies test`
+
+### Security Testing
+
+To verify script security:
+
+1. **PSScriptAnalyzer:**
+   ```powershell
+   Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
+   Invoke-ScriptAnalyzer -Path mumu-menu.ps1 -Severity Warning
+   ```
+
+2. **VirusTotal:** check files at [virustotal.com](https://www.virustotal.com) (0/75 — clean)
+
+3. **Signature:** `[V] Version info` → signature status should be `Valid`
+
+4. **Network traffic:** monitor with Wireshark — only HTTPS to `api.github.com`
 
 ### Out of Scope
 
 Documented features are not vulnerabilities (see "Note for AV analysts" in README):
-- Device-model spoofing and random identifier generation (privacy for user-owned instances)
-- DPAPI-protected token storage (CurrentUser scope)
+
+**Privacy features (explicit user action):**
+- Device-model spoofing and random identifier generation (IMEI/Android ID/MAC) for user-owned instances
+- `[DM]` Spoof device model, `[DI]` Random device IDs, `[SIM]` Change SIM operator
+
+**Token storage:**
+- DPAPI-protected token storage (CurrentUser scope) — decryption only by the same Windows user
+- Legacy `.github-token` automatically migrated with secure wipe
+
+**Updates:**
 - Read-only update check at startup over HTTPS
+- Self-update from tagged GitHub Releases with content verification
+
+**ADB:**
 - ADB shell / push / pull for emulator management (explicit user action)
-- **Sigma FP #1** (`DMP/HDMP File Creation`): script does NOT create .dmp/.hdmp files — DPAPI stores encrypted text, not memory dumps
-- **Sigma FP #2** (`Unsigned Image Loaded Into LSASS`): DPAPI via `ConvertFrom-SecureString` (.NET ProtectedData) — no DLL/EXE in LSASS, no injection; script is Authenticode-signed
-- **Sigma FP #3** (`Web Request Commands`): `curl.exe` (Windows native) to `api.github.com` and `raw.githubusercontent.com` ONLY — version check, updates, file download, token validation; no `Invoke-WebRequest`, no exfiltration
-- **Sigma FP #4** (`New Root/CA Certificate`): `[CRT]` adds self-signed CodeSigning cert to Trusted Root — explicit user action for Authenticode, not silent install
-- **Sigma FP #5** (`ADB Shell Commands`): `adb shell` / `adb push` / `adb pull` for MuMu emulator management — explicit user action, no code execution on host
-- **Sigma FP #6** (`Device Model Modification`): `MuMuManager.exe modify` changes device model for user's own instances — privacy feature, not impersonation
+
+**Sigma False Positives:**
+- **#1** (`DMP/HDMP File Creation`): script does NOT create .dmp/.hdmp files — DPAPI stores encrypted text, not memory dumps
+- **#2** (`Unsigned Image Loaded Into LSASS`): DPAPI via .NET ProtectedData — no DLL/EXE in LSASS, no injection; script is Authenticode-signed
+- **#3** (`Web Request Commands`): `curl.exe` to `api.github.com` and `raw.githubusercontent.com` ONLY — no `Invoke-WebRequest`, no exfiltration
+- **#4** (`New Root/CA Certificate`): `[CRT]` adds self-signed CodeSigning cert to Trusted Root — explicit user action, not silent install
+- **#5** (`ADB Shell Commands`): `adb shell` / `adb push` / `adb pull` for MuMu emulator — explicit user action, no host code execution
+- **#6** (`Device Model Modification`): `MuMuManager.exe modify` for user's own instances — privacy feature, not impersonation
