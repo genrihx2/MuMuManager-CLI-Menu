@@ -46,13 +46,12 @@ $token = $null
 $tokenFile = Join-Path $TargetDir '.github-token.dpapi'
 if (Test-Path -LiteralPath $tokenFile) {
     try {
-        $enc  = [System.IO.File]::ReadAllBytes($tokenFile)
-        $dec  = [System.Security.Cryptography.ProtectedData]::Unprotect(
-                    $enc, $null,
-                    [System.Security.Cryptography.DataProtectionScope]::CurrentUser)
-        $token = [System.Text.Encoding]::UTF8.GetString($dec).Trim()
+        $sec = Get-Content -LiteralPath $tokenFile -Raw | ConvertTo-SecureString -ErrorAction Stop
+        $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)
+        try { $token = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr).Trim() }
+        finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
     } catch {
-        Write-Host "  Warning: Cannot read token: $($_.Exception.Message)" -ForegroundColor Yellow
+        Write-Host "  Warning: Cannot decrypt token: $($_.Exception.Message)" -ForegroundColor Yellow
     }
 }
 
