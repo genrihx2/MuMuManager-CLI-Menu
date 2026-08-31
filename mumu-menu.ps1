@@ -58,7 +58,8 @@ function ConvertFrom-SecureToken {
 function Get-GitHubToken {
     if (Test-Path -LiteralPath $DpapiTokenFile -PathType Leaf) {
         try {
-            $sec = Get-Content -LiteralPath $DpapiTokenFile -Raw | ConvertTo-SecureString -ErrorAction Stop
+            $raw = (Get-Content -LiteralPath $DpapiTokenFile -Raw).Trim()
+            $sec = $raw | ConvertTo-SecureString -ErrorAction Stop
             return (ConvertFrom-SecureToken $sec)
         } catch {
             Write-Warning "Cannot decrypt $DpapiTokenFile (moved between machines/users?). Re-save the token via menu option [K]."
@@ -1995,7 +1996,8 @@ function Get-VTApiKey {
     # 1. Try DPAPI-encrypted file
     if (Test-Path -LiteralPath $dpapiFile) {
         try {
-            $sec = Get-Content -LiteralPath $dpapiFile -Raw | ConvertTo-SecureString -ErrorAction Stop
+            $raw = (Get-Content -LiteralPath $dpapiFile -Raw).Trim()
+            $sec = $raw | ConvertTo-SecureString -ErrorAction Stop
             $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)
             try { $key = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr).Trim() }
             finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
@@ -2550,7 +2552,7 @@ function Update-Token {
         # Show token info
         try {
             $plain = if ($tokenPath -eq $DpapiTokenFile) {
-                $enc = Get-Content -LiteralPath $DpapiTokenFile -Raw
+                $enc = (Get-Content -LiteralPath $DpapiTokenFile -Raw).Trim()
                 $sec = ConvertTo-SecureString $enc
                 ConvertFrom-SecureToken $sec
             } else {

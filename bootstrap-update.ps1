@@ -46,7 +46,8 @@ $token = $null
 $tokenFile = Join-Path $TargetDir '.github-token.dpapi'
 if (Test-Path -LiteralPath $tokenFile) {
     try {
-        $sec = Get-Content -LiteralPath $tokenFile -Raw | ConvertTo-SecureString -ErrorAction Stop
+        $raw = (Get-Content -LiteralPath $tokenFile -Raw).Trim()
+        $sec = $raw | ConvertTo-SecureString -ErrorAction Stop
         $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)
         try { $token = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr).Trim() }
         finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
