@@ -146,6 +146,7 @@ cd MuMuManager-CLI-Menu
   [BA] Backup instance data
   [RE] Restore from backup
   [K] Update GitHub token
+  [VK] Set VirusTotal API key
   [CRT] Create/sign certificate
   [Z] Security audit (disabled)
 
