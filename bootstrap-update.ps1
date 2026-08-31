@@ -1,4 +1,4 @@
-# Bootstrap Update Script - Run this SEPARATELY from PowerShell
+﻿# Bootstrap Update Script - Run this SEPARATELY from PowerShell
 # Downloads the latest mumu-menu.ps1 and replaces the old one.
 # Use when the [U] menu option is broken (e.g. after a failed update).
 #
@@ -134,7 +134,7 @@ function Download-File {
 $localTag = ''
 $versionFile = Join-Path $TargetDir '.version'
 if (Test-Path -LiteralPath $versionFile) {
-    try { $localTag = (Get-Content -LiteralPath $versionFile -Raw).Trim() } catch {}
+    try { $localTag = (Get-Content -LiteralPath $versionFile -Raw).Trim() } catch { Write-Debug "Version file read failed: $($_.Exception.Message)" }
 }
 
 $remoteTag = ''
