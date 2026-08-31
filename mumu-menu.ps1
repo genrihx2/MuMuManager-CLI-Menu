@@ -2555,7 +2555,7 @@ function Download-Repository {
                 Write-Host "  $f" -ForegroundColor Yellow -NoNewline
                 $dlCmd = "curl.exe -sS --fail --retry 2 --connect-timeout 30 --max-time 60 -L -H `"Accept: application/vnd.github.v3.raw`" -o `"$fDest`" $fUrl"
                 if ($GitHubToken) { $dlCmd += " -H `"Authorization: token $GitHubToken`"" }
-                $null = & cmd /c "$dlCmd 2>nul"
+                cmd /c $dlCmd 2>$null | Out-Null
                 if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $fDest) -and (Get-Item -LiteralPath $fDest).Length -gt 0) {
                     $sz = '{0:N0}' -f ((Get-Item -LiteralPath $fDest).Length / 1KB)
                     Write-Host "  OK  ${sz} KB" -ForegroundColor Green
@@ -2657,7 +2657,7 @@ function Download-Repository {
                 Write-Host "  $f" -ForegroundColor Yellow -NoNewline
                 $dlCmd = "curl.exe -sS --fail --retry 2 --connect-timeout 30 --max-time 60 -L -H `"Accept: application/vnd.github.v3.raw`" -o `"$fDest`" $fUrl"
                 if ($GitHubToken) { $dlCmd += " -H `"Authorization: token $GitHubToken`"" }
-                $null = & cmd /c "$dlCmd 2>nul"
+                cmd /c $dlCmd 2>$null | Out-Null
                 if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $fDest) -and (Get-Item -LiteralPath $fDest).Length -gt 0) {
                     $sz = '{0:N0}' -f ((Get-Item -LiteralPath $fDest).Length / 1KB)
                     Write-Host "  OK  ${sz} KB" -ForegroundColor Green
