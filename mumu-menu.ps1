@@ -2534,16 +2534,15 @@ function Download-Repository {
         $relJson = & cmd /c $relCmd 2>$null | Out-String
         try { $release = $relJson | ConvertFrom-Json } catch { $release = $null }
 
-        if (-not $release -or -not $release.assets) {
-            Write-Host 'Release not found or no assets.' -ForegroundColor Yellow
-            return
+        $hasRelease = $release -and $release.tag_name -and $release.assets
+        $zipAsset = $null
+        if ($hasRelease) {
+            $zipAsset = $release.assets | Where-Object { $_.name -match '\.zip$' } | Select-Object -First 1
         }
 
-        $zipAsset = $release.assets | Where-Object { $_.name -match '\.zip$' } | Select-Object -First 1
         if (-not $zipAsset) {
             Write-Host ''
-            Write-Host '  No ZIP asset attached to this release.' -ForegroundColor Yellow
-            Write-Host '  Falling back to individual file download...' -ForegroundColor DarkGray
+            Write-Host '  No ZIP asset found - downloading files individually...' -ForegroundColor Yellow
 
             $targetDir = Get-TargetPath 'Download to'
             if (-not $targetDir) { return }
