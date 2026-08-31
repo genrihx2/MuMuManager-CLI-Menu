@@ -256,10 +256,6 @@ function Update-FromGitHub {
         $tag = $release.tag_name
         $remoteDate = $release.published_at
         $remoteBody = if ($release.body) { $release.body } else { '' }
-        $remoteMsg = ''
-        if ($remoteBody) {
-            $remoteMsg = (($remoteBody -split "`n") | Where-Object { $_.Trim() } | Select-Object -First 1)
-        }
 
         # Fast check: compare local version tag against release tag (no download)
         $localTag = ''
@@ -1938,12 +1934,7 @@ function Fix-Unicode {
         foreach ($f in $files) {
             $bytes = [System.IO.File]::ReadAllBytes($f.FullName)
             $hasBOM = ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)
-            $hasHighBytes = $false
             $mojibake = $false
-
-            # Check for mojibake patterns (CP1251 encoded UTF-8)
-            $text = [System.Text.Encoding]::GetEncoding(28591).GetString($bytes)
-            if ($text -match '[\xC0-\xFF][\x80-\xBF]') { $hasHighBytes = $true }
 
             # Check for double-encoded UTF-8 (common mojibake)
             $utf8Text = [System.Text.Encoding]::UTF8.GetString($bytes)
@@ -1995,17 +1986,13 @@ function Fix-Unicode {
 
             # Detect encoding
             $encoding = 'unknown'
-            $startOffset = 0
 
             if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
                 $encoding = 'UTF-8 BOM'
-                $startOffset = 3
             } elseif ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFF -and $bytes[1] -eq 0xFE) {
                 $encoding = 'UTF-16 LE BOM'
-                $startOffset = 2
             } elseif ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFE -and $bytes[1] -eq 0xFF) {
                 $encoding = 'UTF-16 BE BOM'
-                $startOffset = 2
             } else {
                 # Try to detect UTF-8 without BOM
                 $isUtf8 = $true
@@ -4769,8 +4756,6 @@ function Set-RandomDeviceIds {
     # 3) Verify simulation.json directly
     try {
         $info = & $MumuPath info -v $index 2>$null | ConvertFrom-Json
-        $androidVer = $info.android_version
-        $vmName = $info.name
         Write-Host ''
         Write-Host 'Verifying simulation.json...' -ForegroundColor DarkGray
 
