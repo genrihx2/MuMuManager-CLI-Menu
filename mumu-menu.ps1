@@ -2481,10 +2481,9 @@ function Download-Repository {
         if ($GitHubToken) {
             $cloneUrl = "https://$($GitHubToken)@github.com/$GitHubRepo.git"
         }
-        & git clone -b $branch $cloneUrl $clonePath 2>&1 | ForEach-Object {
-            if ($_ -match 'Receiving objects.*?(\d+%)') {
-                Write-Host "  `r$($_.Trim())" -NoNewline -ForegroundColor DarkGray
-            }
+        $cloneOutput = & git clone -b $branch $cloneUrl $clonePath 2>&1 | Out-String
+        if ($cloneOutput -match 'Receiving objects.*?(\d+%)') {
+            Write-Host "  $($Matches[0])" -ForegroundColor DarkGray
         }
         $sw.Stop()
         Write-Host ''
