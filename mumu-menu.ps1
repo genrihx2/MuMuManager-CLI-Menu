@@ -2460,7 +2460,12 @@ function Download-Repository {
         if (-not $branch) { $branch = 'main' }
 
         $repoName = ($GitHubRepo -split '/')[-1]
-        $clonePath = Join-Path $targetDir $repoName
+        # If target dir already ends with repo name, don't double-nest
+        if ($targetDir.TrimEnd('\','/') -ieq (Join-Path (Split-Path $targetDir -Parent) $repoName).TrimEnd('\','/')) {
+            $clonePath = $targetDir
+        } else {
+            $clonePath = Join-Path $targetDir $repoName
+        }
 
         if (Test-Path -LiteralPath $clonePath) {
             Write-Host "  Directory already exists: $clonePath" -ForegroundColor Yellow
