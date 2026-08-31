@@ -2420,7 +2420,7 @@ function Download-Repository {
     Write-Host '  [4] Update from GitHub (pull latest changes)' -ForegroundColor White
     Write-Host '  [5] Download single file from repo' -ForegroundColor White
     Write-Host ''
-    $method = Read-Host 'Select method (1/2/3/4)'
+    $method = Read-Host 'Select method (1/2/3/4/5)'
 
     if ($method -eq '1') {
         # Git clone
@@ -2469,8 +2469,9 @@ function Download-Repository {
             $cloneUrl = "https://$($GitHubToken)@github.com/$GitHubRepo.git"
         }
         $cloneOutput = & git clone -b $branch $cloneUrl $clonePath 2>&1 | Out-String
-        if ($cloneOutput -match 'Receiving objects.*?(\d+%)') {
-            Write-Host "  $($Matches[0])" -ForegroundColor DarkGray
+        $progressMatch = [regex]::Matches($cloneOutput, 'Receiving objects.*?\d+%')
+        if ($progressMatch.Count -gt 0) {
+            Write-Host "  $($progressMatch[$progressMatch.Count - 1].Value)" -ForegroundColor DarkGray
         }
         $sw.Stop()
         Write-Host ''
