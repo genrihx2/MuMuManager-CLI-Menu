@@ -715,6 +715,7 @@ function Show-Menu {
     Write-Host '  [BA] Backup instance data' -ForegroundColor Yellow
     Write-Host '  [RE] Restore from backup' -ForegroundColor Yellow
     Write-Host '  [K] Update GitHub token' -ForegroundColor Yellow
+    Write-Host '  [VK] Set VirusTotal API key' -ForegroundColor Yellow
     Write-Host '  [CRT] Create/sign certificate' -ForegroundColor Yellow
     Write-Host '  [Z] Security audit (disabled)' -ForegroundColor Yellow
     Write-Host ''
@@ -1912,6 +1913,75 @@ function Test-Network {
 
     Write-Host ''
     Write-Host 'Test complete.' -ForegroundColor Green
+}
+
+function Set-VTApiKeyMenu {
+    Write-Host ''
+    Write-Host '=== VirusTotal API Key ===' -ForegroundColor Cyan
+    Write-Host ''
+
+    $dpapiFile = Join-Path $ScriptDir '.vt-apikey.dpapi'
+    $plainFile = Join-Path $ScriptDir '.vt-apikey'
+
+    # Show current status
+    $currentKey = Get-VTApiKey
+    if ($currentKey) {
+        $masked = $currentKey.Substring(0, [Math]::Min(4, $currentKey.Length)) + '****'
+        $encrypted = Test-Path -LiteralPath $dpapiFile
+        $store = if ($encrypted) { 'DPAPI-encrypted' } else { 'plaintext' }
+        Write-Host "  Current: $masked ($store)" -ForegroundColor Green
+    } else {
+        Write-Host '  Current: not set' -ForegroundColor Yellow
+    }
+    Write-Host ''
+    Write-Host '  Get free key at: https://www.virustotal.com/gui/my-apikey' -ForegroundColor DarkGray
+    Write-Host ''
+
+    Write-Host '  [1] Save new key' -ForegroundColor Yellow
+    Write-Host '  [2] Delete key' -ForegroundColor Yellow
+    Write-Host '  [3] Test key' -ForegroundColor Yellow
+    Write-Host ''
+    $action = Read-Host 'Select (1/2/3)'
+
+    switch ($action) {
+        '1' {
+            $newKey = (Read-Host '  Enter VT API key').Trim()
+            if (-not $newKey) { Write-Host '  Cancelled.' -ForegroundColor Yellow; return }
+            if (Save-VTApiKey $newKey) {
+                Write-Host '  Saved ENCRYPTED via DPAPI (.vt-apikey.dpapi)' -ForegroundColor Green
+                # Verify
+                $verify = Get-VTApiKey
+                if ($verify -eq $newKey) {
+                    Write-Host '  Verified: key decrypted successfully' -ForegroundColor Green
+                } else {
+                    Write-Host '  Warning: key verification failed' -ForegroundColor Yellow
+                }
+            }
+        }
+        '2' {
+            if (Remove-VTApiKey) {
+                Write-Host '  VT API key deleted.' -ForegroundColor Green
+            } else {
+                Write-Host '  No key to delete.' -ForegroundColor DarkGray
+            }
+        }
+        '3' {
+            $testKey = if ($currentKey) { $currentKey } else { $null }
+            if (-not $testKey) {
+                $testKey = (Read-Host '  Enter key to test').Trim()
+            }
+            if (-not $testKey) { Write-Host '  No key.' -ForegroundColor Yellow; return }
+            try {
+                $result = Invoke-RestMethod -Uri 'https://www.virustotal.com/api/v3/users/me' -Headers @{ 'x-apikey' = $testKey } -ErrorAction Stop
+                $name = $result.data.attributes.username
+                $quota = $result.data.attributes.reputation
+                Write-Host "  Valid! User: $name" -ForegroundColor Green
+            } catch {
+                Write-Host '  Invalid key or API error.' -ForegroundColor Red
+            }
+        }
+        default { Write-Host '  Invalid selection.' -ForegroundColor Red }
+    }
 }
 
 function Get-VTApiKey {
@@ -5134,6 +5204,7 @@ do {
         't' { Start-App }
         'e' { Export-Emulator }
         'k' { Update-Token }
+        'vk' { Set-VTApiKeyMenu }
         'z' { Test-Security }
         'tc' { Test-EmulatorConnection }
         'tn' { Test-Network }
