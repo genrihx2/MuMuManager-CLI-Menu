@@ -104,7 +104,9 @@ function Download-File {
                         return 0
                     }
                 }
-            } catch { }
+            } catch {
+                Write-Debug "JSON validation failed: $($_.Exception.Message)"
+            }
             Move-Item -LiteralPath $tmpFile -Destination $Dest -Force
             return $size
         }
