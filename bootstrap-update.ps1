@@ -66,11 +66,12 @@ Write-Host ''
 function Invoke-CurlGet {
     param([string]$Url)
     for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
-        $headers = @('-H', 'Accept: application/vnd.github.v3+json')
-        if ($token) { $headers += @('-H', "Authorization: token $token") }
-        $result = & curl.exe -sS --fail --connect-timeout 30 --max-time 30 @headers $Url 2>$null | Out-String
-        if ($LASTEXITCODE -eq 0 -and $result.Trim()) {
-            return $result
+        $curlCmd = "curl.exe -sS --fail --connect-timeout 30 --max-time 30 -H `"Accept: application/vnd.github.v3+json`""
+        if ($token) { $curlCmd += " -H `"Authorization: token $token`"" }
+        $curlCmd += " `"$Url`" 2>nul"
+        $result = & cmd /c $curlCmd
+        if ($LASTEXITCODE -eq 0 -and $result) {
+            return ($result | Out-String)
         }
         if ($attempt -lt $maxRetries) {
             Write-Host "  Attempt $attempt failed - retrying in ${retryDelay}s..." -ForegroundColor Yellow
@@ -85,9 +86,10 @@ function Download-File {
     param([string]$Url, [string]$Dest)
     for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
         $tmpFile = $Dest + '.tmp'
-        $headers = @()
-        if ($token) { $headers += @('-H', "Authorization: token $token") }
-        & curl.exe -sS --fail --retry 2 --connect-timeout 30 --max-time 120 -L -o $tmpFile @headers $Url 2>$null | Out-Null
+        $dlCmd = "curl.exe -sS --fail --retry 2 --connect-timeout 30 --max-time 120 -L -o `"$tmpFile`""
+        if ($token) { $dlCmd += " -H `"Authorization: token $token`"" }
+        $dlCmd += " `"$Url`" 2>nul"
+        & cmd /c $dlCmd | Out-Null
         if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $tmpFile) -and (Get-Item -LiteralPath $tmpFile).Length -gt 0) {
             $size = (Get-Item -LiteralPath $tmpFile).Length
             Move-Item -LiteralPath $tmpFile -Destination $Dest -Force
