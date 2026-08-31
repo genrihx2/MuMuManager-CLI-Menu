@@ -86,12 +86,25 @@ function Download-File {
     param([string]$Url, [string]$Dest)
     for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
         $tmpFile = $Dest + '.tmp'
-        $dlCmd = "curl.exe -sS --fail --retry 2 --connect-timeout 30 --max-time 120 -L -o `"$tmpFile`""
+        $dlCmd = "curl.exe -sS --fail --retry 2 --connect-timeout 30 --max-time 120 -L -H `"Accept: application/vnd.github.v3.raw`" -o `"$tmpFile`""
         if ($token) { $dlCmd += " -H `"Authorization: token $token`"" }
         $dlCmd += " `"$Url`" 2>nul"
         & cmd /c $dlCmd | Out-Null
         if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $tmpFile) -and (Get-Item -LiteralPath $tmpFile).Length -gt 0) {
             $size = (Get-Item -LiteralPath $tmpFile).Length
+            # Validate: detect JSON metadata instead of raw content
+            try {
+                $head = [System.IO.File]::ReadAllBytes($tmpFile)[0..2]
+                $text = [System.Text.Encoding]::UTF8.GetString($head)
+                if ($text.TrimStart().StartsWith('{')) {
+                    $body = Get-Content -LiteralPath $tmpFile -Raw -ErrorAction SilentlyContinue
+                    if ($body -match '"name"|"sha"|"encoding"|"message"|"_links"') {
+                        Remove-Item -LiteralPath $tmpFile -Force
+                        Write-Host "  Error: Server returned JSON metadata instead of raw file" -ForegroundColor Red
+                        return 0
+                    }
+                }
+            } catch { }
             Move-Item -LiteralPath $tmpFile -Destination $Dest -Force
             return $size
         }

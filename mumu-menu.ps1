@@ -535,7 +535,7 @@ function Update-FromGitHub {
                 Remove-Item $tmpDl -Force -ErrorAction SilentlyContinue
                 if (-not $bytes -or $bytes.Length -eq 0) { throw 'empty download' }
 
-                # Check for JSON error response or base64-encoded API response
+                # Check for JSON error response or API metadata instead of raw content
                 $text = [System.Text.Encoding]::UTF8.GetString($bytes)
                 if ($text -match '"message"\s*:\s*"') {
                     $errMsg = if ($text -match '"message"\s*:\s*"([^"]+)"') { $Matches[1] } else { 'API error' }
@@ -543,6 +543,9 @@ function Update-FromGitHub {
                 }
                 if ($text -match '"encoding"\s*:\s*"base64"') {
                     throw 'Received base64 JSON instead of raw content - Accept header may be missing'
+                }
+                if ($text -match '"name"\s*:\s*"' -and $text -match '"_links"') {
+                    throw 'Received GitHub API JSON metadata instead of raw file content'
                 }
 
                 $dlSize = if ($bytes.Length -gt 1MB) { "$([math]::Round($bytes.Length / 1MB, 1)) MB" }
@@ -2552,9 +2555,17 @@ function Download-Repository {
                 if ($GitHubToken) { $dlCmd += " -H `"Authorization: token $GitHubToken`"" }
                 cmd /c $dlCmd 2>$null | Out-Null
                 if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $fDest) -and (Get-Item -LiteralPath $fDest).Length -gt 0) {
-                    $sz = '{0:N0}' -f ((Get-Item -LiteralPath $fDest).Length / 1KB)
-                    Write-Host "  OK  ${sz} KB" -ForegroundColor Green
-                    $ok++
+                    # Validate: detect JSON metadata instead of raw content
+                    $fContent = Get-Content -LiteralPath $fDest -Raw -ErrorAction SilentlyContinue
+                    if ($fContent -and $fContent.TrimStart().StartsWith('{') -and $fContent -match '"name"|"_links"|"encoding"') {
+                        Remove-Item -LiteralPath $fDest -Force
+                        Write-Host "  FAILED (JSON metadata returned)" -ForegroundColor Red
+                        $fail++
+                    } else {
+                        $sz = '{0:N0}' -f ((Get-Item -LiteralPath $fDest).Length / 1KB)
+                        Write-Host "  OK  ${sz} KB" -ForegroundColor Green
+                        $ok++
+                    }
                 } else {
                     if (Test-Path -LiteralPath $fDest) { Remove-Item -LiteralPath $fDest -Force -ErrorAction SilentlyContinue }
                     Write-Host "  FAILED" -ForegroundColor Red
@@ -2654,9 +2665,17 @@ function Download-Repository {
                 if ($GitHubToken) { $dlCmd += " -H `"Authorization: token $GitHubToken`"" }
                 cmd /c $dlCmd 2>$null | Out-Null
                 if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $fDest) -and (Get-Item -LiteralPath $fDest).Length -gt 0) {
-                    $sz = '{0:N0}' -f ((Get-Item -LiteralPath $fDest).Length / 1KB)
-                    Write-Host "  OK  ${sz} KB" -ForegroundColor Green
-                    $ok++
+                    # Validate: detect JSON metadata instead of raw content
+                    $fContent = Get-Content -LiteralPath $fDest -Raw -ErrorAction SilentlyContinue
+                    if ($fContent -and $fContent.TrimStart().StartsWith('{') -and $fContent -match '"name"|"_links"|"encoding"') {
+                        Remove-Item -LiteralPath $fDest -Force
+                        Write-Host "  FAILED (JSON metadata returned)" -ForegroundColor Red
+                        $fail++
+                    } else {
+                        $sz = '{0:N0}' -f ((Get-Item -LiteralPath $fDest).Length / 1KB)
+                        Write-Host "  OK  ${sz} KB" -ForegroundColor Green
+                        $ok++
+                    }
                 } else {
                     if (Test-Path -LiteralPath $fDest) { Remove-Item -LiteralPath $fDest -Force -ErrorAction SilentlyContinue }
                     Write-Host "  FAILED" -ForegroundColor Red
@@ -3016,19 +3035,22 @@ function Download-Repository {
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
         $dlCmd = 'curl.exe -sL --connect-timeout 30 --max-time 120 -o "' + (Join-Path $targetDir $fileName) + '"'
         if ($GitHubToken) { $dlCmd += ' -H "Authorization: token ' + $GitHubToken + '"' }
-        $dlCmd += ' -H "Accept: application/vnd.github.v3+json" "' + $downloadUrl + '"'
+        $dlCmd += ' -H "Accept: application/vnd.github.v3.raw" "' + $downloadUrl + '"'
         & cmd /c $dlCmd 2>&1 | Out-Null
         $sw.Stop()
 
         $destFile = Join-Path $targetDir $fileName
         if (Test-Path -LiteralPath $destFile) {
             $size = (Get-Item -LiteralPath $destFile).Length
-            if ($size -gt 100 -and $size -lt 600) {
-                # Might be JSON error response
-                $content = Get-Content -LiteralPath $destFile -Raw -ErrorAction SilentlyContinue
-                if ($content -match '"message"') {
+            # Validate: detect JSON metadata instead of raw content
+            $content = Get-Content -LiteralPath $destFile -Raw -ErrorAction SilentlyContinue
+            if ($content -and $content.TrimStart().StartsWith('{')) {
+                $isApiJson = $content -match '"name"|"sha"|"encoding"|"message"|"_links"'
+                if ($isApiJson) {
                     Remove-Item -LiteralPath $destFile -Force
-                    Write-Host "  API error: $(($content | ConvertFrom-Json).message)" -ForegroundColor Red
+                    $apiMsg = try { ($content | ConvertFrom-Json).message } catch { 'JSON metadata returned instead of raw file' }
+                    Write-Host "  API error: $apiMsg" -ForegroundColor Red
+                    Write-Host '  (Server returned JSON; Accept header may be missing)' -ForegroundColor DarkGray
                     return
                 }
             }
