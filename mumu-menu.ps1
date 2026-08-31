@@ -563,7 +563,9 @@ function Update-FromGitHub {
                     Write-Host "    $f OK ($dlSize)" -ForegroundColor Green
                 }
             } catch {
-                Write-Host "    Failed: $($_.Exception.Message)" -ForegroundColor Red
+                $errMsg = $_.Exception.Message
+                if (-not $errMsg) { $errMsg = 'Unknown error - check network connection and try again' }
+                Write-Host "    Failed: $errMsg" -ForegroundColor Red
                 if ($tmpDl -and (Test-Path $tmpDl)) { Remove-Item $tmpDl -Force -ErrorAction SilentlyContinue }
                 $failed++
             }
