@@ -1639,7 +1639,7 @@ function Test-Security {
         }
     }
 
-    $tracked = git -C $ScriptDir ls-files '.github-token*' 2>$null
+    $tracked = git -C $ScriptDir -c safe.directory='*' ls-files '.github-token*' 2>$null
     if ($tracked) {
         Write-Host '  Git tracking: TOKEN TRACKED (BAD!)' -ForegroundColor Red
         $dangerCount++
