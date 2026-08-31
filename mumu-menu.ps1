@@ -1914,30 +1914,125 @@ function Test-Network {
     Write-Host 'Test complete.' -ForegroundColor Green
 }
 
+function Get-VTApiKey {
+    # Read VT API key from DPAPI-encrypted file, legacy plaintext, or env
+    $key = $null
+    $dpapiFile = Join-Path $ScriptDir '.vt-apikey.dpapi'
+    $plainFile = Join-Path $ScriptDir '.vt-apikey'
+
+    # 1. Try DPAPI-encrypted file
+    if (Test-Path -LiteralPath $dpapiFile) {
+        try {
+            $sec = Get-Content -LiteralPath $dpapiFile -Raw | ConvertTo-SecureString -ErrorAction Stop
+            $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)
+            try { $key = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr).Trim() }
+            finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
+        } catch {
+            Write-Host "  Warning: Cannot decrypt VT key ($($_.Exception.Message))" -ForegroundColor Yellow
+        }
+    }
+
+    # 2. Migrate legacy plaintext file
+    if (-not $key -and (Test-Path -LiteralPath $plainFile)) {
+        try {
+            $key = (Get-Content -LiteralPath $plainFile -Raw).Trim()
+            if ($key) {
+                $sec = ConvertTo-SecureString $key -AsPlainText -Force
+                ConvertFrom-SecureString -SecureString $sec | Set-Content -Path $dpapiFile -NoNewline -Encoding UTF8
+                Remove-Item -LiteralPath $plainFile -Force -ErrorAction SilentlyContinue
+                Write-Host '  VT key migrated to encrypted storage (.vt-apikey.dpapi)' -ForegroundColor DarkGray
+            }
+        } catch { Write-Debug "VT key migration failed: $($_.Exception.Message)" }
+    }
+
+    # 3. Environment variable
+    if (-not $key -and $env:VT_API_KEY) { $key = $env:VT_API_KEY }
+
+    return $key
+}
+
+function Save-VTApiKey {
+    param([string]$PlainKey)
+    $dpapiFile = Join-Path $ScriptDir '.vt-apikey.dpapi'
+    $plainFile = Join-Path $ScriptDir '.vt-apikey'
+    try {
+        $sec = ConvertTo-SecureString $PlainKey -AsPlainText -Force
+        ConvertFrom-SecureString -SecureString $sec | Set-Content -Path $dpapiFile -NoNewline -Encoding UTF8
+        if (Test-Path -LiteralPath $plainFile) {
+            Remove-Item -LiteralPath $plainFile -Force -ErrorAction SilentlyContinue
+        }
+        return $true
+    } catch {
+        Write-Host "  Failed to encrypt key: $($_.Exception.Message)" -ForegroundColor Red
+        return $false
+    }
+}
+
+function Remove-VTApiKey {
+    $dpapiFile = Join-Path $ScriptDir '.vt-apikey.dpapi'
+    $plainFile = Join-Path $ScriptDir '.vt-apikey'
+    $removed = $false
+    if (Test-Path -LiteralPath $dpapiFile) {
+        Remove-Item -LiteralPath $dpapiFile -Force -ErrorAction SilentlyContinue; $removed = $true
+    }
+    if (Test-Path -LiteralPath $plainFile) {
+        Remove-Item -LiteralPath $plainFile -Force -ErrorAction SilentlyContinue; $removed = $true
+    }
+    if ($env:VT_API_KEY) { $env:VT_API_KEY = $null }
+    return $removed
+}
+
 function Scan-VirusTotal {
     Write-Host ''
-    Write-Host '=== VirusTotal Scan ===' -ForegroundColor Cyan
+    Write-Host '=== VirusTotal ===' -ForegroundColor Cyan
     Write-Host ''
 
-    # Check for API key (stored in .vt-apikey or env:VT_API_KEY)
-    $apiKey = $null
-    $keyFile = Join-Path $ScriptDir '.vt-apikey'
-    if (Test-Path -LiteralPath $keyFile) {
-        try { $apiKey = (Get-Content -LiteralPath $keyFile -Raw).Trim() } catch { Write-Debug "VT key read failed: $($_.Exception.Message)" }
+    $apiKey = Get-VTApiKey
+
+    # Sub-menu
+    Write-Host '  [1] Scan files' -ForegroundColor Yellow
+    Write-Host '  [2] Save API key' -ForegroundColor Yellow
+    Write-Host '  [3] Delete API key' -ForegroundColor Yellow
+    Write-Host '  [4] Open VT in browser' -ForegroundColor Yellow
+    Write-Host ''
+    $action = Read-Host 'Select (1/2/3/4)'
+
+    switch ($action) {
+        '2' {
+            Write-Host ''
+            if ($apiKey) {
+                $masked = $apiKey.Substring(0, [Math]::Min(4, $apiKey.Length)) + '****'
+                Write-Host "  Current key: $masked" -ForegroundColor DarkGray
+            }
+            $newKey = (Read-Host '  Enter VT API key').Trim()
+            if (-not $newKey) { Write-Host '  Cancelled.' -ForegroundColor Yellow; return }
+            if (Save-VTApiKey $newKey) {
+                Write-Host '  Saved ENCRYPTED via DPAPI (.vt-apikey.dpapi)' -ForegroundColor Green
+                $apiKey = $newKey
+            }
+        }
+        '3' {
+            if (Remove-VTApiKey) {
+                Write-Host '  VT API key deleted.' -ForegroundColor Green
+            } else {
+                Write-Host '  No key to delete.' -ForegroundColor DarkGray
+            }
+            return
+        }
+        '4' {
+            Start-Process 'https://www.virustotal.com/gui/home/upload'
+            return
+        }
+        { $_ -ne '1' } {
+            Write-Host '  Invalid selection.' -ForegroundColor Red
+            return
+        }
     }
-    if (-not $apiKey -and $env:VT_API_KEY) { $apiKey = $env:VT_API_KEY }
 
     if (-not $apiKey) {
-        Write-Host '  No API key found.' -ForegroundColor Yellow
-        Write-Host '  Options:' -ForegroundColor White
-        Write-Host '    1. Set env variable: $env:VT_API_KEY = "your_key"' -ForegroundColor DarkGray
-        Write-Host '    2. Save to file: your_key | Out-File .vt-apikey' -ForegroundColor DarkGray
-        Write-Host '    3. Get free key at: https://www.virustotal.com/gui/my-apikey' -ForegroundColor DarkGray
         Write-Host ''
-        $manual = Read-Host '  Open VirusTotal in browser instead? (Y/n)'
-        if ($manual -ne 'n' -and $manual -ne 'N') {
-            Start-Process 'https://www.virustotal.com/gui/home/upload'
-        }
+        Write-Host '  No API key configured.' -ForegroundColor Yellow
+        Write-Host '  Select [2] to save your key, or [4] to open VT in browser.' -ForegroundColor DarkGray
         return
     }
 
@@ -1953,6 +2048,7 @@ function Scan-VirusTotal {
         return
     }
 
+    Write-Host ''
     Write-Host '  Scanning files...' -ForegroundColor Cyan
     Write-Host ''
 
@@ -1972,7 +2068,7 @@ function Scan-VirusTotal {
             $m = $stats.malicious; $s = $stats.suspicious; $u = $stats.undetected; $h = $stats.harmless
             $t = $m + $s + $u + $h
             if ($m -gt 0 -or $s -gt 0) {
-                Write-Host "  $m恶意 $s可疑 / $t ($u clean)" -ForegroundColor Red
+                Write-Host "  DETECTED: $m malicious, $s suspicious / $t" -ForegroundColor Red
                 $dirty++
             } else {
                 Write-Host "  0/$t clean" -ForegroundColor Green
