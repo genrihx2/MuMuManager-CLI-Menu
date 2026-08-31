@@ -79,9 +79,9 @@ function Invoke-GitHubGet {
             $code = $null
             if ($_.Exception.Response) { $code = [int]$_.Exception.Response.StatusCode }
             if ($code -eq 403 -or $code -eq 429) {
-                Write-Host "  Rate limited ($code) — retrying in ${retryDelay}s..." -ForegroundColor Yellow
+                Write-Host "  Rate limited ($code) - retrying in ${retryDelay}s..." -ForegroundColor Yellow
             } elseif ($attempt -lt $maxRetries) {
-                Write-Host "  Attempt $attempt failed ($code) — retrying in ${retryDelay}s..." -ForegroundColor Yellow
+                Write-Host "  Attempt $attempt failed ($code) - retrying in ${retryDelay}s..." -ForegroundColor Yellow
             } else {
                 throw
             }
@@ -121,7 +121,7 @@ function Download-File {
                 Remove-Item -LiteralPath ($Dest + '.tmp') -Force -ErrorAction SilentlyContinue
             }
             if ($attempt -lt $maxRetries) {
-                Write-Host "  Attempt $attempt failed — retrying in ${retryDelay}s..." -ForegroundColor Yellow
+                Write-Host "  Attempt $attempt failed - retrying in ${retryDelay}s..." -ForegroundColor Yellow
                 Start-Sleep -Seconds $retryDelay
             } else {
                 throw
@@ -151,7 +151,7 @@ try {
 }
 
 if ($localTag -eq $remoteTag -and -not $Force) {
-    Write-Host "  Up to date ($localTag) — nothing to download." -ForegroundColor Green
+    Write-Host "  Up to date ($localTag) - nothing to download." -ForegroundColor Green
     Write-Host "  Use -Force to re-download anyway." -ForegroundColor DarkGray
     exit 0
 }
