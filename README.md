@@ -153,6 +153,7 @@ cd MuMuManager-CLI-Menu
   [TC] Connection test
   [TN] Network test
   [TD] Dependencies test
+  [VT] VirusTotal scan
   [UW] Fix Unicode / encoding
 
   --- Spoofing ---
