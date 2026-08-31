@@ -1,4 +1,4 @@
-# Bootstrap Update Script - Run this SEPARATELY from PowerShell
+﻿# Bootstrap Update Script - Run this SEPARATELY from PowerShell
 # Downloads the latest mumu-menu.ps1 and replaces the old one.
 # Use when the [U] menu option is broken (e.g. after a failed update).
 #
