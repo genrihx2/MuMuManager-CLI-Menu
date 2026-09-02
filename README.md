@@ -25,7 +25,7 @@
 - 💾 Резервное копирование папки данных инстанса (vms) с прогрессом
 - 🗜️ Сжатие бэкапа в ZIP (встроенный tar, опционально с удалением исходной папки)
 - 🎭 Подмена модели устройства (brand / model / код модели)
-- 📶 Смена оператора/SIM страны (MCC/MNC, iso-country) — для TikTok и др. (15 пресетов + кастом)
+- 📶 Смена оператора/SIM страны (MCC/MNC, iso-country) — для TikTok и др. (38 пресетов + кастом)
 - 🎲 Генерация случайных IMEI (с контрольной суммой) / Android ID / MAC
 - 📸 Скриншоты эмулятора через ADB
 - 🎬 Запись экрана (screenrecord, до 180с)
@@ -160,6 +160,7 @@ cd MuMuManager-CLI-Menu
   --- Spoofing ---
   [DM] Spoof device model
   [SIM] Change SIM operator / country (MCC/MNC)
+  [SIM+] View / clear auto-apply SIM config
   [DI] Random device IDs
 
   --- Info ---
