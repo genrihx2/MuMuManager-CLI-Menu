@@ -4939,7 +4939,7 @@ function Set-SimOperator {
         @{ CC='fr'; MCC='208'; MNC='01';  Name='Orange FR'; Lang='fr' },
         @{ CC='jp'; MCC='440'; MNC='10';  Name='Docomo JP'; Lang='ja' },
         @{ CC='kr'; MCC='450'; MNC='05';  Name='SK Telecom KR'; Lang='ko' },
-        @{ CC='cn'; MCC='460'; MNC='01';  Name='China Unicom'; Lang='zh' },
+        @{ CC='cn'; MCC='460'; MNC='00';  Name='China Mobile'; Lang='zh' },
         @{ CC='in'; MCC='404'; MNC='45';  Name='Airtel IN'; Lang='en' },
         @{ CC='br'; MCC='724'; MNC='05';  Name='Claro BR'; Lang='pt' },
         @{ CC='tr'; MCC='286'; MNC='01';  Name='Turkcell TR'; Lang='tr' },
