@@ -1718,6 +1718,9 @@ function Test-EmulatorConnection {
     Write-Host '=== Emulator Connection Test ===' -ForegroundColor Cyan
     Write-Host ''
 
+    # Helper: run ADB shell command through MuMuManager (targets specific instance)
+    $run = { param($cmd) & $MumuPath adb -v $index -c "shell $cmd" 2>&1 | Out-String }
+
     # 1. Instance status
     Write-Host '[1] Instance status' -ForegroundColor Yellow
     $info = & $MumuPath info -v $index 2>$null | ConvertFrom-Json
@@ -1739,52 +1742,32 @@ function Test-EmulatorConnection {
         Write-Host "  Connected: NO ($($connect.Trim()))" -ForegroundColor Red
     }
 
-    # 3. ADB device check
+    # 3. ADB shell test
     Write-Host ''
-    Write-Host '[3] ADB devices' -ForegroundColor Yellow
-    $adb = Join-Path (Split-Path $MumuPath -Parent) 'shell\adb.exe'
-    if (-not (Test-Path $adb)) {
-        # Try system ADB
-        $adb = 'adb.exe'
-    }
-    $devices = & $adb devices 2>&1 | Out-String
-    $lines = $devices -split "`n" | Where-Object { $_ -match '\s+device$' -and $_ -notmatch '^List' }
-    if ($lines.Count -gt 0) {
-        Write-Host "  Devices: $($lines.Count) connected" -ForegroundColor Green
-        foreach ($l in $lines) {
-            $serial = ($l -split "\t")[0]
-            Write-Host "    - $serial" -ForegroundColor DarkGray
-        }
-    } else {
-        Write-Host '  Devices: NONE connected' -ForegroundColor Red
-    }
-
-    # 4. ADB shell test
-    Write-Host ''
-    Write-Host '[4] ADB shell' -ForegroundColor Yellow
-    $shellResult = & $adb shell 'echo ok' 2>&1 | Out-String
+    Write-Host '[3] ADB shell' -ForegroundColor Yellow
+    $shellResult = & $run 'echo ok'
     if ($shellResult.Trim() -eq 'ok') {
         Write-Host '  Shell: OK' -ForegroundColor Green
     } else {
         Write-Host "  Shell: FAILED ($($shellResult.Trim()))" -ForegroundColor Red
     }
 
-    # 5. ADB properties
+    # 4. ADB properties
     Write-Host ''
-    Write-Host '[5] Device properties' -ForegroundColor Yellow
+    Write-Host '[4] Device properties' -ForegroundColor Yellow
     $props = @('ro.build.display.id', 'ro.product.model', 'ro.build.version.sdk', 'ro.product.cpu.abi', 'ro.build.version.release')
     foreach ($p in $props) {
-        $val = (& $adb shell "getprop $p" 2>&1 | Out-String).Trim()
+        $val = (& $run "getprop $p").Trim()
         if ($val) {
             $short = $p -replace '^ro\.', ''
             Write-Host "  ${short}: $val" -ForegroundColor White
         }
     }
 
-    # 6. Internet connectivity
+    # 5. Internet connectivity
     Write-Host ''
-    Write-Host '[6] Internet test' -ForegroundColor Yellow
-    $netResult = & $adb shell 'ping -c 2 -W 5 8.8.8.8' 2>&1 | Out-String
+    Write-Host '[5] Internet test' -ForegroundColor Yellow
+    $netResult = & $run 'ping -c 2 -W 5 8.8.8.8'
     if ($netResult -match '(\d+) packets transmitted') {
         $sent = [int]($Matches[1])
         $recv = if ($netResult -match '(\d+) received') { [int]($Matches[1]) } else { 0 }
@@ -1798,10 +1781,10 @@ function Test-EmulatorConnection {
         Write-Host "  Ping: FAILED" -ForegroundColor Red
     }
 
-    # 7. Memory
+    # 6. Memory
     Write-Host ''
-    Write-Host '[7] Memory' -ForegroundColor Yellow
-    $memInfo = & $adb shell 'cat /proc/meminfo' 2>&1 | Out-String
+    Write-Host '[6] Memory' -ForegroundColor Yellow
+    $memInfo = & $run 'cat /proc/meminfo'
     if ($memInfo -match 'MemTotal:\s+(\d+)') {
         $totalMB = [int]$Matches[1] / 1024
         $freeMB = 0
@@ -1813,10 +1796,10 @@ function Test-EmulatorConnection {
         Write-Host ("  RAM: {0:N0} MB / {1:N0} MB ({2:N1}% used)" -f $usedMB, $totalMB, $pct) -ForegroundColor $color
     }
 
-    # 8. Storage
+    # 7. Storage
     Write-Host ''
-    Write-Host '[8] Storage' -ForegroundColor Yellow
-    $storage = & $adb shell 'df /data' 2>&1 | Out-String
+    Write-Host '[7] Storage' -ForegroundColor Yellow
+    $storage = & $run 'df /data'
     $storLines = $storage -split "`n" | Where-Object { $_ -match '/data$' }
     if ($storLines) {
         $parts = $storLines[0] -split '\s+'
@@ -1845,14 +1828,14 @@ function Test-Network {
         return
     }
 
-    $adb = Join-Path (Split-Path $MumuPath -Parent) 'shell\adb.exe'
-    if (-not (Test-Path $adb)) { $adb = 'adb.exe' }
+    # Helper: run ADB shell command through MuMuManager (targets specific instance)
+    $run = { param($cmd) & $MumuPath adb -v $index -c "shell $cmd" 2>&1 | Out-String }
 
     # Ping test
     Write-Host '[1] Ping test' -ForegroundColor Yellow
     $targets = @('8.8.8.8', '1.1.1.1', '223.5.5.5', 'google.com', 'github.com')
     foreach ($t in $targets) {
-        $result = & $adb shell "ping -c 2 -W 5 $t" 2>&1 | Out-String
+        $result = & $run "ping -c 2 -W 5 $t"
         if ($result -match 'rtt min.*=\s*([\d.]+)/([\d.]+)/([\d.]+)') {
             Write-Host "  $t : OK (avg $($Matches[2])ms)" -ForegroundColor Green
         } elseif ($result -match '(\d+) received') {
@@ -1869,7 +1852,7 @@ function Test-Network {
     Write-Host '[2] DNS resolution' -ForegroundColor Yellow
     $dnsTargets = @('google.com', 'github.com', 'baidu.com')
     foreach ($d in $dnsTargets) {
-        $result = & $adb shell "nslookup $d" 2>&1 | Out-String
+        $result = & $run "nslookup $d"
         if ($result -match 'Address:\s+\d') {
             Write-Host "  $d : OK" -ForegroundColor Green
         } else {
@@ -1886,7 +1869,7 @@ function Test-Network {
         @{ Url = 'https://github.com'; Name = 'GitHub' }
     )
     foreach ($h in $httpTargets) {
-        $result = & $adb shell "curl -s -o /dev/null -w '%{http_code}' --max-time 10 $($h.Url)" 2>&1 | Out-String
+        $result = & $run "curl -s -o /dev/null -w '%{http_code}' --max-time 10 $($h.Url)"
         $code = $result.Trim()
         if ($code -match '^(200|301|302|204)$') {
             Write-Host "  $($h.Name) ($code) : OK" -ForegroundColor Green
@@ -1898,7 +1881,7 @@ function Test-Network {
     # WiFi info
     Write-Host ''
     Write-Host '[4] WiFi info' -ForegroundColor Yellow
-    $wifi = & $adb shell 'dumpsys wifi | grep "mWifiInfo"' 2>&1 | Out-String
+    $wifi = & $run 'dumpsys wifi | grep "mWifiInfo"'
     if ($wifi) {
         if ($wifi -match 'SSID:\s*"([^"]+)"') {
             Write-Host "  SSID: $($Matches[1])" -ForegroundColor White
@@ -1908,7 +1891,7 @@ function Test-Network {
         }
     } else {
         # Fallback: try ip addr
-        $ipInfo = & $adb shell 'ip addr show wlan0 2>/dev/null || ip addr show eth0' 2>&1 | Out-String
+        $ipInfo = & $run 'ip addr show wlan0 2>/dev/null || ip addr show eth0'
         if ($ipInfo -match 'inet (\d+[\.\d]+)') {
             Write-Host "  IP: $($Matches[1])" -ForegroundColor White
         }
@@ -4305,7 +4288,21 @@ function Show-Apps {
     }
 
     Write-Host 'Fetching installed apps...' -ForegroundColor Cyan
-    $output = & $MumuPath adb -v $index -c 'shell pm list packages -3' 2>&1
+    $job = Start-Job -ScriptBlock {
+        param($mp, $idx)
+        & $mp adb -v $idx -c 'shell pm list packages -3' 2>&1
+    } -ArgumentList $MumuPath, $index
+    $timeout = 30
+    if (Wait-Job $job -Timeout $timeout) {
+        $output = Receive-Job $job
+    } else {
+        Stop-Job $job
+        Remove-Job $job -Force
+        Write-Host 'Timed out (30s) — ADB is slow or emulator is not responding.' -ForegroundColor Red
+        Write-Host 'Try restarting the emulator.' -ForegroundColor Yellow
+        return
+    }
+    Remove-Job $job -Force
     $text = $output | Out-String
     $packages = [regex]::Matches($text, '(?m)^\s*package:([A-Za-z0-9_.]+)') |
         ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
@@ -4318,7 +4315,19 @@ function Show-Apps {
             return
         }
 
-        $allOut = & $MumuPath adb -v $index -c 'shell pm list packages' 2>&1
+        $job2 = Start-Job -ScriptBlock {
+            param($mp, $idx)
+            & $mp adb -v $idx -c 'shell pm list packages' 2>&1
+        } -ArgumentList $MumuPath, $index
+        if (Wait-Job $job2 -Timeout $timeout) {
+            $allOut = Receive-Job $job2
+        } else {
+            Stop-Job $job2
+            Remove-Job $job2 -Force
+            Write-Host 'Timed out (30s) — could not list system packages.' -ForegroundColor Red
+            return
+        }
+        Remove-Job $job2 -Force
         $allText = $allOut | Out-String
         $all = [regex]::Matches($allText, '(?m)^\s*package:([A-Za-z0-9_.]+)') |
             ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
