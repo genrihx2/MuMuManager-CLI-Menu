@@ -58,7 +58,8 @@ function ConvertFrom-SecureToken {
 function Get-GitHubToken {
     if (Test-Path -LiteralPath $DpapiTokenFile -PathType Leaf) {
         try {
-            $sec = Get-Content -LiteralPath $DpapiTokenFile -Raw | ConvertTo-SecureString -ErrorAction Stop
+            $raw = (Get-Content -LiteralPath $DpapiTokenFile -Raw).Trim()
+            $sec = $raw | ConvertTo-SecureString -ErrorAction Stop
             return (ConvertFrom-SecureToken $sec)
         } catch {
             Write-Warning "Cannot decrypt $DpapiTokenFile (moved between machines/users?). Re-save the token via menu option [K]."
@@ -98,6 +99,9 @@ function Initialize-TokenStorage {
         Write-Warning 'The plaintext .github-token file was left untouched. Re-save via menu option [K].'
     }
 }
+
+$scriptVer = '1.1.0'
+$InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
 
@@ -253,12 +257,21 @@ function Update-FromGitHub {
         $tag = $release.tag_name
         $remoteDate = $release.published_at
         $remoteBody = if ($release.body) { $release.body } else { '' }
-        $remoteMsg = ''
-        if ($remoteBody) {
-            $remoteMsg = (($remoteBody -split "`n") | Where-Object { $_.Trim() } | Select-Object -First 1)
+
+        # Fast check: compare local version tag against release tag (no download)
+        $localTag = ''
+        if (Test-Path -LiteralPath $VersionFile) {
+            try { $localTag = (Get-Content -LiteralPath $VersionFile -Raw).Trim() } catch { Write-Debug "Version file read failed: $($_.Exception.Message)" }
         }
 
-        # Compare actual file content (line-ending tolerant) against the release tag
+        if ($localTag -eq $tag) {
+            if (-not $Passive) {
+                Write-Host "  Up to date ($tag)" -ForegroundColor DarkGray
+            }
+            return
+        }
+
+        # Tag mismatch — verify by comparing file content (handles manual edits)
         $localMenuPath = Join-Path $ScriptDir 'mumu-menu.ps1'
         $localText = [System.IO.File]::ReadAllText($localMenuPath)
         $remoteText = Get-RemoteFile 'mumu-menu.ps1' $tag
@@ -501,39 +514,60 @@ function Update-FromGitHub {
 
         $failed = 0
 
-        # Download files using PowerShell native WebClient (reliable, no curl complexity)
-        $headers = @{}
-        if ($GitHubToken) { $headers['Authorization'] = "token $GitHubToken" }
-        $webClient = New-Object System.Net.WebClient
-        foreach ($key in $headers.Keys) { $webClient.Headers.Add($key, $headers[$key]) }
+        # Download files with progress bar (curl.exe -# shows speed/size)
+        $dlHeaders = @()
+        if ($GitHubToken) { $dlHeaders += @('-H', "Authorization: token $GitHubToken") }
 
         foreach ($f in $files) {
             $dest = Join-Path $ScriptDir $f
-            $rawUrl = "https://raw.githubusercontent.com/$GitHubRepo/$tag/$SkillPath/$f"
+            $rawUrl = "https://api.github.com/repos/$GitHubRepo/contents/$SkillPath/$f`?ref=$tag"
             Write-Host "  Downloading $f..." -ForegroundColor Yellow
             try {
-                $bytes = $webClient.DownloadData($rawUrl)
+                $tmpDl = Join-Path $env:TEMP ('mumu_dl_' + [Guid]::NewGuid().ToString('N') + '.tmp')
+                $dlCmd = 'curl.exe -# --retry 3 --retry-delay 3 --connect-timeout 30 --max-time 120 -L -H "Accept: application/vnd.github.v3.raw" -o "' + $tmpDl + '"'
+                if ($GitHubToken) { $dlCmd += ' -H "Authorization: token ' + $GitHubToken + '"' }
+                $dlCmd += ' "' + $rawUrl + '"'
+                $dlOutput = & cmd /c $dlCmd 2>&1 | Out-String
+                if ($LASTEXITCODE -ne 0 -or -not (Test-Path $tmpDl)) {
+                    $detail = if ($dlOutput) { $dlOutput.Trim() } else { "exit code $LASTEXITCODE" }
+                    throw "curl failed for $f - $detail"
+                }
+                $bytes = [System.IO.File]::ReadAllBytes($tmpDl)
+                Remove-Item $tmpDl -Force -ErrorAction SilentlyContinue
                 if (-not $bytes -or $bytes.Length -eq 0) { throw 'empty download' }
 
-                # Check for JSON error response
+                # Check for JSON error response or API metadata instead of raw content
                 $text = [System.Text.Encoding]::UTF8.GetString($bytes)
-                if ($text.Length -lt 500 -and $text -match '"message"\s*:\s*"') {
+                if ($text -match '"message"\s*:\s*"') {
                     $errMsg = if ($text -match '"message"\s*:\s*"([^"]+)"') { $Matches[1] } else { 'API error' }
                     throw $errMsg
                 }
+                if ($text -match '"encoding"\s*:\s*"base64"') {
+                    throw 'Received base64 JSON instead of raw content - Accept header may be missing'
+                }
+                if ($text -match '"name"\s*:\s*"' -and $text -match '"_links"') {
+                    throw 'Received GitHub API JSON metadata instead of raw file content'
+                }
+
+                $dlSize = if ($bytes.Length -gt 1MB) { "$([math]::Round($bytes.Length / 1MB, 1)) MB" }
+                          elseif ($bytes.Length -gt 1KB) { "$([math]::Round($bytes.Length / 1KB, 1)) KB" }
+                          else { "$($bytes.Length) B" }
 
                 # Self-update: can't overwrite the running script directly.
                 # Write .new file, apply on next startup.
                 if ($f -eq 'mumu-menu.ps1') {
                     $newPath = $dest + '.new'
                     [System.IO.File]::WriteAllBytes($newPath, $bytes)
-                    Write-Host "    $f saved as .new (will apply on restart)" -ForegroundColor Green
+                    Write-Host "    $f saved as .new ($dlSize) (will apply on restart)" -ForegroundColor Green
                 } else {
                     [System.IO.File]::WriteAllBytes($dest, $bytes)
-                    Write-Host "    $f OK" -ForegroundColor Green
+                    Write-Host "    $f OK ($dlSize)" -ForegroundColor Green
                 }
             } catch {
-                Write-Host "    Failed: $($_.Exception.Message)" -ForegroundColor Red
+                $errMsg = $_.Exception.Message
+                if (-not $errMsg) { $errMsg = 'Unknown error - check network connection and try again' }
+                Write-Host "    Failed: $errMsg" -ForegroundColor Red
+                if ($tmpDl -and (Test-Path $tmpDl)) { Remove-Item $tmpDl -Force -ErrorAction SilentlyContinue }
                 $failed++
             }
         }
@@ -598,13 +632,13 @@ try {
 }
 
 # Read-only update check at startup; installs only via menu option [U]
-Update-FromGitHub -Passive
+try { Update-FromGitHub -Passive } catch { Write-Debug "Startup update check failed: $($_.Exception.Message)" }
 
 # Check MuMu version
 $MinVersion = [version]'4.0.0.3179'
 try {
     $verJson = & $MumuPath version 2>$null | ConvertFrom-Json
-    $InstalledVersion = [version]$verJson.version
+    if ($verJson.version) { $InstalledVersion = [version]$verJson.version }
     if ($InstalledVersion -lt $MinVersion) {
         Write-Host ''
         Write-Host "WARNING: MuMu version $InstalledVersion is too old!" -ForegroundColor Red
@@ -628,9 +662,11 @@ function Show-QuickStatus {
             $total++
             if ($info.$key.player_state -and $info.$key.player_state -notmatch 'stopped| shutting') { $running++ }
         }
-        Write-Host "  v$scriptVer | MuMu $InstalledVersion | $running/$total running" -ForegroundColor DarkGray
+        $muVer = if ($InstalledVersion) { "$InstalledVersion" } else { 'unknown' }
+        Write-Host "  v$scriptVer | MuMu $muVer | $running/$total running" -ForegroundColor DarkGray
     } catch {
-        Write-Host "  v$scriptVer" -ForegroundColor DarkGray
+        $muVer = if ($InstalledVersion) { "$InstalledVersion" } else { 'unknown' }
+        Write-Host "  v$scriptVer | MuMu $muVer" -ForegroundColor DarkGray
     }
 }
 
@@ -672,6 +708,9 @@ function Show-Menu {
     Write-Host '  --- Tools ---' -ForegroundColor Green
     Write-Host '  [S] Take screenshot' -ForegroundColor Yellow
     Write-Host '  [A] Run ADB command' -ForegroundColor Yellow
+    Write-Host '  [AF] ADB file transfer (push/pull/list)' -ForegroundColor Yellow
+    Write-Host '  [AS] ADB screen capture (screenshot/record)' -ForegroundColor Yellow
+    Write-Host '  [AH] ADB interactive shell' -ForegroundColor Yellow
     Write-Host '  [O] Clear app data' -ForegroundColor Yellow
     Write-Host '  [P] Force stop app' -ForegroundColor Yellow
     Write-Host '  [T] Start app' -ForegroundColor Yellow
@@ -679,6 +718,7 @@ function Show-Menu {
     Write-Host '  [BA] Backup instance data' -ForegroundColor Yellow
     Write-Host '  [RE] Restore from backup' -ForegroundColor Yellow
     Write-Host '  [K] Update GitHub token' -ForegroundColor Yellow
+    Write-Host '  [VK] Set VirusTotal API key' -ForegroundColor Yellow
     Write-Host '  [CRT] Create/sign certificate' -ForegroundColor Yellow
     Write-Host '  [Z] Security audit (disabled)' -ForegroundColor Yellow
     Write-Host ''
@@ -686,17 +726,13 @@ function Show-Menu {
     Write-Host '  [TC] Connection test' -ForegroundColor Yellow
     Write-Host '  [TN] Network test' -ForegroundColor Yellow
     Write-Host '  [TD] Dependencies test' -ForegroundColor Yellow
+    Write-Host '  [VT] VirusTotal scan' -ForegroundColor Yellow
     Write-Host '  [UW] Fix Unicode / encoding' -ForegroundColor Yellow
     Write-Host ''
     Write-Host '  --- Spoofing ---' -ForegroundColor Green
     Write-Host '  [DM] Spoof device model' -ForegroundColor Yellow
     Write-Host '  [SIM] Change SIM operator / country (MCC/MNC)' -ForegroundColor Yellow
     Write-Host '  [DI] Random device IDs' -ForegroundColor Yellow
-    Write-Host ''
-    Write-Host '  --- Cloudsmith ---' -ForegroundColor Green
-    Write-Host '  [CS] List / download packages' -ForegroundColor Yellow
-    Write-Host '  [CU] Upload package to Cloudsmith' -ForegroundColor Yellow
-    Write-Host '  [CK] Set Cloudsmith API key' -ForegroundColor Yellow
     Write-Host ''
     Write-Host '  --- Info ---' -ForegroundColor Green
     Write-Host '  [V] Version info' -ForegroundColor Yellow
@@ -1614,7 +1650,7 @@ function Test-Security {
         }
     }
 
-    $tracked = git -C $ScriptDir ls-files '.github-token*' 2>$null
+    $tracked = git -C $ScriptDir -c safe.directory='*' ls-files '.github-token*' 2>$null
     if ($tracked) {
         Write-Host '  Git tracking: TOKEN TRACKED (BAD!)' -ForegroundColor Red
         $dangerCount++
@@ -1682,6 +1718,9 @@ function Test-EmulatorConnection {
     Write-Host '=== Emulator Connection Test ===' -ForegroundColor Cyan
     Write-Host ''
 
+    # Helper: run ADB shell command through MuMuManager (targets specific instance)
+    $run = { param($cmd) & $MumuPath adb -v $index -c "shell $cmd" 2>&1 | Out-String }
+
     # 1. Instance status
     Write-Host '[1] Instance status' -ForegroundColor Yellow
     $info = & $MumuPath info -v $index 2>$null | ConvertFrom-Json
@@ -1693,62 +1732,32 @@ function Test-EmulatorConnection {
         return
     }
 
-    # 2. MuMuManager ADB connection
+    # 2. MuMuManager ADB shell test
     Write-Host ''
-    Write-Host '[2] MuMuManager ADB' -ForegroundColor Yellow
-    $connect = & $MumuPath connect -v $index 2>&1 | Out-String
-    if ($connect -match '"errcode"\s*:\s*0') {
-        Write-Host '  Connected: YES' -ForegroundColor Green
-    } else {
-        Write-Host "  Connected: NO ($($connect.Trim()))" -ForegroundColor Red
-    }
-
-    # 3. ADB device check
-    Write-Host ''
-    Write-Host '[3] ADB devices' -ForegroundColor Yellow
-    $adb = Join-Path (Split-Path $MumuPath -Parent) 'shell\adb.exe'
-    if (-not (Test-Path $adb)) {
-        # Try system ADB
-        $adb = 'adb.exe'
-    }
-    $devices = & $adb devices 2>&1 | Out-String
-    $lines = $devices -split "`n" | Where-Object { $_ -match '\s+device$' -and $_ -notmatch '^List' }
-    if ($lines.Count -gt 0) {
-        Write-Host "  Devices: $($lines.Count) connected" -ForegroundColor Green
-        foreach ($l in $lines) {
-            $serial = ($l -split "\t")[0]
-            Write-Host "    - $serial" -ForegroundColor DarkGray
-        }
-    } else {
-        Write-Host '  Devices: NONE connected' -ForegroundColor Red
-    }
-
-    # 4. ADB shell test
-    Write-Host ''
-    Write-Host '[4] ADB shell' -ForegroundColor Yellow
-    $shellResult = & $adb shell 'echo ok' 2>&1 | Out-String
+    Write-Host '[2] ADB shell' -ForegroundColor Yellow
+    $shellResult = & $run 'echo ok'
     if ($shellResult.Trim() -eq 'ok') {
         Write-Host '  Shell: OK' -ForegroundColor Green
     } else {
         Write-Host "  Shell: FAILED ($($shellResult.Trim()))" -ForegroundColor Red
     }
 
-    # 5. ADB properties
+    # 3. ADB properties
     Write-Host ''
-    Write-Host '[5] Device properties' -ForegroundColor Yellow
+    Write-Host '[3] Device properties' -ForegroundColor Yellow
     $props = @('ro.build.display.id', 'ro.product.model', 'ro.build.version.sdk', 'ro.product.cpu.abi', 'ro.build.version.release')
     foreach ($p in $props) {
-        $val = (& $adb shell "getprop $p" 2>&1 | Out-String).Trim()
+        $val = (& $run "getprop $p").Trim()
         if ($val) {
             $short = $p -replace '^ro\.', ''
             Write-Host "  ${short}: $val" -ForegroundColor White
         }
     }
 
-    # 6. Internet connectivity
+    # 4. Internet connectivity
     Write-Host ''
-    Write-Host '[6] Internet test' -ForegroundColor Yellow
-    $netResult = & $adb shell 'ping -c 2 -W 5 8.8.8.8' 2>&1 | Out-String
+    Write-Host '[4] Internet test' -ForegroundColor Yellow
+    $netResult = & $run 'ping -c 2 -W 5 8.8.8.8'
     if ($netResult -match '(\d+) packets transmitted') {
         $sent = [int]($Matches[1])
         $recv = if ($netResult -match '(\d+) received') { [int]($Matches[1]) } else { 0 }
@@ -1762,10 +1771,10 @@ function Test-EmulatorConnection {
         Write-Host "  Ping: FAILED" -ForegroundColor Red
     }
 
-    # 7. Memory
+    # 5. Memory
     Write-Host ''
-    Write-Host '[7] Memory' -ForegroundColor Yellow
-    $memInfo = & $adb shell 'cat /proc/meminfo' 2>&1 | Out-String
+    Write-Host '[5] Memory' -ForegroundColor Yellow
+    $memInfo = & $run 'cat /proc/meminfo'
     if ($memInfo -match 'MemTotal:\s+(\d+)') {
         $totalMB = [int]$Matches[1] / 1024
         $freeMB = 0
@@ -1777,10 +1786,10 @@ function Test-EmulatorConnection {
         Write-Host ("  RAM: {0:N0} MB / {1:N0} MB ({2:N1}% used)" -f $usedMB, $totalMB, $pct) -ForegroundColor $color
     }
 
-    # 8. Storage
+    # 6. Storage
     Write-Host ''
-    Write-Host '[8] Storage' -ForegroundColor Yellow
-    $storage = & $adb shell 'df /data' 2>&1 | Out-String
+    Write-Host '[6] Storage' -ForegroundColor Yellow
+    $storage = & $run 'df /data'
     $storLines = $storage -split "`n" | Where-Object { $_ -match '/data$' }
     if ($storLines) {
         $parts = $storLines[0] -split '\s+'
@@ -1809,14 +1818,14 @@ function Test-Network {
         return
     }
 
-    $adb = Join-Path (Split-Path $MumuPath -Parent) 'shell\adb.exe'
-    if (-not (Test-Path $adb)) { $adb = 'adb.exe' }
+    # Helper: run ADB shell command through MuMuManager (targets specific instance)
+    $run = { param($cmd) & $MumuPath adb -v $index -c "shell $cmd" 2>&1 | Out-String }
 
     # Ping test
     Write-Host '[1] Ping test' -ForegroundColor Yellow
     $targets = @('8.8.8.8', '1.1.1.1', '223.5.5.5', 'google.com', 'github.com')
     foreach ($t in $targets) {
-        $result = & $adb shell "ping -c 2 -W 5 $t" 2>&1 | Out-String
+        $result = & $run "ping -c 2 -W 5 $t"
         if ($result -match 'rtt min.*=\s*([\d.]+)/([\d.]+)/([\d.]+)') {
             Write-Host "  $t : OK (avg $($Matches[2])ms)" -ForegroundColor Green
         } elseif ($result -match '(\d+) received') {
@@ -1833,7 +1842,7 @@ function Test-Network {
     Write-Host '[2] DNS resolution' -ForegroundColor Yellow
     $dnsTargets = @('google.com', 'github.com', 'baidu.com')
     foreach ($d in $dnsTargets) {
-        $result = & $adb shell "nslookup $d" 2>&1 | Out-String
+        $result = & $run "nslookup $d"
         if ($result -match 'Address:\s+\d') {
             Write-Host "  $d : OK" -ForegroundColor Green
         } else {
@@ -1850,7 +1859,7 @@ function Test-Network {
         @{ Url = 'https://github.com'; Name = 'GitHub' }
     )
     foreach ($h in $httpTargets) {
-        $result = & $adb shell "curl -s -o /dev/null -w '%{http_code}' --max-time 10 $($h.Url)" 2>&1 | Out-String
+        $result = & $run "curl -s -o /dev/null -w '%{http_code}' --max-time 10 $($h.Url)"
         $code = $result.Trim()
         if ($code -match '^(200|301|302|204)$') {
             Write-Host "  $($h.Name) ($code) : OK" -ForegroundColor Green
@@ -1862,7 +1871,7 @@ function Test-Network {
     # WiFi info
     Write-Host ''
     Write-Host '[4] WiFi info' -ForegroundColor Yellow
-    $wifi = & $adb shell 'dumpsys wifi | grep "mWifiInfo"' 2>&1 | Out-String
+    $wifi = & $run 'dumpsys wifi | grep "mWifiInfo"'
     if ($wifi) {
         if ($wifi -match 'SSID:\s*"([^"]+)"') {
             Write-Host "  SSID: $($Matches[1])" -ForegroundColor White
@@ -1872,7 +1881,7 @@ function Test-Network {
         }
     } else {
         # Fallback: try ip addr
-        $ipInfo = & $adb shell 'ip addr show wlan0 2>/dev/null || ip addr show eth0' 2>&1 | Out-String
+        $ipInfo = & $run 'ip addr show wlan0 2>/dev/null || ip addr show eth0'
         if ($ipInfo -match 'inet (\d+[\.\d]+)') {
             Write-Host "  IP: $($Matches[1])" -ForegroundColor White
         }
@@ -1880,6 +1889,268 @@ function Test-Network {
 
     Write-Host ''
     Write-Host 'Test complete.' -ForegroundColor Green
+}
+
+function Set-VTApiKeyMenu {
+    Write-Host ''
+    Write-Host '=== VirusTotal API Key ===' -ForegroundColor Cyan
+    Write-Host ''
+
+    $dpapiFile = Join-Path $ScriptDir '.vt-apikey.dpapi'
+    $plainFile = Join-Path $ScriptDir '.vt-apikey'
+
+    # Show current status
+    $currentKey = Get-VTApiKey
+    if ($currentKey) {
+        $masked = $currentKey.Substring(0, [Math]::Min(4, $currentKey.Length)) + '****'
+        $encrypted = Test-Path -LiteralPath $dpapiFile
+        $store = if ($encrypted) { 'DPAPI-encrypted' } else { 'plaintext' }
+        Write-Host "  Current: $masked ($store)" -ForegroundColor Green
+    } else {
+        Write-Host '  Current: not set' -ForegroundColor Yellow
+    }
+    Write-Host ''
+    Write-Host '  Get free key at: https://www.virustotal.com/gui/my-apikey' -ForegroundColor DarkGray
+    Write-Host ''
+
+    Write-Host '  [1] Save new key' -ForegroundColor Yellow
+    Write-Host '  [2] Delete key' -ForegroundColor Yellow
+    Write-Host '  [3] Test key' -ForegroundColor Yellow
+    Write-Host ''
+    $action = Read-Host 'Select (1/2/3)'
+
+    switch ($action) {
+        '1' {
+            $newKey = (Read-Host '  Enter VT API key').Trim()
+            if (-not $newKey) { Write-Host '  Cancelled.' -ForegroundColor Yellow; return }
+            if (Save-VTApiKey $newKey) {
+                Write-Host '  Saved ENCRYPTED via DPAPI (.vt-apikey.dpapi)' -ForegroundColor Green
+                # Verify
+                $verify = Get-VTApiKey
+                if ($verify -eq $newKey) {
+                    Write-Host '  Verified: key decrypted successfully' -ForegroundColor Green
+                } else {
+                    Write-Host '  Warning: key verification failed' -ForegroundColor Yellow
+                }
+            }
+        }
+        '2' {
+            if (Remove-VTApiKey) {
+                Write-Host '  VT API key deleted.' -ForegroundColor Green
+            } else {
+                Write-Host '  No key to delete.' -ForegroundColor DarkGray
+            }
+        }
+        '3' {
+            $testKey = if ($currentKey) { $currentKey } else { $null }
+            if (-not $testKey) {
+                $testKey = (Read-Host '  Enter key to test').Trim()
+            }
+            if (-not $testKey) { Write-Host '  No key.' -ForegroundColor Yellow; return }
+            try {
+                $result = Invoke-RestMethod -Uri 'https://www.virustotal.com/api/v3/users/me' -Headers @{ 'x-apikey' = $testKey } -ErrorAction Stop
+                $name = $result.data.attributes.username
+                $quota = $result.data.attributes.reputation
+                Write-Host "  Valid! User: $name" -ForegroundColor Green
+            } catch {
+                Write-Host '  Invalid key or API error.' -ForegroundColor Red
+            }
+        }
+        default { Write-Host '  Invalid selection.' -ForegroundColor Red }
+    }
+}
+
+function Get-VTApiKey {
+    # Read VT API key from DPAPI-encrypted file, legacy plaintext, or env
+    $key = $null
+    $dpapiFile = Join-Path $ScriptDir '.vt-apikey.dpapi'
+    $plainFile = Join-Path $ScriptDir '.vt-apikey'
+
+    # 1. Try DPAPI-encrypted file
+    if (Test-Path -LiteralPath $dpapiFile) {
+        try {
+            $raw = (Get-Content -LiteralPath $dpapiFile -Raw).Trim()
+            $sec = $raw | ConvertTo-SecureString -ErrorAction Stop
+            $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)
+            try { $key = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr).Trim() }
+            finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
+        } catch {
+            Write-Host "  Warning: Cannot decrypt VT key ($($_.Exception.Message))" -ForegroundColor Yellow
+        }
+    }
+
+    # 2. Migrate legacy plaintext file
+    if (-not $key -and (Test-Path -LiteralPath $plainFile)) {
+        try {
+            $key = (Get-Content -LiteralPath $plainFile -Raw).Trim()
+            if ($key) {
+                $sec = ConvertTo-SecureString $key -AsPlainText -Force
+                ConvertFrom-SecureString -SecureString $sec | Set-Content -Path $dpapiFile -NoNewline -Encoding UTF8
+                Remove-Item -LiteralPath $plainFile -Force -ErrorAction SilentlyContinue
+                Write-Host '  VT key migrated to encrypted storage (.vt-apikey.dpapi)' -ForegroundColor DarkGray
+            }
+        } catch { Write-Debug "VT key migration failed: $($_.Exception.Message)" }
+    }
+
+    # 3. Environment variable
+    if (-not $key -and $env:VT_API_KEY) { $key = $env:VT_API_KEY }
+
+    return $key
+}
+
+function Save-VTApiKey {
+    param([string]$PlainKey)
+    $dpapiFile = Join-Path $ScriptDir '.vt-apikey.dpapi'
+    $plainFile = Join-Path $ScriptDir '.vt-apikey'
+    try {
+        $sec = ConvertTo-SecureString $PlainKey -AsPlainText -Force
+        ConvertFrom-SecureString -SecureString $sec | Set-Content -Path $dpapiFile -NoNewline -Encoding UTF8
+        if (Test-Path -LiteralPath $plainFile) {
+            Remove-Item -LiteralPath $plainFile -Force -ErrorAction SilentlyContinue
+        }
+        return $true
+    } catch {
+        Write-Host "  Failed to encrypt key: $($_.Exception.Message)" -ForegroundColor Red
+        return $false
+    }
+}
+
+function Remove-VTApiKey {
+    $dpapiFile = Join-Path $ScriptDir '.vt-apikey.dpapi'
+    $plainFile = Join-Path $ScriptDir '.vt-apikey'
+    $removed = $false
+    if (Test-Path -LiteralPath $dpapiFile) {
+        Remove-Item -LiteralPath $dpapiFile -Force -ErrorAction SilentlyContinue; $removed = $true
+    }
+    if (Test-Path -LiteralPath $plainFile) {
+        Remove-Item -LiteralPath $plainFile -Force -ErrorAction SilentlyContinue; $removed = $true
+    }
+    if ($env:VT_API_KEY) { $env:VT_API_KEY = $null }
+    return $removed
+}
+
+function Scan-VirusTotal {
+    Write-Host ''
+    Write-Host '=== VirusTotal ===' -ForegroundColor Cyan
+    Write-Host ''
+
+    $apiKey = Get-VTApiKey
+
+    # Sub-menu
+    Write-Host '  [1] Scan files' -ForegroundColor Yellow
+    Write-Host '  [2] Save API key' -ForegroundColor Yellow
+    Write-Host '  [3] Delete API key' -ForegroundColor Yellow
+    Write-Host '  [4] Open VT in browser' -ForegroundColor Yellow
+    Write-Host ''
+    $action = Read-Host 'Select (1/2/3/4)'
+
+    switch ($action) {
+        '2' {
+            Write-Host ''
+            if ($apiKey) {
+                $masked = $apiKey.Substring(0, [Math]::Min(4, $apiKey.Length)) + '****'
+                Write-Host "  Current key: $masked" -ForegroundColor DarkGray
+            }
+            $newKey = (Read-Host '  Enter VT API key').Trim()
+            if (-not $newKey) { Write-Host '  Cancelled.' -ForegroundColor Yellow; return }
+            if (Save-VTApiKey $newKey) {
+                Write-Host '  Saved ENCRYPTED via DPAPI (.vt-apikey.dpapi)' -ForegroundColor Green
+                $apiKey = $newKey
+            }
+        }
+        '3' {
+            if (Remove-VTApiKey) {
+                Write-Host '  VT API key deleted.' -ForegroundColor Green
+            } else {
+                Write-Host '  No key to delete.' -ForegroundColor DarkGray
+            }
+            return
+        }
+        '4' {
+            Start-Process 'https://www.virustotal.com/gui/home/upload'
+            return
+        }
+        { $_ -ne '1' } {
+            Write-Host '  Invalid selection.' -ForegroundColor Red
+            return
+        }
+    }
+
+    if (-not $apiKey) {
+        Write-Host ''
+        Write-Host '  No API key configured.' -ForegroundColor Yellow
+        Write-Host '  Select [2] to save your key, or [4] to open VT in browser.' -ForegroundColor DarkGray
+        return
+    }
+
+    # Files to scan
+    $files = @()
+    $menuPath = Join-Path $ScriptDir 'mumu-menu.ps1'
+    $bootPath = Join-Path $ScriptDir 'bootstrap-update.ps1'
+    if (Test-Path -LiteralPath $menuPath) { $files += @{ Name = 'mumu-menu.ps1'; Path = $menuPath } }
+    if (Test-Path -LiteralPath $bootPath) { $files += @{ Name = 'bootstrap-update.ps1'; Path = $bootPath } }
+
+    if ($files.Count -eq 0) {
+        Write-Host '  No script files found.' -ForegroundColor Yellow
+        return
+    }
+
+    Write-Host ''
+    Write-Host '  Scanning files...' -ForegroundColor Cyan
+    Write-Host ''
+
+    $clean = 0
+    $dirty = 0
+
+    foreach ($f in $files) {
+        $hash = (Get-FileHash -Path $f.Path -Algorithm SHA256).Hash.ToLower()
+        Write-Host "  $($f.Name)" -ForegroundColor White -NoNewline
+        Write-Host "  SHA256: $($hash.Substring(0,16))..." -ForegroundColor DarkGray -NoNewline
+
+        # Check if already scanned
+        try {
+            $url = "https://www.virustotal.com/api/v3/files/$hash"
+            $result = Invoke-RestMethod -Uri $url -Headers @{ 'x-apikey' = $apiKey } -ErrorAction Stop
+            $stats = $result.data.attributes.last_analysis_stats
+            $m = $stats.malicious; $s = $stats.suspicious; $u = $stats.undetected; $h = $stats.harmless
+            $t = $m + $s + $u + $h
+            if ($m -gt 0 -or $s -gt 0) {
+                Write-Host "  DETECTED: $m malicious, $s suspicious / $t" -ForegroundColor Red
+                $dirty++
+            } else {
+                Write-Host "  0/$t clean" -ForegroundColor Green
+                $clean++
+            }
+            Write-Host "    https://www.virustotal.com/gui/file/$hash" -ForegroundColor DarkGray
+        } catch {
+            # Not on VT yet - upload
+            Write-Host '  uploading...' -ForegroundColor Yellow -NoNewline
+            try {
+                $boundary = [Guid]::NewGuid().ToString()
+                $fileName = [IO.Path]::GetFileName($f.Path)
+                $fileBytes = [IO.File]::ReadAllBytes($f.Path)
+                $hdr = [Text.Encoding]::UTF8.GetBytes("--$boundary`r`nContent-Disposition: form-data; name=`"file`"; filename=`"$fileName`"`r`nContent-Type: application/octet-stream`r`n`r`n")
+                $ftr = [Text.Encoding]::UTF8.GetBytes("`r`n--$boundary--`r`n")
+                $body = New-Object byte[] ($hdr.Length + $fileBytes.Length + $ftr.Length)
+                [Buffer]::BlockCopy($hdr, 0, $body, 0, $hdr.Length)
+                [Buffer]::BlockCopy($fileBytes, 0, $body, $hdr.Length, $fileBytes.Length)
+                [Buffer]::BlockCopy($ftr, 0, $body, $hdr.Length + $fileBytes.Length, $ftr.Length)
+                $null = Invoke-RestMethod -Uri 'https://www.virustotal.com/api/v3/files' -Method Post -Headers @{ 'x-apikey' = $apiKey } -ContentType "multipart/form-data; boundary=$boundary" -Body $body -ErrorAction Stop
+                Write-Host ' done (analyzing...)' -ForegroundColor Green
+                Write-Host "    https://www.virustotal.com/gui/file/$hash" -ForegroundColor DarkGray
+            } catch {
+                Write-Host " FAILED" -ForegroundColor Red
+                Write-Host "    Error: $($_.Exception.Message)" -ForegroundColor Red
+            }
+        }
+    }
+
+    Write-Host ''
+    if ($clean -gt 0 -and $dirty -eq 0) {
+        Write-Host "  All $clean file(s) clean!" -ForegroundColor Green
+    } elseif ($dirty -gt 0) {
+        Write-Host "  WARNING: $dirty file(s) detected!" -ForegroundColor Red
+    }
 }
 
 function Fix-Unicode {
@@ -1909,12 +2180,7 @@ function Fix-Unicode {
         foreach ($f in $files) {
             $bytes = [System.IO.File]::ReadAllBytes($f.FullName)
             $hasBOM = ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)
-            $hasHighBytes = $false
             $mojibake = $false
-
-            # Check for mojibake patterns (CP1251 encoded UTF-8)
-            $text = [System.Text.Encoding]::GetEncoding(28591).GetString($bytes)
-            if ($text -match '[\xC0-\xFF][\x80-\xBF]') { $hasHighBytes = $true }
 
             # Check for double-encoded UTF-8 (common mojibake)
             $utf8Text = [System.Text.Encoding]::UTF8.GetString($bytes)
@@ -1966,17 +2232,13 @@ function Fix-Unicode {
 
             # Detect encoding
             $encoding = 'unknown'
-            $startOffset = 0
 
             if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
                 $encoding = 'UTF-8 BOM'
-                $startOffset = 3
             } elseif ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFF -and $bytes[1] -eq 0xFE) {
                 $encoding = 'UTF-16 LE BOM'
-                $startOffset = 2
             } elseif ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFE -and $bytes[1] -eq 0xFF) {
                 $encoding = 'UTF-16 BE BOM'
-                $startOffset = 2
             } else {
                 # Try to detect UTF-8 without BOM
                 $isUtf8 = $true
@@ -2263,7 +2525,7 @@ function Update-Token {
         # Show token info
         try {
             $plain = if ($tokenPath -eq $DpapiTokenFile) {
-                $enc = Get-Content -LiteralPath $DpapiTokenFile -Raw
+                $enc = (Get-Content -LiteralPath $DpapiTokenFile -Raw).Trim()
                 $sec = ConvertTo-SecureString $enc
                 ConvertFrom-SecureToken $sec
             } else {
@@ -2350,279 +2612,6 @@ function Update-Token {
     }
 }
 
-# --- Cloudsmith helper functions -----------------------------------------------
-$CloudsmithOwner = 'mumumanager'
-$CloudsmithRepo = 'mumumanager-cli-menu-test'
-$CloudsmithKeyFile = Join-Path $ScriptDir '.cloudsmith-token'
-
-function Get-CloudsmithKey {
-    if (Test-Path -LiteralPath $CloudsmithKeyFile) {
-        try { return (Get-Content -LiteralPath $CloudsmithKeyFile -Raw).Trim() } catch { Write-Debug "Cloudsmith key read failed: $($_.Exception.Message)" }
-    }
-    return ''
-}
-
-function Get-CloudsmithPackages {
-    $key = Get-CloudsmithKey
-    $apiUrl = "https://api.cloudsmith.io/packages/$CloudsmithOwner/$CloudsmithRepo/?page_size=50&sort=-version"
-    $tmpFile = Join-Path $env:TEMP ('cs_pkgs_' + [Guid]::NewGuid().ToString('N') + '.json')
-    $curlCmd = "curl.exe -s --connect-timeout 30 --max-time 60 -o `"$tmpFile`" "
-    if ($key) { $curlCmd += "-H `"Authorization: token $key`" " }
-    $curlCmd += $apiUrl
-    & cmd /c $curlCmd 2>$null
-    if (Test-Path -LiteralPath $tmpFile) {
-        $bytes = [System.IO.File]::ReadAllBytes($tmpFile)
-        Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue
-        $json = [System.Text.Encoding]::UTF8.GetString($bytes)
-        try { return ($json | ConvertFrom-Json) } catch { return $null }
-    }
-    return $null
-}
-
-function Get-CloudsmithList {
-    $raw = Get-CloudsmithPackages
-    $list = @()
-    if ($raw -is [array]) { $list = $raw }
-    elseif ($raw.data) { $list = $raw.data }
-    return $list
-}
-
-# [CS] List / download packages
-function Cloudsmith-ListDownload {
-    Write-Host ''
-    Write-Host '=== Cloudsmith Packages ===' -ForegroundColor Cyan
-    Write-Host "  Repo: $CloudsmithOwner/$CloudsmithRepo" -ForegroundColor DarkGray
-    Write-Host "  URL:  https://app.cloudsmith.com/$CloudsmithOwner/$CloudsmithRepo" -ForegroundColor DarkGray
-    Write-Host ''
-
-    Write-Host 'Options:' -ForegroundColor Yellow
-    Write-Host '  [1] List all packages' -ForegroundColor White
-    Write-Host '  [2] Download latest package' -ForegroundColor White
-    Write-Host '  [3] Download specific version' -ForegroundColor White
-    Write-Host ''
-    $csMethod = Read-Host 'Select (1/2/3)'
-
-    Write-Host ''
-    Write-Host 'Fetching packages...' -ForegroundColor DarkGray
-    $pkgsList = Get-CloudsmithList
-    if (-not $pkgsList -or $pkgsList.Count -eq 0) {
-        Write-Host 'No packages found.' -ForegroundColor Yellow
-        return
-    }
-
-    if ($csMethod -eq '1') {
-        # List packages
-        Write-Host ''
-        Write-Host '  ============================================' -ForegroundColor Cyan
-        Write-Host '    CLOUDSMITH PACKAGES' -ForegroundColor White
-        Write-Host '  ============================================' -ForegroundColor Cyan
-        foreach ($p in $pkgsList) {
-            $name = $p.name
-            $ver = $p.version
-            $fmt = $p.format
-            $date = ''
-            if ($p.uploaded_at) {
-                try { $date = [datetime]::Parse($p.uploaded_at).ToString('yyyy-MM-dd HH:mm') } catch { $date = $p.uploaded_at }
-            }
-            $size = ''
-            if ($p.files -and $p.files.Count -gt 0) {
-                $totalSize = ($p.files | Measure-Object -Property size -Sum).Sum
-                if ($totalSize -gt 1MB) { $size = "$([math]::Round($totalSize/1MB, 1)) MB" }
-                elseif ($totalSize -gt 1KB) { $size = "$([math]::Round($totalSize/1KB, 1)) KB" }
-                else { $size = "$totalSize B" }
-            }
-            $cdnUrl = $p.cdn_url
-            Write-Host ''
-            Write-Host "  $name v$ver" -ForegroundColor White -NoNewline
-            Write-Host " [$fmt]" -ForegroundColor DarkGray -NoNewline
-            if ($date) { Write-Host " | $date" -ForegroundColor DarkGray -NoNewline }
-            if ($size) { Write-Host " | $size" -ForegroundColor DarkGray -NoNewline }
-            Write-Host ''
-            if ($cdnUrl) { Write-Host "    $cdnUrl" -ForegroundColor DarkGray }
-        }
-        Write-Host ''
-        Write-Host '  ============================================' -ForegroundColor Cyan
-
-    } elseif ($csMethod -eq '2' -or $csMethod -eq '3') {
-        # Download package
-        $chosen = $null
-        if ($csMethod -eq '2') {
-            $chosen = $pkgsList[0]
-        } else {
-            Write-Host ''
-            for ($i = 0; $i -lt [Math]::Min($pkgsList.Count, 20); $i++) {
-                $p = $pkgsList[$i]
-                $marker = if ($i -eq 0) { ' <-- latest' } else { '' }
-                Write-Host "  [$($i + 1)] $($p.name) v$($p.version) [$($p.format)]$marker" -ForegroundColor White
-            }
-            Write-Host ''
-            $sel = Read-Host 'Select package (number)'
-            if (-not ($sel -match '^\d+$' -and [int]$sel -ge 1 -and [int]$sel -le $pkgsList.Count)) {
-                Write-Host 'Invalid selection.' -ForegroundColor Red
-                return
-            }
-            $chosen = $pkgsList[[int]$sel - 1]
-        }
-
-        $cdnUrl = $chosen.cdn_url
-        if (-not $cdnUrl) {
-            Write-Host 'No download URL found for this package.' -ForegroundColor Yellow
-            return
-        }
-
-        $fileName = $chosen.name
-        if ($chosen.version) { $fileName += "-$($chosen.version)" }
-        if ($chosen.format) { $fileName += ".$($chosen.format)" }
-
-        Write-Host ''
-        Write-Host "  Package:  $($chosen.name) v$($chosen.version)" -ForegroundColor White
-        Write-Host "  Format:  $($chosen.format)" -ForegroundColor DarkGray
-        Write-Host "  URL:     $cdnUrl" -ForegroundColor DarkGray
-        Write-Host "  File:    $fileName" -ForegroundColor DarkGray
-
-        Write-Host ''
-        Write-Host 'Quick paths:' -ForegroundColor DarkGray
-        Write-Host "  [D] Desktop" -ForegroundColor White
-        Write-Host "  [W] Downloads" -ForegroundColor White
-        Write-Host "  [C] Current folder ($PWD.Path)" -ForegroundColor White
-        Write-Host ''
-        $dlPath = (Read-Host 'Download to (D/W/C or path)').Trim()
-        $dlDir = switch ($dlPath.ToUpper()) {
-            'D' { [Environment]::GetFolderPath('Desktop') }
-            'W' { Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads' }
-            'C' { $PWD.Path }
-            default { if ($dlPath) { $dlPath } else { $PWD.Path } }
-        }
-
-        $destFile = Join-Path $dlDir $fileName
-        Write-Host ''
-        Write-Host "Downloading $fileName..." -ForegroundColor Cyan
-        $sw = [System.Diagnostics.Stopwatch]::StartNew()
-        $dlCmd = "curl.exe -# --connect-timeout 30 --max-time 300 --retry 3 -L -o `"$destFile`" $cdnUrl"
-        & cmd /c $dlCmd 2>$null
-        $sw.Stop()
-
-        if (Test-Path -LiteralPath $destFile) {
-            $actualSize = (Get-Item -LiteralPath $destFile).Length
-            Write-Host ''
-            Write-Host ("Downloaded: {0:N1} MB in {1:mm\:ss}" -f ($actualSize / 1MB), $sw.Elapsed) -ForegroundColor Green
-            Write-Host "  Location: $destFile" -ForegroundColor DarkGray
-        } else {
-            Write-Host 'Download failed!' -ForegroundColor Red
-        }
-    }
-}
-
-# [CU] Upload package to Cloudsmith
-function Cloudsmith-Upload {
-    Write-Host ''
-    Write-Host '=== Upload to Cloudsmith ===' -ForegroundColor Cyan
-    Write-Host "  Repo: $CloudsmithOwner/$CloudsmithRepo" -ForegroundColor DarkGray
-
-    $key = Get-CloudsmithKey
-    if (-not $key) {
-        Write-Host '  API key not set. Use [CK] to set it.' -ForegroundColor Yellow
-        return
-    }
-
-    # Read version
-    $version = '1.0.0'
-    if (Test-Path -LiteralPath $VersionFile) {
-        $version = (Get-Content -LiteralPath $VersionFile -Raw).Trim()
-        if ($version.StartsWith('v')) { $version = $version.Substring(1) }
-    }
-
-    Write-Host "  Version: $version" -ForegroundColor DarkGray
-
-    # File to upload
-    $filePath = Join-Path $ScriptDir 'mumu-menu.ps1'
-    if (-not (Test-Path -LiteralPath $filePath)) {
-        Write-Host '  mumu-menu.ps1 not found!' -ForegroundColor Red
-        return
-    }
-    $fileSize = (Get-Item -LiteralPath $filePath).Length
-    Write-Host "  File: mumu-menu.ps1 ($([math]::Round($fileSize / 1KB, 1)) KB)" -ForegroundColor DarkGray
-    Write-Host ''
-
-    $confirm = Read-Host '  Upload? (y/N)'
-    if ($confirm -ne 'y' -and $confirm -ne 'Y') { return }
-
-    # Step 1: PUT to upload URL
-    Write-Host ''
-    Write-Host '  Step 1: Uploading file...' -ForegroundColor Yellow
-    $uploadUrl = "https://upload.cloudsmith.io/$CloudsmithOwner/$CloudsmithRepo/mumu-menu.ps1"
-    $tmpResponse = Join-Path $env:TEMP 'cs_upload_response.txt'
-    $putCmd = "curl.exe -s -X PUT -H `"Authorization: token $key`" -T `"$filePath`" -o `"$tmpResponse`" $uploadUrl"
-    & cmd /c $putCmd 2>$null
-
-    if (-not (Test-Path -LiteralPath $tmpResponse)) {
-        Write-Host '  Upload failed - no response' -ForegroundColor Red
-        return
-    }
-    $response = Get-Content -LiteralPath $tmpResponse -Raw
-    Remove-Item $tmpResponse -Force -ErrorAction SilentlyContinue
-
-    $identifier = ''
-    if ($response -match '"identifier"\s*:\s*"([^"]+)"') {
-        $identifier = $Matches[1]
-    }
-    if (-not $identifier) {
-        Write-Host "  Failed: $($response.Substring(0, [Math]::Min(200, $response.Length)))" -ForegroundColor Red
-        return
-    }
-    Write-Host "  Identifier: $identifier" -ForegroundColor Green
-
-    # Step 2: POST to create package
-    Write-Host '  Step 2: Creating package...' -ForegroundColor Yellow
-    $createUrl = "https://api.cloudsmith.io/packages/$CloudsmithOwner/$CloudsmithRepo/upload/raw/"
-    $jsonBody = @{
-        package_file = $identifier
-        name = 'MuMuManager-CLI-Menu'
-        description = 'Interactive PowerShell menu for managing MuMu Emulator via MuMuManager.exe'
-        summary = 'MuMuManager CLI Menu'
-        version = $version
-    } | ConvertTo-Json
-    $jsonBytes = [System.Text.Encoding]::UTF8.GetBytes($jsonBody)
-    $tmpJson = Join-Path $env:TEMP 'cs_create_payload.json'
-    [System.IO.File]::WriteAllBytes($tmpJson, $jsonBytes)
-    $createCmd = "curl.exe -s -X POST -H `"Authorization: token $key`" -H `"Content-Type: application/json`" -d @$tmpJson $createUrl"
-    $createResponse = & cmd /c $createCmd 2>$null
-    Remove-Item $tmpJson -Force -ErrorAction SilentlyContinue
-
-    if ($createResponse -match '"cdn_url"\s*:\s*"([^"]+)"') {
-        Write-Host ''
-        Write-Host '  Upload complete!' -ForegroundColor Green
-        Write-Host "  CDN URL: $($Matches[1])" -ForegroundColor Cyan
-        Write-Host "  Web UI:  https://app.cloudsmith.com/$CloudsmithOwner/$CloudsmithRepo" -ForegroundColor DarkGray
-    } else {
-        Write-Host "  Response: $($createResponse.Substring(0, [Math]::Min(200, $createResponse.Length)))" -ForegroundColor Yellow
-    }
-}
-
-# [CK] Set Cloudsmith API key
-function Cloudsmith-SetKey {
-    Write-Host ''
-    Write-Host '=== Cloudsmith API Key ===' -ForegroundColor Cyan
-    Write-Host '  Get yours at: https://app.cloudsmith.com/user/settings/account/#api-key' -ForegroundColor DarkGray
-    Write-Host ''
-    $currentKey = Get-CloudsmithKey
-    if ($currentKey) {
-        $masked = $currentKey.Substring(0, [Math]::Min(8, $currentKey.Length)) + '...'
-        Write-Host "  Current key: $masked" -ForegroundColor DarkGray
-    }
-    Write-Host ''
-    $newKey = (Read-Host '  Enter API key (empty to clear)').Trim()
-    if ($newKey) {
-        Set-Content -Path $CloudsmithKeyFile -Value $newKey -NoNewline -Force
-        Write-Host '  API key saved.' -ForegroundColor Green
-    } else {
-        if (Test-Path -LiteralPath $CloudsmithKeyFile) {
-            Remove-Item -LiteralPath $CloudsmithKeyFile -Force
-            Write-Host '  API key cleared.' -ForegroundColor Yellow
-        }
-    }
-}
-
 function Download-Repository {
     Write-Host ''
     Write-Host '=== Download Repository ===' -ForegroundColor Cyan
@@ -2675,19 +2664,41 @@ function Download-Repository {
     Write-Host '  [2] Download release ZIP (specific version)' -ForegroundColor White
     Write-Host '  [3] Download latest release ZIP' -ForegroundColor White
     Write-Host '  [4] Update from GitHub (pull latest changes)' -ForegroundColor White
+    Write-Host '  [5] Download single file from repo' -ForegroundColor White
     Write-Host ''
-    $method = Read-Host 'Select method (1/2/3/4)'
+    $method = Read-Host 'Select method (1/2/3/4/5)'
 
     if ($method -eq '1') {
         # Git clone
         $targetDir = Get-TargetPath 'Clone to'
         if (-not $targetDir) { return }
 
-        $branch = (Read-Host 'Branch (Enter=main)').Trim()
+        # Fetch available branches
+        Write-Host ''
+        Write-Host 'Fetching branches...' -ForegroundColor DarkGray
+        $branchCmd = "curl.exe -s --connect-timeout 15 --max-time 15 -H `"Accept: application/vnd.github.v3+json`""
+        if ($GitHubToken) { $branchCmd += " -H `"Authorization: token $GitHubToken`"" }
+        $branchCmd += " `"https://api.github.com/repos/$GitHubRepo/branches`""
+        $branchJson = & cmd /c $branchCmd 2>$null | Out-String
+        try { $branches = $branchJson | ConvertFrom-Json } catch { $branches = @() }
+
+        if ($branches -and $branches.Count -gt 0) {
+            Write-Host '  Available branches:' -ForegroundColor DarkGray
+            foreach ($b in $branches) {
+                $marker = if ($b.name -eq 'main') { ' <-- default' } else { '' }
+                Write-Host "    $($b.name)$marker" -ForegroundColor White
+            }
+        }
+        $branch = (Read-Host "Branch (Enter=main)").Trim()
         if (-not $branch) { $branch = 'main' }
 
         $repoName = ($GitHubRepo -split '/')[-1]
-        $clonePath = Join-Path $targetDir $repoName
+        # If target dir already ends with repo name, don't double-nest
+        if ($targetDir.TrimEnd('\','/') -ieq (Join-Path (Split-Path $targetDir -Parent) $repoName).TrimEnd('\','/')) {
+            $clonePath = $targetDir
+        } else {
+            $clonePath = Join-Path $targetDir $repoName
+        }
 
         if (Test-Path -LiteralPath $clonePath) {
             Write-Host "  Directory already exists: $clonePath" -ForegroundColor Yellow
@@ -2703,10 +2714,10 @@ function Download-Repository {
         if ($GitHubToken) {
             $cloneUrl = "https://$($GitHubToken)@github.com/$GitHubRepo.git"
         }
-        & git clone -b $branch $cloneUrl $clonePath 2>&1 | ForEach-Object {
-            if ($_ -match 'Receiving objects.*?(\d+%)') {
-                Write-Host "  `r$($_.Trim())" -NoNewline -ForegroundColor DarkGray
-            }
+        $cloneOutput = & git clone -b $branch $cloneUrl $clonePath 2>&1 | Out-String
+        $progressMatch = [regex]::Matches($cloneOutput, 'Receiving objects.*?\d+%')
+        if ($progressMatch.Count -gt 0) {
+            Write-Host "  $($progressMatch[$progressMatch.Count - 1].Value)" -ForegroundColor DarkGray
         }
         $sw.Stop()
         Write-Host ''
@@ -2723,10 +2734,13 @@ function Download-Repository {
         # Specific release
         Write-Host ''
         Write-Host 'Fetching releases...' -ForegroundColor DarkGray
-        $tagsJson = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Accept: application/vnd.github.v3+json" -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/tags" 2>$null | Out-String
-        try { $tags = $tagsJson | ConvertFrom-Json } catch { $tags = @() }
+        $relListCmd = "curl.exe -s --connect-timeout 30 --max-time 30 -H `"Accept: application/vnd.github.v3+json`""
+        if ($GitHubToken) { $relListCmd += " -H `"Authorization: token $GitHubToken`"" }
+        $relListCmd += " `"https://api.github.com/repos/$GitHubRepo/releases?per_page=20`""
+        $relListJson = & cmd /c $relListCmd 2>$null | Out-String
+        try { $releases = $relListJson | ConvertFrom-Json } catch { $releases = @() }
 
-        if (-not $tags -or $tags.Count -eq 0) {
+        if (-not $releases -or $releases.Count -eq 0) {
             Write-Host 'No releases found.' -ForegroundColor Yellow
             return
         }
@@ -2734,35 +2748,78 @@ function Download-Repository {
         Write-Host ''
         Write-Host 'Available releases:' -ForegroundColor Cyan
         Write-Host ''
-        for ($i = 0; $i -lt $tags.Count; $i++) {
-            $t = $tags[$i]
+        for ($i = 0; $i -lt $releases.Count; $i++) {
+            $r = $releases[$i]
             $marker = if ($i -eq 0) { ' <-- latest' } else { '' }
-            Write-Host "  [$($i + 1)] $($t.name)$marker" -ForegroundColor White
+            $date = if ($r.published_at) { ($r.published_at -replace 'T.*','') } else { '' }
+            $assetInfo = if ($r.assets -and $r.assets.Count -gt 0) {
+                $zipCount = ($r.assets | Where-Object { $_.name -match '\.zip$' }).Count
+                if ($zipCount -gt 0) { " [$zipCount ZIP]" } else { " [$($r.assets.Count) assets]" }
+            } else { ' [no assets]' }
+            $bodyPreview = if ($r.body) { ($r.body -split "`n" | Select-Object -First 1).Trim() } else { '' }
+            if ($bodyPreview.Length -gt 60) { $bodyPreview = $bodyPreview.Substring(0, 57) + '...' }
+            Write-Host "  [$($i + 1)] $($r.tag_name)  $date$assetInfo$marker" -ForegroundColor White
+            if ($bodyPreview) { Write-Host "      $bodyPreview" -ForegroundColor DarkGray }
         }
 
         Write-Host ''
         $sel = Read-Host 'Select release (number)'
-        if (-not ($sel -match '^\d+$' -and [int]$sel -ge 1 -and [int]$sel -le $tags.Count)) {
+        if (-not ($sel -match '^\d+$' -and [int]$sel -ge 1 -and [int]$sel -le $releases.Count)) {
             Write-Host 'Invalid selection.' -ForegroundColor Red
             return
         }
-        $chosen = $tags[[int]$sel - 1]
-        $tagName = $chosen.name
+        $release = $releases[[int]$sel - 1]
+        $tagName = $release.tag_name
 
-        # Get release assets
+        # Show release details
         Write-Host ''
-        Write-Host "Fetching release $tagName..." -ForegroundColor DarkGray
-        $relJson = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Accept: application/vnd.github.v3+json" -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/releases/tags/$tagName" 2>$null | Out-String
-        try { $release = $relJson | ConvertFrom-Json } catch { $release = $null }
-
-        if (-not $release -or -not $release.assets) {
-            Write-Host 'Release not found or no assets.' -ForegroundColor Yellow
-            return
+        Write-Host "  Release: $($release.name)" -ForegroundColor Cyan
+        Write-Host "  Tag:     $tagName" -ForegroundColor DarkGray
+        if ($release.body) {
+            $bodyLines = $release.body -split "`n" | Select-Object -First 5
+            foreach ($line in $bodyLines) {
+                if ($line.Trim()) { Write-Host "  $($line.Trim())" -ForegroundColor DarkGray }
+            }
         }
 
         $zipAsset = $release.assets | Where-Object { $_.name -match '\.zip$' } | Select-Object -First 1
+
         if (-not $zipAsset) {
-            Write-Host 'No ZIP asset found.' -ForegroundColor Yellow
+            Write-Host ''
+            Write-Host '  No ZIP asset found - downloading files individually...' -ForegroundColor Yellow
+
+            $targetDir = Get-TargetPath 'Download to'
+            if (-not $targetDir) { return }
+
+            $dlFiles = @('mumu-menu.ps1', 'README.md', 'SKILL.md', '.version')
+            $ok = 0; $fail = 0
+            foreach ($f in $dlFiles) {
+                $fUrl = "https://api.github.com/repos/$GitHubRepo/contents/$f?ref=$tagName"
+                $fDest = Join-Path $targetDir $f
+                Write-Host "  $f" -ForegroundColor Yellow -NoNewline
+                $dlCmd = "curl.exe -sS --fail --retry 2 --connect-timeout 30 --max-time 60 -L -H `"Accept: application/vnd.github.v3.raw`" -o `"$fDest`" $fUrl"
+                if ($GitHubToken) { $dlCmd += " -H `"Authorization: token $GitHubToken`"" }
+                cmd /c $dlCmd 2>$null | Out-Null
+                if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $fDest) -and (Get-Item -LiteralPath $fDest).Length -gt 0) {
+                    # Validate: detect JSON metadata instead of raw content
+                    $fContent = Get-Content -LiteralPath $fDest -Raw -ErrorAction SilentlyContinue
+                    if ($fContent -and $fContent.TrimStart().StartsWith('{') -and $fContent -match '"name"|"_links"|"encoding"') {
+                        Remove-Item -LiteralPath $fDest -Force
+                        Write-Host "  FAILED (JSON metadata returned)" -ForegroundColor Red
+                        $fail++
+                    } else {
+                        $sz = '{0:N0}' -f ((Get-Item -LiteralPath $fDest).Length / 1KB)
+                        Write-Host "  OK  ${sz} KB" -ForegroundColor Green
+                        $ok++
+                    }
+                } else {
+                    if (Test-Path -LiteralPath $fDest) { Remove-Item -LiteralPath $fDest -Force -ErrorAction SilentlyContinue }
+                    Write-Host "  FAILED" -ForegroundColor Red
+                    $fail++
+                }
+            }
+            Write-Host ''
+            Write-Host "Downloaded: $ok ok, $fail failed" -ForegroundColor $(if ($fail -gt 0) { 'Yellow' } else { 'Green' })
             return
         }
 
@@ -2779,7 +2836,7 @@ function Download-Repository {
         Write-Host ''
         Write-Host "Downloading $($zipAsset.name)..." -ForegroundColor Cyan
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
-        $curlCmd = "curl.exe -# --connect-timeout 30 --max-time 300 --retry 3 --retry-delay 3 -L -o `"$zipPath`" $zipUrl"
+        $curlCmd = "curl.exe -# --fail --connect-timeout 30 --max-time 300 --retry 3 --retry-delay 3 -L -o `"$zipPath`" $zipUrl"
         if ($GitHubToken) { $curlCmd += " -H Authorization:token $GitHubToken" }
         & cmd /c $curlCmd 2>$null
         $sw.Stop()
@@ -2819,7 +2876,10 @@ function Download-Repository {
         # Latest release
         Write-Host ''
         Write-Host 'Fetching latest release...' -ForegroundColor DarkGray
-        $relJson = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Accept: application/vnd.github.v3+json" -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/releases/latest" 2>$null | Out-String
+        $relCmd = "curl.exe -s --connect-timeout 30 --max-time 30 -H `"Accept: application/vnd.github.v3+json`""
+        if ($GitHubToken) { $relCmd += " -H `"Authorization: token $GitHubToken`"" }
+        $relCmd += " `"https://api.github.com/repos/$GitHubRepo/releases/latest`""
+        $relJson = & cmd /c $relCmd 2>$null | Out-String
         try { $release = $relJson | ConvertFrom-Json } catch { $release = $null }
 
         if (-not $release -or -not $release.tag_name) {
@@ -2833,7 +2893,43 @@ function Download-Repository {
 
         $zipAsset = $release.assets | Where-Object { $_.name -match '\.zip$' } | Select-Object -First 1
         if (-not $zipAsset) {
-            Write-Host 'No ZIP asset found.' -ForegroundColor Yellow
+            Write-Host ''
+            Write-Host '  No ZIP asset attached to this release.' -ForegroundColor Yellow
+            Write-Host '  Falling back to individual file download...' -ForegroundColor DarkGray
+
+            $targetDir = Get-TargetPath 'Download to'
+            if (-not $targetDir) { return }
+
+            $tag = $release.tag_name
+            $dlFiles = @('mumu-menu.ps1', 'README.md', 'SKILL.md', '.version')
+            $ok = 0; $fail = 0
+            foreach ($f in $dlFiles) {
+                $fUrl = "https://api.github.com/repos/$GitHubRepo/contents/$f?ref=$tag"
+                $fDest = Join-Path $targetDir $f
+                Write-Host "  $f" -ForegroundColor Yellow -NoNewline
+                $dlCmd = "curl.exe -sS --fail --retry 2 --connect-timeout 30 --max-time 60 -L -H `"Accept: application/vnd.github.v3.raw`" -o `"$fDest`" $fUrl"
+                if ($GitHubToken) { $dlCmd += " -H `"Authorization: token $GitHubToken`"" }
+                cmd /c $dlCmd 2>$null | Out-Null
+                if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $fDest) -and (Get-Item -LiteralPath $fDest).Length -gt 0) {
+                    # Validate: detect JSON metadata instead of raw content
+                    $fContent = Get-Content -LiteralPath $fDest -Raw -ErrorAction SilentlyContinue
+                    if ($fContent -and $fContent.TrimStart().StartsWith('{') -and $fContent -match '"name"|"_links"|"encoding"') {
+                        Remove-Item -LiteralPath $fDest -Force
+                        Write-Host "  FAILED (JSON metadata returned)" -ForegroundColor Red
+                        $fail++
+                    } else {
+                        $sz = '{0:N0}' -f ((Get-Item -LiteralPath $fDest).Length / 1KB)
+                        Write-Host "  OK  ${sz} KB" -ForegroundColor Green
+                        $ok++
+                    }
+                } else {
+                    if (Test-Path -LiteralPath $fDest) { Remove-Item -LiteralPath $fDest -Force -ErrorAction SilentlyContinue }
+                    Write-Host "  FAILED" -ForegroundColor Red
+                    $fail++
+                }
+            }
+            Write-Host ''
+            Write-Host "Downloaded: $ok ok, $fail failed" -ForegroundColor $(if ($fail -gt 0) { 'Yellow' } else { 'Green' })
             return
         }
 
@@ -2849,7 +2945,7 @@ function Download-Repository {
         Write-Host ''
         Write-Host "Downloading $($zipAsset.name)..." -ForegroundColor Cyan
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
-        $curlCmd = "curl.exe -# --connect-timeout 30 --max-time 300 --retry 3 --retry-delay 3 -L -o `"$zipPath`" $zipUrl"
+        $curlCmd = "curl.exe -# --fail --connect-timeout 30 --max-time 300 --retry 3 --retry-delay 3 -L -o `"$zipPath`" $zipUrl"
         if ($GitHubToken) { $curlCmd += " -H Authorization:token $GitHubToken" }
         & cmd /c $curlCmd 2>$null
         $sw.Stop()
@@ -2955,12 +3051,15 @@ function Download-Repository {
             }
 
         } else {
-            # Not a git repo - download latest release ZIP
-            Write-Host 'Not a git repository. Downloading latest release ZIP...' -ForegroundColor Cyan
+            # Not a git repo - download latest release
+            Write-Host 'Not a git repository. Checking for updates...' -ForegroundColor Cyan
             Write-Host ''
 
             # Get latest release
-            $relJson = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Accept: application/vnd.github.v3+json" -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/releases/latest" 2>$null | Out-String
+            $relCmd = "curl.exe -s --connect-timeout 30 --max-time 30 -H `"Accept: application/vnd.github.v3+json`""
+        if ($GitHubToken) { $relCmd += " -H `"Authorization: token $GitHubToken`"" }
+        $relCmd += " `"https://api.github.com/repos/$GitHubRepo/releases/latest`""
+        $relJson = & cmd /c $relCmd 2>$null | Out-String
             try { $release = $relJson | ConvertFrom-Json } catch { $release = $null }
 
             if (-not $release -or -not $release.tag_name) {
@@ -2968,30 +3067,104 @@ function Download-Repository {
                 return
             }
 
-            Write-Host "  Latest: $($release.name) ($($release.tag_name))" -ForegroundColor Green
-
-            $zipAsset = $release.assets | Where-Object { $_.name -match '\.zip$' } | Select-Object -First 1
-            if (-not $zipAsset) {
-                Write-Host 'No ZIP asset found.' -ForegroundColor Yellow
-                return
-            }
-
-            $zipUrl = $zipAsset.browser_download_url
-            $zipSize = '{0:N1} MB' -f ($zipAsset.size / 1MB)
-            Write-Host "  Asset:  $($zipAsset.name) ($zipSize)" -ForegroundColor White
-
             # Check current version
             $localVer = ''
             if (Test-Path -LiteralPath $VersionFile) {
                 try { $localVer = (Get-Content -LiteralPath $VersionFile -Raw).Trim() } catch { Write-Debug "Version file read failed: $($_.Exception.Message)" }
             }
+
+            $remoteTag = $release.tag_name
+            if ($localVer -eq $remoteTag) {
+                Write-Host "  Up to date ($remoteTag)" -ForegroundColor Green
+                return
+            }
+
+            # Show release info
+            Write-Host "  Latest: $($release.name) ($remoteTag)" -ForegroundColor Green
+            if ($release.published_at) {
+                $published = try { [datetime]::Parse($release.published_at).ToString('yyyy-MM-dd HH:mm') } catch { $release.published_at }
+                Write-Host "  Date:   $published" -ForegroundColor DarkGray
+            }
             if ($localVer) {
                 Write-Host "  Current: $localVer" -ForegroundColor DarkGray
+            }
+
+            # Show changelog
+            if ($release.body) {
+                Write-Host ''
+                Write-Host '  --- Release notes ---' -ForegroundColor Cyan
+                $lines = $release.body -split "`n"
+                $shown = 0
+                foreach ($line in $lines) {
+                    if ($shown -ge 15) {
+                        Write-Host '  ... (more in GitHub releases)' -ForegroundColor DarkGray
+                        break
+                    }
+                    if ($line.Trim()) {
+                        if ($line -match '^#{1,3}\s') {
+                            Write-Host "  $line" -ForegroundColor Yellow
+                        } elseif ($line -match '^-\s|^-\s\[') {
+                            Write-Host "  $line" -ForegroundColor Green
+                        } else {
+                            Write-Host "  $line" -ForegroundColor White
+                        }
+                        $shown++
+                    }
+                }
+                Write-Host '  ---------------------' -ForegroundColor Cyan
+            }
+
+            $zipAsset = $release.assets | Where-Object { $_.name -match '\.zip$' } | Select-Object -First 1
+            if ($zipAsset) {
+                $zipSize = '{0:N1} MB' -f ($zipAsset.size / 1MB)
+                Write-Host "  Asset:  $($zipAsset.name) ($zipSize)" -ForegroundColor White
             }
 
             $confirm = Read-Host '  Download and update? (Y/n)'
             if ($confirm -eq 'n' -or $confirm -eq 'N') {
                 Write-Host '  Cancelled.' -ForegroundColor Yellow
+                return
+            }
+
+            if (-not $zipAsset) {
+                # Fallback: download files individually from the release tag
+                Write-Host ''
+                Write-Host '  No ZIP asset found. Downloading files individually...' -ForegroundColor Yellow
+                Write-Host ''
+                $dlFiles = @('mumu-menu.ps1', 'README.md', 'SKILL.md', '.version')
+                $ok = 0; $fail = 0
+                foreach ($f in $dlFiles) {
+                    $fUrl = "https://api.github.com/repos/$GitHubRepo/contents/$f?ref=$remoteTag"
+                    $fDest = Join-Path $ScriptDir $f
+                    Write-Host "  $f" -ForegroundColor Yellow -NoNewline
+                    $dlCmd = "curl.exe -sS --fail --retry 2 --connect-timeout 30 --max-time 60 -L -H `"Accept: application/vnd.github.v3.raw`" -o `"$fDest`" $fUrl"
+                    if ($GitHubToken) { $dlCmd += " -H `"Authorization: token $GitHubToken`"" }
+                    cmd /c $dlCmd 2>$null | Out-Null
+                    if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $fDest) -and (Get-Item -LiteralPath $fDest).Length -gt 0) {
+                        $fContent = Get-Content -LiteralPath $fDest -Raw -ErrorAction SilentlyContinue
+                        if ($fContent -and $fContent.TrimStart().StartsWith('{') -and $fContent -match '"name"|"_links"|"encoding"') {
+                            Remove-Item -LiteralPath $fDest -Force
+                            Write-Host '  FAILED (JSON metadata)' -ForegroundColor Red
+                            $fail++
+                        } else {
+                            $sz = '{0:N0}' -f ((Get-Item -LiteralPath $fDest).Length / 1KB)
+                            Write-Host "  OK  ${sz} KB" -ForegroundColor Green
+                            $ok++
+                        }
+                    } else {
+                        if (Test-Path -LiteralPath $fDest) { Remove-Item -LiteralPath $fDest -Force -ErrorAction SilentlyContinue }
+                        Write-Host '  FAILED' -ForegroundColor Red
+                        $fail++
+                    }
+                }
+                Write-Host ''
+                if ($fail -eq 0) {
+                    Set-Content -Path $VersionFile -Value $remoteTag -NoNewline -ErrorAction SilentlyContinue
+                    Write-Host "  Updated $ok file(s) to $remoteTag" -ForegroundColor Green
+                } else {
+                    Write-Host "  Updated $ok file(s), failed $fail" -ForegroundColor Yellow
+                }
+                Write-Host '  Restart the script to use the updated version.' -ForegroundColor Yellow
                 return
             }
 
@@ -3016,7 +3189,7 @@ function Download-Repository {
             Write-Host "  Downloading $($zipAsset.name)..." -ForegroundColor Cyan
             $sw = [System.Diagnostics.Stopwatch]::StartNew()
 
-            $curlCmd = "curl.exe -# --connect-timeout 30 --max-time 300 --retry 3 --retry-delay 3 -L -o `"$tmp`" $zipUrl"
+            $curlCmd = "curl.exe -# --fail --connect-timeout 30 --max-time 300 --retry 3 --retry-delay 3 -L -o `"$tmp`" $zipUrl"
             if ($GitHubToken) { $curlCmd += " -H Authorization:token $GitHubToken" }
             & cmd /c $curlCmd 2>$null
             $sw.Stop()
@@ -3074,13 +3247,24 @@ function Download-Repository {
                 }
             }
 
+            # Update .version file
+            if ($updated -gt 0 -and $failed -eq 0) {
+                try {
+                    Set-Content -Path $VersionFile -Value $remoteTag -NoNewline -Encoding UTF8 -Force
+                } catch {
+                    Write-Host "  Warning: Could not update .version ($($_.Exception.Message))" -ForegroundColor Yellow
+                }
+            }
+
             # Cleanup
             Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
 
             Write-Host ''
-            if ($updated -gt 0) {
-                Write-Host "  Updated $updated file(s)!" -ForegroundColor Green
+            if ($updated -gt 0 -and $failed -eq 0) {
+                Write-Host "  Updated $updated file(s) to $remoteTag!" -ForegroundColor Green
+            } elseif ($updated -gt 0) {
+                Write-Host "  Updated $updated file(s), failed $failed" -ForegroundColor Yellow
             }
             if ($failed -gt 0) {
                 Write-Host "  Failed: $failed file(s)" -ForegroundColor Red
@@ -3088,6 +3272,123 @@ function Download-Repository {
             Write-Host "  Backup: backup\$stamp" -ForegroundColor DarkGray
             Write-Host ''
             Write-Host '  Restart the script to use the updated version.' -ForegroundColor Yellow
+        }
+
+    } elseif ($method -eq '5') {
+        # Download single file
+        Write-Host ''
+        Write-Host 'Download single file from repository' -ForegroundColor Cyan
+        Write-Host ''
+
+        # Choose source
+        Write-Host 'Source:' -ForegroundColor Yellow
+        Write-Host '  [1] From latest release' -ForegroundColor White
+        Write-Host '  [2] From specific tag/branch' -ForegroundColor White
+        Write-Host ''
+        $src = Read-Host 'Select (1/2)'
+        $ref = ''
+        if ($src -eq '2') {
+            $ref = (Read-Host 'Tag or branch name (Enter=main)').Trim()
+            if (-not $ref) { $ref = 'main' }
+        } else {
+            # Get latest tag
+            $ltCmd = "curl.exe -s --connect-timeout 15 -H `"Accept: application/vnd.github.v3+json`""
+            if ($GitHubToken) { $ltCmd += " -H `"Authorization: token $GitHubToken`"" }
+            $ltCmd += " `"https://api.github.com/repos/$GitHubRepo/releases/latest`""
+            $ltJson = & cmd /c $ltCmd 2>$null | Out-String
+            try { $lt = $ltJson | ConvertFrom-Json } catch { $lt = $null }
+            if ($lt.tag_name) { $ref = $lt.tag_name; Write-Host "  Using: $ref" -ForegroundColor DarkGray }
+            else { $ref = 'main'; Write-Host '  Using: main (no releases found)' -ForegroundColor DarkGray }
+        }
+
+        # List files in repo root
+        Write-Host ''
+        Write-Host "Fetching file list ($ref)..." -ForegroundColor DarkGray
+        $listCmd = "curl.exe -s --connect-timeout 15 -H `"Accept: application/vnd.github.v3+json`""
+        if ($GitHubToken) { $listCmd += " -H `"Authorization: token $GitHubToken`"" }
+        $listCmd += " `"https://api.github.com/repos/$GitHubRepo/contents/?ref=$ref`""
+        $listJson = & cmd /c $listCmd 2>$null | Out-String
+        try { $files = $listJson | ConvertFrom-Json } catch { $files = @() }
+
+        if (-not $files -or $files.Count -eq 0) {
+            Write-Host 'No files found.' -ForegroundColor Yellow
+            return
+        }
+
+        # Show files
+        Write-Host ''
+        $idx = 0
+        $fileList = @()
+        foreach ($f in $files) {
+            if ($f.type -eq 'file') {
+                $idx++
+                $sz = if ($f.size -gt 1MB) { "$([math]::Round($f.size/1MB, 1)) MB" }
+                      elseif ($f.size -gt 1KB) { "$([math]::Round($f.size/1KB, 1)) KB" }
+                      else { "$($f.size) B" }
+                Write-Host "  [$idx] $($f.name) ($sz)" -ForegroundColor White
+                $fileList += $f
+            }
+        }
+
+        if ($fileList.Count -eq 0) {
+            Write-Host 'No files in repository root.' -ForegroundColor Yellow
+            return
+        }
+
+        # Also allow manual path entry
+        Write-Host ''
+        Write-Host "  [0] Enter file path manually" -ForegroundColor DarkGray
+        Write-Host ''
+        $fSel = Read-Host "Select file (1-$($fileList.Count) or 0 for manual path)"
+
+        $downloadUrl = ''
+        $fileName = ''
+        if ($fSel -eq '0') {
+            $filePath = (Read-Host 'File path (e.g. mumu-menu.ps1)').Trim()
+            if (-not $filePath) { return }
+            $fileName = Split-Path $filePath -Leaf
+            $downloadUrl = "https://api.github.com/repos/$GitHubRepo/contents/$filePath`?ref=$ref"
+        } elseif ($fSel -match '^\d+$' -and [int]$fSel -ge 1 -and [int]$fSel -le $fileList.Count) {
+            $chosen = $fileList[[int]$fSel - 1]
+            $fileName = $chosen.name
+            $downloadUrl = $chosen.url
+        } else {
+            Write-Host 'Invalid selection.' -ForegroundColor Red
+            return
+        }
+
+        # Download
+        $targetDir = Get-TargetPath 'Save to'
+        if (-not $targetDir) { return }
+
+        Write-Host ''
+        Write-Host "Downloading $fileName from $ref..." -ForegroundColor Cyan
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        $dlCmd = 'curl.exe -sL --connect-timeout 30 --max-time 120 -o "' + (Join-Path $targetDir $fileName) + '"'
+        if ($GitHubToken) { $dlCmd += ' -H "Authorization: token ' + $GitHubToken + '"' }
+        $dlCmd += ' -H "Accept: application/vnd.github.v3.raw" "' + $downloadUrl + '"'
+        & cmd /c $dlCmd 2>&1 | Out-Null
+        $sw.Stop()
+
+        $destFile = Join-Path $targetDir $fileName
+        if (Test-Path -LiteralPath $destFile) {
+            $size = (Get-Item -LiteralPath $destFile).Length
+            # Validate: detect JSON metadata instead of raw content
+            $content = Get-Content -LiteralPath $destFile -Raw -ErrorAction SilentlyContinue
+            if ($content -and $content.TrimStart().StartsWith('{')) {
+                $isApiJson = $content -match '"name"|"sha"|"encoding"|"message"|"_links"'
+                if ($isApiJson) {
+                    Remove-Item -LiteralPath $destFile -Force
+                    $apiMsg = try { ($content | ConvertFrom-Json).message } catch { 'JSON metadata returned instead of raw file' }
+                    Write-Host "  API error: $apiMsg" -ForegroundColor Red
+                    Write-Host '  (Server returned JSON; Accept header may be missing)' -ForegroundColor DarkGray
+                    return
+                }
+            }
+            $sz = '{0:N1} KB' -f ($size / 1KB)
+            Write-Host ("  Saved: $fileName ($sz) in {0:mm\:ss}" -f $sw.Elapsed) -ForegroundColor Green
+        } else {
+            Write-Host '  Download failed!' -ForegroundColor Red
         }
     }
 }
@@ -3444,7 +3745,7 @@ function Create-GitHubRelease {
         Remove-Item $tmpPayload -Force -ErrorAction SilentlyContinue
 
         $resultObj = $null
-        try { $resultObj = $response | ConvertFrom-Json } catch {}
+        try { $resultObj = $response | ConvertFrom-Json } catch { Write-Debug "Release response JSON parse failed: $($_.Exception.Message)" }
 
         if ($resultObj -and $resultObj.html_url) {
             Write-Host ''
@@ -3977,7 +4278,21 @@ function Show-Apps {
     }
 
     Write-Host 'Fetching installed apps...' -ForegroundColor Cyan
-    $output = & $MumuPath adb -v $index -c 'shell pm list packages -3' 2>&1
+    $job = Start-Job -ScriptBlock {
+        param($mp, $idx)
+        & $mp adb -v $idx -c 'shell pm list packages -3' 2>&1
+    } -ArgumentList $MumuPath, $index
+    $timeout = 30
+    if (Wait-Job $job -Timeout $timeout) {
+        $output = Receive-Job $job
+    } else {
+        Stop-Job $job
+        Remove-Job $job -Force
+        Write-Host 'Timed out (30s) — ADB is slow or emulator is not responding.' -ForegroundColor Red
+        Write-Host 'Try restarting the emulator.' -ForegroundColor Yellow
+        return
+    }
+    Remove-Job $job -Force
     $text = $output | Out-String
     $packages = [regex]::Matches($text, '(?m)^\s*package:([A-Za-z0-9_.]+)') |
         ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
@@ -3990,7 +4305,19 @@ function Show-Apps {
             return
         }
 
-        $allOut = & $MumuPath adb -v $index -c 'shell pm list packages' 2>&1
+        $job2 = Start-Job -ScriptBlock {
+            param($mp, $idx)
+            & $mp adb -v $idx -c 'shell pm list packages' 2>&1
+        } -ArgumentList $MumuPath, $index
+        if (Wait-Job $job2 -Timeout $timeout) {
+            $allOut = Receive-Job $job2
+        } else {
+            Stop-Job $job2
+            Remove-Job $job2 -Force
+            Write-Host 'Timed out (30s) — could not list system packages.' -ForegroundColor Red
+            return
+        }
+        Remove-Job $job2 -Force
         $allText = $allOut | Out-String
         $all = [regex]::Matches($allText, '(?m)^\s*package:([A-Za-z0-9_.]+)') |
             ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
@@ -4109,8 +4436,7 @@ function Show-VersionInfo {
     Write-Host '=== MuMu Manager CLI Menu ===' -ForegroundColor Cyan
     Write-Host ''
 
-    # Script version
-    $scriptVer = '1.1.0'
+    # Script version (defined at script scope)
     Write-Host "Script version: $scriptVer" -ForegroundColor Green
 
     # Check for updates
@@ -4316,6 +4642,130 @@ function Invoke-ADBCommand {
 
     Write-Host 'Running ADB command...' -ForegroundColor Cyan
     Invoke-Mumu adb -v $index -c $cmd
+}
+
+function ADB-FileTransfer {
+    $index = Get-InstanceIndex 'Select instance'
+    if (-not $index) { return }
+    if (-not (Confirm-AdbConsent)) { return }
+    Write-Host ''
+    Write-Host 'ADB File Transfer' -ForegroundColor Cyan
+    Write-Host ''
+    Write-Host '  [1] Push file TO emulator' -ForegroundColor White
+    Write-Host '  [2] Pull file FROM emulator' -ForegroundColor White
+    Write-Host '  [3] List files on emulator' -ForegroundColor White
+    Write-Host ''
+    $mode = Read-Host 'Select (1/2/3)'
+
+    if ($mode -eq '1') {
+        # Push
+        $localPath = (Read-Host 'Local file path').Trim().Trim('"')
+        if (-not $localPath -or -not (Test-Path -LiteralPath $localPath)) {
+            Write-Host 'File not found.' -ForegroundColor Red
+            return
+        }
+        $remotePath = (Read-Host 'Remote path on emulator (e.g. /sdcard/Download/)').Trim()
+        if (-not $remotePath) { $remotePath = '/sdcard/Download/' }
+        $size = '{0:N1} KB' -f ((Get-Item -LiteralPath $localPath).Length / 1KB)
+        Write-Host "  Pushing $(Split-Path $localPath -Leaf) ($size) to $remotePath..." -ForegroundColor Cyan
+        $result = & $MumuPath adb -v $index -c "push \"$localPath\" $remotePath" 2>&1 | Out-String
+        if ($result -match 'pushed|bytes') {
+            Write-Host '  Done!' -ForegroundColor Green
+        } else {
+            Write-Host "  Result: $($result.Trim())" -ForegroundColor Yellow
+        }
+    } elseif ($mode -eq '2') {
+        # Pull
+        $remotePath = (Read-Host 'Remote file path (e.g. /sdcard/Download/file.txt)').Trim()
+        if (-not $remotePath) { Write-Host 'Cancelled.' -ForegroundColor Yellow; return }
+        $localDir = (Read-Host 'Local save directory (Enter=current)').Trim().Trim('"')
+        if (-not $localDir) { $localDir = $PWD.Path }
+        if (-not (Test-Path -LiteralPath $localDir)) {
+            New-Item -ItemType Directory -Path $localDir -Force | Out-Null
+        }
+        Write-Host "  Pulling $remotePath..." -ForegroundColor Cyan
+        $result = & $MumuPath adb -v $index -c "pull $remotePath \"$localDir\"" 2>&1 | Out-String
+        if ($result -match 'pulled|bytes') {
+            Write-Host "  Saved to: $localDir" -ForegroundColor Green
+        } else {
+            Write-Host "  Result: $($result.Trim())" -ForegroundColor Yellow
+        }
+    } elseif ($mode -eq '3') {
+        # List
+        $path = (Read-Host 'Path to list (Enter=/sdcard/)').Trim()
+        if (-not $path) { $path = '/sdcard/' }
+        Write-Host "  Listing $path..." -ForegroundColor Cyan
+        $result = & $MumuPath adb -v $index -c "shell ls -la $path" 2>&1
+        $result | ForEach-Object { Write-Host "  $_" -ForegroundColor White }
+    }
+}
+
+function ADB-ScreenCapture {
+    $index = Get-InstanceIndex 'Select instance'
+    if (-not $index) { return }
+    if (-not (Confirm-AdbConsent)) { return }
+    Write-Host ''
+    Write-Host 'ADB Screen Capture' -ForegroundColor Cyan
+    Write-Host ''
+    Write-Host '  [1] Take screenshot' -ForegroundColor White
+    Write-Host '  [2] Record screen (max 180s)' -ForegroundColor White
+    Write-Host ''
+    $mode = Read-Host 'Select (1/2)'
+
+    if ($mode -eq '1') {
+        # Screenshot
+        $remotePath = '/sdcard/screenshot.png'
+        $localDir = (Read-Host 'Save to directory (Enter=current)').Trim().Trim('"')
+        if (-not $localDir) { $localDir = $PWD.Path }
+        Write-Host '  Taking screenshot...' -ForegroundColor Cyan
+        & $MumuPath adb -v $index -c "shell screencap -p $remotePath" 2>&1 | Out-Null
+        $result = & $MumuPath adb -v $index -c "pull $remotePath \"$localDir\screenshot_$($index).png\"" 2>&1 | Out-String
+        & $MumuPath adb -v $index -c "shell rm $remotePath" 2>&1 | Out-Null
+        if ($result -match 'pulled|bytes') {
+            $file = Join-Path $localDir "screenshot_$($index).png"
+            $size = '{0:N1} KB' -f ((Get-Item -LiteralPath $file).Length / 1KB)
+            Write-Host "  Saved: $file ($size)" -ForegroundColor Green
+        } else {
+            Write-Host "  Failed: $($result.Trim())" -ForegroundColor Red
+        }
+    } elseif ($mode -eq '2') {
+        # Screen record
+        $duration = (Read-Host 'Duration in seconds (max 180, Enter=30)').Trim()
+        if (-not $duration -or -not ($duration -match '^\d+$')) { $duration = 30 }
+        $duration = [Math]::Min([int]$duration, 180)
+        $remotePath = '/sdcard/recording.mp4'
+        $localDir = (Read-Host 'Save to directory (Enter=current)').Trim().Trim('"')
+        if (-not $localDir) { $localDir = $PWD.Path }
+        Write-Host "  Recording screen for ${duration}s... (Ctrl+C to stop early)" -ForegroundColor Cyan
+        try {
+            & $MumuPath adb -v $index -c "shell screenrecord --time-limit $duration $remotePath" 2>&1 | Out-Null
+        } catch { Write-Debug "Recording interrupted: $($_.Exception.Message)" }
+        $result = & $MumuPath adb -v $index -c "pull $remotePath \"$localDir\ recording_$($index).mp4\"" 2>&1 | Out-String
+        & $MumuPath adb -v $index -c "shell rm $remotePath" 2>&1 | Out-Null
+        if ($result -match 'pulled|bytes') {
+            $file = Join-Path $localDir "recording_$($index).mp4"
+            $size = '{0:N1} KB' -f ((Get-Item -LiteralPath $file).Length / 1KB)
+            Write-Host "  Saved: $file ($size)" -ForegroundColor Green
+        } else {
+            Write-Host "  Failed: $($result.Trim())" -ForegroundColor Red
+        }
+    }
+}
+
+function ADB-InteractiveShell {
+    $index = Get-InstanceIndex 'Select instance'
+    if (-not $index) { return }
+    if (-not (Confirm-AdbConsent)) { return }
+    Write-Host ''
+    Write-Host "Interactive ADB shell (instance $index)" -ForegroundColor Cyan
+    Write-Host '  Type commands directly. Type "exit" to return.' -ForegroundColor DarkGray
+    Write-Host ''
+    while ($true) {
+        $cmd = (Read-Host 'adb>').Trim()
+        if (-not $cmd -or $cmd -eq 'exit' -or $cmd -eq 'quit') { break }
+        & $MumuPath adb -v $index -c "shell $cmd" 2>&1 | ForEach-Object { Write-Host "  $_" }
+    }
+    Write-Host 'Shell closed.' -ForegroundColor DarkGray
 }
 
 # Consent gate for identifier/model spoofing options: shown once per
@@ -4689,8 +5139,6 @@ function Set-RandomDeviceIds {
     # 3) Verify simulation.json directly
     try {
         $info = & $MumuPath info -v $index 2>$null | ConvertFrom-Json
-        $androidVer = $info.android_version
-        $vmName = $info.name
         Write-Host ''
         Write-Host 'Verifying simulation.json...' -ForegroundColor DarkGray
 
@@ -4759,10 +5207,12 @@ do {
         't' { Start-App }
         'e' { Export-Emulator }
         'k' { Update-Token }
+        'vk' { Set-VTApiKeyMenu }
         'z' { Test-Security }
         'tc' { Test-EmulatorConnection }
         'tn' { Test-Network }
         'td' { Test-ScriptDependencies }
+        'vt' { Scan-VirusTotal }
         'uw' { Fix-Unicode }
         'dm' { Set-DeviceModel }
         'sim' { Set-SimOperator }
@@ -4770,6 +5220,9 @@ do {
         'ba' { Backup-EmulatorData }
         're' { Restore-EmulatorData }
         'a' { Invoke-ADBCommand }
+        'af' { ADB-FileTransfer }
+        'as' { ADB-ScreenCapture }
+        'ah' { ADB-InteractiveShell }
         'b' { Start-All }
         'd' { Stop-All }
         'r' { Restart-All }
@@ -4781,9 +5234,6 @@ do {
         'v' { Show-VersionInfo }
         'u' { Update-FromGitHub }
         'dl' { Download-Repository }
-        'cs' { Cloudsmith-ListDownload }
-        'cu' { Cloudsmith-Upload }
-        'ck' { Cloudsmith-SetKey }
         'cr' { Create-GitHubRelease }
         'fr' { Fix-ReleaseEncoding }
         'crt' { Create-Certificate }
