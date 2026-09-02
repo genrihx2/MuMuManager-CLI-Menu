@@ -4981,7 +4981,7 @@ function Show-SimConfig {
     } else {
         foreach ($e in $entries) {
             $v = $e.Entry
-n            Write-Host "  Instance $($e.Index): $($v.name) (MCC=$($v.mcc) MNC=$($v.mnc) CC=$($v.cc))" -ForegroundColor White
+            Write-Host "  Instance $($e.Index): $($v.name) (MCC=$($v.mcc) MNC=$($v.mnc) CC=$($v.cc))" -ForegroundColor White
         }
         Write-Host ''
         Write-Host '  [D] Delete all saved SIM configs' -ForegroundColor Yellow
