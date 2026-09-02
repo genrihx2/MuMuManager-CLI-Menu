@@ -1732,19 +1732,9 @@ function Test-EmulatorConnection {
         return
     }
 
-    # 2. MuMuManager ADB connection
+    # 2. MuMuManager ADB shell test
     Write-Host ''
-    Write-Host '[2] MuMuManager ADB' -ForegroundColor Yellow
-    $connect = & $MumuPath connect -v $index 2>&1 | Out-String
-    if ($connect -match '"errcode"\s*:\s*0') {
-        Write-Host '  Connected: YES' -ForegroundColor Green
-    } else {
-        Write-Host "  Connected: NO ($($connect.Trim()))" -ForegroundColor Red
-    }
-
-    # 3. ADB shell test
-    Write-Host ''
-    Write-Host '[3] ADB shell' -ForegroundColor Yellow
+    Write-Host '[2] ADB shell' -ForegroundColor Yellow
     $shellResult = & $run 'echo ok'
     if ($shellResult.Trim() -eq 'ok') {
         Write-Host '  Shell: OK' -ForegroundColor Green
@@ -1752,9 +1742,9 @@ function Test-EmulatorConnection {
         Write-Host "  Shell: FAILED ($($shellResult.Trim()))" -ForegroundColor Red
     }
 
-    # 4. ADB properties
+    # 3. ADB properties
     Write-Host ''
-    Write-Host '[4] Device properties' -ForegroundColor Yellow
+    Write-Host '[3] Device properties' -ForegroundColor Yellow
     $props = @('ro.build.display.id', 'ro.product.model', 'ro.build.version.sdk', 'ro.product.cpu.abi', 'ro.build.version.release')
     foreach ($p in $props) {
         $val = (& $run "getprop $p").Trim()
@@ -1764,9 +1754,9 @@ function Test-EmulatorConnection {
         }
     }
 
-    # 5. Internet connectivity
+    # 4. Internet connectivity
     Write-Host ''
-    Write-Host '[5] Internet test' -ForegroundColor Yellow
+    Write-Host '[4] Internet test' -ForegroundColor Yellow
     $netResult = & $run 'ping -c 2 -W 5 8.8.8.8'
     if ($netResult -match '(\d+) packets transmitted') {
         $sent = [int]($Matches[1])
@@ -1781,9 +1771,9 @@ function Test-EmulatorConnection {
         Write-Host "  Ping: FAILED" -ForegroundColor Red
     }
 
-    # 6. Memory
+    # 5. Memory
     Write-Host ''
-    Write-Host '[6] Memory' -ForegroundColor Yellow
+    Write-Host '[5] Memory' -ForegroundColor Yellow
     $memInfo = & $run 'cat /proc/meminfo'
     if ($memInfo -match 'MemTotal:\s+(\d+)') {
         $totalMB = [int]$Matches[1] / 1024
@@ -1796,9 +1786,9 @@ function Test-EmulatorConnection {
         Write-Host ("  RAM: {0:N0} MB / {1:N0} MB ({2:N1}% used)" -f $usedMB, $totalMB, $pct) -ForegroundColor $color
     }
 
-    # 7. Storage
+    # 6. Storage
     Write-Host ''
-    Write-Host '[7] Storage' -ForegroundColor Yellow
+    Write-Host '[6] Storage' -ForegroundColor Yellow
     $storage = & $run 'df /data'
     $storLines = $storage -split "`n" | Where-Object { $_ -match '/data$' }
     if ($storLines) {
