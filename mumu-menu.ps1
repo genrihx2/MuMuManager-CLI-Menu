@@ -1789,8 +1789,11 @@ function Test-EmulatorConnection {
     # 6. Storage
     Write-Host ''
     Write-Host '[6] Storage' -ForegroundColor Yellow
-    $storage = & $run 'df /data'
-    $storLines = $storage -split "`n" | Where-Object { $_ -match '/data$' }
+    $storage = & $run 'df -h /data'
+    if (-not $storage -or $storage.Trim() -eq '') {
+        $storage = & $run 'df /data'
+    }
+    $storLines = $storage -split "`n" | Where-Object { $_ -match '/data' }
     if ($storLines) {
         $parts = $storLines[0] -split '\s+'
         if ($parts.Count -ge 4) {
@@ -1798,7 +1801,11 @@ function Test-EmulatorConnection {
             $usedGB = [int]$parts[2] / 1048576
             $availGB = [int]$parts[3] / 1048576
             Write-Host ("  /data: {0:N1} GB / {1:N1} GB used ({2:N1} GB free)" -f $usedGB, $totalGB, $availGB) -ForegroundColor White
+        } else {
+            Write-Host '  Storage: unable to parse df output' -ForegroundColor Yellow
         }
+    } else {
+        Write-Host '  Storage: N/A (df not supported via MuMuManager ADB)' -ForegroundColor DarkGray
     }
 
     Write-Host ''
