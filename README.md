@@ -25,7 +25,7 @@
 - 💾 Резервное копирование папки данных инстанса (vms) с прогрессом
 - 🗜️ Сжатие бэкапа в ZIP (встроенный tar, опционально с удалением исходной папки)
 - 🎭 Подмена модели устройства (brand / model / код модели)
-- 📶 Смена оператора/SIM страны (MCC/MNC, iso-country) — для TikTok и др. (15 пресетов + кастом)
+- 📶 Смена оператора/SIM страны (MCC/MNC, iso-country) — для TikTok и др. (38 пресетов + кастом)
 - 🎲 Генерация случайных IMEI (с контрольной суммой) / Android ID / MAC
 - 📸 Скриншоты эмулятора через ADB
 - 🎬 Запись экрана (screenrecord, до 180с)
@@ -160,6 +160,7 @@ cd MuMuManager-CLI-Menu
   --- Spoofing ---
   [DM] Spoof device model
   [SIM] Change SIM operator / country (MCC/MNC)
+  [SIM+] View / clear auto-apply SIM config
   [DI] Random device IDs
 
   --- Info ---
@@ -335,7 +336,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.13.29
+Script version: 1.13.30
 MuMu version: 6.5.2.0
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0

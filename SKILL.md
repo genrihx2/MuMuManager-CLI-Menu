@@ -45,7 +45,7 @@ cd MuMuManager-CLI-Menu
 - `[6-9]` Apps/Settings/Install APK/Uninstall
 - `[DI]` Random device IDs (IMEI/Android ID/MAC)
 - `[DM]` Spoof device model (brand/model/certification)
-- `[SIM]` Change SIM operator (MCC/MNC) — 15 presets + custom
+- `[SIM]` Change SIM operator (MCC/MNC) — 38 presets + custom
 - `[U]` Check for updates (downloads from GitHub Releases)
 - `[V]` Version info (script, MuMu, .NET, disk, ADB, certificate)
 - `[K]` Update GitHub token (DPAPI-encrypted)

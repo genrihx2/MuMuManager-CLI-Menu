@@ -40,6 +40,60 @@ $SkillPath = '.'
 $VersionFile = Join-Path $ScriptDir '.version'
 $TokenFile = Join-Path $ScriptDir '.github-token'
 $DpapiTokenFile = Join-Path $ScriptDir '.github-token.dpapi'
+$SimConfigFile = Join-Path $ScriptDir 'sim-config.json'
+
+# --- SIM auto-apply config -----------------------------------------------
+# Per-instance SIM settings stored in sim-config.json.
+# Format: { "0": { "mcc":"310", "mnc":"260", "cc":"us", "name":"T-Mobile US" }, ... }
+# Auto-applied after every emulator boot so SIM survives restarts.
+
+function Get-SimConfig {
+    if (-not (Test-Path -LiteralPath $SimConfigFile -PathType Leaf)) { return @{} }
+    try {
+        $raw = Get-Content -LiteralPath $SimConfigFile -Raw -ErrorAction Stop
+        if ([string]::IsNullOrWhiteSpace($raw)) { return @{} }
+        return ($raw | ConvertFrom-Json -ErrorAction Stop)
+    } catch { return @{} }
+}
+
+function Save-SimConfig {
+    param([object]$Config)
+    $Config | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $SimConfigFile -Encoding UTF8 -Force
+}
+
+function Apply-SavedSim {
+    param([string]$Index)
+    $cfg = Get-SimConfig
+    $entry = $cfg.$Index
+    if (-not $entry) { return }
+    $mcc    = $entry.mcc;  $mnc = $entry.mnc
+    $cc     = $entry.cc;   $alpha = $entry.name
+    if (-not $mcc -or -not $mnc -or -not $cc) { return }
+    $numeric = "$mcc$mnc"
+    try {
+        & $MumuPath adb -v $Index -c "shell setprop persist.mumu.mccmnc $numeric" 2>&1 | Out-Null
+        @(
+            "setprop gsm.sim.operator.numeric $numeric"
+            "setprop gsm.sim.operator.iso-country $cc"
+            "setprop gsm.sim.operator.alpha `"$alpha`""
+            "setprop gsm.operator.numeric $numeric"
+            "setprop gsm.operator.iso-country $cc"
+            "setprop gsm.operator.alpha `"$alpha`""
+            "setprop gsm.sim.operator.isroaming false"
+            "setprop gsm.operator.isroaming false"
+        ) | ForEach-Object {
+            & $MumuPath adb -v $Index -c "shell $_" 2>&1 | Out-Null
+        }
+        & $MumuPath adb -v $Index -c "shell settings put global mobile_operator $numeric" 2>&1 | Out-Null
+        & $MumuPath adb -v $Index -c "shell settings put global operator_numeric $numeric" 2>&1 | Out-Null
+        & $MumuPath adb -v $Index -c "shell settings put global operator_alpha `"$alpha`"" 2>&1 | Out-Null
+        & $MumuPath adb -v $Index -c "shell settings put global sim_operator `"$alpha`"" 2>&1 | Out-Null
+        & $MumuPath adb -v $Index -c "shell settings put global gsm_operator_alpha `"$alpha`"" 2>&1 | Out-Null
+        Write-Host "  [$Index] SIM auto-applied: $alpha ($numeric)" -ForegroundColor DarkGreen
+    } catch {
+        Write-Host "  [$Index] SIM auto-apply failed: $($_.Exception.Message)" -ForegroundColor DarkYellow
+    }
+}
 
 # --- GitHub token storage -------------------------------------------------
 # Canonical store: .github-token.dpapi - a DPAPI-encrypted (CurrentUser scope)
@@ -732,6 +786,7 @@ function Show-Menu {
     Write-Host '  --- Spoofing ---' -ForegroundColor Green
     Write-Host '  [DM] Spoof device model' -ForegroundColor Yellow
     Write-Host '  [SIM] Change SIM operator / country (MCC/MNC)' -ForegroundColor Yellow
+    Write-Host '  [SIM+] View / clear auto-apply SIM config' -ForegroundColor Yellow
     Write-Host '  [DI] Random device IDs' -ForegroundColor Yellow
     Write-Host ''
     Write-Host '  --- Info ---' -ForegroundColor Green
@@ -848,6 +903,7 @@ function Start-Emulator {
     & $MumuPath api -v $index launch_player 2>&1 | ForEach-Object { Write-Host $_ }
 
     Wait-Boot -Index $index | Out-Null
+    Apply-SavedSim -Index $index
 }
 
 function Stop-Emulator {
@@ -884,6 +940,7 @@ function Restart-Emulator {
     & $MumuPath api -v $index launch_player 2>&1 | ForEach-Object { Write-Host $_ }
 
     Wait-Boot -Index $index | Out-Null
+    Apply-SavedSim -Index $index
 }
 
 function New-Emulator {
@@ -4178,6 +4235,7 @@ function Start-All {
         }
         if ($allReady) {
             Write-Host "  All instances ready! (~${elapsed}s)" -ForegroundColor Green
+            foreach ($idx in $indices) { Apply-SavedSim -Index $idx }
             return
         }
         Write-Host "  [$elapsed s] still booting..." -ForegroundColor DarkGray
@@ -4908,6 +4966,44 @@ function Set-DeviceModel {
     }
 }
 
+function Show-SimConfig {
+    $cfg = Get-SimConfig
+    $entries = @()
+    if ($cfg -is [PSCustomObject]) {
+        foreach ($prop in $cfg.PSObject.Properties) {
+            $entries += @{ Index = $prop.Name; Entry = $prop.Value }
+        }
+    }
+    Write-Host ''
+    Write-Host 'Auto-apply SIM config:' -ForegroundColor Cyan
+    if ($entries.Count -eq 0) {
+        Write-Host '  (none — use [SIM] to set a SIM operator first)' -ForegroundColor DarkGray
+    } else {
+        foreach ($e in $entries) {
+            $v = $e.Entry
+n            Write-Host "  Instance $($e.Index): $($v.name) (MCC=$($v.mcc) MNC=$($v.mnc) CC=$($v.cc))" -ForegroundColor White
+        }
+        Write-Host ''
+        Write-Host '  [D] Delete all saved SIM configs' -ForegroundColor Yellow
+        Write-Host '  [DX] Delete SIM config for a specific instance' -ForegroundColor Yellow
+        Write-Host '  [0] Back' -ForegroundColor Yellow
+        $choice = Read-Host 'Action'
+        if ($choice -eq 'd' -or $choice -eq 'D') {
+            Remove-Item -LiteralPath $SimConfigFile -Force -ErrorAction SilentlyContinue
+            Write-Host 'All saved SIM configs cleared.' -ForegroundColor Green
+        } elseif ($choice -eq 'dx' -or $choice -eq 'DX') {
+            $idx = (Read-Host 'Instance index to clear').Trim()
+            if ($idx -and $cfg.$idx) {
+                $cfg.PSObject.Properties.Remove($idx)
+                Save-SimConfig $cfg
+                Write-Host "SIM config for instance $idx cleared." -ForegroundColor Green
+            } else {
+                Write-Host 'No config found for that instance.' -ForegroundColor Yellow
+            }
+        }
+    }
+}
+
 function Set-SimOperator {
     $index = Get-InstanceIndex 'Select instance'
     if (-not $index) { return }
@@ -4932,23 +5028,53 @@ function Set-SimOperator {
     }
 
     $presets = @(
+        # --- North America ---
         @{ CC='us'; MCC='310'; MNC='260'; Name='T-Mobile US'; Lang='en' },
+        @{ CC='us'; MCC='310'; MNC='410'; Name='AT&T US'; Lang='en' },
+        @{ CC='us'; MCC='311'; MNC='480'; Name='Verizon US'; Lang='en' },
+        @{ CC='ca'; MCC='302'; MNC='720'; Name='Rogers CA'; Lang='en' },
+        @{ CC='mx'; MCC='334'; MNC='020'; Name='Telcel MX'; Lang='es' },
+        # --- Europe ---
         @{ CC='ru'; MCC='250'; MNC='01';  Name='MTS RU'; Lang='ru' },
         @{ CC='gb'; MCC='234'; MNC='15';  Name='Vodafone UK'; Lang='en' },
         @{ CC='de'; MCC='262'; MNC='01';  Name='Telekom DE'; Lang='de' },
         @{ CC='fr'; MCC='208'; MNC='01';  Name='Orange FR'; Lang='fr' },
+        @{ CC='it'; MCC='222'; MNC='01';  Name='TIM IT'; Lang='it' },
+        @{ CC='es'; MCC='214'; MNC='01';  Name='Movistar ES'; Lang='es' },
+        @{ CC='nl'; MCC='204'; MNC='16';  Name='KPN NL'; Lang='nl' },
+        @{ CC='pl'; MCC='260'; MNC='06';  Name='Play PL'; Lang='pl' },
+        @{ CC='ua'; MCC='255'; MNC='01';  Name='Vodafone UA'; Lang='uk' },
+        @{ CC='tr'; MCC='286'; MNC='01';  Name='Turkcell TR'; Lang='tr' },
+        # --- East Asia ---
         @{ CC='jp'; MCC='440'; MNC='10';  Name='Docomo JP'; Lang='ja' },
         @{ CC='kr'; MCC='450'; MNC='05';  Name='SK Telecom KR'; Lang='ko' },
         @{ CC='cn'; MCC='460'; MNC='00';  Name='China Mobile'; Lang='zh' },
         @{ CC='cn'; MCC='460'; MNC='01';  Name='China Unicom'; Lang='zh' },
         @{ CC='cn'; MCC='460'; MNC='03';  Name='China Telecom'; Lang='zh' },
-        @{ CC='in'; MCC='404'; MNC='45';  Name='Airtel IN'; Lang='en' },
-        @{ CC='br'; MCC='724'; MNC='05';  Name='Claro BR'; Lang='pt' },
-        @{ CC='tr'; MCC='286'; MNC='01';  Name='Turkcell TR'; Lang='tr' },
+        # --- Southeast Asia ---
+        @{ CC='th'; MCC='520'; MNC='01';  Name='AIS TH'; Lang='th' },
+        @{ CC='ph'; MCC='515'; MNC='02';  Name='Globe PH'; Lang='tl' },
+        @{ CC='my'; MCC='502'; MNC='12';  Name='Maxis MY'; Lang='ms' },
+        @{ CC='sg'; MCC='525'; MNC='01';  Name='Singtel SG'; Lang='en' },
         @{ CC='id'; MCC='510'; MNC='01';  Name='Telkomsel ID'; Lang='id' },
         @{ CC='vn'; MCC='452'; MNC='01';  Name='Viettel VN'; Lang='vi' },
-        @{ CC='ua'; MCC='255'; MNC='01';  Name='Vodafone UA'; Lang='uk' },
-        @{ CC='kz'; MCC='401'; MNC='01';  Name='Beeline KZ'; Lang='ru' }
+        # --- South Asia ---
+        @{ CC='in'; MCC='404'; MNC='45';  Name='Airtel IN'; Lang='en' },
+        @{ CC='pk'; MCC='410'; MNC='01';  Name='Jazz PK'; Lang='ur' },
+        @{ CC='bd'; MCC='470'; MNC='01';  Name='Grameenphone BD'; Lang='bn' },
+        # --- Middle East ---
+        @{ CC='sa'; MCC='420'; MNC='01';  Name='STC SA'; Lang='ar' },
+        @{ CC='ae'; MCC='424'; MNC='02';  Name='Etisalat AE'; Lang='ar' },
+        @{ CC='kz'; MCC='401'; MNC='01';  Name='Beeline KZ'; Lang='ru' },
+        # --- Africa ---
+        @{ CC='eg'; MCC='602'; MNC='02';  Name='Vodafone EG'; Lang='ar' },
+        @{ CC='ng'; MCC='621'; MNC='30';  Name='MTN NG'; Lang='en' },
+        # --- Latin America ---
+        @{ CC='br'; MCC='724'; MNC='05';  Name='Claro BR'; Lang='pt' },
+        # --- Oceania ---
+        @{ CC='au'; MCC='505'; MNC='01';  Name='Telstra AU'; Lang='en' },
+        @{ CC='au'; MCC='505'; MNC='02';  Name='Optus AU'; Lang='en' },
+        @{ CC='nz'; MCC='530'; MNC='01';  Name='Spark NZ'; Lang='en' }
     )
 
     Write-Host 'Presets (MCC/MNC -> TikTok region):' -ForegroundColor Cyan
@@ -5024,6 +5150,12 @@ function Set-SimOperator {
 
         Write-Host ''
         Write-Host "SIM set to $alpha ($numeric, $cc)." -ForegroundColor Green
+
+        # Persist to sim-config.json for auto-apply on next boot
+        $cfg = Get-SimConfig
+        $cfg.$index = @{ mcc = $sel.MCC; mnc = $sel.MNC; cc = $cc; name = $alpha }
+        Save-SimConfig $cfg
+        Write-Host "  Saved for auto-apply on next boot (instance $index)." -ForegroundColor DarkGreen
         Write-Host ''
         Write-Host 'To apply in TikTok:' -ForegroundColor Cyan
         Write-Host '  1. Clear TikTok cache:  [ADB] -> shell pm clear com.zhiliaoapp.musically' -ForegroundColor White
@@ -5228,6 +5360,7 @@ do {
         'uw' { Fix-Unicode }
         'dm' { Set-DeviceModel }
         'sim' { Set-SimOperator }
+        'sim+' { Show-SimConfig }
         'di' { Set-RandomDeviceIds }
         'ba' { Backup-EmulatorData }
         're' { Restore-EmulatorData }
