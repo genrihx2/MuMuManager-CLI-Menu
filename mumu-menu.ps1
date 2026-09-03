@@ -585,20 +585,35 @@ function Update-FromGitHub {
             Write-Host "  Downloading $f..." -ForegroundColor Yellow
             try {
                 $tmpDl = Join-Path $env:TEMP ('mumu_dl_' + [Guid]::NewGuid().ToString('N') + '.tmp')
-                $dlCmd = 'curl.exe -# --retry 3 --retry-delay 3 --connect-timeout 30 --max-time 120 -L -H "Accept: application/vnd.github.v3.raw" -o "' + $tmpDl + '"'
-                if ($GitHubToken) { $dlCmd += ' -H "Authorization: token ' + $GitHubToken + '"' }
-                $dlCmd += ' "' + $rawUrl + '"'
-                $dlOutput = & cmd /c $dlCmd 2>&1 | Out-String
-                if ($LASTEXITCODE -ne 0 -or -not (Test-Path $tmpDl)) {
-                    $detail = if ($dlOutput) { $dlOutput.Trim() } else { "exit code $LASTEXITCODE" }
-                    throw "curl failed for $f - $detail"
+                function _Dl-Retry([string]$Url, [string]$Tkn, [string]$Out) {
+                    $cmd = 'curl.exe -# --retry 3 --retry-delay 3 --connect-timeout 30 --max-time 120 -L -H "Accept: application/vnd.github.v3.raw" -o "' + $Out + '"'
+                    if ($Tkn) { $cmd += ' -H "Authorization: token ' + $Tkn + '"' }
+                    $cmd += ' "' + $Url + '"'
+                    & cmd /c $cmd 2>&1 | Out-Null
+                    return $LASTEXITCODE
+                }
+                $ec = _Dl-Retry $rawUrl $GitHubToken $tmpDl
+                if ($ec -ne 0 -or -not (Test-Path $tmpDl)) {
+                    throw "curl failed (exit $ec)"
                 }
                 $bytes = [System.IO.File]::ReadAllBytes($tmpDl)
                 Remove-Item $tmpDl -Force -ErrorAction SilentlyContinue
                 if (-not $bytes -or $bytes.Length -eq 0) { throw 'empty download' }
-
-                # Check for JSON error response or API metadata instead of raw content
                 $text = [System.Text.Encoding]::UTF8.GetString($bytes)
+                # Bad credentials fallback — retry without token
+                if ($GitHubToken -and $text -match '"message"\s*:\s*"Bad credentials"') {
+                    Write-Host '    Token rejected — retrying without auth...' -ForegroundColor Yellow
+                    $tmpDl2 = Join-Path $env:TEMP ('mumu_dl_' + [Guid]::NewGuid().ToString('N') + '.tmp')
+                    $ec2 = _Dl-Retry $rawUrl '' $tmpDl2
+                    if ($ec2 -eq 0 -and (Test-Path $tmpDl2)) {
+                        $bytes = [System.IO.File]::ReadAllBytes($tmpDl2)
+                        Remove-Item $tmpDl2 -Force -ErrorAction SilentlyContinue
+                        if ($bytes -and $bytes.Length -gt 0) {
+                            $text = [System.Text.Encoding]::UTF8.GetString($bytes)
+                        }
+                    }
+                }
+                # Validate response is raw content, not JSON metadata
                 if ($text -match '"message"\s*:\s*"') {
                     $errMsg = if ($text -match '"message"\s*:\s*"([^"]+)"') { $Matches[1] } else { 'API error' }
                     throw $errMsg
