@@ -5392,6 +5392,21 @@ function Set-SimOperator {
         Save-SimConfig $cfg
         Write-Host "  Saved for auto-apply on next boot (instance $index)." -ForegroundColor DarkGreen
         Write-Host ''
+        Write-Host '  ┌────────────────────────────────────────┐' -ForegroundColor Yellow
+        Write-Host '  │  WHAT THIS SPOOF COVERS:' -ForegroundColor Yellow
+        Write-Host '  │  ✔ gsm.sim.operator.* (getprop)' -ForegroundColor Green
+        Write-Host '  │  ✔ persist.mumu.mccmnc' -ForegroundColor Green
+        Write-Host '  │  ✔ settings global operator_*' -ForegroundColor Green
+        Write-Host '  │  Apps that read these props (TikTok, etc.) see spoofed values' -ForegroundColor DarkGray
+        Write-Host '  │' -ForegroundColor Yellow
+        Write-Host '  │  WHAT THIS SPOOF DOES NOT COVER:' -ForegroundColor Yellow
+        Write-Host '  ✘  Android Settings → SIM cards (reads telephony registry)' -ForegroundColor Red
+        Write-Host '  ✘  networkCountryIso (built from virtual modem)' -ForegroundColor Red
+        Write-Host '  ✘  SubscriptionInfo (telephony framework)' -ForegroundColor Red
+        Write-Host '  ✘  dumpsys telephony.registry (rRplmn, mMnc)' -ForegroundColor Red
+        Write-Host '  │  The modem layer constructs its own state — not editable via setprop.' -ForegroundColor DarkGray
+        Write-Host '  └────────────────────────────────────────┘' -ForegroundColor Yellow
+        Write-Host ''
         Write-Host 'To apply in TikTok:' -ForegroundColor Cyan
         Write-Host '  1. Clear TikTok cache:  [ADB] -> shell pm clear com.zhiliaoapp.musically' -ForegroundColor White
         Write-Host '  2. Force-stop TikTok:    [ADB] -> shell am force-stop com.zhiliaoapp.musically' -ForegroundColor White
