@@ -77,7 +77,7 @@ function Wait-ADBOnline {
         try {
             $test = & $MumuPath adb -v $Index -c 'shell echo ok' 2>&1 | Out-String
             if ($test.Trim() -eq 'ok') { return $true }
-        } catch {}
+        } catch { Write-Debug "Wait-ForAdb: $_" }
         Start-Sleep -Seconds 2
         $elapsed += 2
     }
