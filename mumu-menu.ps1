@@ -70,6 +70,20 @@ function Save-SimConfig {
     $Config | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $SimConfigFile -Encoding UTF8 -Force
 }
 
+function Wait-ADBOnline {
+    param([string]$Index, [int]$MaxWait = 30)
+    $elapsed = 0
+    while ($elapsed -lt $MaxWait) {
+        try {
+            $test = & $MumuPath adb -v $Index -c 'shell echo ok' 2>&1 | Out-String
+            if ($test.Trim() -eq 'ok') { return $true }
+        } catch {}
+        Start-Sleep -Seconds 2
+        $elapsed += 2
+    }
+    return $false
+}
+
 function Apply-SavedSim {
     param([string]$Index)
     $cfg = Get-SimConfig
@@ -80,6 +94,11 @@ function Apply-SavedSim {
     if (-not $mcc -or -not $mnc -or -not $cc) { return }
     $numeric = "$mcc$mnc"
     $alphaShell = $alpha.Replace('&', '\&').Replace(';', '\;').Replace('|', '\|').Replace('$', '\$')
+    # Wait for ADB to be online
+    if (-not (Wait-ADBOnline -Index $Index -MaxWait 30)) {
+        Write-Host "  [$Index] ADB offline — skipping SIM auto-apply" -ForegroundColor DarkGray
+        return
+    }
     try {
         & $MumuPath adb -v $Index -c "shell setprop persist.mumu.mccmnc $numeric" 2>&1 | Out-Null
         @(
@@ -5419,6 +5438,12 @@ function Set-SimOperator {
     $confirm = (Read-Host '  Apply? (Y/n)').Trim()
     if ($confirm -eq 'n' -or $confirm -eq 'N') { Write-Host 'Cancelled.' -ForegroundColor Yellow; return }
     Write-Host ''
+    # Wait for ADB to be online
+    if (-not (Wait-ADBOnline -Index $index -MaxWait 30)) {
+        Write-Host '  ADB offline — cannot set SIM properties.' -ForegroundColor Red
+        Write-Host '  Config saved. Re-run [SIM] or restart to apply.' -ForegroundColor Yellow
+        return
+    }
     Write-Host "Setting SIM to $alpha ($numeric, $cc)..." -ForegroundColor Cyan
     try {
         # 1) MuMu-specific persist property (most reliable in MuMu)
