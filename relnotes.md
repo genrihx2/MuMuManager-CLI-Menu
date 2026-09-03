@@ -4,6 +4,18 @@
 
 ---
 
+## v1.13.31 (03.09.2026)
+
+### Что нового
+- **Расширены SIM-пресеты**: добавлены 21 новый оператор из 8 регионов (AT&T/Verizon US, Rogers CA, Telcel MX, TIM IT, Movistar ES, KPN NL, Play PL, AIS TH, Globe PH, Maxis MY, Singtel SG, Jazz PK, Grameenphone BD, STC SA, Etisalat AE, Vodafone EG, MTN NG, Telstra/Optus AU, Spark NZ) — всего 38 пресетов + кастом
+- **Организация пресетов по регионам**: пресеты сгруппированы с комментариями для удобства навигации
+
+### Исправления
+- **Save-SimConfig**: исправлена ошибка преобразования типов (PSCustomObject vs Hashtable) при сохранении SIM-конфигурации после настройки оператора
+- **SIM+ отображение**: удалён лишний символ 'n' в цикле отображения конфигурации SIM
+
+---
+
 ## v1.13.30 (02.09.2026)
 
 ### Что нового
