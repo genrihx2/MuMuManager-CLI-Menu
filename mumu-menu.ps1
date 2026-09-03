@@ -830,6 +830,7 @@ function Show-Menu {
     Write-Host '  [DM] Spoof device model' -ForegroundColor Yellow
     Write-Host '  [SIM] Change SIM operator / country (MCC/MNC)' -ForegroundColor Yellow
     Write-Host '  [SIM+] View / clear auto-apply SIM config' -ForegroundColor Yellow
+    Write-Host '  [AI] Set Android ID' -ForegroundColor Yellow
     Write-Host '  [DI] Random device IDs' -ForegroundColor Yellow
     Write-Host ''
     Write-Host '  --- Info ---' -ForegroundColor Green
@@ -5434,6 +5435,85 @@ function New-RandomImei {
     "$base$((10 - ($sum % 10)) % 10)"
 }
 
+function Set-AndroidId {
+    $index = Get-InstanceIndex 'Select instance'
+    if (-not $index) { return }
+    Write-Host ''
+
+    # Show current values
+    try {
+        $sim = & $MumuPath simulation -v $index 2>$null | ConvertFrom-Json
+        Write-Host 'Current values:' -ForegroundColor DarkGray
+        Write-Host "  Android ID: $(if ($sim.android_id) { $sim.android_id } else { '(not set)' })" -ForegroundColor White
+        Write-Host "  IMEI:       $(if ($sim.imei) { $sim.imei } else { '(not set)' })" -ForegroundColor DarkGray
+        Write-Host "  MAC:        $(if ($sim.mac_address) { $sim.mac_address } else { '(not set)' })" -ForegroundColor DarkGray
+    } catch {
+        Write-Host 'Could not read simulation properties.' -ForegroundColor Yellow
+    }
+    Write-Host ''
+    Write-Host 'Set Android ID:' -ForegroundColor Cyan
+    Write-Host '  [1] Random (16 hex chars)' -ForegroundColor White
+    Write-Host '  [2] Custom value' -ForegroundColor White
+    Write-Host '  [3] Clear (reset to default)' -ForegroundColor White
+    Write-Host '  [0] Cancel' -ForegroundColor Yellow
+    $choice = (Read-Host 'Select option').Trim()
+
+    $newId = $null
+    switch ($choice) {
+        '1' { $newId = New-RandomAndroidId; Write-Host "  Generated: $newId" -ForegroundColor Green }
+        '2' {
+            $input = (Read-Host 'Enter Android ID (16 hex chars)').Trim()
+            if (-not $input -or $input.Length -ne 16 -or $input -notmatch '^[0-9a-fA-F]+$') {
+                Write-Host '  Invalid format. Must be 16 hex characters.' -ForegroundColor Red
+                return
+            }
+            $newId = $input.ToLower()
+        }
+        '3' { $newId = '__null__'; Write-Host '  Will reset to default.' -ForegroundColor Yellow }
+        default { Write-Host 'Cancelled.' -ForegroundColor Yellow; return }
+    }
+
+    if (-not $newId) { return }
+
+    try {
+        & $MumuPath simulation -v $index -sk android_id -sv $newId 2>&1 | Out-Null
+        if ($newId -ne '__null__') {
+            Write-Host "  Android ID set to: $newId" -ForegroundColor Green
+        } else {
+            Write-Host '  Android ID cleared.' -ForegroundColor Green
+        }
+    } catch {
+        Write-Host "  Failed: $($_.Exception.Message)" -ForegroundColor Red
+        return
+    }
+
+    # Verify
+    try {
+        $sim2 = & $MumuPath simulation -v $index 2>$null | ConvertFrom-Json
+        $verify = $sim2.android_id
+        if ($newId -eq '__null__') {
+            Write-Host "  Verified: Android ID is now $(if ($verify) { $verify } else { '(default)' })" -ForegroundColor Green
+        } elseif ($verify -eq $newId) {
+            Write-Host "  Verified: Android ID = $verify" -ForegroundColor Green
+        } else {
+            Write-Host "  Warning: expected $newId, got $verify" -ForegroundColor Yellow
+        }
+    } catch {}
+
+    Write-Host ''
+    Write-Host 'NOTE: Changes only take effect after emulator restart.' -ForegroundColor Yellow
+    $restart = Read-Host 'Restart now? (y/N)'
+    if ($restart -eq 'y' -or $restart -eq 'Y') {
+        Write-Host 'Restarting emulator...' -ForegroundColor Cyan
+        try {
+            & $MumuPath control -v $index restart 2>&1 | Out-Null
+            Write-Host 'Emulator restarting. Android ID will be active after boot.' -ForegroundColor Green
+        } catch {
+            Write-Host "Restart failed: $($_.Exception.Message). Please restart manually." -ForegroundColor Red
+        }
+    }
+}
+
 function New-RandomAndroidId {
     # 16 hex chars, e.g. "13f454f21c0f5f57"
     [guid]::NewGuid().ToString('N').Substring(0, 16)
@@ -5611,6 +5691,7 @@ do {
         'dm' { Set-DeviceModel }
         'sim' { Set-SimOperator }
         'sim+' { Show-SimConfig }
+        'ai' { Set-AndroidId }
         'di' { Set-RandomDeviceIds }
         'ba' { Backup-EmulatorData }
         're' { Restore-EmulatorData }
