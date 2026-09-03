@@ -738,8 +738,20 @@ try {
     Write-Host 'Could not check MuMu version' -ForegroundColor Yellow
 }
 
+$script:QuickStatusCache = $null
+$script:QuickStatusTs = [datetime]::MinValue
+
 function Show-QuickStatus {
     # Show compact status line at the top of the menu
+    # Cache MuMuManager info for 5 seconds to avoid lag on every menu render
+    $muVer = if ($InstalledVersion) { "$InstalledVersion" } else { 'unknown' }
+    $now = [datetime]::Now
+    if ($script:QuickStatusCache -and ($now - $script:QuickStatusTs).TotalSeconds -lt 5) {
+        $total = $script:QuickStatusCache.total
+        $running = $script:QuickStatusCache.running
+        Write-Host "  v$scriptVer | MuMu $muVer | $running/$total running" -ForegroundColor DarkGray
+        return
+    }
     try {
         $info = & $MumuPath info -v all 2>$null | ConvertFrom-Json
         $total = 0; $running = 0
@@ -747,10 +759,10 @@ function Show-QuickStatus {
             $total++
             if ($info.$key.player_state -and $info.$key.player_state -notmatch 'stopped| shutting') { $running++ }
         }
-        $muVer = if ($InstalledVersion) { "$InstalledVersion" } else { 'unknown' }
+        $script:QuickStatusCache = @{ total = $total; running = $running }
+        $script:QuickStatusTs = $now
         Write-Host "  v$scriptVer | MuMu $muVer | $running/$total running" -ForegroundColor DarkGray
     } catch {
-        $muVer = if ($InstalledVersion) { "$InstalledVersion" } else { 'unknown' }
         Write-Host "  v$scriptVer | MuMu $muVer" -ForegroundColor DarkGray
     }
 }
