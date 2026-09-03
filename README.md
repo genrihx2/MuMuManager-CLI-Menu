@@ -161,6 +161,7 @@ cd MuMuManager-CLI-Menu
   [DM] Spoof device model
   [SIM] Change SIM operator / country (MCC/MNC)
   [SIM+] View / clear auto-apply SIM config
+  [AI] Set Android ID
   [DI] Random device IDs
 
   --- Info ---
@@ -336,7 +337,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.14.5
+Script version: 1.15.0
 MuMu version: 6.5.2.0
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
