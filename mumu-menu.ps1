@@ -4981,20 +4981,51 @@ function Show-SimConfig {
             $entries += @{ Index = $prop.Name; Entry = $prop.Value }
         }
     }
+
+    # Get instance states for display
+    $states = @{}
+    try {
+        $info = & $MumuPath info -v all 2>$null | ConvertFrom-Json
+        foreach ($key in $info.PSObject.Properties.Name) {
+            $states[$key] = $info.$key.player_state
+        }
+    } catch {}
+
     Write-Host ''
-    Write-Host 'Auto-apply SIM config:' -ForegroundColor Cyan
+    Write-Host '═══════════════════════════════════════════' -ForegroundColor Cyan
+    Write-Host '  AUTO-APPLY SIM CONFIG' -ForegroundColor Cyan
+    Write-Host '═══════════════════════════════════════════' -ForegroundColor Cyan
     if ($entries.Count -eq 0) {
+        Write-Host ''
         Write-Host '  (none — use [SIM] to set a SIM operator first)' -ForegroundColor DarkGray
     } else {
+        Write-Host ''
+        Write-Host '  IDX  State          Operator              MCC/MNC   CC' -ForegroundColor DarkGray
+        Write-Host '  ---  -------------- --------------------- --------- --' -ForegroundColor DarkGray
         foreach ($e in $entries) {
             $v = $e.Entry
-            Write-Host "  Instance $($e.Index): $($v.name) (MCC=$($v.mcc) MNC=$($v.mnc) CC=$($v.cc))" -ForegroundColor White
+            $state = if ($states.ContainsKey($e.Index)) { $states[$e.Index] } else { 'unknown' }
+            $stateShort = if ($state -match 'start_finished|running') { 'running' }
+                          elseif ($state -match 'stopped') { 'stopped' }
+                          elseif ($state) { $state.Substring(0, [Math]::Min(10, $state.Length)) }
+                          else { '?' }
+            $stateColor = if ($stateShort -eq 'running') { 'Green' } elseif ($stateShort -eq 'stopped') { 'DarkGray' } else { 'Yellow' }
+            $mccmnc = "$($v.mcc)/$($v.mnc)"
+            Write-Host '  ' -NoNewline
+            Write-Host ('{0,-4}' -f $e.Index) -NoNewline -ForegroundColor White
+            Write-Host ('{0,-15}' -f "[$stateShort]") -NoNewline -ForegroundColor $stateColor
+            Write-Host ('{0,-22}' -f $v.name) -NoNewline -ForegroundColor White
+            Write-Host ('{0,-10}' -f $mccmnc) -NoNewline -ForegroundColor White
+            Write-Host $v.cc -ForegroundColor White
         }
         Write-Host ''
-        Write-Host '  [D] Delete all saved SIM configs' -ForegroundColor Yellow
+        Write-Host '  [A]  Apply saved config to a running instance' -ForegroundColor Yellow
+        Write-Host '  [E]  Edit config (change operator for an instance)' -ForegroundColor Yellow
+        Write-Host '  [V]  Verify current props match saved config' -ForegroundColor Yellow
+        Write-Host '  [D]  Delete all saved SIM configs' -ForegroundColor Yellow
         Write-Host '  [DX] Delete SIM config for a specific instance' -ForegroundColor Yellow
-        Write-Host '  [0] Back' -ForegroundColor Yellow
-        $choice = Read-Host 'Action'
+        Write-Host '  [0]  Back' -ForegroundColor Yellow
+        $choice = (Read-Host 'Action').Trim()
         if ($choice -eq 'd' -or $choice -eq 'D') {
             Remove-Item -LiteralPath $SimConfigFile -Force -ErrorAction SilentlyContinue
             Write-Host 'All saved SIM configs cleared.' -ForegroundColor Green
@@ -5006,6 +5037,69 @@ function Show-SimConfig {
                 Write-Host "SIM config for instance $idx cleared." -ForegroundColor Green
             } else {
                 Write-Host 'No config found for that instance.' -ForegroundColor Yellow
+            }
+        } elseif ($choice -eq 'a' -or $choice -eq 'A') {
+            $idx = (Read-Host 'Instance index to apply to').Trim()
+            if (-not $idx -or -not $cfg.$idx) {
+                Write-Host 'No saved config for that instance.' -ForegroundColor Yellow; return
+            }
+            $v = $cfg.$idx
+            $state = if ($states.ContainsKey($idx)) { $states[$idx] } else { '' }
+            if ($state -notmatch 'start_finished|running') {
+                Write-Host "  Instance $idx is not running ($state). Start it first." -ForegroundColor Yellow
+                return
+            }
+            Write-Host "  Applying $($v.name) ($($v.mcc)$($v.mnc)) to instance $idx..." -ForegroundColor Cyan
+            Apply-SavedSim -Index $idx
+        } elseif ($choice -eq 'e' -or $choice -eq 'E') {
+            $idx = (Read-Host 'Instance index to edit').Trim()
+            if (-not $idx -or -not $cfg.$idx) {
+                Write-Host 'No saved config for that instance.' -ForegroundColor Yellow; return
+            }
+            $v = $cfg.$idx
+            Write-Host "  Current: $($v.name) (MCC=$($v.mcc) MNC=$($v.mnc) CC=$($v.cc))" -ForegroundColor DarkGray
+            $newMcc = (Read-Host "  MCC [$($v.mcc)]").Trim()
+            if (-not $newMcc) { $newMcc = $v.mcc }
+            $newMnc = (Read-Host "  MNC [$($v.mnc)]").Trim()
+            if (-not $newMnc) { $newMnc = $v.mnc }
+            $newCc = (Read-Host "  ISO country [$($v.cc)]").Trim()
+            if (-not $newCc) { $newCc = $v.cc }
+            $newName = (Read-Host "  Operator name [$($v.name)]").Trim()
+            if (-not $newName) { $newName = $v.name }
+            $cfg.$idx = @{ mcc = $newMcc; mnc = $newMnc; cc = $newCc.ToLower(); name = $newName }
+            Save-SimConfig $cfg
+            Write-Host "  Config for instance $idx updated." -ForegroundColor Green
+        } elseif ($choice -eq 'v' -or $choice -eq 'V') {
+            $idx = (Read-Host 'Instance index to verify').Trim()
+            if (-not $idx -or -not $cfg.$idx) {
+                Write-Host 'No saved config for that instance.' -ForegroundColor Yellow; return
+            }
+            $v = $cfg.$idx
+            $expected = "$($v.mcc)$($v.mnc)"
+            Write-Host "  Checking instance $idx (expected: $expected)..." -ForegroundColor Cyan
+            try {
+                $props = ''
+                $vj = Start-Job -ScriptBlock {
+                    param($mp, $i)
+                    & $mp adb -v $i -c 'shell getprop' 2>$null | Out-String
+                } -ArgumentList $MumuPath, $idx
+                if (Wait-Job $vj -Timeout 10) { $props = Receive-Job $vj }
+                Remove-Job $vj -Force -ErrorAction SilentlyContinue
+                if (-not $props) {
+                    Write-Host '  ADB not ready — cannot verify.' -ForegroundColor Yellow
+                    return
+                }
+                $curNum = if ($props -match '\[gsm\.sim\.operator\.numeric\]:\s*\[(.*?)\]') { $Matches[1] } else { '' }
+                $curMum = if ($props -match '\[persist\.mumu\.mccmnc\]:\s*\[(.*?)\]') { $Matches[1] } else { '' }
+                $match = ($curNum -eq $expected) -or ($curMum -eq $expected)
+                if ($match) {
+                    Write-Host "  MATCH: $curNum = $expected" -ForegroundColor Green
+                } else {
+                    Write-Host "  MISMATCH: gsm.sim=$curNum, persist.mumu=$curMum, expected=$expected" -ForegroundColor Red
+                    Write-Host '  Re-apply with [A] or restart the emulator.' -ForegroundColor Yellow
+                }
+            } catch {
+                Write-Host "  Verify failed: $($_.Exception.Message)" -ForegroundColor Yellow
             }
         }
     }
@@ -5094,14 +5188,77 @@ function Set-SimOperator {
         @{ CC='nz'; MCC='530'; MNC='01';  Name='Spark NZ'; Lang='en' }
     )
 
-    Write-Host 'Presets (MCC/MNC -> TikTok region):' -ForegroundColor Cyan
-    for ($i = 0; $i -lt $presets.Count; $i++) {
-        $p = $presets[$i]
-        Write-Host ("  [{0,2}] {1,-8} {2} ({3}{4}) {5}" -f ($i+1), $p.CC.ToUpper(), $p.Name, $p.MCC, $p.MNC, "[$($p.Lang)]") -ForegroundColor White
+    # Region mapping for display
+    $regionMap = @{
+        'us'='NA'; 'ca'='NA'; 'mx'='NA'
+        'ru'='EU'; 'gb'='EU'; 'de'='EU'; 'fr'='EU'; 'it'='EU'; 'es'='EU'; 'nl'='EU'; 'pl'='EU'; 'ua'='EU'; 'tr'='EU'
+        'jp'='EA'; 'kr'='EA'; 'cn'='EA'
+        'th'='SEA'; 'ph'='SEA'; 'my'='SEA'; 'sg'='SEA'; 'id'='SEA'; 'vn'='SEA'
+        'in'='SA'; 'pk'='SA'; 'bd'='SA'
+        'sa'='ME'; 'ae'='ME'; 'kz'='ME'
+        'eg'='AF'; 'ng'='AF'
+        'br'='LA'
+        'au'='OC'; 'nz'='OC'
     }
+
+    # Build filtered list
+    $filtered = @()
+    for ($i = 0; $i -lt $presets.Count; $i++) {
+        $filtered += @{ Num = $i + 1; Preset = $presets[$i] }
+    }
+
+    Write-Host ''
+    Write-Host '  Type to filter (name/CC/MCC), or enter number:' -ForegroundColor DarkGray
+    Write-Host ''
+    $lastRegion = ''
+    foreach ($f in $filtered) {
+        $p = $f.Preset
+        $region = if ($regionMap.ContainsKey($p.CC)) { $regionMap[$p.CC] } else { '' }
+        if ($region -ne $lastRegion) {
+            $lastRegion = $region
+        }
+        Write-Host ("  [{0,2}] {1,-4} {2,-22} {3}/{4}  [{5}]" -f $f.Num, $p.CC.ToUpper(), $p.Name, $p.MCC, $p.MNC, $p.Lang) -ForegroundColor White
+    }
+    Write-Host ''
+    Write-Host '  [ F] Filter presets' -ForegroundColor DarkGray
     Write-Host '  [ C] Custom MCC / MNC / ISO' -ForegroundColor White
     Write-Host '  [ 0] Cancel' -ForegroundColor Yellow
-    $choice = Read-Host 'Select SIM country'
+    $choice = (Read-Host 'Select SIM country').Trim()
+    if ($choice -eq '0') { Write-Host 'Cancelled.' -ForegroundColor Yellow; return }
+
+    # Handle filter
+    if ($choice -eq 'f' -or $choice -eq 'F') {
+        $query = (Read-Host 'Filter (name, CC, MCC, or region)').Trim()
+        if (-not $query) { Write-Host 'Cancelled.' -ForegroundColor Yellow; return }
+        $query = $query.ToLower()
+        $regionNames = @{ 'NA'='north america'; 'EU'='europe'; 'EA'='east asia'; 'SEA'='southeast asia'; 'SA'='south asia'; 'ME'='middle east'; 'AF'='africa'; 'LA'='latin america'; 'OC'='oceania' }
+        $filtered = @()
+        for ($i = 0; $i -lt $presets.Count; $i++) {
+            $p = $presets[$i]
+            $region = if ($regionMap.ContainsKey($p.CC)) { $regionMap[$p.CC] } else { '' }
+            $regionFull = if ($regionNames.ContainsKey($region)) { $regionNames[$region] } else { '' }
+            if ($p.CC -match [regex]::Escape($query) -or $p.Name.ToLower() -match [regex]::Escape($query) -or
+                $p.MCC -match $query -or $p.MNC -match $query -or
+                $region.ToLower() -match $query -or $regionFull -match $query) {
+                $filtered += @{ Num = $i + 1; Preset = $p }
+            }
+        }
+        if ($filtered.Count -eq 0) {
+            Write-Host "  No presets matching '$query'" -ForegroundColor Yellow
+            return
+        }
+        Write-Host "  Found $($filtered.Count) preset(s):" -ForegroundColor Green
+        Write-Host ''
+        $lastRegion = ''
+        foreach ($f in $filtered) {
+            $p = $f.Preset
+            $region = if ($regionMap.ContainsKey($p.CC)) { $regionMap[$p.CC] } else { '' }
+            Write-Host ("  [{0,2}] {1,-4} {2,-22} {3}/{4}  [{5}]" -f $f.Num, $p.CC.ToUpper(), $p.Name, $p.MCC, $p.MNC, $p.Lang) -ForegroundColor White
+        }
+        Write-Host ''
+        $choice = (Read-Host 'Select SIM number').Trim()
+        if ($choice -eq '0') { Write-Host 'Cancelled.' -ForegroundColor Yellow; return }
+    }
     if ($choice -eq '0') { Write-Host 'Cancelled.' -ForegroundColor Yellow; return }
     $sel = $null
     if ($choice -eq 'c' -or $choice -eq 'C') {
@@ -5120,6 +5277,21 @@ function Set-SimOperator {
     $numeric = "$($sel.MCC)$($sel.MNC)"
     $cc = $sel.CC.ToLower()
     $alpha = $sel.Name
+    Write-Host ''
+    Write-Host '  ┌─────────────────────────────────────────┐' -ForegroundColor Cyan
+    Write-Host '  │  SIM CHANGE SUMMARY                     │' -ForegroundColor Cyan
+    Write-Host '  ├─────────────────────────────────────────┤' -ForegroundColor Cyan
+    Write-Host "  │  Operator:  $alpha" -ForegroundColor White
+    Write-Host "  │  MCC/MNC:   $($sel.MCC)/$($sel.MNC) ($numeric)" -ForegroundColor White
+    Write-Host "  │  Country:   $($cc.ToUpper())" -ForegroundColor White
+    Write-Host "  │  Instance:  $index" -ForegroundColor White
+    Write-Host '  ├─────────────────────────────────────────┤' -ForegroundColor Cyan
+    Write-Host '  │  Sets: gsm.sim.operator.*, gsm.operator.*' -ForegroundColor DarkGray
+    Write-Host '  │        persist.mumu.mccmnc, settings global' -ForegroundColor DarkGray
+    Write-Host '  │  Saves: sim-config.json (auto-apply)' -ForegroundColor DarkGray
+    Write-Host '  └─────────────────────────────────────────┘' -ForegroundColor Cyan
+    $confirm = (Read-Host '  Apply? (Y/n)').Trim()
+    if ($confirm -eq 'n' -or $confirm -eq 'N') { Write-Host 'Cancelled.' -ForegroundColor Yellow; return }
     Write-Host ''
     Write-Host "Setting SIM to $alpha ($numeric, $cc)..." -ForegroundColor Cyan
     try {
