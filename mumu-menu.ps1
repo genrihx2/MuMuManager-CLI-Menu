@@ -169,31 +169,38 @@ try {
 
 function Invoke-GitHubGet {
     param([string]$Url, [int]$TimeoutSec = 30)
-    $curlArgs = @('-s', '--retry', '3', '--retry-delay', '3', '--connect-timeout', '30', '--max-time', "$TimeoutSec")
+    $curlBase = @('-s', '--retry', '3', '--retry-delay', '3', '--connect-timeout', '30', '--max-time', "$TimeoutSec")
     if ($Url -match '^https://api\.github\.com/repos/.+/contents/') {
-        $curlArgs += @('-H', 'Accept: application/vnd.github.raw')
+        $curlBase += @('-H', 'Accept: application/vnd.github.raw')
     } elseif ($Url -match '^https://api\.github\.com/') {
-        $curlArgs += @('-H', 'Accept: application/vnd.github.v3+json')
+        $curlBase += @('-H', 'Accept: application/vnd.github.v3+json')
     }
-    if ($GitHubToken) {
-        $curlArgs += @('-H', "Authorization: token $GitHubToken")
-    }
-    # Write to temp file for proper UTF-8 handling
-    $tmpFile = Join-Path $env:TEMP ('gh_resp_' + [Guid]::NewGuid().ToString('N') + '.json')
-    $curlArgs += @('-o', $tmpFile)
-    for ($i = 1; $i -le 3; $i++) {
-        & curl.exe @curlArgs $Url 2>$null
+    function _Fetch([bool]$UseToken) {
+        $cmdArgs = @($curlBase)
+        if ($UseToken -and $GitHubToken) { $cmdArgs += @('-H', "Authorization: token $GitHubToken") }
+        $tmpFile = Join-Path $env:TEMP ('gh_resp_' + [Guid]::NewGuid().ToString('N') + '.json')
+        $cmdArgs += @('-o', $tmpFile)
+        & curl.exe @cmdArgs $Url 2>$null
         if ($LASTEXITCODE -eq 0 -and (Test-Path $tmpFile)) {
             $bytes = [System.IO.File]::ReadAllBytes($tmpFile)
             Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue
             if ($bytes -and $bytes.Length -gt 0) {
-                $enc = [System.Text.Encoding]::UTF8
-                return $enc.GetString($bytes).TrimEnd()
+                return ([System.Text.Encoding]::UTF8.GetString($bytes)).TrimEnd()
             }
         }
-        Start-Sleep -Seconds 2
+        Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue
+        return $null
     }
-    Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue
+    # Attempt with token (if available)
+    $resp = _Fetch $true
+    if ($null -ne $resp) {
+        if ($GitHubToken -and $resp -match '"message"\s*:\s*"Bad credentials"') {
+            Write-Host '  Token rejected — retrying without auth...' -ForegroundColor Yellow
+            $resp = _Fetch $false
+            if ($null -eq $resp) { throw "Request failed: $Url" }
+        }
+        return $resp
+    }
     throw "Request failed (exit $LASTEXITCODE): $Url"
 }
 
