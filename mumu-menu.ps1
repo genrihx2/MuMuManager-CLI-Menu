@@ -1,4 +1,5 @@
-﻿# MuMuManager CLI - Interactive Menu for Netease MuMu Emulator (Windows)
+﻿# PSScriptAnalyzer -Disable PSUseApprovedVerbs, PSUseDeclaredVarsMoreThanAssignments
+# MuMuManager CLI - Interactive Menu for Netease MuMu Emulator (Windows)
 # Project:  https://github.com/genrihx2/MuMuManager-CLI-Menu
 # License:  Open Source - MIT (see LICENSE)
 # Purpose:  launch/stop/restart emulator instances, install/uninstall APKs,
