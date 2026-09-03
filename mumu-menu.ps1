@@ -52,7 +52,15 @@ function Get-SimConfig {
     try {
         $raw = Get-Content -LiteralPath $SimConfigFile -Raw -ErrorAction Stop
         if ([string]::IsNullOrWhiteSpace($raw)) { return @{} }
-        return ($raw | ConvertFrom-Json -ErrorAction Stop)
+        $obj = $raw | ConvertFrom-Json -ErrorAction Stop
+        # Convert PSCustomObject to hashtable so numeric keys (e.g. "3") work
+        $ht = @{}
+        if ($obj -is [PSCustomObject]) {
+            foreach ($prop in $obj.PSObject.Properties) {
+                $ht[$prop.Name] = $prop.Value
+            }
+        }
+        return $ht
     } catch { return @{} }
 }
 
@@ -4991,7 +4999,7 @@ function Set-DeviceModel {
 function Show-SimConfig {
     $cfg = Get-SimConfig
     $entries = @()
-    if ($cfg -is [PSCustomObject]) {
+    if ($cfg -is [hashtable] -or $cfg -is [PSCustomObject]) {
         foreach ($prop in $cfg.PSObject.Properties) {
             $entries += @{ Index = $prop.Name; Entry = $prop.Value }
         }
@@ -5047,7 +5055,7 @@ function Show-SimConfig {
         } elseif ($choice -eq 'dx' -or $choice -eq 'DX') {
             $idx = (Read-Host 'Instance index to clear').Trim()
             if ($idx -and $cfg.$idx) {
-                $cfg.PSObject.Properties.Remove($idx)
+                $cfg.Remove($idx)
                 Save-SimConfig $cfg
                 Write-Host "SIM config for instance $idx cleared." -ForegroundColor Green
             } else {
