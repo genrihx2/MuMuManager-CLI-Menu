@@ -5401,10 +5401,10 @@ function Set-SimOperator {
         Write-Host '  │  Apps that read these props (TikTok, etc.) see spoofed values' -ForegroundColor DarkGray
         Write-Host '  │' -ForegroundColor Yellow
         Write-Host '  │  WHAT THIS SPOOF DOES NOT COVER:' -ForegroundColor Yellow
-        Write-Host '  ✘  Android Settings → SIM cards (reads telephony registry)' -ForegroundColor Red
-        Write-Host '  ✘  networkCountryIso (built from virtual modem)' -ForegroundColor Red
-        Write-Host '  ✘  SubscriptionInfo (telephony framework)' -ForegroundColor Red
-        Write-Host '  ✘  dumpsys telephony.registry (rRplmn, mMnc)' -ForegroundColor Red
+        Write-Host '  │  ✘  Android Settings → SIM cards (reads telephony registry)' -ForegroundColor Red
+        Write-Host '  │  ✘  networkCountryIso (built from virtual modem)' -ForegroundColor Red
+        Write-Host '  │  ✘  SubscriptionInfo (telephony framework)' -ForegroundColor Red
+        Write-Host '  │  ✘  dumpsys telephony.registry (rRplmn, mMnc)' -ForegroundColor Red
         Write-Host '  │  The modem layer constructs its own state — not editable via setprop.' -ForegroundColor DarkGray
         Write-Host '  └────────────────────────────────────────┘' -ForegroundColor Yellow
         Write-Host ''
