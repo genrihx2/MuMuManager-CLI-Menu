@@ -5015,9 +5015,19 @@ function Set-SimOperator {
     $index = Get-InstanceIndex 'Select instance'
     if (-not $index) { return }
     Write-Host ''
-    # Show current SIM props via adb
+    # Show current SIM props via adb (with timeout to avoid hang on unready ADB)
     try {
-        $props = & $MumuPath adb -v $index -c "shell getprop" 2>$null | Out-String
+        $props = ''
+        $adbJob = Start-Job -ScriptBlock {
+            param($mp, $idx)
+            & $mp adb -v $idx -c 'shell getprop' 2>$null | Out-String
+        } -ArgumentList $MumuPath, $index
+        if (Wait-Job $adbJob -Timeout 10) {
+            $props = Receive-Job $adbJob
+        } else {
+            Write-Host '  ADB not ready — skipping current SIM display (will set anyway)' -ForegroundColor DarkGray
+        }
+        Remove-Job $adbJob -Force -ErrorAction SilentlyContinue
         $curNumeric = if ($props -match '\[gsm\.sim\.operator\.numeric\]:\s*\[(.*?)\]') { $Matches[1] } else { '' }
         $curIso     = if ($props -match '\[gsm\.sim\.operator\.iso-country\]:\s*\[(.*?)\]') { $Matches[1] } else { '' }
         $curAlpha   = if ($props -match '\[gsm\.sim\.operator\.alpha\]:\s*\[(.*?)\]') { $Matches[1] } else { '' }
@@ -5138,8 +5148,16 @@ function Set-SimOperator {
         & $MumuPath adb -v $index -c "shell settings put global sim_operator `"$alpha`"" 2>&1 | Out-Null
         & $MumuPath adb -v $index -c "shell settings put global gsm_operator_alpha `"$alpha`"" 2>&1 | Out-Null
 
-        # Verify
-        $props2 = & $MumuPath adb -v $index -c "shell getprop" 2>$null | Out-String
+        # Verify (with timeout)
+        $props2 = ''
+        $verifyJob = Start-Job -ScriptBlock {
+            param($mp, $idx)
+            & $mp adb -v $idx -c 'shell getprop' 2>$null | Out-String
+        } -ArgumentList $MumuPath, $index
+        if (Wait-Job $verifyJob -Timeout 10) {
+            $props2 = Receive-Job $verifyJob
+        }
+        Remove-Job $verifyJob -Force -ErrorAction SilentlyContinue
         $newNum  = if ($props2 -match '\[gsm\.sim\.operator\.numeric\]:\s*\[(.*?)\]') { $Matches[1] } else { '' }
         $newMum  = if ($props2 -match '\[persist\.mumu\.mccmnc\]:\s*\[(.*?)\]') { $Matches[1] } else { '' }
         Write-Host ''
