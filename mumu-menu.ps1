@@ -831,6 +831,7 @@ function Show-Menu {
     Write-Host '  [DM] Spoof device model' -ForegroundColor Yellow
     Write-Host '  [SIM] Change SIM operator / country (MCC/MNC)' -ForegroundColor Yellow
     Write-Host '  [SIM+] View / clear auto-apply SIM config' -ForegroundColor Yellow
+    Write-Host '  [SC] SIM check (all properties)' -ForegroundColor Yellow
     Write-Host '  [AI] Set Android ID' -ForegroundColor Yellow
     Write-Host '  [DI] Random device IDs' -ForegroundColor Yellow
     Write-Host ''
@@ -5011,6 +5012,88 @@ function Set-DeviceModel {
     }
 }
 
+function Show-SimCheck {
+    $index = Get-InstanceIndex 'Select instance to check'
+    if (-not $index) { return }
+    Write-Host ''
+    Write-Host "Checking SIM properties on instance $index..." -ForegroundColor Cyan
+
+    # Get all properties with timeout
+    $props = ''
+    try {
+        $checkJob = Start-Job -ScriptBlock {
+            param($mp, $idx)
+            & $mp adb -v $idx -c 'shell getprop' 2>$null | Out-String
+        } -ArgumentList $MumuPath, $index
+        if (Wait-Job $checkJob -Timeout 10) {
+            $props = Receive-Job $checkJob
+        } else {
+            Write-Host '  ADB not ready — cannot check properties.' -ForegroundColor Yellow
+            Remove-Job $checkJob -Force -ErrorAction SilentlyContinue
+            return
+        }
+        Remove-Job $checkJob -Force -ErrorAction SilentlyContinue
+    } catch {
+        Write-Host "  Error: $($_.Exception.Message)" -ForegroundColor Red
+        return
+    }
+
+    if (-not $props) {
+        Write-Host '  No properties returned.' -ForegroundColor Yellow
+        return
+    }
+
+    # Define property groups
+    $groups = @(
+        @{ Title = 'SIM Operator (gsm.sim.*)'; Props = @('gsm.sim.operator.numeric', 'gsm.sim.operator.alpha', 'gsm.sim.operator.iso-country', 'gsm.sim.operator.isroaming', 'gsm.sim.state') }
+        @{ Title = 'Network Operator (gsm.operator.*)'; Props = @('gsm.operator.numeric', 'gsm.operator.alpha', 'gsm.operator.iso-country', 'gsm.operator.isroaming') }
+        @{ Title = 'MuMu Persist'; Props = @('persist.mumu.mccmnc') }
+        @{ Title = 'Settings Global'; Props = @('gsm.operator.alpha') }
+        @{ Title = 'Emulator Internal'; Props = @('debug.tracing.mcc', 'debug.tracing.mnc', 'ro.carrier', 'gsm.network.type', 'gsm.current.phone-type') }
+        @{ Title = 'Device Identity'; Props = @('ro.product.model', 'ro.product.brand', 'ro.product.manufacturer', 'ro.serialno') }
+    )
+
+    foreach ($group in $groups) {
+        Write-Host ''
+        Write-Host "  $($group.Title)" -ForegroundColor Cyan
+        Write-Host '  ' + ('-' * 40) -ForegroundColor DarkGray
+        foreach ($p in $group.Props) {
+            if ($props -match "\[$p\]:\s*\[(.*?)\]") {
+                $val = $Matches[1]
+                $color = 'White'
+                if ($p -eq 'persist.mumu.mccmnc' -or $p -eq 'debug.tracing.mcc') {
+                    $color = if ($val -and $val -ne '460') { 'Green' } else { 'Yellow' }
+                }
+                Write-Host "    $p = $val" -ForegroundColor $color
+            } else {
+                Write-Host "    $p = (not set)" -ForegroundColor DarkGray
+            }
+        }
+    }
+
+    # Summary
+    $mccmnc = ''
+    if ($props -match '\[gsm\.sim\.operator\.numeric\]:\s*\[(.*?)\]') { $mccmnc = $Matches[1] }
+    $alpha = ''
+    if ($props -match '\[gsm\.sim\.operator\.alpha\]:\s*\[(.*?)\]') { $alpha = $Matches[1] }
+    $persist = ''
+    if ($props -match '\[persist\.mumu\.mccmnc\]:\s*\[(.*?)\]') { $persist = $Matches[1] }
+    $traceMcc = ''
+    if ($props -match '\[debug\.tracing\.mcc\]:\s*\[(.*?)\]') { $traceMcc = $Matches[1] }
+
+    Write-Host ''
+    Write-Host '  ┌────────────────────────────────────────┐' -ForegroundColor Cyan
+    Write-Host '  │  SIM STATUS SUMMARY                    │' -ForegroundColor Cyan
+    Write-Host '  ├────────────────────────────────────────┤' -ForegroundColor Cyan
+    Write-Host "  │  Operator:  $(if ($alpha) { $alpha } else { '(not set)' })" -ForegroundColor White
+    Write-Host "  │  MCC/MNC:   $(if ($mccmnc) { $mccmnc } else { '(not set)' })" -ForegroundColor White
+    Write-Host "  │  Persist:   $(if ($persist) { $persist } else { '(not set)' })" -ForegroundColor $(if ($persist -eq $mccmnc) { 'Green' } else { 'Yellow' })
+    Write-Host "  │  Tracing:   $(if ($traceMcc) { $traceMcc } else { '(not set)' })" -ForegroundColor $(if ($traceMcc -and $traceMcc -ne '460') { 'Green' } else { 'Yellow' })
+    $match = ($mccmnc -eq $persist) -and ($persist -ne '')
+    Write-Host "  │  Consistent: $(if ($match) { 'YES' } else { 'NO — some values differ' })" -ForegroundColor $(if ($match) { 'Green' } else { 'Yellow' })
+    Write-Host '  └────────────────────────────────────────┘' -ForegroundColor Cyan
+}
+
 function Show-SimConfig {
     $cfg = Get-SimConfig
     $entries = @()
@@ -5702,6 +5785,7 @@ do {
         'dm' { Set-DeviceModel }
         'sim' { Set-SimOperator }
         'sim+' { Show-SimConfig }
+        'sc' { Show-SimCheck }
         'ai' { Set-AndroidId }
         'di' { Set-RandomDeviceIds }
         'ba' { Backup-EmulatorData }
