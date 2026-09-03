@@ -5027,7 +5027,9 @@ function Show-SimConfig {
         foreach ($key in $info.PSObject.Properties.Name) {
             $states[$key] = $info.$key.player_state
         }
-    } catch {}
+    } catch {
+        Write-Debug "Could not read instance states: $($_.Exception.Message)"
+    }
 
     Write-Host ''
     Write-Host '═══════════════════════════════════════════' -ForegroundColor Cyan
@@ -5470,12 +5472,12 @@ function Set-AndroidId {
     switch ($choice) {
         '1' { $newId = New-RandomAndroidId; Write-Host "  Generated: $newId" -ForegroundColor Green }
         '2' {
-            $input = (Read-Host 'Enter Android ID (16 hex chars)').Trim()
-            if (-not $input -or $input.Length -ne 16 -or $input -notmatch '^[0-9a-fA-F]+$') {
+            $userInput = (Read-Host 'Enter Android ID (16 hex chars)').Trim()
+            if (-not $userInput -or $userInput.Length -ne 16 -or $userInput -notmatch '^[0-9a-fA-F]+$') {
                 Write-Host '  Invalid format. Must be 16 hex characters.' -ForegroundColor Red
                 return
             }
-            $newId = $input.ToLower()
+            $newId = $userInput.ToLower()
         }
         '3' { $newId = '__null__'; Write-Host '  Will reset to default.' -ForegroundColor Yellow }
         default { Write-Host 'Cancelled.' -ForegroundColor Yellow; return }
@@ -5506,7 +5508,9 @@ function Set-AndroidId {
         } else {
             Write-Host "  Warning: expected $newId, got $verify" -ForegroundColor Yellow
         }
-    } catch {}
+    } catch {
+        Write-Debug "Verify Android ID failed: $($_.Exception.Message)"
+    }
 
     Write-Host ''
     Write-Host 'NOTE: Changes only take effect after emulator restart.' -ForegroundColor Yellow
