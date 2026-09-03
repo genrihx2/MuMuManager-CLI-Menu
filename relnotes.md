@@ -4,6 +4,18 @@
 
 ---
 
+## v1.17.0 (03.09.2026)
+
+### Что нового
+- **debug.tracing.mcc/mnc**: SIM-спуфинг теперь также устанавливает `debug.tracing.mcc` и `debug.tracing.mnc` — внутренние свойства эмулятора для сетевой трассировки. Это writable property, в отличие от `nemud.device.*` (которые не являются Android system properties и не доступны через setprop).
+
+### Исследование
+- `nemud.device.imsi`, `nemud.device.sim.serialno`, `nemud.device.line1num` — **НЕ** являются Android system properties, не доступны через `setprop`
+- `debug.tracing.mcc` — writable, контролирует внутренний MCC эмулятора (был 460, теперь ставится为目标 MCC)
+- `nemu-vcontrolmanager.dll` содержит захардкоженный список MCC/MNC (46000-46005) — бинарный патч невозможен
+
+---
+
 ## v1.16.0 (03.09.2026)
 
 ### Что нового
