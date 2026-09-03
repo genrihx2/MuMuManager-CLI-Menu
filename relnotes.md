@@ -4,6 +4,20 @@
 
 ---
 
+## v1.18.0 (03.09.2026)
+
+### Что нового
+- **[SC] SIM check**: новая опция для просмотра всех SIM-свойств в одной группированной таблице с сводкой состояния
+- **debug.tracing.mcc/mnc**: SIM-спуфинг теперь также устанавливает внутренние MCC/MNC эмулятора
+- **ADB wait loop**: Set-SimOperator и Apply-SavedSim теперь ждут до 30с пока ADB будет онлайн перед установкой свойств
+- **Shell escaping**: символы &, ;, |, $ в именах операторов заменяются на _ для надёжной работы в shell
+
+### Исправления
+- **PSScriptAnalyzer**: подавлены предупреждения PSUseApprovedVerbs и PSUseDeclaredVarsMoreThanAssignments на уровне скрипта
+- **bootstrap-update.ps1**: добавлен Bad credentials fallback для API-запросов и скачивания файлов
+
+---
+
 ## v1.17.1 (03.09.2026)
 
 ### Исправления
