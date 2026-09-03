@@ -336,7 +336,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.13.30
+Script version: 1.13.31
 MuMu version: 6.5.2.0
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
