@@ -78,15 +78,16 @@ function Apply-SavedSim {
     $cc     = $entry.cc;   $alpha = $entry.name
     if (-not $mcc -or -not $mnc -or -not $cc) { return }
     $numeric = "$mcc$mnc"
+    $alphaShell = $alpha.Replace('&', '\&').Replace(';', '\;').Replace('|', '\|').Replace('$', '\$')
     try {
         & $MumuPath adb -v $Index -c "shell setprop persist.mumu.mccmnc $numeric" 2>&1 | Out-Null
         @(
             "setprop gsm.sim.operator.numeric $numeric"
             "setprop gsm.sim.operator.iso-country $cc"
-            "setprop gsm.sim.operator.alpha `"$alpha`""
+            "setprop gsm.sim.operator.alpha `"$alphaShell`""
             "setprop gsm.operator.numeric $numeric"
             "setprop gsm.operator.iso-country $cc"
-            "setprop gsm.operator.alpha `"$alpha`""
+            "setprop gsm.operator.alpha `"$alphaShell`""
             "setprop gsm.sim.operator.isroaming false"
             "setprop gsm.operator.isroaming false"
         ) | ForEach-Object {
@@ -94,9 +95,9 @@ function Apply-SavedSim {
         }
         & $MumuPath adb -v $Index -c "shell settings put global mobile_operator $numeric" 2>&1 | Out-Null
         & $MumuPath adb -v $Index -c "shell settings put global operator_numeric $numeric" 2>&1 | Out-Null
-        & $MumuPath adb -v $Index -c "shell settings put global operator_alpha `"$alpha`"" 2>&1 | Out-Null
-        & $MumuPath adb -v $Index -c "shell settings put global sim_operator `"$alpha`"" 2>&1 | Out-Null
-        & $MumuPath adb -v $Index -c "shell settings put global gsm_operator_alpha `"$alpha`"" 2>&1 | Out-Null
+        & $MumuPath adb -v $Index -c "shell settings put global operator_alpha `"$alphaShell`"" 2>&1 | Out-Null
+        & $MumuPath adb -v $Index -c "shell settings put global sim_operator `"$alphaShell`"" 2>&1 | Out-Null
+        & $MumuPath adb -v $Index -c "shell settings put global gsm_operator_alpha `"$alphaShell`"" 2>&1 | Out-Null
         Write-Host "  [$Index] SIM auto-applied: $alpha ($numeric)" -ForegroundColor DarkGreen
     } catch {
         Write-Host "  [$Index] SIM auto-apply failed: $($_.Exception.Message)" -ForegroundColor DarkYellow
@@ -5300,6 +5301,8 @@ function Set-SimOperator {
     $numeric = "$($sel.MCC)$($sel.MNC)"
     $cc = $sel.CC.ToLower()
     $alpha = $sel.Name
+    # Escape shell-special characters for Android sh (e.g. AT&T -> AT\&T)
+    $alphaShell = $alpha.Replace('&', '\&').Replace(';', '\;').Replace('|', '\|').Replace('$', '\$')
     Write-Host ''
     Write-Host '  ┌─────────────────────────────────────────┐' -ForegroundColor Cyan
     Write-Host '  │  SIM CHANGE SUMMARY                     │' -ForegroundColor Cyan
@@ -5325,10 +5328,10 @@ function Set-SimOperator {
         $cmds = @(
             "setprop gsm.sim.operator.numeric $numeric"
             "setprop gsm.sim.operator.iso-country $cc"
-            "setprop gsm.sim.operator.alpha `"$alpha`""
+            "setprop gsm.sim.operator.alpha `"$alphaShell`""
             "setprop gsm.operator.numeric $numeric"
             "setprop gsm.operator.iso-country $cc"
-            "setprop gsm.operator.alpha `"$alpha`""
+            "setprop gsm.operator.alpha `"$alphaShell`""
             "setprop gsm.sim.operator.isroaming false"
             "setprop gsm.operator.isroaming false"
         )
@@ -5339,9 +5342,9 @@ function Set-SimOperator {
         # 3) Settings global — carrier ID / operator name (persists across shell restarts)
         & $MumuPath adb -v $index -c "shell settings put global mobile_operator $numeric" 2>&1 | Out-Null
         & $MumuPath adb -v $index -c "shell settings put global operator_numeric $numeric" 2>&1 | Out-Null
-        & $MumuPath adb -v $index -c "shell settings put global operator_alpha `"$alpha`"" 2>&1 | Out-Null
-        & $MumuPath adb -v $index -c "shell settings put global sim_operator `"$alpha`"" 2>&1 | Out-Null
-        & $MumuPath adb -v $index -c "shell settings put global gsm_operator_alpha `"$alpha`"" 2>&1 | Out-Null
+        & $MumuPath adb -v $index -c "shell settings put global operator_alpha `"$alphaShell`"" 2>&1 | Out-Null
+        & $MumuPath adb -v $index -c "shell settings put global sim_operator `"$alphaShell`"" 2>&1 | Out-Null
+        & $MumuPath adb -v $index -c "shell settings put global gsm_operator_alpha `"$alphaShell`"" 2>&1 | Out-Null
 
         # Verify (with timeout)
         $props2 = ''
