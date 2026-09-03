@@ -63,7 +63,7 @@ if ($token) {
 }
 Write-Host ''
 
-# ── Helper: curl GET with retry ──────────────────────────────────────
+# ── Helper: curl GET with retry and auth fallback ───────────────────
 function Invoke-CurlGet {
     param([string]$Url)
     for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
@@ -72,7 +72,18 @@ function Invoke-CurlGet {
         $curlCmd += " `"$Url`" 2>nul"
         $result = & cmd /c $curlCmd
         if ($LASTEXITCODE -eq 0 -and $result) {
-            return ($result | Out-String)
+            $resultStr = $result | Out-String
+            # Bad credentials fallback — retry without token
+            if ($token -and $resultStr -match '"message"\s*:\s*"Bad credentials"') {
+                Write-Host "  Token rejected — retrying without auth..." -ForegroundColor Yellow
+                $noAuthCmd = "curl.exe -sS --fail --connect-timeout 30 --max-time 30 -H `"Accept: application/vnd.github.v3+json`" `"$Url`" 2>nul"
+                $result2 = & cmd /c $noAuthCmd
+                if ($LASTEXITCODE -eq 0 -and $result2) {
+                    return ($result2 | Out-String)
+                }
+                return $null
+            }
+            return $resultStr
         }
         if ($attempt -lt $maxRetries) {
             Write-Host "  Attempt $attempt failed - retrying in ${retryDelay}s..." -ForegroundColor Yellow
@@ -82,7 +93,7 @@ function Invoke-CurlGet {
     return $null
 }
 
-# ── Helper: Download file with curl ──────────────────────────────────
+# ── Helper: Download file with curl and auth fallback ───────────────
 function Download-File {
     param([string]$Url, [string]$Dest)
     for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
@@ -93,20 +104,36 @@ function Download-File {
         & cmd /c $dlCmd | Out-Null
         if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $tmpFile) -and (Get-Item -LiteralPath $tmpFile).Length -gt 0) {
             $size = (Get-Item -LiteralPath $tmpFile).Length
-            # Validate: detect JSON metadata instead of raw content
+            # Validate: detect JSON error or metadata instead of raw content
             try {
-                $head = [System.IO.File]::ReadAllBytes($tmpFile)[0..2]
-                $text = [System.Text.Encoding]::UTF8.GetString($head)
-                if ($text.TrimStart().StartsWith('{')) {
-                    $body = Get-Content -LiteralPath $tmpFile -Raw -ErrorAction SilentlyContinue
-                    if ($body -match '"name"|"sha"|"encoding"|"message"|"_links"') {
-                        Remove-Item -LiteralPath $tmpFile -Force
-                        Write-Host "  Error: Server returned JSON metadata instead of raw file" -ForegroundColor Red
-                        return 0
+                $body = [System.IO.File]::ReadAllText($tmpFile)
+                if ($body -match '"message"\s*:\s*"Bad credentials"') {
+                    Remove-Item -LiteralPath $tmpFile -Force
+                    if ($token) {
+                        Write-Host "  Token rejected — retrying without auth..." -ForegroundColor Yellow
+                        $token = $null
+                        continue
                     }
+                    return 0
+                }
+                if ($body -match '"message"\s*:\s*"') {
+                    $errMsg = if ($body -match '"message"\s*:\s*"([^"]+)"') { $Matches[1] } else { 'API error' }
+                    Remove-Item -LiteralPath $tmpFile -Force
+                    Write-Host "  Error: $errMsg" -ForegroundColor Red
+                    return 0
+                }
+                if ($body -match '"encoding"\s*:\s*"base64"') {
+                    Remove-Item -LiteralPath $tmpFile -Force
+                    Write-Host "  Error: Received JSON metadata instead of raw file" -ForegroundColor Red
+                    return 0
+                }
+                if ($body -match '"name"\s*:\s*"' -and $body -match '"_links"') {
+                    Remove-Item -LiteralPath $tmpFile -Force
+                    Write-Host "  Error: Received JSON metadata instead of raw file" -ForegroundColor Red
+                    return 0
                 }
             } catch {
-                Write-Debug "JSON validation failed: $($_.Exception.Message)"
+                Write-Debug "Validation failed: $($_.Exception.Message)"
             }
             Move-Item -LiteralPath $tmpFile -Destination $Dest -Force
             return $size
