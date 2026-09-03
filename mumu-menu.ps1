@@ -98,6 +98,9 @@ function Apply-SavedSim {
         & $MumuPath adb -v $Index -c "shell settings put global operator_alpha `"$alphaShell`"" 2>&1 | Out-Null
         & $MumuPath adb -v $Index -c "shell settings put global sim_operator `"$alphaShell`"" 2>&1 | Out-Null
         & $MumuPath adb -v $Index -c "shell settings put global gsm_operator_alpha `"$alphaShell`"" 2>&1 | Out-Null
+        # nemud.device.* properties (read by nemu-vcontrolmanager.dll)
+        $imsi = "$numeric$(('0..9' -replace '.', { Get-Random -Minimum 0 -Maximum 10 })[0..14] -join '')"
+        & $MumuPath adb -v $Index -c "shell setprop nemud.device.imsi $imsi" 2>&1 | Out-Null
         Write-Host "  [$Index] SIM auto-applied: $alpha ($numeric)" -ForegroundColor DarkGreen
     } catch {
         Write-Host "  [$Index] SIM auto-apply failed: $($_.Exception.Message)" -ForegroundColor DarkYellow
@@ -5350,6 +5353,12 @@ function Set-SimOperator {
             & $MumuPath adb -v $index -c "shell $c" 2>&1 | Out-Null
         }
 
+        # 3) MuMu nemud.device.* properties (read by nemu-vcontrolmanager.dll)
+        $imsi = "$numeric$(('0..9' -replace '.', { Get-Random -Minimum 0 -Maximum 10 })[0..14] -join '')"
+        & $MumuPath adb -v $index -c "shell setprop nemud.device.imsi $imsi" 2>&1 | Out-Null
+        & $MumuPath adb -v $index -c "shell setprop nemud.device.sim.serialno 8901$numeric$(('0..9' -replace '.', { Get-Random -Minimum 0 -Maximum 10 })[0..13] -join '')" 2>&1 | Out-Null
+        Write-Host "  Set nemud.device.imsi = $imsi" -ForegroundColor DarkGray
+
         # 3) Settings global — carrier ID / operator name (persists across shell restarts)
         & $MumuPath adb -v $index -c "shell settings put global mobile_operator $numeric" 2>&1 | Out-Null
         & $MumuPath adb -v $index -c "shell settings put global operator_numeric $numeric" 2>&1 | Out-Null
@@ -5396,6 +5405,7 @@ function Set-SimOperator {
         Write-Host '  │  ✔ gsm.sim.operator.* (getprop)' -ForegroundColor Green
         Write-Host '  │  ✔ persist.mumu.mccmnc' -ForegroundColor Green
         Write-Host '  │  ✔ settings global operator_*' -ForegroundColor Green
+        Write-Host '  │  ✔ nemud.device.imsi (DLL reads this)' -ForegroundColor Green
         Write-Host '  │  Apps that read these props (TikTok, etc.) see spoofed values' -ForegroundColor DarkGray
         Write-Host '  │' -ForegroundColor Yellow
         Write-Host '  │  WHAT THIS SPOOF DOES NOT COVER:' -ForegroundColor Yellow
