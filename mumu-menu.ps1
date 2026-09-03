@@ -93,7 +93,7 @@ function Apply-SavedSim {
     $cc     = $entry.cc;   $alpha = $entry.name
     if (-not $mcc -or -not $mnc -or -not $cc) { return }
     $numeric = "$mcc$mnc"
-    $alphaShell = $alpha.Replace('&', '\&').Replace(';', '\;').Replace('|', '\|').Replace('$', '\$')
+    $alphaShell = $alpha.Replace('&', '_').Replace(';', '_').Replace('|', '_').Replace('$', '_')
     # Wait for ADB to be online
     if (-not (Wait-ADBOnline -Index $Index -MaxWait 30)) {
         Write-Host "  [$Index] ADB offline — skipping SIM auto-apply" -ForegroundColor DarkGray
@@ -5421,7 +5421,7 @@ function Set-SimOperator {
     $cc = $sel.CC.ToLower()
     $alpha = $sel.Name
     # Escape shell-special characters for Android sh (e.g. AT&T -> AT\&T)
-    $alphaShell = $alpha.Replace('&', '\&').Replace(';', '\;').Replace('|', '\|').Replace('$', '\$')
+    $alphaShell = $alpha.Replace('&', '_').Replace(';', '_').Replace('|', '_').Replace('$', '_')
     Write-Host ''
     Write-Host '  ┌─────────────────────────────────────────┐' -ForegroundColor Cyan
     Write-Host '  │  SIM CHANGE SUMMARY                     │' -ForegroundColor Cyan
