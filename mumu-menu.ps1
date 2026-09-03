@@ -5056,7 +5056,7 @@ function Show-SimCheck {
     foreach ($group in $groups) {
         Write-Host ''
         Write-Host "  $($group.Title)" -ForegroundColor Cyan
-        Write-Host '  ' + ('-' * 40) -ForegroundColor DarkGray
+        Write-Host ('  ' + ('-' * 40)) -ForegroundColor DarkGray
         foreach ($p in $group.Props) {
             if ($props -match "\[$p\]:\s*\[(.*?)\]") {
                 $val = $Matches[1]
