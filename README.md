@@ -161,6 +161,7 @@ cd MuMuManager-CLI-Menu
   [DM] Spoof device model
   [SIM] Change SIM operator / country (MCC/MNC)
   [SIM+] View / clear auto-apply SIM config
+  [SC] SIM check (all properties)
   [AI] Set Android ID
   [DI] Random device IDs
 
