@@ -4,6 +4,13 @@
 
 ---
 
+## v1.14.5 (03.09.2026)
+
+### Улучшения
+- **Предупреждение о SIM-спуфинге**: после установки SIM-оператора отображается таблица с описанием того, что спуфинг покрывает (gsm.sim.*, persist.mumu.mccmnc, settings global) и что не покрывает (Android Settings → SIM cards, telephony registry, networkCountryIso)
+
+---
+
 ## v1.14.4 (03.09.2026)
 
 ### Улучшения
