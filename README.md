@@ -375,6 +375,9 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Что нового
 
+### v1.18.2 (04.09.2026)
+- **SECURITY.md**: обновлена политика безопасности — VT API ключ, сетевые эндпоинты, sigma false positive #7, secure installation steps
+
 ### v1.18.1 (04.09.2026)
 - **[VF] VirusTotal Upload file**: загрузка произвольного файла на VirusTotal через API с проверкой существующих результатов, поллингом анализа и отображением вердикта
 - **Сводная таблица изменений**: добавлена для быстрого обзора всех версий
@@ -426,6 +429,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.18.2 | 04.09.2026 | SECURITY.md: VT API, сетевые эндпоинты, sigma #7, secure installation |
 | v1.18.1 | 04.09.2026 | `[VF]` загрузка файлов на VirusTotal, сводная таблица, PSScriptAnalyzer #534 fix |
 | v1.18.0 | 04.09.2026 | `[SC]` проверка SIM, debug.tracing.mcc/mnc, ADB wait loop, shell escaping, PSScriptAnalyzer suppress, bootstrap Bad credentials fallback |
 | v1.13.29 | 31.08.2026 | `[VT]` VirusTotal scan, `[VK]` API ключ, DPAPI fix, JSON валидация, AI-сканер ответ, удалён Cloudsmith |
