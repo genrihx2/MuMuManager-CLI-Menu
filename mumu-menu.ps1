@@ -608,8 +608,24 @@ function Update-FromGitHub {
         $failed = 0
 
         # Download files with progress bar (curl.exe -# shows speed/size)
-        $dlHeaders = @()
-        if ($GitHubToken) { $dlHeaders += @('-H', "Authorization: token $GitHubToken") }
+        # Helper: download a file via curl with token fallback and rate-limit retry
+        function _DlFile([string]$Url, [string]$Out) {
+            $baseArgs = @('-s', '--retry', '3', '--retry-delay', '3', '--connect-timeout', '30', '--max-time', '120',
+                          '-L', '-H', 'Accept: application/vnd.github.v3.raw', '-o', $Out)
+            if ($GitHubToken) {
+                $allArgs = $baseArgs + @('-H', "Authorization: token $GitHubToken", $Url)
+                & curl.exe @allArgs 2>$null
+                if ($LASTEXITCODE -ne 0 -or -not (Test-Path $Out)) {
+                    # curl failed — could be rate limit; try without token
+                    Remove-Item $Out -Force -ErrorAction SilentlyContinue
+                    $noAuthArgs = $baseArgs + @($Url)
+                    & curl.exe @noAuthArgs 2>$null
+                }
+            } else {
+                $noAuthArgs = $baseArgs + @($Url)
+                & curl.exe @noAuthArgs 2>$null
+            }
+        }
 
         foreach ($f in $files) {
             $dest = Join-Path $ScriptDir $f
@@ -617,13 +633,9 @@ function Update-FromGitHub {
             Write-Host "  Downloading $f..." -ForegroundColor Yellow
             try {
                 $tmpDl = Join-Path $env:TEMP ('mumu_dl_' + [Guid]::NewGuid().ToString('N') + '.tmp')
-                $dlCmd = 'curl.exe -s --retry 3 --retry-delay 3 --connect-timeout 30 --max-time 120 -L -H "Accept: application/vnd.github.v3.raw" -o "' + $tmpDl + '"'
-                if ($GitHubToken) { $dlCmd += ' -H "Authorization: token ' + $GitHubToken + '"' }
-                $dlCmd += ' "' + $rawUrl + '"'
-                $dlOutput = & cmd /c $dlCmd 2>&1 | Out-String
+                _DlFile $rawUrl $tmpDl
                 if ($LASTEXITCODE -ne 0 -or -not (Test-Path $tmpDl)) {
-                    $detail = if ($dlOutput) { $dlOutput.Trim() } else { "exit code $LASTEXITCODE" }
-                    throw "curl failed: $detail"
+                    throw "curl failed (exit $LASTEXITCODE)"
                 }
                 $bytes = [System.IO.File]::ReadAllBytes($tmpDl)
                 Remove-Item $tmpDl -Force -ErrorAction SilentlyContinue
@@ -633,14 +645,23 @@ function Update-FromGitHub {
                 if ($GitHubToken -and $text -match '"message"\s*:\s*"Bad credentials"') {
                     Write-Host '    Token rejected — retrying without auth...' -ForegroundColor Yellow
                     $tmpDl2 = Join-Path $env:TEMP ('mumu_dl_' + [Guid]::NewGuid().ToString('N') + '.tmp')
-                    $dlCmd2 = 'curl.exe -s --retry 3 --retry-delay 3 --connect-timeout 30 --max-time 120 -L -H "Accept: application/vnd.github.v3.raw" -o "' + $tmpDl2 + '" "' + $rawUrl + '"'
-                    & cmd /c $dlCmd2 2>&1 | Out-Null
+                    _DlFile $rawUrl $tmpDl2
                     if ($LASTEXITCODE -eq 0 -and (Test-Path $tmpDl2)) {
                         $bytes = [System.IO.File]::ReadAllBytes($tmpDl2)
                         Remove-Item $tmpDl2 -Force -ErrorAction SilentlyContinue
                         if ($bytes -and $bytes.Length -gt 0) {
                             $text = [System.Text.Encoding]::UTF8.GetString($bytes)
                         }
+                    }
+                }
+                # Rate limit detection — suggest adding/updating token
+                if ($text -match 'rate limit exceeded') {
+                    if (-not $GitHubToken) {
+                        Write-Host '    GitHub API rate limit (60/hr without token).' -ForegroundColor Yellow
+                        Write-Host '    Add a token: [K] Update GitHub token (stored DPAPI-encrypted).' -ForegroundColor Yellow
+                    } else {
+                        Write-Host '    Rate limit exceeded even with token — token may be invalid.' -ForegroundColor Yellow
+                        Write-Host '    Re-save: [K] Update GitHub token.' -ForegroundColor Yellow
                     }
                 }
                 # Validate response is raw content, not JSON metadata
