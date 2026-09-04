@@ -377,8 +377,12 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ### v1.18.0 (04.09.2026)
 - **[VF] VirusTotal Upload file**: загрузка произвольного файла на VirusTotal через API с проверкой существующих результатов, поллингом анализа и отображением вердикта
-- **SIM check**: `[SC]` группированная таблица всех SIM-свойств
+- **SIM check**: `[SC]` группированная таблица всех SIM-свойств с сводкой состояния
 - **debug.tracing.mcc/mnc**: SIM-спуфинг теперь также устанавливает внутренние MCC/MNC эмулятора
+- **ADB wait loop**: `Set-SimOperator` и `Apply-SavedSim` теперь ждут до 30с пока ADB будет онлайн перед установкой свойств
+- **Shell escaping**: символы `&`, `;`, `|`, `$` в именах операторов заменяются на `_` для надёжной работы в shell
+- **PSScriptAnalyzer**: подавлены предупреждения `PSUseApprovedVerbs` и `PSUseDeclaredVarsMoreThanAssignments` на уровне скрипта
+- **bootstrap-update.ps1**: добавлен Bad credentials fallback для API-запросов и скачивания файлов
 
 ### v1.13.29 (31.08.2026)
 - **VirusTotal интеграция**: `[VT]` сканирование файлов через VT API, `[VK]` управление API ключом (DPAPI-шифрование)
@@ -413,6 +417,17 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 - `.version` синхронизирован с релизным тегом
 
 Полный журнал изменений: [relnotes.md](relnotes.md)
+
+### Сводная таблица изменений
+
+| Версия | Дата | Изменения |
+|--------|------|-----------|
+| v1.18.0 | 04.09.2026 | `[VF]` загрузка файлов на VirusTotal, `[SC]` проверка SIM, debug.tracing.mcc/mnc, ADB wait loop, shell escaping, PSScriptAnalyzer suppress, bootstrap Bad credentials fallback |
+| v1.13.29 | 31.08.2026 | `[VT]` VirusTotal scan, `[VK]` API ключ, DPAPI fix, JSON валидация, AI-сканер ответ, удалён Cloudsmith |
+| v1.13.28 | 30.08.2026 | `[AF]` ADB файлы, `[AS]` скриншоты, `[AH]` ADB shell, быстрая проверка обновлений, прогресс-бар загрузки |
+| v1.13.27 | 29.08.2026 | Исправлены `$scriptVer` и `$InstalledVersion`, прогресс-бар `[U]`, защита от краша при запуске |
+| v1.13.26 | 26.08.2026 | Consent-гейты для `[O]` и `[9]`, session-consent для `[A]` ADB shell |
+| v1.13.25 | 26.08.2026 | `SECURITY.md` (RU/EN), PSScriptAnalyzer → SARIF → GitHub Code Scanning |
 
 ---
 
