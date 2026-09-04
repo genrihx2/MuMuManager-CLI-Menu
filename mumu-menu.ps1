@@ -209,11 +209,11 @@ function Invoke-GitHubGet {
     }
     function _Fetch([bool]$UseToken) {
         $cmdArgs = @($curlBase)
-        if ($UseToken -and $GitHubToken) { $cmdArgs += @('-H', "Authorization: token $GitHubToken") }
+        if ($UseToken -and $GitHubToken -and $GitHubToken.Length -gt 0) { $cmdArgs += @('-H', "Authorization: token $GitHubToken") }
         $tmpFile = Join-Path $env:TEMP ('gh_resp_' + [Guid]::NewGuid().ToString('N') + '.json')
         $cmdArgs += @('-o', $tmpFile)
         & curl.exe @cmdArgs $Url 2>$null
-        if ($LASTEXITCODE -eq 0 -and (Test-Path $tmpFile)) {
+        if (Test-Path $tmpFile) {
             $bytes = [System.IO.File]::ReadAllBytes($tmpFile)
             Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue
             if ($bytes -and $bytes.Length -gt 0) {
@@ -612,7 +612,7 @@ function Update-FromGitHub {
         function _DlFile([string]$Url, [string]$Out) {
             $baseArgs = @('-s', '--retry', '3', '--retry-delay', '3', '--connect-timeout', '30', '--max-time', '120',
                           '-L', '-H', 'Accept: application/vnd.github.v3.raw', '-o', $Out)
-            if ($GitHubToken) {
+            if ($GitHubToken -and $GitHubToken.Length -gt 0) {
                 $allArgs = $baseArgs + @('-H', "Authorization: token $GitHubToken", $Url)
                 & curl.exe @allArgs 2>$null
                 if ($LASTEXITCODE -ne 0 -or -not (Test-Path $Out)) {
@@ -634,8 +634,8 @@ function Update-FromGitHub {
             try {
                 $tmpDl = Join-Path $env:TEMP ('mumu_dl_' + [Guid]::NewGuid().ToString('N') + '.tmp')
                 _DlFile $rawUrl $tmpDl
-                if ($LASTEXITCODE -ne 0 -or -not (Test-Path $tmpDl)) {
-                    throw "curl failed (exit $LASTEXITCODE)"
+                if (-not (Test-Path $tmpDl)) {
+                    throw 'download failed — file not created'
                 }
                 $bytes = [System.IO.File]::ReadAllBytes($tmpDl)
                 Remove-Item $tmpDl -Force -ErrorAction SilentlyContinue
@@ -646,7 +646,7 @@ function Update-FromGitHub {
                     Write-Host '    Token rejected — retrying without auth...' -ForegroundColor Yellow
                     $tmpDl2 = Join-Path $env:TEMP ('mumu_dl_' + [Guid]::NewGuid().ToString('N') + '.tmp')
                     _DlFile $rawUrl $tmpDl2
-                    if ($LASTEXITCODE -eq 0 -and (Test-Path $tmpDl2)) {
+                    if (Test-Path $tmpDl2) {
                         $bytes = [System.IO.File]::ReadAllBytes($tmpDl2)
                         Remove-Item $tmpDl2 -Force -ErrorAction SilentlyContinue
                         if ($bytes -and $bytes.Length -gt 0) {
