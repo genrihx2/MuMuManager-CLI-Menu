@@ -2355,7 +2355,7 @@ function Upload-VirusTotal {
         }
         Write-Host "  https://www.virustotal.com/gui/file/$hash" -ForegroundColor DarkGray
     } catch {
-        # Not yet on VT
+        Write-Debug "VT file lookup: $($_.Exception.Message)"
     }
 
     # Upload
