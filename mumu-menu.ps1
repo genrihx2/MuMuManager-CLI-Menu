@@ -2168,13 +2168,86 @@ function Scan-VirusTotal {
 
     # Sub-menu
     Write-Host '  [1] Scan files' -ForegroundColor Yellow
+    Write-Host '  [5] Upload file to VT' -ForegroundColor Yellow
     Write-Host '  [2] Save API key' -ForegroundColor Yellow
     Write-Host '  [3] Delete API key' -ForegroundColor Yellow
     Write-Host '  [4] Open VT in browser' -ForegroundColor Yellow
     Write-Host ''
-    $action = Read-Host 'Select (1/2/3/4)'
+    $action = Read-Host 'Select (1/2/3/4/5)'
 
     switch ($action) {
+        '5' {
+            if (-not $apiKey) {
+                Write-Host ''
+                Write-Host '  No API key configured. Select [2] to save your key.' -ForegroundColor Yellow
+                return
+            }
+            Write-Host ''
+            $uploadPath = (Read-Host '  Enter full path to file').Trim()
+            if (-not $uploadPath) { Write-Host '  Cancelled.' -ForegroundColor Yellow; return }
+            $uploadPath = $uploadPath.Trim('"').Trim("'")
+            if (-not (Test-Path -LiteralPath $uploadPath)) {
+                Write-Host '  File not found: $uploadPath' -ForegroundColor Red
+                return
+            }
+            $uploadHash = (Get-FileHash -Path $uploadPath -Algorithm SHA256).Hash.ToLower()
+            $uploadSize = (Get-Item -LiteralPath $uploadPath).Length
+            $uploadName = [IO.Path]::GetFileName($uploadPath)
+            Write-Host ''
+            Write-Host "  File:     $uploadName" -ForegroundColor White
+            Write-Host "  Size:     $([Math]::Round($uploadSize/1KB, 1)) KB" -ForegroundColor DarkGray
+            Write-Host "  SHA256:   $($uploadHash.Substring(0,16))..." -ForegroundColor DarkGray
+            Write-Host ''
+
+            # Check if already on VT
+            $alreadyScanned = $false
+            try {
+                $checkUrl = "https://www.virustotal.com/api/v3/files/$uploadHash"
+                $checkResult = Invoke-RestMethod -Uri $checkUrl -Headers @{ 'x-apikey' = $apiKey } -ErrorAction Stop
+                $alreadyScanned = $true
+                $st = $checkResult.data.attributes.last_analysis_stats
+                Write-Host "  Already on VT: $($st.malicious) malicious, $($st.suspicious) suspicious / $($st.malicious + $st.suspicious + $st.undetected + $st.harmless)" -ForegroundColor Cyan
+            } catch {
+                # Not on VT yet
+            }
+
+            Write-Host "  Uploading $uploadName..." -ForegroundColor Yellow -NoNewline
+            try {
+                $boundary = [Guid]::NewGuid().ToString()
+                $fileBytes = [IO.File]::ReadAllBytes($uploadPath)
+                $hdr = [Text.Encoding]::UTF8.GetBytes("--$boundary`r`nContent-Disposition: form-data; name=`"file`"; filename=`"$uploadName`"`r`nContent-Type: application/octet-stream`r`n`r`n")
+                $ftr = [Text.Encoding]::UTF8.GetBytes("`r`n--$boundary--`r`n")
+                $body = New-Object byte[] ($hdr.Length + $fileBytes.Length + $ftr.Length)
+                [Buffer]::BlockCopy($hdr, 0, $body, 0, $hdr.Length)
+                [Buffer]::BlockCopy($fileBytes, 0, $body, $hdr.Length, $fileBytes.Length)
+                [Buffer]::BlockCopy($ftr, 0, $body, $hdr.Length + $fileBytes.Length, $ftr.Length)
+                $null = Invoke-RestMethod -Uri 'https://www.virustotal.com/api/v3/files' -Method Post -Headers @{ 'x-apikey' = $apiKey } -ContentType "multipart/form-data; boundary=$boundary" -Body $body -ErrorAction Stop
+                Write-Host ' uploaded!' -ForegroundColor Green
+                Write-Host "  Analysis: https://www.virustotal.com/gui/file/$uploadHash" -ForegroundColor Cyan
+                Write-Host ''
+                Write-Host '  Waiting 10s for analysis...' -ForegroundColor DarkGray
+                Start-Sleep -Seconds 10
+                try {
+                    $resultUrl = "https://www.virustotal.com/api/v3/files/$uploadHash"
+                    $result = Invoke-RestMethod -Uri $resultUrl -Headers @{ 'x-apikey' = $apiKey } -ErrorAction Stop
+                    $rstats = $result.data.attributes.last_analysis_stats
+                    $rm = $rstats.malicious; $rs = $rstats.suspicious; $rt = $rm + $rs + $rstats.undetected + $rstats.harmless
+                    Write-Host ''
+                    Write-Host '  --- Analysis Result ---' -ForegroundColor Cyan
+                    Write-Host "  Malicious:   $rm" -ForegroundColor $(if ($rm -gt 0) { 'Red' } else { 'Green' })
+                    Write-Host "  Suspicious:  $rs" -ForegroundColor $(if ($rs -gt 0) { 'Yellow' } else { 'Green' })
+                    Write-Host "  Undetected:  $($rstats.undetected)" -ForegroundColor DarkGray
+                    Write-Host "  Harmless:    $($rstats.harmless)" -ForegroundColor DarkGray
+                    Write-Host "  Total:       $rt" -ForegroundColor White
+                } catch {
+                    Write-Host '  Results not ready yet — check the link above.' -ForegroundColor DarkGray
+                }
+            } catch {
+                Write-Host ' FAILED' -ForegroundColor Red
+                Write-Host "  Error: $($_.Exception.Message)" -ForegroundColor Red
+            }
+            return
+        }
         '2' {
             Write-Host ''
             if ($apiKey) {
