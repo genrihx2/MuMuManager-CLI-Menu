@@ -155,6 +155,7 @@ cd MuMuManager-CLI-Menu
   [TN] Network test
   [TD] Dependencies test
   [VT] VirusTotal scan
+  [VF] VirusTotal Upload file
   [UW] Fix Unicode / encoding
 
   --- Spoofing ---
@@ -373,6 +374,11 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 Для приватных репозиториев сохраните токен через пункт меню `[K] Update GitHub token` — он проверяется и хранится **зашифрованным через Windows DPAPI** в `.github-token.dpapi`; плейнтекстовый `.github-token` мигрирует в зашифрованное хранилище автоматически при первом запуске.
 
 ## Что нового
+
+### v1.18.0 (04.09.2026)
+- **[VF] VirusTotal Upload file**: загрузка произвольного файла на VirusTotal через API с проверкой существующих результатов, поллингом анализа и отображением вердикта
+- **SIM check**: `[SC]` группированная таблица всех SIM-свойств
+- **debug.tracing.mcc/mnc**: SIM-спуфинг теперь также устанавливает внутренние MCC/MNC эмулятора
 
 ### v1.13.29 (31.08.2026)
 - **VirusTotal интеграция**: `[VT]` сканирование файлов через VT API, `[VK]` управление API ключом (DPAPI-шифрование)
