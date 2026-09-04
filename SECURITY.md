@@ -12,7 +12,7 @@
 
 | Версия | Поддержка |
 | --- | --- |
-| v1.13.27+ (см. [Releases](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest)) | ✅ |
+| v1.18.1+ (см. [Releases](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest)) | ✅ |
 | предыдущие версии | ❌ |
 
 ### Как сообщить об уязвимости
@@ -53,15 +53,16 @@
 │  │  Encrypt │  │ CodeSign   │  │ [AS] screencap/record     │  │
 │  └──────────┘  └────────────┘  │ [AH] interactive shell    │  │
 │                                 └───────────────────────────┘  │
-│  ┌────────────────────────────────────────────────────────┐    │
-│  │                   MuMuManager.exe                      │    │
-│  │          (Official Netease CLI tool)                   │    │
-│  │  clone · launch · quit · modify · adb · backup        │    │
-│  └────────────────────────────────────────────────────────┘    │
+│  ┌──────────┐  ┌──────────────────────────────────────────┐    │
+│  │ VT API   │  │           MuMuManager.exe                │    │
+│  │ Key      │  │      (Official Netease CLI tool)         │    │
+│  │ DPAPI    │  │  clone · launch · quit · modify · adb   │    │
+│  └──────────┘  └──────────────────────────────────────────┘    │
 │                                                                │
 │  ┌────────────────────────────────────────────────────────┐    │
-│  │                  GitHub API (curl.exe)                  │    │
-│  │        api.github.com · raw.githubusercontent.com     │    │
+│  │              GitHub API + VirusTotal API                │    │
+│  │  api.github.com · raw.githubusercontent.com           │    │
+│  │  www.virustotal.com (file upload, scan results)        │    │
 │  └────────────────────────────────────────────────────────┘    │
 └────────────────────────────────────────────────────────────────┘
 ```
@@ -70,7 +71,8 @@
 
 | Угроза | Митигация | Уровень |
 |--------|-----------|---------|
-| Токен в открытом виде | DPAPI-шифрование (CurrentUser), `.gitignore` для `.github-token` | 🔴 Критический |
+| Токен GitHub в открытом виде | DPAPI-шифрование (CurrentUser), `.gitignore` для `.github-token` | 🔴 Критический |
+| Токен VT API в открытом виде | DPAPI-шифрование (CurrentUser) в `.vt-apikey.dpapi`, `.gitignore` для `.vt-apikey*` | 🔴 Критический |
 | Подмена скрипта | Authenticode-подпись через `[CRT]`, проверка SHA256 при обновлении | 🔴 Критический |
 | MITM при обновлении | HTTPS через `api.github.com` / `raw.githubusercontent.com`, проверка содержимого | 🟠 Высокий |
 | Инъекция команд | Параметризованные вызовы `MuMuManager.exe`, escaping аргументов | 🔴 Критический |
@@ -87,10 +89,13 @@
 |-------|----------|---------------|----------------|
 | `api.github.com` | HTTPS (TLS 1.2+) | Проверка версий, загрузка обновлений, валидация токена | Bearer token (опционально) |
 | `raw.githubusercontent.com` | HTTPS (TLS 1.2+) | Загрузка файлов обновления | Bearer token (опционально) |
+| `www.virustotal.com` | HTTPS (TLS 1.2+) | `[VF]` загрузка файлов, проверка результатов сканирования | `x-apikey` (VT API key) |
 
 **Не используются:** `Invoke-WebRequest`, `Invoke-RestMethod`, WebSocket, SMTP, FTP, DNS-over-HTTPS.
 
-### Токен безопасности
+### Токены безопасности
+
+#### GitHub Token
 
 **Хранение:**
 - Windows DPAPI (scope: CurrentUser) в `.github-token.dpapi`
@@ -108,6 +113,24 @@
 - Маскированный вывод: `ghp_***3L0a9i`
 - Проверка scope и типа при отображении
 - Автоматическое обнаружение и миграция legacy-токенов
+
+#### VirusTotal API Key
+
+**Хранение:**
+- Windows DPAPI (scope: CurrentUser) в `.vt-apikey.dpapi`
+- `.gitignore` исключает `.vt-apikey*` из репозитория
+- Маскированный вывод: `abcd****`
+
+**Использование:**
+- `[VF]` загрузка файлов на VirusTotal
+- `[VT]` сканирование файлов через VT API
+- Проверка результатов ранее загруженных файлов
+- Никогда не логируется и не передаётся третьим лицам
+- Можно удалить через `[VK] Set VirusTotal API key → [3] Delete`
+
+**Ограничения:**
+- VT Free API: 4 запроса/мин, лимит 32 MB на файл
+- Ключ хранится локально, не синхронизируется между машинами
 
 ### Код-подпись
 
@@ -181,8 +204,9 @@ Set-ExecutionPolicy -Scope LocalMachine -ExecutionPolicy RemoteSigned
 2. **Проверьте** цифровую подпись: `[V] Version info` → статус подписи
 3. **Настройте** ExecutionPolicy: `RemoteSigned` (см. выше)
 4. **Создайте** сертификат: `[CRT] Create certificate` → подпишите скрипт
-5. **Настройте** токен: `[K] Update GitHub token` (DPAPI-шифрование)
-6. **Проверьте** зависимости: `[TD] Dependencies test`
+5. **Настройте** GitHub токен: `[K] Update GitHub token` (DPAPI-шифрование)
+6. **Настройте** VT API ключ (опционально): `[VK] Set VirusTotal API key` для `[VF]`/`[VT]`
+7. **Проверьте** зависимости: `[TD] Dependencies test`
 
 ### Тестирование безопасности
 
@@ -210,9 +234,16 @@ Set-ExecutionPolicy -Scope LocalMachine -ExecutionPolicy RemoteSigned
 - `[DI]` Random device IDs — генерация случайных идентификаторов
 - `[SIM]` Change SIM operator — смена MCC/MNC для TikTok и др.
 
-**Хранение токена:**
+**Хранение токенов:**
 - Windows DPAPI (CurrentUser) — расшифровка возможна только от имени того же пользователя Windows
+- GitHub token: `.github-token.dpapi` — проверка версий, загрузка обновлений
+- VT API key: `.vt-apikey.dpapi` — загрузка файлов и сканирование через `[VF]`/`[VT]`
 - Legacy `.github-token` автоматически мигрируется с secure wipe
+
+**VirusTotal интеграция:**
+- `[VF]` Upload file: загрузка файла на VirusTotal для анализа (лимит 32 MB, free API)
+- `[VT]` Scan: проверка файлов проекта через VT API, загрузка если ещё не сканировались
+- `[VK]` Управление API ключом: DPAPI-шифрование, маскированный вывод, явное действие пользователя
 
 **Обновления:**
 - Read-only проверка при старте (HTTPS к `api.github.com`) — загрузка только через `[U]`
@@ -228,6 +259,7 @@ Set-ExecutionPolicy -Scope LocalMachine -ExecutionPolicy RemoteSigned
 - **#4** (`New Root/CA Certificate`): `[CRT]` добавляет self-signed CodeSigning сертификат в Trusted Root — **явное действие пользователя**, **не** тихая установка
 - **#5** (`ADB Shell Commands`): `adb shell` / `adb push` / `adb pull` для управления эмулятором — **явное действие пользователя**, **без** выполнения кода на хост-машине
 - **#6** (`Device Model Modification`): `MuMuManager.exe modify` изменяет модель устройства для **собственных** инстансов — функция приватности, **не** подмена чужих устройств
+- **#7** (`File Upload to External Service`): `[VF] VirusTotal Upload` — загрузка файла на VirusTotal для анализа, **явное действие пользователя**, файл上传 только на `www.virustotal.com`, лимит 32 MB
 
 ### Благодарности
 
@@ -243,7 +275,7 @@ Security fixes are released only for the latest release.
 
 | Version | Supported |
 | --- | --- |
-| v1.13.27+ ([Releases](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest)) | ✅ |
+| v1.18.1+ ([Releases](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest)) | ✅ |
 | older | ❌ |
 
 ### Reporting a Vulnerability
@@ -282,6 +314,7 @@ The script connects **only** to:
 |--------|----------|---------|------|
 | `api.github.com` | HTTPS (TLS 1.2+) | Version check, updates, token validation | Bearer token (optional) |
 | `raw.githubusercontent.com` | HTTPS (TLS 1.2+) | Update file download | Bearer token (optional) |
+| `www.virustotal.com` | HTTPS (TLS 1.2+) | `[VF]` file upload, scan result lookup | `x-apikey` (VT API key) |
 
 **Not used:** `Invoke-WebRequest`, `Invoke-RestMethod`, WebSocket, SMTP, FTP, DNS-over-HTTPS.
 
@@ -289,7 +322,8 @@ The script connects **only** to:
 
 | Threat | Mitigation | Severity |
 |--------|------------|----------|
-| Token leakage | DPAPI encryption, `.gitignore`, masked output, secure wipe | 🔴 Critical |
+| GitHub token leakage | DPAPI encryption, `.gitignore`, masked output, secure wipe | 🔴 Critical |
+| VT API key leakage | DPAPI encryption (CurrentUser), `.gitignore`, masked output | 🔴 Critical |
 | Script tampering | Authenticode signing, SHA256 verification | 🔴 Critical |
 | MITM on update | HTTPS only, GitHub API only, content validation | 🟠 High |
 | Command injection | Parameterized MuMuManager calls with escaping | 🔴 Critical |
@@ -322,8 +356,9 @@ Set-ExecutionPolicy -Scope LocalMachine -ExecutionPolicy RemoteSigned
 2. **Verify** digital signature: `[V] Version info` → signature status
 3. **Set** ExecutionPolicy: `RemoteSigned` (see above)
 4. **Create** certificate: `[CRT] Create certificate` → sign the script
-5. **Configure** token: `[K] Update GitHub token` (DPAPI-encrypted)
-6. **Test** dependencies: `[TD] Dependencies test`
+5. **Configure** GitHub token: `[K] Update GitHub token` (DPAPI-encrypted)
+6. **Configure** VT API key (optional): `[VK] Set VirusTotal API key` for `[VF]`/`[VT]`
+7. **Test** dependencies: `[TD] Dependencies test`
 
 ### Security Testing
 
@@ -350,8 +385,14 @@ Documented features are not vulnerabilities (see "Note for AV analysts" in READM
 - `[DM]` Spoof device model, `[DI]` Random device IDs, `[SIM]` Change SIM operator
 
 **Token storage:**
-- DPAPI-protected token storage (CurrentUser scope) — decryption only by the same Windows user
+- DPAPI-protected GitHub token (CurrentUser scope) — decryption only by the same Windows user
+- DPAPI-protected VT API key (CurrentUser scope) — used for `[VF]` upload and `[VT]` scan
 - Legacy `.github-token` automatically migrated with secure wipe
+
+**VirusTotal integration:**
+- `[VF]` Upload file: user-initiated file upload to VirusTotal for analysis (32 MB limit, free API)
+- `[VT]` Scan: check project files against VT database, upload if not yet scanned
+- `[VK]` API key management: DPAPI-encrypted storage, masked display, explicit user action
 
 **Updates:**
 - Read-only update check at startup over HTTPS
@@ -367,6 +408,7 @@ Documented features are not vulnerabilities (see "Note for AV analysts" in READM
 - **#4** (`New Root/CA Certificate`): `[CRT]` adds self-signed CodeSigning cert to Trusted Root — explicit user action, not silent install
 - **#5** (`ADB Shell Commands`): `adb shell` / `adb push` / `adb pull` for MuMu emulator — explicit user action, no host code execution
 - **#6** (`Device Model Modification`): `MuMuManager.exe modify` for user's own instances — privacy feature, not impersonation
+- **#7** (`File Upload to External Service`): `[VF] VirusTotal Upload` — user-initiated file upload to VirusTotal for analysis, upload only to `www.virustotal.com`, 32 MB limit
 
 ### AI/LLM Scanner Response
 
