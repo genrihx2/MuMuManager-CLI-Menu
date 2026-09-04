@@ -375,8 +375,12 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Что нового
 
-### v1.18.0 (04.09.2026)
+### v1.18.1 (04.09.2026)
 - **[VF] VirusTotal Upload file**: загрузка произвольного файла на VirusTotal через API с проверкой существующих результатов, поллингом анализа и отображением вердикта
+- **Сводная таблица изменений**: добавлена для быстрого обзора всех версий
+- **PSScriptAnalyzer #534**: заменён пустой catch block в Upload-VirusTotal на Write-Debug
+
+### v1.18.0 (04.09.2026)
 - **SIM check**: `[SC]` группированная таблица всех SIM-свойств с сводкой состояния
 - **debug.tracing.mcc/mnc**: SIM-спуфинг теперь также устанавливает внутренние MCC/MNC эмулятора
 - **ADB wait loop**: `Set-SimOperator` и `Apply-SavedSim` теперь ждут до 30с пока ADB будет онлайн перед установкой свойств
@@ -422,7 +426,8 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
-| v1.18.0 | 04.09.2026 | `[VF]` загрузка файлов на VirusTotal, `[SC]` проверка SIM, debug.tracing.mcc/mnc, ADB wait loop, shell escaping, PSScriptAnalyzer suppress, bootstrap Bad credentials fallback |
+| v1.18.1 | 04.09.2026 | `[VF]` загрузка файлов на VirusTotal, сводная таблица, PSScriptAnalyzer #534 fix |
+| v1.18.0 | 04.09.2026 | `[SC]` проверка SIM, debug.tracing.mcc/mnc, ADB wait loop, shell escaping, PSScriptAnalyzer suppress, bootstrap Bad credentials fallback |
 | v1.13.29 | 31.08.2026 | `[VT]` VirusTotal scan, `[VK]` API ключ, DPAPI fix, JSON валидация, AI-сканер ответ, удалён Cloudsmith |
 | v1.13.28 | 30.08.2026 | `[AF]` ADB файлы, `[AS]` скриншоты, `[AH]` ADB shell, быстрая проверка обновлений, прогресс-бар загрузки |
 | v1.13.27 | 29.08.2026 | Исправлены `$scriptVer` и `$InstalledVersion`, прогресс-бар `[U]`, защита от краша при запуске |
