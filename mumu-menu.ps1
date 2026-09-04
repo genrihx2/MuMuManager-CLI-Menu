@@ -2209,6 +2209,7 @@ function Scan-VirusTotal {
                 Write-Host '  Saved ENCRYPTED via DPAPI (.vt-apikey.dpapi)' -ForegroundColor Green
                 $apiKey = $newKey
             }
+            break
         }
         '3' {
             if (Remove-VTApiKey) {
