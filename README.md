@@ -375,6 +375,9 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Что нового
 
+### v1.18.5 (04.09.2026)
+- **Fix download helpers**: убраны stale $LASTEXITCODE проверки, добавлена проверка длины токена
+
 ### v1.18.4 (04.09.2026)
 - **Fix VT menu**: опция [2] Save API key больше не показывает "Invalid selection"
 
@@ -435,6 +438,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.18.5 | 04.09.2026 | Fix download helpers: stale $LASTEXITCODE, token length check |
 | v1.18.4 | 04.09.2026 | Fix VT меню: [2] Save API key «Invalid selection» fix |
 | v1.18.3 | 04.09.2026 | Fix update download: token в загрузках, rate limit detection |
 | v1.18.2 | 04.09.2026 | SECURITY.md: VT API, сетевые эндпоинты, sigma #7, secure installation |
