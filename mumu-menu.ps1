@@ -242,6 +242,8 @@ $PossiblePaths = @(
     'C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe',
     'C:\Program Files (x86)\Netease\MuMuPlayer\nx_main\MuMuManager.exe',
     "$env:LOCALAPPDATA\Netease\MuMuPlayer\nx_main\MuMuManager.exe",
+    "$env:ProgramFiles\Netease\MuMuPlayer\shell\MuMuManager.exe",
+    "$env:ProgramFiles(x86)\Netease\MuMuPlayer\shell\MuMuManager.exe",
     "$env:ProgramFiles\Netease\MuMuPlayer-12.0\shell\MuMuManager.exe",
     "$env:ProgramFiles\Netease\MuMuPlayer-12.1\shell\MuMuManager.exe"
 )
@@ -254,7 +256,12 @@ if (-not $MumuPath) {
         $reg = Get-ItemProperty 'HKLM:\SOFTWARE\Netease\MuMuPlayer' -ErrorAction SilentlyContinue
         if ($reg.InstallPath) {
             $regPath = Join-Path $reg.InstallPath 'nx_main\MuMuManager.exe'
-            if (Test-Path $regPath) { $MumuPath = $regPath }
+            if (Test-Path $regPath) {
+                $MumuPath = $regPath
+            } else {
+                $regPath = Join-Path $reg.InstallPath 'shell\MuMuManager.exe'
+                if (Test-Path $regPath) { $MumuPath = $regPath }
+            }
         }
     } catch {
         Write-Warning "Registry lookup failed: $($_.Exception.Message)"
