@@ -4,6 +4,13 @@
 
 ---
 
+## v1.18.6 (04.09.2026)
+
+### Исправления
+- **Auto-detect MuMuManager.exe path**: добавлены generic `shell\` пути (`$env:ProgramFiles\Netease\MuMuPlayer\shell\` и `$env:ProgramFiles(x86)\...`) для автоопределения; registry fallback теперь проверяет и `nx_main\`, и `shell\` поддиректории
+
+---
+
 ## v1.18.5 (04.09.2026)
 
 ### Исправления

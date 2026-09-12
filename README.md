@@ -375,6 +375,9 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Что нового
 
+### v1.18.6 (04.09.2026)
+- **Auto-detect MuMuManager.exe path**: добавлены generic `shell\` пути для автоопределения MuMuManager.exe, registry fallback проверяет и `nx_main\`, и `shell\`
+
 ### v1.18.5 (04.09.2026)
 - **Fix download helpers**: убраны stale $LASTEXITCODE проверки, добавлена проверка длины токена
 
@@ -438,6 +441,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.18.6 | 04.09.2026 | Auto-detect MuMuManager.exe: generic shell\ paths + registry shell fallback |
 | v1.18.5 | 04.09.2026 | Fix download helpers: stale $LASTEXITCODE, token length check |
 | v1.18.4 | 04.09.2026 | Fix VT меню: [2] Save API key «Invalid selection» fix |
 | v1.18.3 | 04.09.2026 | Fix update download: token в загрузках, rate limit detection |
