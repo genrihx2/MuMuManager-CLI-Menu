@@ -28,6 +28,38 @@
 #           testing on the USER'S OWN emulator instances. Do not use for any
 #           unlawful purpose.
 # Launch:   .\mumu-menu.ps1
+#
+# ========================================================================
+# SIGMA RULE EXCLUSIONS (Documentation for SOC/AV Analysts)
+# ========================================================================
+# The following Sigma rules trigger on legitimate admin functionality.
+# All actions are LOCAL, USER-INITIATED, and REQUIRE EXPLICIT CONSENT.
+#
+# Rule: Suspicious Curl.EXE Download (Florian Roth / Nextron)
+# Trigger: curl.exe -# downloads update from api.github.com
+# Context: ONLY from tagged GitHub Releases (genrihx2/MuMuManager-CLI-Menu)
+#          User must select [U] menu + confirm. SHA-256 verified.
+#          No raw.githubusercontent.com. Text files only (.ps1/.md).
+#
+# Rule: Unsigned Image Loaded Into LSASS (Teymur Kheirkhabarov)
+# Trigger: False positive / noise from PowerShell host monitoring
+# Context: Script does NOT interact with LSASS or load images.
+#
+# Rule: Usage Of Web Request Commands (James Pemberton)
+# Trigger: Invoke-WebRequest / curl.exe for GitHub API
+# Context: Read-only version check on startup. Downloads ONLY on
+#          explicit user action [U] + confirmation over HTTPS.
+#
+# Rule: New Root or CA or AuthRoot Certificate to Store (frack113)
+# Trigger: [CRT] Create/sign certificate menu option
+# Context: USER-INITIATED ONLY. Creates self-signed CodeSigning cert
+#          to sign THIS script. Not automatic. Requires explicit menu selection.
+#
+# Rule: Automated Collection Command PowerShell (frack113)
+# Trigger: Queries emulator status via MuMuManager.exe
+# Context: Uses OFFICIAL Netease CLI to manage LOCAL emulators.
+#          No system enumeration, no exfiltration, no credential access.
+# ========================================================================
 
 if ($PSScriptRoot) { $ScriptDir = $PSScriptRoot } else { $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path }
 if (-not $ScriptDir) { $ScriptDir = $PWD.Path }
@@ -186,7 +218,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.18.0'
+$scriptVer = '1.18.6'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
