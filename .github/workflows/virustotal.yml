@@ -101,12 +101,7 @@ jobs:
             echo "  Attempt $i: status=$STATUS"
 
             if [ "$STATUS" = "completed" ]; then
-              STATS=$(echo "$RESPONSE" | python3 -c "
-import sys,json
-d = json.load(sys.stdin)
-s = d.get('data',{}).get('attributes',{}).get('stats',{})
-print(json.dumps(s))
-")
+              STATS=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps(d.get('data',{}).get('attributes',{}).get('stats',{})))")
               echo "stats=$STATS" >> $GITHUB_OUTPUT
               echo "status=completed" >> $GITHUB_OUTPUT
 
