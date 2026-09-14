@@ -260,6 +260,7 @@ Set-ExecutionPolicy -Scope LocalMachine -ExecutionPolicy RemoteSigned
 - **#5** (`ADB Shell Commands`): `adb shell` / `adb push` / `adb pull` для управления эмулятором — **явное действие пользователя**, **без** выполнения кода на хост-машине
 - **#6** (`Device Model Modification`): `MuMuManager.exe modify` изменяет модель устройства для **собственных** инстансов — функция приватности, **не** подмена чужих устройств
 - **#7** (`File Upload to External Service`): `[VF] VirusTotal Upload` — загрузка файла на VirusTotal для анализа, **явное действие пользователя**, файл上传 только на `www.virustotal.com`, лимит 32 MB
+- **#8** (`NTFS Alternate Data Stream`): до v1.18.8 MIME-литерал в коде загрузки VT давал подстроку «-stream», которая вместе с `Set-Content` в том же скриптблоке попадала под правило; **скрипт никогда не читает и не пишет ADS**. С v1.18.9 загрузка идёт через `curl.exe` multipart, литерал удалён
 
 ### Благодарности
 
@@ -409,6 +410,7 @@ Documented features are not vulnerabilities (see "Note for AV analysts" in READM
 - **#5** (`ADB Shell Commands`): `adb shell` / `adb push` / `adb pull` for MuMu emulator — explicit user action, no host code execution
 - **#6** (`Device Model Modification`): `MuMuManager.exe modify` for user's own instances — privacy feature, not impersonation
 - **#7** (`File Upload to External Service`): `[VF] VirusTotal Upload` — user-initiated file upload to VirusTotal for analysis, upload only to `www.virustotal.com`, 32 MB limit
+- **#8** (`NTFS Alternate Data Stream`): before v1.18.8 a MIME literal in the VT upload code provided the "-stream" substring that, combined with `Set-Content` in the same script block, matched the rule; **the script never reads or writes ADS**. Since v1.18.9 uploads go through `curl.exe` multipart and the literal is removed
 
 ### AI/LLM Scanner Response
 

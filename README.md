@@ -340,7 +340,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.18.8
+Script version: 1.18.9
 MuMu version: 6.5.2.0
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -375,6 +375,10 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 Для приватных репозиториев сохраните токен через пункт меню `[K] Update GitHub token` — он проверяется и хранится **зашифрованным через Windows DPAPI** в `.github-token.dpapi`; плейнтекстовый `.github-token` мигрирует в зашифрованное хранилище автоматически при первом запуске.
 
 ## Что нового
+
+### v1.18.9 (14.09.2026)
+- **Sigma #8 (NTFS Alternate Data Stream)**: MIME-литерал в коде загрузки VT давал подстроку «-stream» в том же скриптблоке, где есть `Set-Content` — правило срабатывало ложно; загрузка переведена на `curl.exe` multipart, литерал удалён. Скрипт никогда не работал с ADS
+- Фикс не меняет поведение: те же эндпоинты, тот же DPAPI-ключ, та же логика `Set-Content` — только корректный multipart через `curl.exe`
 
 ### v1.18.8 (14.09.2026)
 - **Fix bootstrap-update**: JSON-детектор ложно срабатывал на raw `mumu-menu.ps1` («Received JSON metadata instead of raw file») — raw-скрипт содержит литералы `"name":` и `_links` в собственных API-проверках; теперь JSON-проверки применяются только когда тело ответа начинается с `{`
@@ -452,6 +456,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.18.9 | 14.09.2026 | Sigma #8 (NTFS ADS): убран MIME-литерал «-stream», VT-загрузка через curl.exe multipart |
 | v1.18.8 | 14.09.2026 | Fix bootstrap-update/[U]: JSON-детектор самоматчился на raw ps1; .version только при полном успехе |
 | v1.18.7 | 14.09.2026 | Release pipeline: tag-driven CI, VT-скан релиза в CI, actionlint/shellcheck, RELEASE-RUNBOOK |
 | v1.18.6 | 04.09.2026 | Auto-detect MuMuManager.exe: generic shell\ paths + registry shell fallback |

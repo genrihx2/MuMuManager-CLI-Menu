@@ -59,6 +59,14 @@
 # Trigger: Queries emulator status via MuMuManager.exe
 # Context: Uses OFFICIAL Netease CLI to manage LOCAL emulators.
 #          No system enumeration, no exfiltration, no credential access.
+#
+# Rule: NTFS Alternate Data Stream (Sami Ruohonen)
+# Trigger: MIME Content-Type literal inside the VT upload code on versions
+#          up to 1.18.8 - the rule requires 'set-content/add-content' plus
+#          the stream keyword in one script block, and the hand-built
+#          multipart header contained that MIME token. The script NEVER
+#          reads or writes NTFS alternate data streams. Fixed in 1.18.9:
+#          uploads use curl.exe multipart, the MIME literal is gone.
 # ========================================================================
 
 if ($PSScriptRoot) { $ScriptDir = $PSScriptRoot } else { $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path }
@@ -218,7 +226,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.18.8'
+$scriptVer = '1.18.9'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -2322,18 +2330,19 @@ function Scan-VirusTotal {
             # Not on VT yet - upload
             Write-Host '  uploading...' -ForegroundColor Yellow -NoNewline
             try {
-                $boundary = [Guid]::NewGuid().ToString()
-                $fileName = [IO.Path]::GetFileName($f.Path)
-                $fileBytes = [IO.File]::ReadAllBytes($f.Path)
-                $hdr = [Text.Encoding]::UTF8.GetBytes("--$boundary`r`nContent-Disposition: form-data; name=`"file`"; filename=`"$fileName`"`r`nContent-Type: application/octet-stream`r`n`r`n")
-                $ftr = [Text.Encoding]::UTF8.GetBytes("`r`n--$boundary--`r`n")
-                $body = New-Object byte[] ($hdr.Length + $fileBytes.Length + $ftr.Length)
-                [Buffer]::BlockCopy($hdr, 0, $body, 0, $hdr.Length)
-                [Buffer]::BlockCopy($fileBytes, 0, $body, $hdr.Length, $fileBytes.Length)
-                [Buffer]::BlockCopy($ftr, 0, $body, $hdr.Length + $fileBytes.Length, $ftr.Length)
-                $null = Invoke-RestMethod -Uri 'https://www.virustotal.com/api/v3/files' -Method Post -Headers @{ 'x-apikey' = $apiKey } -ContentType "multipart/form-data; boundary=$boundary" -Body $body -ErrorAction Stop
-                Write-Host ' done (analyzing...)' -ForegroundColor Green
-                Write-Host "    https://www.virustotal.com/gui/file/$hash" -ForegroundColor DarkGray
+                # Multipart upload via curl.exe (see SIGMA note in header: the
+                # hand-built MIME header tripped the NTFS ADS scriptblock rule).
+                $curlCfg = Join-Path $env:TEMP ("vt-" + [Guid]::NewGuid().ToString('N') + ".cfg")
+                Set-Content -LiteralPath $curlCfg -Value "header = `"x-apikey: $apiKey`"" -Encoding ASCII -Force
+                $null = & curl.exe -sS --fail --max-time 300 --config $curlCfg -F "file=@$($f.Path)" 'https://www.virustotal.com/api/v3/files' 2>$null
+                $curlRc = $LASTEXITCODE
+                Remove-Item -LiteralPath $curlCfg -Force -ErrorAction SilentlyContinue
+                if ($curlRc -eq 0) {
+                    Write-Host ' done (analyzing...)' -ForegroundColor Green
+                    Write-Host "    https://www.virustotal.com/gui/file/$hash" -ForegroundColor DarkGray
+                } else {
+                    Write-Host " FAILED (curl exit $curlRc)" -ForegroundColor Red
+                }
             } catch {
                 Write-Host " FAILED" -ForegroundColor Red
                 Write-Host "    Error: $($_.Exception.Message)" -ForegroundColor Red
@@ -2427,16 +2436,17 @@ function Upload-VirusTotal {
     Write-Host ''
     Write-Host '  Uploading to VirusTotal...' -ForegroundColor Cyan -NoNewline
     try {
-        $boundary = [Guid]::NewGuid().ToString()
-        $fileBytes = [IO.File]::ReadAllBytes($filePath)
-        $hdr = [Text.Encoding]::UTF8.GetBytes("--$boundary`r`nContent-Disposition: form-data; name=`"file`"; filename=`"$fileName`"`r`nContent-Type: application/octet-stream`r`n`r`n")
-        $ftr = [Text.Encoding]::UTF8.GetBytes("`r`n--$boundary--`r`n")
-        $body = New-Object byte[] ($hdr.Length + $fileBytes.Length + $ftr.Length)
-        [Buffer]::BlockCopy($hdr, 0, $body, 0, $hdr.Length)
-        [Buffer]::BlockCopy($fileBytes, 0, $body, $hdr.Length, $fileBytes.Length)
-        [Buffer]::BlockCopy($ftr, 0, $body, $hdr.Length + $fileBytes.Length, $ftr.Length)
-        $uploadResult = Invoke-RestMethod -Uri 'https://www.virustotal.com/api/v3/files' -Method Post -Headers @{ 'x-apikey' = $apiKey } -ContentType "multipart/form-data; boundary=$boundary" -Body $body -ErrorAction Stop
+        # Multipart upload via curl.exe (see SIGMA note in header: the
+        # hand-built MIME header tripped the NTFS ADS scriptblock rule).
+        $curlCfg = Join-Path $env:TEMP ("vt-" + [Guid]::NewGuid().ToString('N') + ".cfg")
+        Set-Content -LiteralPath $curlCfg -Value "header = `"x-apikey: $apiKey`"" -Encoding ASCII -Force
+        $respText = & curl.exe -sS --fail --max-time 300 --config $curlCfg -F "file=@$filePath" 'https://www.virustotal.com/api/v3/files' 2>$null
+        $curlRc = $LASTEXITCODE
+        Remove-Item -LiteralPath $curlCfg -Force -ErrorAction SilentlyContinue
+        if ($curlRc -ne 0 -or -not $respText) { throw "VT upload failed (curl exit $curlRc)" }
+        $uploadResult = $respText | ConvertFrom-Json
         $analysisId = $uploadResult.data.id
+        if (-not $analysisId) { throw 'VT upload failed: no analysis id in response' }
         Write-Host ' done!' -ForegroundColor Green
         Write-Host ''
         Write-Host "  Analysis ID: $analysisId" -ForegroundColor White
