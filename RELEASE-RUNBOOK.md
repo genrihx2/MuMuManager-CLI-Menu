@@ -156,6 +156,24 @@ v1.18.6 теперь содержит `MuMuManager-CLI-Menu-v1.18.6.zip` + `.zip
 - Пользователи проверяют загрузки привычно:
   `sha256sum -c MuMuManager-CLI-Menu-vX.Y.Z.zip.sha256`.
 
+## Регрессионные тесты JSON-детектора
+
+`tests/test-bootstrap-update.ps1` защищает фикс v1.18.8: JSON-проверки в
+`bootstrap-update.ps1` не должны срабатывать на raw `mumu-menu.ps1`
+(самоматч на литералах `"name":` / `_links` в собственном коде скрипта).
+Тест извлекает **настоящую** функцию `Download-File` из
+`bootstrap-update.ps1` через AST (без копии логики, которая могла бы
+разойтись с продакшеном) и проверяет оба направления:
+
+- T1: загрузка `mumu-menu.ps1` через реальный GitHub contents API — файл
+  принимается, парсится как PowerShell и содержит ожидаемые маркеры;
+- T2: GitHub-подобный JSON-метадата-ответ — отвергается;
+- T3: ответ «Bad credentials» при настроенном токене — отвергается.
+
+Локально: `powershell -ExecutionPolicy Bypass -File tests\test-bootstrap-update.ps1`.
+В CI: `.github/workflows/tests.yml` (windows-latest) — запускается при
+изменениях `bootstrap-update.ps1`, `mumu-menu.ps1`, `tests/**`.
+
 ---
 
 ## English summary
