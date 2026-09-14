@@ -946,7 +946,11 @@ function Show-UpdateJournal {
         default { @($lines | Select-Object -Last 20) }
     }
     if ($selected.Count -eq 0) {
-        Write-Host '  No matching entries.' -ForegroundColor Yellow
+        if ($mode -eq '3') {
+            Write-Host ("  No errors recorded - all {0} journal events are successes (update-ok / version-fix / updater-refresh / self-apply)." -f $lines.Count) -ForegroundColor Green
+        } else {
+            Write-Host '  No matching entries.' -ForegroundColor Yellow
+        }
         return
     }
 
