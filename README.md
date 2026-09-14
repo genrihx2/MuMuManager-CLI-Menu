@@ -459,11 +459,15 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Безопасность
 
-- **VirusTotal (v1.13.29): 0 malicious / 0 suspicious** — сканы от 31.08.2026
+- **VirusTotal (v1.18.6): 0 malicious / 0 suspicious** — ZIP, `mumu-menu.ps1`, `SKILL.md`, сканы от 14.09.2026
+- CI автоматически сканирует релизный ZIP после публикации (`virustotal.yml`, секрет `VT_API_KEY`)
 - Встроенное сканирование: `[VT] VirusTotal scan` — проверяет файлы через VT API
 
 | Файл | SHA-256 | Движков | Отчёт |
 |------|---------|---------|-------|
+| релизный `MuMuManager-CLI-Menu-v1.18.6.zip` | `42a5bb22d3a1…50cc` | 66 | [отчёт](https://www.virustotal.com/gui/file/42a5bb22d3a1a2bdac5487fe011fb5d9389b2a1d0e0378743c375ef5a62350cc) |
+| `mumu-menu.ps1` (v1.18.6) | `cff9e179648c…6664` | 60 | [отчёт](https://www.virustotal.com/gui/file/cff9e179648cc4395d3b0da8373f5b07f8361a0c339880f3f03508ba3f006664) |
+| `SKILL.md` (v1.18.6) | `ce1f9c9ae730…7382` | 61 | [отчёт](https://www.virustotal.com/gui/file/ce1f9c9ae730afba9eece06e8c38a8164faf645f64b3caea433d2a8e80367382) |
 | `mumu-menu.ps1` (v1.13.29) | `874542b1ae26…d251` | 62 | [отчёт](https://www.virustotal.com/gui/file/874542b1ae264d7dd543ef44670b98ff2eb0b021375151e8d22c8a83d037d251) |
 | `bootstrap-update.ps1` | `2d4430c15c7b…be30` | 60 | [отчёт](https://www.virustotal.com/gui/file/2d4430c15c7b90b486d6a5225a6728889b39acdaaeb917f0d8fc73084243be30) |
 | `mumu-menu.ps1` (v1.13.26) | `318132d22881…f8c` | 75 | [отчёт](https://www.virustotal.com/gui/file/318132d2288194413cd559b100309f6900d6cbe6ee29df8cb0f80e4020299f8c) |

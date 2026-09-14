@@ -79,8 +79,15 @@ them. Either leave them as tag-only history, delete the empty releases, or —
 cleanest — cut a fresh corrected release (e.g. v1.18.7) via Path 1 and let
 v1.18.6+ be the verified line.
 
-After backfilling, re-run the VirusTotal workflow per release (it works again
-after the YAML fix in `2532b1b`) and update the VT table in README.
+**VirusTotal scanning (done 2026-09-14):** the repo previously had no
+`VT_API_KEY` secret, so every VT run since v1.18.0 skipped its upload
+silently ("succeeded" without scanning). The secret is now configured,
+workflow run #205 scanned the v1.18.6 release ZIP successfully, and future
+releases are scanned automatically on publish. Verdicts (0 malicious /
+0 suspicious) are in the README's «Безопасность» section. Caveat: releases
+published by the Release workflow's `GITHUB_TOKEN` do not auto-trigger the VT
+workflow (GitHub suppresses `GITHUB_TOKEN`-triggered workflows) — dispatch it
+manually: Actions → VirusTotal scan → Run workflow → tag = version.
 
 ## Landing fixes upstream as an outside contributor (fork + PR)
 
