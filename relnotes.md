@@ -4,6 +4,15 @@
 
 ---
 
+## v1.18.7 (14.09.2026)
+
+### Сборка и безопасность
+- **Release pipeline**: tag-driven Release workflow — ZIP и SHA256 собираются строго из содержимого тега (`git archive`), проверка соответствия `$scriptVer` тегу, идемпотентные перезапуски
+- **VirusTotal в CI**: автоматический скан релизного ZIP после публикации (секрет `VT_API_KEY`); исправлен невалидный YAML в `virustotal.yml` (workflow не мог запуститься)
+- **CI lint**: actionlint + shellcheck по всем workflow (`lint.yml`); VT-вердикты v1.18.6 — 0 malicious / 0 suspicious (ZIP, ps1, SKILL.md); добавлен `RELEASE-RUNBOOK.md`
+
+---
+
 ## v1.18.6 (04.09.2026)
 
 ### Исправления
