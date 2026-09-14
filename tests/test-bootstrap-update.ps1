@@ -215,6 +215,82 @@ try {
     $noop = Apply-PendingUpdater -Dir $uDir -From 'v1.19.2' -To 'v1.19.2'
     Assert-True -Name 'no .new present - apply is a no-op (returns false)' -Condition ($noop -eq $false) -Detail "returned: $noop"
 
+    # ── T7: drift check (#18) - Test-InstallationIntegrity vs a stubbed API ──
+    Write-Host 'T7: drift check must report OK / DRIFT / MISSING per file' -ForegroundColor Cyan
+    $menuPath = Join-Path $root 'mumu-menu.ps1'
+    if (-not (Test-Path -LiteralPath $menuPath -PathType Leaf)) { throw 'mumu-menu.ps1 not found' }
+    $mErrors = $null
+    $mAst = [System.Management.Automation.Language.Parser]::ParseFile($menuPath, [ref]$null, [ref]$mErrors)
+    if ($mErrors -and $mErrors.Count) { throw "mumu-menu.ps1 has syntax errors: $($mErrors[0].Message)" }
+    foreach ($name in 'Test-InstallationIntegrity', 'Get-ContentHash') {
+        $f = $mAst.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
+        }, $true) | Select-Object -First 1
+        if (-not $f) { throw "$name function not found in mumu-menu.ps1" }
+        . ([scriptblock]::Create($f.Extent.Text))
+    }
+    # Stub the API helper in this scope: the extracted function resolves it
+    # through the scope chain at call time, so no network is touched.
+    $stubContent = @{
+        'mumu-menu.ps1'        = "# menu`nline2`n"
+        'SKILL.md'             = "# skill`n"
+        'README.md'            = "# readme`n"
+        'bootstrap-update.ps1' = "# updater`n"
+        '.version'             = 'v9.9.9'
+    }
+    function Invoke-GitHubGet {
+        param([string]$Url, [int]$TimeoutSec = 30)
+        if ($Url -match 'releases/latest') { return '{"tag_name":"vTest"}' }
+        if ($Url -match '/contents/([^`?]+)') {
+            $name = $Matches[1]
+            if ($name -eq 'README.md') { throw "Request failed: $Url" }
+            if ($stubContent.ContainsKey($name)) { return $stubContent[$name] }
+        }
+        throw "Request failed: $Url"
+    }
+    $vDir = Join-Path $tmp 'verify'
+    New-Item -ItemType Directory -Path $vDir -Force | Out-Null
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    # Exact bytes for files that must hash-match the stub responses.
+    [System.IO.File]::WriteAllText((Join-Path $vDir 'mumu-menu.ps1'), "# menu`nline2`n", $utf8NoBom)
+    [System.IO.File]::WriteAllText((Join-Path $vDir 'README.md'), "# readme`n", $utf8NoBom)
+    # SKILL.md: present but different content (DRIFT case).
+    [System.IO.File]::WriteAllText((Join-Path $vDir 'SKILL.md'), "# skill DRIFTED`n", $utf8NoBom)
+    Set-Content -LiteralPath (Join-Path $vDir '.version') -Value 'v9.9.9' -NoNewline -Encoding UTF8
+    # bootstrap-update.ps1 deliberately absent (MISSING case)
+    $ScriptDir = $vDir
+    $out = Test-InstallationIntegrity -Tag 'vTest' *>&1 | Out-String
+    $report = Test-InstallationIntegrity -Tag 'vTest'
+    Assert-True -Name 'verify-start entry with the tag' -Condition (@($report | Where-Object { $_ -eq 'verify-start|vTest' }).Count -eq 1) -Detail 'missing verify-start'
+    Assert-True -Name 'matching file reported OK' -Condition (@($report | Where-Object { $_ -like 'OK|mumu-menu.ps1|*' }).Count -eq 1) -Detail ($report -join ' // ')
+    Assert-True -Name 'modified file reported DRIFT with both hashes' -Condition (@($report | Where-Object { $_ -like 'DRIFT|SKILL.md|expected=*local=*' }).Count -eq 1) -Detail ($report -join ' // ')
+    Assert-True -Name 'absent file reported MISSING' -Condition (@($report | Where-Object { $_ -eq 'MISSING|bootstrap-update.ps1|' }).Count -eq 1) -Detail ($report -join ' // ')
+    Assert-True -Name 'unreachable file reported DOWNLOAD-FAIL (not drift)' -Condition (@($report | Where-Object { $_ -like 'DOWNLOAD-FAIL|README.md|*' }).Count -eq 1) -Detail ($report -join ' // ')
+    Assert-True -Name 'current .version marker reported OK' -Condition (@($report | Where-Object { $_ -like 'OK|.version|*' }).Count -eq 1) -Detail ($report -join ' // ')
+    Assert-True -Name 'summary line lists drifted+missing files' -Condition (@($report | Where-Object { $_ -eq 'summary|drift|SKILL.md,bootstrap-update.ps1' }).Count -eq 1) -Detail ($report -join ' // ')
+    Assert-True -Name 'console output shows drift summary' -Condition ($out -match 'Drift detected \(files: SKILL\.md, bootstrap-update\.ps1\)') -Detail $out.Trim()
+    Assert-True -Name 'stale .version marker is flagged in output' -Condition ($out -match '\.version says v9\.9\.9') -Detail $out.Trim()
+    Assert-True -Name 'menu label [F] Verify installation present' -Condition ((Get-Content -LiteralPath $menuPath -Raw -Encoding UTF8) -match '\[F\]\s*Verify installation') -Detail 'label not found'
+    Assert-True -Name "dispatch 'f' calls Show-InstallVerify" -Condition ((Get-Content -LiteralPath $menuPath -Raw -Encoding UTF8) -match "'f'\s*\{\s*Show-InstallVerify\s*\}") -Detail 'dispatch not found'
+
+    # Rate-limit JSON must be detected as DOWNLOAD-FAIL, never hashed as
+    # content (observed live: api.github.com intermittently answers a raw
+    # request with a rate-limit body and curl exit 0).
+    function script:Invoke-GitHubGet { param([string]$Url, [int]$TimeoutSec = 30) return '{"message":"API rate limit exceeded","documentation_url":"https://docs.github.com/rate_limit"}' }
+    $vDir2 = Join-Path $tmp 'verify-rl'
+    New-Item -ItemType Directory -Path $vDir2 -Force | Out-Null
+    [System.IO.File]::WriteAllText((Join-Path $vDir2 'mumu-menu.ps1'), "# menu`nline2`n", $utf8NoBom)
+    [System.IO.File]::WriteAllText((Join-Path $vDir2 'SKILL.md'), "# skill`n", $utf8NoBom)
+    [System.IO.File]::WriteAllText((Join-Path $vDir2 'README.md'), "# readme`n", $utf8NoBom)
+    [System.IO.File]::WriteAllText((Join-Path $vDir2 'bootstrap-update.ps1'), "# updater`n", $utf8NoBom)
+    $ScriptDir = $vDir2
+    $rlReport = Test-InstallationIntegrity -Tag 'vTest'
+    Assert-True -Name 'rate-limit body reported as DOWNLOAD-FAIL, not drift' -Condition (@($rlReport | Where-Object { $_ -like 'DOWNLOAD-FAIL|mumu-menu.ps1|API error*' }).Count -eq 1) -Detail ($rlReport -join ' // ')
+    Assert-True -Name 'rate-limited run ends partial, not drift' -Condition (@($rlReport | Where-Object { $_ -eq 'summary|partial|download failures' }).Count -eq 1) -Detail ($rlReport -join ' // ')
+    Remove-Item -LiteralPath (Join-Path $vDir2 'mumu-menu.ps1') -Force
+
+
     $passCount = 0
     if ($script:failures -eq 0) { $passCount = 1 }
     Write-Host ''

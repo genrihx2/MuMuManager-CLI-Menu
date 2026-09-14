@@ -47,6 +47,7 @@ cd MuMuManager-CLI-Menu
 - `[DM]` Spoof device model (brand/model/certification)
 - `[SIM]` Change SIM operator (MCC/MNC) — 38 presets + custom
 - `[U]` Check for updates (downloads from GitHub Releases, incl. bootstrap-update.ps1 itself)
+- `[F]` Verify installation (SHA-256 of local files vs release tag)
 - `[J]` Update journal (history of [U]/bootstrap updates: OK, failures, version fixes)
 - `[V]` Version info (script, MuMu, .NET, disk, ADB, certificate)
 - `[K]` Update GitHub token (DPAPI-encrypted)

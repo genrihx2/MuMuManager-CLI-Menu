@@ -226,7 +226,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.19.2'
+$scriptVer = '1.19.3'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -351,6 +351,125 @@ function Write-UpdateJournal {
         [System.IO.File]::AppendAllText($script:JournalFile, $line + [Environment]::NewLine, [System.Text.Encoding]::UTF8)
     } catch {
         Write-Debug "Update journal write failed: $($_.Exception.Message)"
+    }
+}
+
+# ── Verify installation: local files vs current release tag (#18) ────
+# Compares SHA-256 of the install's files against the tag blobs and
+# prints an OK / differs / missing report. Returns report entries
+# (status|name|detail) so tests can assert on the logic without IO.
+function Test-InstallationIntegrity {
+    param([string]$Tag = '')
+    $report = @()
+    try {
+        if (-not $Tag) {
+            try { $rel = Invoke-GitHubGet "https://api.github.com/repos/$GitHubRepo/releases/latest" 15 | ConvertFrom-Json } catch { $rel = $null }
+            if ($rel -and $rel.tag_name) { $Tag = $rel.tag_name }
+            else {
+                $msg = if ($rel -and $rel.message) { $rel.message } else { 'could not resolve the latest release (network or rate limit)' }
+                Write-Host "  Cannot determine current release: $msg" -ForegroundColor Yellow
+                return , @()
+            }
+        }
+        $report += "verify-start|$Tag"
+
+        $files = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1')
+        $verFile = Join-Path $ScriptDir '.version'
+        $localTag = ''
+        if (Test-Path -LiteralPath $verFile) {
+            try { $localTag = (Get-Content -LiteralPath $verFile -Raw -Encoding UTF8).Trim() } catch { Write-Debug "Version file read failed: $($_.Exception.Message)" }
+        }
+        if ($localTag) { $files += '.version' }
+
+        Write-Host ''
+        Write-Host "  === Verify installation vs $Tag ===" -ForegroundColor Cyan
+        $okFiles = @(); $driftFiles = @(); $missingFiles = @()
+        foreach ($f in $files) {
+            $local = Join-Path $ScriptDir $f
+            if (-not (Test-Path -LiteralPath $local -PathType Leaf)) {
+                $missingFiles += $f
+                $report += "MISSING|$f|"
+                Write-Host ("  {0,-8} {1}" -f 'MISSING', $f) -ForegroundColor Red
+                continue
+            }
+            # Same normalization as the update path: CRLF stripped, BOM ignored.
+            # Trailing whitespace is trimmed symmetrically with the remote side
+            # (Invoke-GitHubGet TrimEnds the response body) so a trailing
+            # newline at EOF - present in tag blobs but stripped by the fetch -
+            # cannot false-positive as drift.
+            $localHash = Get-ContentHash ([System.IO.File]::ReadAllText($local).TrimEnd())
+            try {
+                $remote = Invoke-GitHubGet "https://api.github.com/repos/$GitHubRepo/contents/$f`?ref=$Tag" 30
+            } catch {
+                $report += "DOWNLOAD-FAIL|$f|$($_.Exception.Message)"
+                Write-Host ("  {0,-8} {1}  ({2})" -f 'N/A', $f, $_.Exception.Message) -ForegroundColor Yellow
+                continue
+            }
+            # An API error (rate limit, auth) can arrive with HTTP 200-ish
+            # semantics and curl exit 0 - hashing it would report bogus drift.
+            # Same philosophy as the updater's JSON guards.
+            $trimmedRemote = $remote.TrimEnd()
+            if ($trimmedRemote.StartsWith('{') -and $trimmedRemote -match '"message"\s*:\s*"') {
+                $report += "DOWNLOAD-FAIL|$f|API error response instead of file content"
+                Write-Host ("  {0,-8} {1}  (API error instead of content - retry later)" -f 'N/A', $f) -ForegroundColor Yellow
+                continue
+            }
+            $remoteHash = Get-ContentHash $trimmedRemote
+            if ($localHash -eq $remoteHash) {
+                $okFiles += $f
+                $report += "OK|$f|$localHash"
+                Write-Host ("  {0,-8} {1}" -f 'OK', $f) -ForegroundColor Green
+                if ($f -eq '.version') {
+                    Write-Host "           marker is current ($localTag)" -ForegroundColor DarkGray
+                }
+            } else {
+                $driftFiles += $f
+                $report += "DRIFT|$f|expected=$remoteHash local=$localHash"
+                Write-Host ("  {0,-8} {1}" -f 'DRIFT', $f) -ForegroundColor Red
+                Write-Host ("           expected {0}..." -f $remoteHash.Substring(0, 16)) -ForegroundColor DarkGray
+                Write-Host ("           local    {0}..." -f $localHash.Substring(0, 16)) -ForegroundColor DarkGray
+            }
+        }
+
+        # Stale .version marker: content matches the tag but the marker file
+        # still names an older release - the updater heals this via version-fix.
+        $verDrift = @($report | Where-Object { $_ -match '^(DRIFT|MISSING)\|\.version\|' }).Count -gt 0
+        if ($localTag -and ($localTag -ne $Tag) -and (-not $verDrift)) {
+            Write-Host "  Note: content matches $Tag but .version says $localTag (stale marker, run [U] to heal it)" -ForegroundColor Yellow
+        }
+
+        Write-Host ''
+        if (($driftFiles.Count + $missingFiles.Count) -gt 0) {
+            $bad = @($driftFiles) + @($missingFiles)
+            Write-Host ("  Drift detected (files: {0})" -f ($bad -join ', ')) -ForegroundColor Red
+            $report += "summary|drift|$($bad -join ',')"
+        } elseif (@($report | Where-Object { $_ -like 'DOWNLOAD-FAIL|*' }).Count -gt 0) {
+            Write-Host "  Installation matches $Tag (reachable files OK; some could not be downloaded)" -ForegroundColor Yellow
+            $report += 'summary|partial|download failures'
+        } else {
+            Write-Host "  Installation matches $Tag" -ForegroundColor Green
+            $report += 'summary|ok|'
+        }
+    } catch {
+        Write-Host "  Verification failed: $($_.Exception.Message)" -ForegroundColor Yellow
+        $report += "error|$($_.Exception.Message)|"
+    }
+    return , $report
+}
+
+function Show-InstallVerify {
+    Write-Host ''
+    Write-Host 'Verifying installation against the current release tag...' -ForegroundColor Cyan
+    try {
+        $rel = Invoke-GitHubGet "https://api.github.com/repos/$GitHubRepo/releases/latest" 15 | ConvertFrom-Json
+        if ($rel -and $rel.tag_name) {
+            $null = Test-InstallationIntegrity -Tag $rel.tag_name
+        } else {
+            $msg = if ($rel -and $rel.message) { $rel.message } else { 'no release found' }
+            Write-Host "  Cannot determine current release: $msg" -ForegroundColor Yellow
+        }
+    } catch {
+        Write-Host "  Cannot determine current release: $($_.Exception.Message)" -ForegroundColor Yellow
     }
 }
 
@@ -1047,6 +1166,7 @@ function Show-Menu {
     Write-Host '  --- Info ---' -ForegroundColor Green
     Write-Host '  [V] Version info' -ForegroundColor Yellow
     Write-Host '  [U] Check for updates' -ForegroundColor Yellow
+    Write-Host '  [F] Verify installation (files vs release tag)' -ForegroundColor Yellow
     Write-Host '  [J] Update journal' -ForegroundColor Yellow
     Write-Host '  [DL] Download repository' -ForegroundColor Yellow
     Write-Host '  [CR] Create release' -ForegroundColor Yellow
@@ -6170,6 +6290,7 @@ do {
         's' { Save-Screenshot }
         'v' { Show-VersionInfo }
         'u' { Update-FromGitHub }
+        'f' { Show-InstallVerify }
         'j' { Show-UpdateJournal }
         'dl' { Download-Repository }
         'cr' { Create-GitHubRelease }

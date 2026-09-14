@@ -173,6 +173,7 @@ cd MuMuManager-CLI-Menu
   --- Info ---
   [V] Version info
   [U] Check for updates
+  [F] Verify installation (files vs release tag)
   [J] Update journal
   [DL] Download repository
   [CR] Create release
@@ -344,7 +345,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.19.2
+Script version: 1.19.3
 MuMu version: 6.5.2.0
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -379,6 +380,11 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 Для приватных репозиториев сохраните токен через пункт меню `[K] Update GitHub token` — он проверяется и хранится **зашифрованным через Windows DPAPI** в `.github-token.dpapi`; плейнтекстовый `.github-token` мигрирует в зашифрованное хранилище автоматически при первом запуске.
 
 ## Что нового
+
+### v1.19.3 (14.09.2026)
+- **Проверка установки `[F]` (issue #18)**: сверка SHA-256 локальных файлов (`mumu-menu.ps1`, `SKILL.md`, `README.md`, `bootstrap-update.ps1`, `.version`) с содержимым текущего тега релиза — отчёт OK / DRIFT (с обоими хешами) / MISSING и итог «installation matches vX.Y.Z» или «drift detected (files: ...)»
+- **Устойчивость к API-ошибкам**: ответ rate-limit не хешируется как контент (замечено вживую: api.github.com иногда отвечает JSON-ошибкой при curl exit 0) — файл помечается N/A, итог честный partial, а не ложный drift
+- Основа в переиспользуемой функции `Test-InstallationIntegrity` — покрыта регресс-тестом T7 (14 hermetic-ассертов без сети)
 
 ### v1.19.2 (14.09.2026)
 - **Самоновляемый обновлятор (issue #21)**: `bootstrap-update.ps1` обновляет **сам себя** при каждом обновлении — `[U]` скачивает его в общем списке файлов, bootstrap кладёт новую копию в `.new` и применяет её в конце успешного прогона
@@ -480,6 +486,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.19.3 | 14.09.2026 | Проверка установки [F] (#18): сверка файлов с тегом релиза, отчёт OK/DRIFT/MISSING, защита от API-ошибок |
 | v1.19.2 | 14.09.2026 | Самоновляемый обновлятор (#21): [U] и bootstrap обновляют bootstrap-update.ps1, .new-самоприменение, события updater-refresh |
 | v1.19.1 | 14.09.2026 | Журнал обновлений: общий `update-journal.log` для [U] и bootstrap, просмотр в меню `[J]`, санитизация и ротация лога |
 | v1.19.0 | 14.09.2026 | Milestone Verification UX: автоскан всех файлов, вердикты в описании релиза, автозапуск скана (#14 #15 #16) |
