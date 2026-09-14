@@ -3,7 +3,10 @@
 Applies to the tag-driven `.github/workflows/release.yml` plus the CI lint
 job (`lint.yml`) and the `virustotal.yml` YAML-parse fix — merged upstream via
 PR #13, with shellcheck fixes in `88677d6`. Status: **v1.18.6 backfill done**
-(2026-09-14) — official ZIP + SHA256 assets published by CI.
+(2026-09-14), and **v1.18.7 cut end-to-end through Path 2** (2026-09-14,
+commit `1f699bd` → Release run #276): version bump pushed to `main` → tag
+created by CI → ZIP + SHA256 published → VirusTotal scan clean
+(0 malicious / 0 suspicious, 66 engines). The full flow is proven.
 
 All three release paths end in the same pipeline: **tag → verify `$scriptVer`
 matches → build ZIP from tag content → attach ZIP + .sha256 to the release**.
