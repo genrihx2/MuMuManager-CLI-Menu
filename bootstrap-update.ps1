@@ -44,14 +44,14 @@ $retryDelay = 3   # seconds between retries
 $journalFile = if ($LogDir) { Join-Path $LogDir 'update-journal.log' } else { Join-Path $TargetDir 'update-journal.log' }
 
 function Write-UpdateJournal {
-    param([string]$Event, [string]$From = '', [string]$To = '', [string]$Detail = '')
+    param([string]$EventType, [string]$From = '', [string]$To = '', [string]$Detail = '')
     try {
         $oldPath = "$journalFile.old"
         if ((Test-Path -LiteralPath $journalFile -PathType Leaf) -and (Get-Item -LiteralPath $journalFile).Length -gt 256KB) {
             Move-Item -LiteralPath $journalFile -Destination $oldPath -Force
         }
         $line = "{0}`t{1}`t{2}`t{3}`t{4}`t{5}" -f @(
-            (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), 'bootstrap', $Event, $From, $To,
+            (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), 'bootstrap', $EventType, $From, $To,
             ($Detail -replace "`t", ' ' -replace "`r?`n", ' | ')
         )
         [System.IO.File]::AppendAllText($journalFile, $line + [Environment]::NewLine, [System.Text.Encoding]::UTF8)
@@ -275,11 +275,11 @@ if ($remoteTag -and $fail -eq 0 -and $ok -gt 0) {
 # ── Summary ──────────────────────────────────────────────────────────
 Write-Host ''
 if ($fail -eq 0 -and $ok -gt 0) {
-    Write-UpdateJournal -Event 'update-ok' -From $localTag -To $remoteTag -Detail "$ok file(s) updated"
+    Write-UpdateJournal -EventType 'update-ok' -From $localTag -To $remoteTag -Detail "$ok file(s) updated"
     Write-Host "Done: $ok file(s) updated to $remoteTag" -ForegroundColor Green
     Write-Host "Restart the menu to use the new version." -ForegroundColor Green
 } elseif ($fail -gt 0) {
-    Write-UpdateJournal -Event 'update-fail' -From $localTag -To $remoteTag -Detail "$ok ok, $fail failed"
+    Write-UpdateJournal -EventType 'update-fail' -From $localTag -To $remoteTag -Detail "$ok ok, $fail failed"
     Write-Host "Done: $ok ok, $fail failed" -ForegroundColor Yellow
     if ($backedUp) {
         Write-Host "Backup saved: $backupDir" -ForegroundColor DarkGray

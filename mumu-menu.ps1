@@ -338,14 +338,14 @@ function Get-ContentHash {
 $script:JournalFile = Join-Path $ScriptDir 'update-journal.log'
 
 function Write-UpdateJournal {
-    param([string]$Event, [string]$From = '', [string]$To = '', [string]$Detail = '')
+    param([string]$EventType, [string]$From = '', [string]$To = '', [string]$Detail = '')
     try {
         $oldPath = "$script:JournalFile.old"
         if ((Test-Path -LiteralPath $script:JournalFile -PathType Leaf) -and (Get-Item -LiteralPath $script:JournalFile).Length -gt 256KB) {
             Move-Item -LiteralPath $script:JournalFile -Destination $oldPath -Force
         }
         $line = "{0}`t{1}`t{2}`t{3}`t{4}`t{5}" -f @(
-            (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), 'menu', $Event, $From, $To,
+            (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), 'menu', $EventType, $From, $To,
             ($Detail -replace "`t", ' ' -replace "`r?`n", ' | ')
         )
         [System.IO.File]::AppendAllText($script:JournalFile, $line + [Environment]::NewLine, [System.Text.Encoding]::UTF8)
@@ -438,7 +438,7 @@ function Update-FromGitHub {
 
         # Content matches the tag but .version is stale/absent - heal it.
         if ((Get-ContentHash $localText) -eq (Get-ContentHash $remoteText)) {
-            Write-UpdateJournal -Event 'version-fix' -From $localTag -To $tag -Detail 'content matches tag; .version healed'
+            Write-UpdateJournal -EventType 'version-fix' -From $localTag -To $tag -Detail 'content matches tag; .version healed'
             Set-Content -Path $VersionFile -Value $tag -NoNewline -ErrorAction SilentlyContinue
             if (-not $Passive) {
                 Write-Host "  Up to date ($tag)" -ForegroundColor DarkGray
@@ -775,10 +775,10 @@ function Update-FromGitHub {
         }
 
         if ($failed -gt 0) {
-            Write-UpdateJournal -Event 'update-fail' -From $localTag -To $tag -Detail "$okFiles ok, $failed failed ($($fileResults -join ', '))"
+            Write-UpdateJournal -EventType 'update-fail' -From $localTag -To $tag -Detail "$okFiles ok, $failed failed ($($fileResults -join ', '))"
             Write-Host "Update finished with $failed failed file(s). Restore from backup if needed." -ForegroundColor Red
         } else {
-            Write-UpdateJournal -Event 'update-ok' -From $localTag -To $tag -Detail ($fileResults -join ', ')
+            Write-UpdateJournal -EventType 'update-ok' -From $localTag -To $tag -Detail ($fileResults -join ', ')
             Set-Content -Path $VersionFile -Value $tag -NoNewline -ErrorAction SilentlyContinue
             Write-Host ''
             Write-Host 'Update complete! Restart the menu to use the new version.' -ForegroundColor Green
@@ -819,7 +819,7 @@ try {
         # Apply .new
         Copy-Item -LiteralPath $selfNew -Destination $selfDest -Force
         Remove-Item -LiteralPath $selfNew -Force -ErrorAction SilentlyContinue
-        if ($script:JournalFile) { Write-UpdateJournal -Event 'self-apply' -To 'mumu-menu.ps1' -Detail 'applied pending .new file from previous update' }
+        if ($script:JournalFile) { Write-UpdateJournal -EventType 'self-apply' -To 'mumu-menu.ps1' -Detail 'applied pending .new file from previous update' }
         Write-Host '  Applied pending update from .new file' -ForegroundColor Green
     }
 } catch {

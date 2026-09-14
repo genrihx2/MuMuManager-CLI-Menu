@@ -136,8 +136,8 @@ try {
     if (-not $jfn) { throw 'Write-UpdateJournal function not found in bootstrap-update.ps1' }
     . ([scriptblock]::Create($jfn.Extent.Text))
     $journalFile = Join-Path $tmp 'update-journal.log'
-    Write-UpdateJournal -Event 'update-ok' -From 'v1.19.0' -To 'v1.19.1' -Detail "mumu-menu.ps1=260.0 KB`tSKILL.md=4.0 KB"
-    Write-UpdateJournal -Event 'update-fail' -From 'v1.19.1' -To 'v1.19.2' -Detail "1 ok, 2 failed`nmumu-menu.ps1 FAILED"
+    Write-UpdateJournal -EventType 'update-ok' -From 'v1.19.0' -To 'v1.19.1' -Detail "mumu-menu.ps1=260.0 KB`tSKILL.md=4.0 KB"
+    Write-UpdateJournal -EventType 'update-fail' -From 'v1.19.1' -To 'v1.19.2' -Detail "1 ok, 2 failed`nmumu-menu.ps1 FAILED"
     $jLines = @(Get-Content -LiteralPath $journalFile -Encoding UTF8 -ErrorAction SilentlyContinue | Where-Object { $_.Trim() })
     Assert-True -Name 'journal file created with one line per event' -Condition ($jLines.Count -eq 2) -Detail "lines: $($jLines.Count)"
     $wellFormed = $true
