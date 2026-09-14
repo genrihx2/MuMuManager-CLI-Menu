@@ -209,14 +209,18 @@ section, idempotent on re-runs).
 
 **Auto-trigger (issue #16, fixed):** GitHub suppresses workflow triggers
 for releases created with `GITHUB_TOKEN`, which used to make every VT
-scan a manual dispatch. The Release workflow now publishes with the
-`RELEASE_PAT` secret when present (fallback: `GITHUB_TOKEN`, publishing
-never breaks) so `on: release published` fires and the scan runs
-automatically. Note for future readers: a `release`-event run executes
-the workflow file at the tagged commit — improvements to the VT workflow
-only post sections automatically for releases tagged after the
-improvement lands; older/edited releases can always be refreshed by
-dispatching the workflow with the tag as input.
+scan a manual dispatch. The Release workflow publishes with the
+`RELEASE_PAT` secret when present and **valid** (a cheap `/user` probe
+runs first; an absent, expired, or insufficient PAT falls back to
+`GITHUB_TOKEN` so publishing never breaks) so `on: release published`
+fires and the scan runs automatically. Note for future readers: a
+`release`-event run executes the workflow file at the tagged commit —
+improvements to the VT workflow only post sections automatically for
+releases tagged after the improvement lands; older/edited releases can
+always be refreshed by dispatching the workflow with the tag as input.
+Rebuild note: re-cutting the same tag produces a new ZIP artifact hash
+(zip embeds timestamps) while the file contents stay byte-identical to
+the tag; the sidecar matches the rebuilt ZIP.
 
 **Guarantees:** the ZIP always contains exactly the five release files from
 the tag (never branch HEAD) - including `bootstrap-update.ps1` since v1.18.10,

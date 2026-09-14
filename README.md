@@ -498,7 +498,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Файл | SHA-256 | Движков | Отчёт |
 |------|---------|---------|-------|
-| релизный `MuMuManager-CLI-Menu-v1.19.0.zip` | `cd8c28e5b917…70a8` | 65 | [отчёт](https://www.virustotal.com/gui/file/cd8c28e5b9174bb03653dfea8e93d7337ca5c12d046f552611518da0c73370a8) |
+| релизный `MuMuManager-CLI-Menu-v1.19.0.zip` | `cef030100b0c…cd28` | 65 | [отчёт](https://www.virustotal.com/gui/file/cef030100b0c1b1a346f5f64e597df0aebda64d0754fda6a9308043de545cd28) |
 | `mumu-menu.ps1` (v1.19.0) | `9ec8749a1037…3770` | 61 | [отчёт](https://www.virustotal.com/gui/file/9ec8749a1037b472a9408dae4eaab600bd6b70a17d09eb56f8ac80f0cff57370) |
 | релизный `MuMuManager-CLI-Menu-v1.18.10.zip` | `a1e667c56c4a…f11c` | 66 | [отчёт](https://www.virustotal.com/gui/file/a1e667c56c4aedb4c74a7a05170bcff25bffb65f524385ce49842b6475dbf11c) |
 | `mumu-menu.ps1` (v1.18.10) | `ad98ccb10814…a46` | 62 | [отчёт](https://www.virustotal.com/gui/file/ad98ccb10814877584db660ab1c77e39eb5ca78571d1da88786ac4c6ef543a46) |
