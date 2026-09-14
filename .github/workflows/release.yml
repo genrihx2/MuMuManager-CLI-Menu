@@ -269,11 +269,18 @@ jobs:
           # Publish with a PAT when available so the `on: release published`
           # trigger fires for the VirusTotal workflow - GitHub suppresses
           # workflow triggers for releases created with GITHUB_TOKEN (issue #16).
-          # Fall back to GITHUB_TOKEN when the secret is absent so publishing
-          # can never break; in that case the VT scan must be dispatched manually.
+          # The PAT is validated first (cheap /user call); if it is absent,
+          # expired, or lacks access, fall back to GITHUB_TOKEN so publishing
+          # can never break (the VT scan then needs a manual dispatch).
           if [ -n "$RELEASE_PAT" ]; then
-            export GH_TOKEN="$RELEASE_PAT"
-            echo "Publishing with RELEASE_PAT - VirusTotal scan will auto-trigger"
+            PAT_LOGIN=$(curl -s --max-time 15 -H "Authorization: Bearer $RELEASE_PAT" \
+              https://api.github.com/user | python3 -c "import sys,json; print(json.load(sys.stdin).get('login',''))" 2>/dev/null || true)
+            if [ -n "$PAT_LOGIN" ]; then
+              export GH_TOKEN="$RELEASE_PAT"
+              echo "Publishing with RELEASE_PAT (validated as $PAT_LOGIN) - VirusTotal scan will auto-trigger"
+            else
+              echo "RELEASE_PAT present but invalid/expired - publishing with GITHUB_TOKEN (dispatch the VT scan manually)"
+            fi
           else
             echo "RELEASE_PAT not configured - publishing with GITHUB_TOKEN (dispatch the VT scan manually)"
           fi
