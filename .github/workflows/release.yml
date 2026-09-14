@@ -1,10 +1,29 @@
 name: Release
 
+# Tag-driven releases.
+#
+# Triggers:
+#   1. push of a v* tag        -> release exactly that tag
+#   2. push to main            -> read $scriptVer from HEAD; if the matching v* tag
+#                                 does not exist yet, create it at HEAD and release
+#                                 (no paths filter: a push must never be able to skip its own release)
+#   3. workflow_dispatch       -> release the tag given in `tag` input (or the latest v* tag)
+#
+# The ZIP and .sha256 assets are ALWAYS built from the tag content (git archive),
+# and the workflow fails hard if $scriptVer in mumu-menu.ps1 at the tag does not
+# match the tag version. Re-runs are idempotent: if the release already exists,
+# the run succeeds without doing anything.
+
 on:
   push:
     branches: [ main ]
-    paths: [ 'mumu-menu.ps1' ]
+    tags:
+      - 'v*'
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to release (e.g. v1.18.7). Empty = latest v* tag.'
+        required: false
 
 permissions:
   contents: write
@@ -19,139 +38,165 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Read version & check duplicate
+      - name: Determine tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          set -euo pipefail
+          # Remote refs are the source of truth for tags
+          git fetch origin --tags --force --prune --prune-tags >/dev/null 2>&1 || true
+
+          if [ -n "$INPUT_TAG" ]; then
+            TAG="$INPUT_TAG"
+          elif [ "$REF_TYPE" = "tag" ]; then
+            TAG="$REF_NAME"
+          elif [ "$REF_TYPE" = "branch" ]; then
+            # Version-bump push: derive the tag from $scriptVer at HEAD
+            RAW="$(git show HEAD:mumu-menu.ps1)"
+            SCRIPT_VER="$(printf '%s\n' "$RAW" | grep -oP "scriptVer\s*=\s*'\K[\d\.]+" | head -1 || true)"
+            if [ -z "$SCRIPT_VER" ]; then
+              echo "Cannot find \$scriptVer in mumu-menu.ps1 at HEAD" >&2
+              exit 1
+            fi
+            TAG="v${SCRIPT_VER}"
+            if git ls-remote --exit-code origin "refs/tags/$TAG" >/dev/null 2>&1; then
+              echo "Tag $TAG already exists - skipping release"
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            git tag "$TAG" HEAD
+            git push origin "refs/tags/$TAG"
+            echo "Created and pushed tag $TAG at HEAD"
+          else
+            # workflow_dispatch without input: use the latest v* tag
+            TAG="$(git tag -l 'v*' | sort -V | tail -1)"
+          fi
+
+          if [ -z "$TAG" ]; then
+            echo "No tag to release (provide the 'tag' input or push a v* tag)" >&2
+            exit 1
+          fi
+
+          case "$TAG" in
+            v[0-9]*.[0-9]*.[0-9]*|v[0-9]*.[0-9]*) ;;
+            *) echo "Tag '$TAG' is not a version tag (expected vX.Y or vX.Y.Z)" >&2; exit 1 ;;
+          esac
+
+          git rev-parse -q --verify "refs/tags/$TAG^{commit}" >/dev/null \
+            || { echo "Tag $TAG does not exist locally or on origin" >&2; exit 1; }
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Releasing tag: $TAG"
+
+      - name: Verify tag content
+        if: steps.tag.outputs.skip != 'true'
         id: ver
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: pwsh
+          TAG: ${{ steps.tag.outputs.tag }}
         run: |
-          $ErrorActionPreference = 'Stop'
-          $raw = Get-Content mumu-menu.ps1 -Raw
-          $m = [regex]::Match($raw, "scriptVer\s*=\s*'([\d\.]+)'|Script version:\s*([\d\.]+)")
-          if (-not $m.Success) { throw 'Cannot find Script version' }
-          $verNum = if ($m.Groups[1].Success) { $m.Groups[1].Value } else { $m.Groups[2].Value }
-          $ver = "v$verNum"
-          "version=$ver" >> $env:GITHUB_OUTPUT
-          Write-Host "Version: $ver"
+          set -euo pipefail
+          TAG_VERSION="${TAG#v}"
+          RAW="$(git show "$TAG:mumu-menu.ps1")"
+          SCRIPT_VER="$(printf '%s\n' "$RAW" | grep -oP "scriptVer\s*=\s*'\K[\d\.]+" | head -1 || true)"
 
-          # Ensure tags are available locally
-          git fetch --tags 2>$null
+          if [ -z "$SCRIPT_VER" ]; then
+            echo "Cannot find \$scriptVer in mumu-menu.ps1 at $TAG" >&2
+            exit 1
+          fi
+          if [ "$SCRIPT_VER" != "$TAG_VERSION" ]; then
+            echo "Version mismatch: tag is $TAG but \$scriptVer is '$SCRIPT_VER' in mumu-menu.ps1 at the tag" >&2
+            echo "Delete/recreate the tag or fix the version, then run again." >&2
+            exit 1
+          fi
 
-          # Skip if tag already exists
-          $existing = git ls-remote --tags origin "refs/tags/$ver" 2>$null
-          if ($existing -match $ver) {
-            "skip=true" >> $env:GITHUB_OUTPUT
-            Write-Host "Tag $ver already exists — skipping release"
-          } else {
-            "skip=false" >> $env:GITHUB_OUTPUT
-          }
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists - skipping asset upload"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
 
-          # Previous tag
-          $tags = @(git tag -l 'v*' | Sort-Object { [version]($_ -replace '^v','') } -Descending)
-          if ($tags.Count -gt 1 -and $tags[0] -eq $ver) {
-            $prev = $tags[1]
-            "prev_tag=$prev" >> $env:GITHUB_OUTPUT
-            Write-Host "Previous tag: $prev"
+          PREV="$(git tag -l 'v*' | sort -V | awk -v t="$TAG" '$0==t{print prev; exit} {prev=$0}')"
+          COMMITS=0
+          if [ -n "$PREV" ]; then
+            COMMITS="$(git log --oneline --no-decorate "$PREV..$TAG" 2>/dev/null | wc -l)" || COMMITS=0
+          fi
+          echo "prev_tag=$PREV" >> "$GITHUB_OUTPUT"
+          echo "commit_count=$COMMITS" >> "$GITHUB_OUTPUT"
 
-            $range = "$prev..HEAD"
-            $commits = try { (git log --oneline $range 2>$null | Measure-Object).Count } catch { 0 }
-            "commit_count=$commits" >> $env:GITHUB_OUTPUT
-            Write-Host "Commits since $prev : $commits"
-
-            $authors = try { git log --format='%an' $range 2>$null | Sort-Object -Unique } catch { @() }
-            "contributors=$($authors -join ', ')" >> $env:GITHUB_OUTPUT
-          } elseif ($tags.Count -gt 0 -and $tags[0] -ne $ver) {
-            $prev = $tags[0]
-            "prev_tag=$prev" >> $env:GITHUB_OUTPUT
-            Write-Host "Previous tag: $prev"
-
-            $range = "$prev..HEAD"
-            $commits = try { (git log --oneline $range 2>$null | Measure-Object).Count } catch { 0 }
-            "commit_count=$commits" >> $env:GITHUB_OUTPUT
-            Write-Host "Commits since $prev : $commits"
-
-            $authors = try { git log --format='%an' $range 2>$null | Sort-Object -Unique } catch { @() }
-            "contributors=$($authors -join ', ')" >> $env:GITHUB_OUTPUT
-          } else {
-            "commit_count=0" >> $env:GITHUB_OUTPUT
-            "contributors=" >> $env:GITHUB_OUTPUT
-          }
-
-      - name: Build ZIP
-        if: steps.ver.outputs.skip == 'false'
+      - name: Build ZIP from tag content
+        if: steps.tag.outputs.skip != 'true' && steps.ver.outputs.skip != 'true'
         id: zip
-        shell: bash
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
         run: |
-          VERSION="${{ steps.ver.outputs.version }}"
-          ZIPNAME="MuMuManager-CLI-Menu-${VERSION}.zip"
+          set -euo pipefail
+          ZIPNAME="MuMuManager-CLI-Menu-${TAG}.zip"
 
-          mkdir -p dist
-          for f in mumu-menu.ps1 README.md SKILL.md .version; do
-            [ -f "$f" ] && cp "$f" dist/
-          done
+          rm -rf dist && mkdir -p dist
+          # Build strictly from the tag's content - not from the checked-out branch
+          git archive "$TAG" mumu-menu.ps1 README.md SKILL.md .version | tar -x -C dist
 
           (cd dist && zip -r "../${ZIPNAME}" .)
 
-          # SHA256
           SHA256=$(sha256sum "${ZIPNAME}" | cut -d' ' -f1)
           echo "${SHA256}  ${ZIPNAME}" > "${ZIPNAME}.sha256"
 
-          # Stats
           FILE_COUNT=$(unzip -l "${ZIPNAME}" | tail -1 | awk '{print $2}')
           ZIP_SIZE=$(stat -c%s "${ZIPNAME}")
           ZIP_SIZE_KB=$((ZIP_SIZE / 1024))
 
-          echo "zipname=${ZIPNAME}" >> $GITHUB_OUTPUT
-          echo "sha256=${SHA256}" >> $GITHUB_OUTPUT
-          echo "file_count=${FILE_COUNT}" >> $GITHUB_OUTPUT
-          echo "size_kb=${ZIP_SIZE_KB}" >> $GITHUB_OUTPUT
-
+          echo "zipname=${ZIPNAME}" >> "$GITHUB_OUTPUT"
+          echo "sha256=${SHA256}" >> "$GITHUB_OUTPUT"
+          echo "file_count=${FILE_COUNT}" >> "$GITHUB_OUTPUT"
+          echo "size_kb=${ZIP_SIZE_KB}" >> "$GITHUB_OUTPUT"
           echo "ZIP: ${ZIPNAME} (${ZIP_SIZE_KB}KB, ${FILE_COUNT} files)"
+          echo "SHA256: ${SHA256}"
 
       - name: Verify ZIP
-        if: steps.ver.outputs.skip == 'false'
-        shell: bash
+        if: steps.tag.outputs.skip != 'true' && steps.ver.outputs.skip != 'true'
+        env:
+          ZIPNAME: ${{ steps.zip.outputs.zipname }}
+          SHA256: ${{ steps.zip.outputs.sha256 }}
         run: |
-          ZIPNAME="${{ steps.zip.outputs.zipname }}"
-          SHA256="${{ steps.zip.outputs.sha256 }}"
-
+          set -euo pipefail
           echo "${SHA256}  ${ZIPNAME}" | sha256sum -c -
           echo "SHA256: OK"
-
           for f in mumu-menu.ps1 README.md SKILL.md .version; do
             unzip -l "${ZIPNAME}" | grep -q "$f" || { echo "MISSING: $f"; exit 1; }
           done
           echo "Structure: OK"
 
       - name: Generate release notes
-        if: steps.ver.outputs.skip == 'false'
-        id: notes
-        shell: bash
+        if: steps.tag.outputs.skip != 'true' && steps.ver.outputs.skip != 'true'
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          PREV_TAG: ${{ steps.ver.outputs.prev_tag }}
+          SHA256: ${{ steps.zip.outputs.sha256 }}
+          FILE_COUNT: ${{ steps.zip.outputs.file_count }}
+          SIZE_KB: ${{ steps.zip.outputs.size_kb }}
+          COMMIT_COUNT: ${{ steps.ver.outputs.commit_count }}
         run: |
-          VERSION="${{ steps.ver.outputs.version }}"
-          PREV_TAG="${{ steps.ver.outputs.prev_tag }}"
-          SHA256="${{ steps.zip.outputs.sha256 }}"
-          FILE_COUNT="${{ steps.zip.outputs.file_count }}"
-          SIZE_KB="${{ steps.zip.outputs.size_kb }}"
-          COMMIT_COUNT="${{ steps.ver.outputs.commit_count }}"
+          set -euo pipefail
+          ZIPNAME="MuMuManager-CLI-Menu-${TAG}.zip"
 
-          # Extract changelog from README
-          CHANGELOG=$(awk '/^## Что нового/{f=1; next} /^## /{if(f) f=0} f' README.md | sed '/^$/d' | head -40 || true)
+          CHANGELOG=$(git show "$TAG:README.md" | awk '/^## Что нового/{f=1; next} /^## /{if(f) f=0} f' | sed '/^$/d' | head -40 || true)
 
-          # Generate commit list
           COMMIT_LIST=""
           if [ -n "$PREV_TAG" ]; then
-            COMMIT_LIST=$(git log --oneline --no-decorate "$PREV_TAG..HEAD" 2>/dev/null | head -20 || true)
+            COMMIT_LIST=$(git log --oneline --no-decorate "$PREV_TAG..$TAG" 2>/dev/null | head -20 || true)
           fi
 
-          # Build notes
           {
-            echo "## MuMuManager CLI Menu ${VERSION}"
+            echo "## MuMuManager CLI Menu ${TAG}"
             echo ""
             echo "Интерактивное PowerShell-меню для управления MuMu Emulator через \`MuMuManager.exe\`."
             echo ""
-
-            # What's new
             echo "### Что нового"
             if [ -n "$CHANGELOG" ]; then
               echo "$CHANGELOG"
@@ -159,19 +204,15 @@ jobs:
               echo "- Обновление файлов скрипта"
             fi
             echo ""
-
-            # Comparison
             if [ -n "$PREV_TAG" ]; then
               echo "### Сравнение"
               echo "| | |"
               echo "|---|---|"
               echo "| Предыдущая версия | [\`${PREV_TAG}\`](../releases/tag/${PREV_TAG}) |"
-              echo "| Текущая версия | \`${VERSION}\` |"
+              echo "| Текущая версия | \`${TAG}\` |"
               echo "| Коммитов | ${COMMIT_COUNT} |"
               echo ""
             fi
-
-            # Commits
             if [ -n "$COMMIT_LIST" ]; then
               echo "### Коммиты"
               echo '```'
@@ -179,35 +220,27 @@ jobs:
               echo '```'
               echo ""
             fi
-
-            # Install
             echo "### Установка"
             echo ""
             echo "**Быстрый запуск** (одна команда):"
             echo '```powershell'
-            echo "irm https://raw.githubusercontent.com/${{ github.repository }}/main/mumu-menu.ps1 -OutFile \$env:TEMP\\mumu-menu.ps1; & \$env:TEMP\\mumu-menu.ps1"
+            echo "irm https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/mumu-menu.ps1 -OutFile \$env:TEMP\\mumu-menu.ps1; & \$env:TEMP\\mumu-menu.ps1"
             echo '```'
             echo ""
             echo "**Git clone** (с автообновлением через \`[U]\`):"
             echo '```powershell'
-            echo "git clone https://github.com/${{ github.repository }}.git"
+            echo "git clone https://github.com/${GITHUB_REPOSITORY}.git"
             echo "cd MuMuManager-CLI-Menu"
             echo ".\\mumu-menu.ps1"
             echo '```'
             echo ""
-
-            # Verification
             echo "### Верификация"
             echo '```powershell'
-            echo "# Скачать SHA256:"
-            echo "curl -sL https://github.com/${{ github.repository }}/releases/download/${VERSION}/${ZIPNAME}.sha256 -o ${ZIPNAME}.sha256"
-            echo "# Проверить:"
+            echo "curl -sL https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${ZIPNAME}.sha256 -o ${ZIPNAME}.sha256"
             echo "Get-FileHash ${ZIPNAME} -Algorithm SHA256 | Select -Expand Hash"
             echo "# Сравнить с содержимым ${ZIPNAME}.sha256"
             echo '```'
             echo ""
-
-            # Metrics
             echo "### Метрики"
             echo "| | |"
             echo "|---|---|"
@@ -215,31 +248,24 @@ jobs:
             echo "| Файлов | ${FILE_COUNT} |"
             echo "| SHA256 | \`${SHA256:0:16}...\` |"
             echo ""
-
             echo "**Требования:** Windows 10/11 · PowerShell 5.1+ · MuMu Emulator 6.x"
           } > relnotes.md
 
           echo "Release notes generated ($(wc -l < relnotes.md) lines)"
 
       - name: Create release
-        if: steps.ver.outputs.skip == 'false'
+        if: steps.tag.outputs.skip != 'true' && steps.ver.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
+          TAG: ${{ steps.tag.outputs.tag }}
+          ZIPNAME: ${{ steps.zip.outputs.zipname }}
         run: |
-          VERSION="${{ steps.ver.outputs.version }}"
-          ZIPNAME="${{ steps.zip.outputs.zipname }}"
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag "${VERSION}"
-          git push origin "${VERSION}"
-
-          gh release create "${VERSION}" \
-            "${ZIPNAME}" \
-            "${ZIPNAME}.sha256" \
-            --title "MuMuManager CLI Menu ${VERSION}" \
+          set -euo pipefail
+          gh release create "$TAG" \
+            "$ZIPNAME" \
+            "$ZIPNAME.sha256" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "MuMuManager CLI Menu $TAG" \
             --notes-file relnotes.md
-
-          echo "=== Release ${VERSION} created ==="
-          echo "URL: https://github.com/${{ github.repository }}/releases/tag/${VERSION}"
+          echo "=== Release $TAG created ==="
+          echo "URL: https://github.com/${GITHUB_REPOSITORY}/releases/tag/$TAG"

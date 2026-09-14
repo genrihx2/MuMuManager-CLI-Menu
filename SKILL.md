@@ -54,9 +54,9 @@ cd MuMuManager-CLI-Menu
 
 ## Workflows
 ### Release (auto)
-- Triggers on push to `main` when `mumu-menu.ps1` changes
-- Reads version from `$scriptVer` variable
-- Creates ZIP (mumu-menu.ps1, README.md, SKILL.md, .version)
+- Triggers on push of a `v*` tag, or push to `main` when `mumu-menu.ps1` changes (tag derived from `$scriptVer` and created if missing)
+- Builds ZIP strictly from the tag content; fails if `$scriptVer` does not match the tag version
+- Creates ZIP (mumu-menu.ps1, README.md, SKILL.md, .version) with SHA256 asset
 - SHA256 checksum + ZIP integrity verification
 - Generates release notes with changelog, commit list, install instructions
 
