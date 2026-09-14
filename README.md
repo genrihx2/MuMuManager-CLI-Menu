@@ -488,13 +488,15 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Безопасность
 
-- **VirusTotal (v1.18.10): 0 malicious / 0 suspicious** — релизный ZIP (66 движков), `mumu-menu.ps1` (62), SKILL.md — все файлы релиза сканируются CI (авто-запуск после публикации, run #216)
+- **VirusTotal (v1.19.0): 0 malicious / 0 suspicious** — релизный ZIP (65 движков), `mumu-menu.ps1` (61), SKILL.md — первый релиз, прошедший всю цепочку без единого ручного действия: бамп версии → тег → релиз → автоскан → вердикты в notes (run #218, event: release)
 - Скан запускается **автоматически** после публикации релиза: Release workflow публикует релиз с `RELEASE_PAT` (секрет), чтобы сработал триггер `on: release published` — GitHub подавляет триггеры для релизов, созданных `GITHUB_TOKEN`
 - CI автоматически сканирует релизный ZIP, а также `mumu-menu.ps1` и `SKILL.md` из его состава (`virustotal.yml`, секрет `VT_API_KEY`); известные VT объекты переиспользуются по SHA-256; вердикты и пермалинки автоматически публикуются в описании релиза (маркерная секция «VirusTotal verdicts», идемпотентно)
 - Встроенное сканирование: `[VT] VirusTotal scan` — проверяет файлы через VT API
 
 | Файл | SHA-256 | Движков | Отчёт |
 |------|---------|---------|-------|
+| релизный `MuMuManager-CLI-Menu-v1.19.0.zip` | `cd8c28e5b917…70a8` | 65 | [отчёт](https://www.virustotal.com/gui/file/cd8c28e5b9174bb03653dfea8e93d7337ca5c12d046f552611518da0c73370a8) |
+| `mumu-menu.ps1` (v1.19.0) | `9ec8749a1037…3770` | 61 | [отчёт](https://www.virustotal.com/gui/file/9ec8749a1037b472a9408dae4eaab600bd6b70a17d09eb56f8ac80f0cff57370) |
 | релизный `MuMuManager-CLI-Menu-v1.18.10.zip` | `a1e667c56c4a…f11c` | 66 | [отчёт](https://www.virustotal.com/gui/file/a1e667c56c4aedb4c74a7a05170bcff25bffb65f524385ce49842b6475dbf11c) |
 | `mumu-menu.ps1` (v1.18.10) | `ad98ccb10814…a46` | 62 | [отчёт](https://www.virustotal.com/gui/file/ad98ccb10814877584db660ab1c77e39eb5ca78571d1da88786ac4c6ef543a46) |
 | релизный `MuMuManager-CLI-Menu-v1.18.9.zip` | `a4e6312fdc31…6922` | 65 | [отчёт](https://www.virustotal.com/gui/file/a4e6312fdc31c3f08909cbd4d7b373a2d7bf22fee6fa7270010f4bd27acd6922) |

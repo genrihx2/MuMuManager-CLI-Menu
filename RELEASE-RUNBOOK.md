@@ -183,7 +183,10 @@ via PR #13, shellcheck fixes in `88677d6`). **Status:** the v1.18.6 backfill
 is done (2026-09-14), and v1.18.7 was cut end-to-end through Path 2
 (2026-09-14, commit `1f699bd` → Release run #276): version bump → CI-created
 tag → ZIP + SHA256 published → VirusTotal scan clean (0 malicious /
-0 suspicious, 66 engines). The full flow is proven.
+0 suspicious, 66 engines). The full flow is proven. v1.19.0
+(2026-09-14, commit `03287ed`) went all the way hands-off: version
+bump → tag → release → auto VT scan (run #218, `release` event) →
+verdicts posted into the release notes - zero manual dispatches.
 
 **Three release paths, one pipeline** (tag → `$scriptVer` gate → ZIP built
 from tag content via `git archive` → ZIP + `.sha256` attached):
