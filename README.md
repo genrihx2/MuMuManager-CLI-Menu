@@ -481,13 +481,14 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Безопасность
 
-- **VirusTotal (v1.18.10): 0 malicious / 0 suspicious** — релизный ZIP (66 движков), `mumu-menu.ps1` (62), SKILL.md — скан CI (run #209, все файлы релиза)
+- **VirusTotal (v1.18.10): 0 malicious / 0 suspicious** — релизный ZIP (66 движков), `mumu-menu.ps1` (62), SKILL.md — все файлы релиза сканируются CI (авто-запуск после публикации, run #216)
+- Скан запускается **автоматически** после публикации релиза: Release workflow публикует релиз с `RELEASE_PAT` (секрет), чтобы сработал триггер `on: release published` — GitHub подавляет триггеры для релизов, созданных `GITHUB_TOKEN`
 - CI автоматически сканирует релизный ZIP, а также `mumu-menu.ps1` и `SKILL.md` из его состава (`virustotal.yml`, секрет `VT_API_KEY`); известные VT объекты переиспользуются по SHA-256; вердикты и пермалинки автоматически публикуются в описании релиза (маркерная секция «VirusTotal verdicts», идемпотентно)
 - Встроенное сканирование: `[VT] VirusTotal scan` — проверяет файлы через VT API
 
 | Файл | SHA-256 | Движков | Отчёт |
 |------|---------|---------|-------|
-| релизный `MuMuManager-CLI-Menu-v1.18.10.zip` | `f8f60e081053…768e` | 66 | [отчёт](https://www.virustotal.com/gui/file/f8f60e081053f04bb587f6b5d1e7db2405f4f42a0f1a8d371311e2f2e9c9768e) |
+| релизный `MuMuManager-CLI-Menu-v1.18.10.zip` | `a1e667c56c4a…f11c` | 66 | [отчёт](https://www.virustotal.com/gui/file/a1e667c56c4aedb4c74a7a05170bcff25bffb65f524385ce49842b6475dbf11c) |
 | `mumu-menu.ps1` (v1.18.10) | `ad98ccb10814…a46` | 62 | [отчёт](https://www.virustotal.com/gui/file/ad98ccb10814877584db660ab1c77e39eb5ca78571d1da88786ac4c6ef543a46) |
 | релизный `MuMuManager-CLI-Menu-v1.18.9.zip` | `a4e6312fdc31…6922` | 65 | [отчёт](https://www.virustotal.com/gui/file/a4e6312fdc31c3f08909cbd4d7b373a2d7bf22fee6fa7270010f4bd27acd6922) |
 | `mumu-menu.ps1` (v1.18.9) | `9188407bd1d1…f181` | 62 | [отчёт](https://www.virustotal.com/gui/file/9188407bd1d1577f09e50611c80f6f5e2bfb9aa6f6181f36918e7c500d67f181) |

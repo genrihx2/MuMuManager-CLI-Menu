@@ -198,13 +198,22 @@ from tag content via `git archive` → ZIP + `.sha256` attached):
    (keep the tag), then run the workflow with the tag as input.
 
 **VirusTotal:** the repo previously had no `VT_API_KEY` secret, so VT runs
-silently skipped scanning since v1.18.0. The secret is configured now;
-releases are scanned on publish, but releases published by the Release
-workflow's `GITHUB_TOKEN` do not auto-trigger the VT workflow (GitHub
-suppression) — dispatch it manually with the tag as input. Since v1.18.10
-the scan covers the ZIP plus `mumu-menu.ps1`/`SKILL.md` extracted from it,
-and the workflow posts the verdict table with permalinks into the release
-notes (marker-scoped «VirusTotal verdicts» section, idempotent on re-runs).
+silently skipped scanning since v1.18.0. The secret is configured now.
+Since v1.18.10 the scan covers the ZIP plus `mumu-menu.ps1`/`SKILL.md`
+extracted from it, and the workflow posts the verdict table with
+permalinks into the release notes (marker-scoped «VirusTotal verdicts»
+section, idempotent on re-runs).
+
+**Auto-trigger (issue #16, fixed):** GitHub suppresses workflow triggers
+for releases created with `GITHUB_TOKEN`, which used to make every VT
+scan a manual dispatch. The Release workflow now publishes with the
+`RELEASE_PAT` secret when present (fallback: `GITHUB_TOKEN`, publishing
+never breaks) so `on: release published` fires and the scan runs
+automatically. Note for future readers: a `release`-event run executes
+the workflow file at the tagged commit — improvements to the VT workflow
+only post sections automatically for releases tagged after the
+improvement lands; older/edited releases can always be refreshed by
+dispatching the workflow with the tag as input.
 
 **Guarantees:** the ZIP always contains exactly the five release files from
 the tag (never branch HEAD) - including `bootstrap-update.ps1` since v1.18.10,
