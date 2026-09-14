@@ -139,8 +139,10 @@ jobs:
           ZIPNAME="MuMuManager-CLI-Menu-${TAG}.zip"
 
           rm -rf dist && mkdir -p dist
-          # Build strictly from the tag's content - not from the checked-out branch
-          git archive "$TAG" mumu-menu.ps1 README.md SKILL.md .version | tar -x -C dist
+          # Build strictly from the tag's content - not from the checked-out branch.
+          # bootstrap-update.ps1 ships in the ZIP so every install carries the current
+          # updater (the v1.18.8 JSON-detector fix must reach installs that never ran it).
+          git archive "$TAG" mumu-menu.ps1 bootstrap-update.ps1 README.md SKILL.md .version | tar -x -C dist
 
           (cd dist && zip -r "../${ZIPNAME}" .)
 
@@ -169,7 +171,7 @@ jobs:
           set -euo pipefail
           echo "${SHA256}  ${ZIPNAME}" | sha256sum -c -
           echo "SHA256: OK"
-          for f in mumu-menu.ps1 README.md SKILL.md .version; do
+          for f in mumu-menu.ps1 bootstrap-update.ps1 README.md SKILL.md .version; do
             unzip -l "${ZIPNAME}" | grep -q "$f" || { echo "MISSING: $f"; exit 1; }
           done
           echo "Structure: OK"

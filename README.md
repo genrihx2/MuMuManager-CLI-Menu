@@ -340,7 +340,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.18.9
+Script version: 1.18.10
 MuMu version: 6.5.2.0
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -375,6 +375,10 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 Для приватных репозиториев сохраните токен через пункт меню `[K] Update GitHub token` — он проверяется и хранится **зашифрованным через Windows DPAPI** в `.github-token.dpapi`; плейнтекстовый `.github-token` мигрирует в зашифрованное хранилище автоматически при первом запуске.
 
 ## Что нового
+
+### v1.18.10 (14.09.2026)
+- **bootstrap-update.ps1 в релизном ZIP**: установщик обновлений теперь поставляется в каждом релизе — инсталляция всегда может починить/обновить сам обновлятор (урок v1.18.8: ZIP не содержал фикс обновлятора)
+- **VT-скан всех файлов релиза (issue #14)**: CI сканирует не только ZIP, но и `mumu-menu.ps1` + `SKILL.md` извлечённые из того же ZIP; повторно известные VT объекты переиспользуются по SHA-256, в step summary — таблица вердиктов с пермалинками
 
 ### v1.18.9 (14.09.2026)
 - **Sigma #8 (NTFS Alternate Data Stream)**: MIME-литерал в коде загрузки VT давал подстроку «-stream» в том же скриптблоке, где есть `Set-Content` — правило срабатывало ложно; загрузка переведена на `curl.exe` multipart, литерал удалён. Скрипт никогда не работал с ADS
@@ -456,6 +460,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.18.10 | 14.09.2026 | bootstrap-update.ps1 в релизном ZIP; VT-скан ZIP + ps1 + SKILL.md в CI (issue #14) |
 | v1.18.9 | 14.09.2026 | Sigma #8 (NTFS ADS): убран MIME-литерал «-stream», VT-загрузка через curl.exe multipart |
 | v1.18.8 | 14.09.2026 | Fix bootstrap-update/[U]: JSON-детектор самоматчился на raw ps1; .version только при полном успехе |
 | v1.18.7 | 14.09.2026 | Release pipeline: tag-driven CI, VT-скан релиза в CI, actionlint/shellcheck, RELEASE-RUNBOOK |
@@ -477,7 +482,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 ## Безопасность
 
 - **VirusTotal (v1.18.9): 0 malicious / 0 suspicious** — релизный ZIP (65 движков, CI-скан), `mumu-menu.ps1` (62), сканы от 14.09.2026
-- CI автоматически сканирует релизный ZIP после публикации (`virustotal.yml`, секрет `VT_API_KEY`)
+- CI автоматически сканирует релизный ZIP, а также `mumu-menu.ps1` и `SKILL.md` из его состава (`virustotal.yml`, секрет `VT_API_KEY`); известные VT объекты переиспользуются по SHA-256
 - Встроенное сканирование: `[VT] VirusTotal scan` — проверяет файлы через VT API
 
 | Файл | SHA-256 | Движков | Отчёт |

@@ -203,7 +203,8 @@ releases are scanned on publish, but releases published by the Release
 workflow's `GITHUB_TOKEN` do not auto-trigger the VT workflow (GitHub
 suppression) — dispatch it manually with the tag as input.
 
-**Guarantees:** the ZIP always contains exactly the four release files from
-the tag (never branch HEAD); tag/`$scriptVer` mismatches fail hard; re-runs
-are idempotent; users verify downloads with
+**Guarantees:** the ZIP always contains exactly the five release files from
+the tag (never branch HEAD) - including `bootstrap-update.ps1` since v1.18.10,
+so every install ships with the current updater; tag/`$scriptVer` mismatches
+fail hard; re-runs are idempotent; users verify downloads with
 `sha256sum -c MuMuManager-CLI-Menu-vX.Y.Z.zip.sha256`.
