@@ -1,4 +1,4 @@
-# Regression tests for the JSON-metadata detector in bootstrap-update.ps1.
+﻿# Regression tests for the JSON-metadata detector in bootstrap-update.ps1.
 #
 # Background: bootstrap-update.ps1 and the [U] updater used to reject every
 # download of mumu-menu.ps1 with "Received JSON metadata instead of raw file",
@@ -77,15 +77,15 @@ try {
     $dest1 = Join-Path $tmp 'mumu-menu.ps1'
     $url1  = "https://api.github.com/repos/$Repo/contents/mumu-menu.ps1?ref=$Ref"
     $size1 = Download-File $url1 $dest1
-    Assert-True 'raw mumu-menu.ps1 accepted (not flagged as JSON)' ($size1 -gt 100000) "returned size: $size1"
+    Assert-True -Name 'raw mumu-menu.ps1 accepted (not flagged as JSON)' -Condition ($size1 -gt 100000) -Detail "returned size: $size1"
 
     if ($size1 -gt 0) {
         $parseErrors1 = $null
         $null = [System.Management.Automation.Language.Parser]::ParseFile($dest1, [ref]$null, [ref]$parseErrors1)
-        Assert-True 'downloaded file parses as PowerShell' (-not ($parseErrors1 -and $parseErrors1.Count)) "parse error: $($parseErrors1[0].Message)"
+        Assert-True -Name 'downloaded file parses as PowerShell' -Condition (-not ($parseErrors1 -and $parseErrors1.Count)) -Detail "parse error: $($parseErrors1[0].Message)"
 
         $full1 = [System.IO.File]::ReadAllText($dest1)
-        Assert-True 'downloaded content looks like the menu script' (($full1 -match "scriptVer\s*=\s*'[\d\.]+'") -and ($full1 -match 'function Show-Menu')) 'scriptVer/Show-Menu not found in content'
+        Assert-True -Name 'downloaded content looks like the menu script' -Condition (($full1 -match "scriptVer\s*=\s*'[\d\.]+'") -and ($full1 -match 'function Show-Menu')) -Detail 'scriptVer/Show-Menu not found in content'
 
         # T4 (informational): the OLD unguarded detector would flag this body.
         $oldBody = [System.IO.File]::ReadAllText($dest1)
@@ -113,8 +113,8 @@ try {
 '@ | Set-Content -LiteralPath $metaFile -Encoding ASCII
     $metaUrl = 'file:///' + ($metaFile -replace '\\', '/')
     $size2 = Download-File $metaUrl (Join-Path $tmp 't2-out.ps1')
-    Assert-True 'JSON metadata body rejected (returns 0)' ($size2 -eq 0) "returned size: $size2"
-    Assert-True 'no output file left behind for rejected body' (-not (Test-Path -LiteralPath (Join-Path $tmp 't2-out.ps1'))) 't2-out.ps1 exists'
+    Assert-True -Name 'JSON metadata body rejected (returns 0)' -Condition ($size2 -eq 0) -Detail "returned size: $size2"
+    Assert-True -Name 'no output file left behind for rejected body' -Condition (-not (Test-Path -LiteralPath (Join-Path $tmp 't2-out.ps1'))) -Detail 't2-out.ps1 exists'
 
     # ── T3: "Bad credentials" JSON must be rejected (with token set) ──
     Write-Host 'T3: Bad-credentials JSON must be rejected' -ForegroundColor Cyan
@@ -125,7 +125,7 @@ try {
     $token  = 'ghp_faketoken0000000000000000000000000000'   # exercise the auth path
     $size3  = Download-File $credsUrl (Join-Path $tmp 't3-out.ps1')
     $token  = $null
-    Assert-True 'bad-credentials JSON rejected (returns 0)' ($size3 -eq 0) "returned size: $size3"
+    Assert-True -Name 'bad-credentials JSON rejected (returns 0)' -Condition ($size3 -eq 0) -Detail "returned size: $size3"
 
     $passCount = 0
     if ($script:failures -eq 0) { $passCount = 1 }
