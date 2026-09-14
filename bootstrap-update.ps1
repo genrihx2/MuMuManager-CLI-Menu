@@ -11,6 +11,11 @@
 # Update journal: every completed run appends one event to
 # update-journal.log (same file the menu [U] updater uses). Override the
 # location with -LogDir (e.g. when the install dir is read-only).
+#
+# Self-refresh: bootstrap-update.ps1 updates ITSELF on every run - the new
+# copy is downloaded as .new and applied at the end of a successful run
+# (PowerShell has parsed the file by then). If the file is busy, the menu
+# applies the pending .new at startup.
 
 param(
     [string]$TargetDir = $PSScriptRoot,
@@ -32,7 +37,7 @@ try {
 # ── Config ───────────────────────────────────────────────────────────
 $repo       = 'genrihx2/MuMuManager-CLI-Menu'
 $apiBase    = "https://api.github.com/repos/$repo"
-$files      = @('mumu-menu.ps1', 'SKILL.md', 'README.md')
+$files      = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1')
 $maxRetries = 3
 $retryDelay = 3   # seconds between retries
 
@@ -57,6 +62,31 @@ function Write-UpdateJournal {
         [System.IO.File]::AppendAllText($journalFile, $line + [Environment]::NewLine, [System.Text.Encoding]::UTF8)
     } catch {
         Write-Debug "Update journal write failed: $($_.Exception.Message)"
+    }
+}
+
+# ── Self-refresh: apply a pending bootstrap-update.ps1.new ───────────
+# The updater cannot safely overwrite itself while running, so the fresh
+# copy is downloaded as .new and applied afterwards. If the copy is
+# blocked (file lock), the .new stays and the menu applies it at startup.
+function Apply-PendingUpdater {
+    param([string]$Dir, [string]$From = '', [string]$To = '')
+    $newPath = Join-Path $Dir 'bootstrap-update.ps1.new'
+    $curPath = Join-Path $Dir 'bootstrap-update.ps1'
+    if (-not (Test-Path -LiteralPath $newPath -PathType Leaf)) { return $false }
+    try {
+        $oldPath = $curPath + '.old'
+        if (Test-Path -LiteralPath $curPath -PathType Leaf) {
+            Remove-Item -LiteralPath $oldPath -Force -ErrorAction SilentlyContinue
+            Copy-Item -LiteralPath $curPath -Destination $oldPath -Force
+        }
+        Copy-Item -LiteralPath $newPath -Destination $curPath -Force
+        Remove-Item -LiteralPath $newPath -Force -ErrorAction SilentlyContinue
+        Write-UpdateJournal -EventType 'updater-refresh' -From $From -To $To -Detail 'bootstrap-update.ps1 updated from .new'
+        return $true
+    } catch {
+        Write-Debug "Updater self-apply failed: $($_.Exception.Message)"
+        return $false
     }
 }
 
@@ -246,6 +276,8 @@ $fail = 0
 
 foreach ($f in $files) {
     $dest = Join-Path $TargetDir $f
+    # The updater itself goes to .new: never overwrite the running script.
+    if ($f -eq 'bootstrap-update.ps1') { $dest = "$dest.new" }
     $tag = if ($remoteTag) { $remoteTag } else { 'main' }
     $url = "https://api.github.com/repos/$repo/contents/$f`?ref=$tag"
 
@@ -276,6 +308,13 @@ if ($remoteTag -and $fail -eq 0 -and $ok -gt 0) {
 Write-Host ''
 if ($fail -eq 0 -and $ok -gt 0) {
     Write-UpdateJournal -EventType 'update-ok' -From $localTag -To $remoteTag -Detail "$ok file(s) updated"
+    # Self-refresh: apply the freshly downloaded updater now - PowerShell
+    # has already parsed this script, so overwriting the file is safe.
+    if (Apply-PendingUpdater -Dir $TargetDir -From $localTag -To $remoteTag) {
+        Write-Host "  Updater refreshed: bootstrap-update.ps1 now matches $remoteTag." -ForegroundColor Green
+    } elseif (Test-Path -LiteralPath (Join-Path $TargetDir 'bootstrap-update.ps1.new')) {
+        Write-Host "  Updater .new saved (file busy) - the menu will apply it at startup." -ForegroundColor Yellow
+    }
     Write-Host "Done: $ok file(s) updated to $remoteTag" -ForegroundColor Green
     Write-Host "Restart the menu to use the new version." -ForegroundColor Green
 } elseif ($fail -gt 0) {

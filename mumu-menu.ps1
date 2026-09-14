@@ -226,7 +226,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.19.1'
+$scriptVer = '1.19.2'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -372,7 +372,7 @@ function Update-FromGitHub {
         $headers['Authorization'] = "token $GitHubToken"
     }
 
-    $files = @('mumu-menu.ps1', 'SKILL.md', 'README.md')
+    $files = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1')
 
     # Updates are sourced ONLY from tagged GitHub Releases, never from the
     # mutable main branch. Get-RemoteFile closes over the resolved tag.
@@ -803,7 +803,9 @@ function Update-FromGitHub {
     }
 }
 
-# Apply pending self-update (.new file from previous [U] update)
+# Apply pending self-updates (.new files from previous [U] update):
+# mumu-menu.ps1 (running, cannot overwrite itself) and bootstrap-update.ps1
+# (left as .new when the file was busy during an update).
 try {
     $selfNew = Join-Path $ScriptDir 'mumu-menu.ps1.new'
     if (Test-Path -LiteralPath $selfNew) {
@@ -821,6 +823,23 @@ try {
         Remove-Item -LiteralPath $selfNew -Force -ErrorAction SilentlyContinue
         if ($script:JournalFile) { Write-UpdateJournal -EventType 'self-apply' -To 'mumu-menu.ps1' -Detail 'applied pending .new file from previous update' }
         Write-Host '  Applied pending update from .new file' -ForegroundColor Green
+    }
+    # Pending updater refresh: bootstrap-update.ps1.new saved by [U] (or by
+    # bootstrap-update.ps1 itself when the file was busy at end of its run).
+    $updNew = Join-Path $ScriptDir 'bootstrap-update.ps1.new'
+    if (Test-Path -LiteralPath $updNew) {
+        $updDest = Join-Path $ScriptDir 'bootstrap-update.ps1'
+        $updOld = $updDest + '.old'
+        if (Test-Path -LiteralPath $updDest) {
+            try {
+                if (Test-Path -LiteralPath $updOld) { Remove-Item -LiteralPath $updOld -Force -ErrorAction SilentlyContinue }
+                Copy-Item -LiteralPath $updDest -Destination $updOld -Force
+            } catch { Write-Debug "Backup old updater failed: $($_.Exception.Message)" }
+        }
+        Copy-Item -LiteralPath $updNew -Destination $updDest -Force
+        Remove-Item -LiteralPath $updNew -Force -ErrorAction SilentlyContinue
+        if ($script:JournalFile) { Write-UpdateJournal -EventType 'updater-refresh' -To 'bootstrap-update.ps1' -Detail 'applied pending .new file from previous update' }
+        Write-Host '  Applied pending updater update from .new file' -ForegroundColor Green
     }
 } catch {
     Write-Debug "Update apply failed: $($_.Exception.Message)"

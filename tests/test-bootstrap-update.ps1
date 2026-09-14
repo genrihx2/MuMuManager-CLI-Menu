@@ -18,6 +18,11 @@
 #       must be rejected after the without-auth retry.
 #   T4. Informational: verifies the OLD unguarded regexes would still flag
 #       the raw script (i.e. the test data really is the regression case).
+#   T5. Journal writer: Write-UpdateJournal emits one tab-separated event
+#       per call, sanitizes tabs/newlines, and marks failures detectably.
+#   T6. Updater self-refresh (issue #21): both updaters' file lists include
+#       bootstrap-update.ps1, and Apply-PendingUpdater swaps in the .new
+#       copy, removes it and journals the updater-refresh event.
 #
 # Run locally:
 #   powershell -ExecutionPolicy Bypass -File tests\test-bootstrap-update.ps1
@@ -147,6 +152,58 @@ try {
     Assert-True -Name 'every event has timestamp + 6 tab-separated fields' -Condition $wellFormed -Detail ($jLines -join ' / ')
     Assert-True -Name 'tabs/newlines in detail are sanitized to spaces' -Condition (-not ($jLines | Where-Object { ($_ -split "`t")[5] -match "[\t\r\n]" })) -Detail 'raw control chars found in detail column'
     Assert-True -Name 'fail event is detectable by viewers (event column contains fail)' -Condition (@($jLines | Where-Object { (($_ -split "`t")[2]) -match 'fail' }).Count -eq 1) -Detail 'no fail-marker line'
+
+    # ── T6: updater self-refresh (#21) — file lists + Apply-PendingUpdater ──
+    Write-Host 'T6: updater self-refresh must include bootstrap-update.ps1 in both updaters' -ForegroundColor Cyan
+    # The updater is the one file an update could never fix - both file lists
+    # must now include it (issue #21).
+    $arrayAsts = $ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.ArrayLiteralAst]
+    }, $true)
+    $bootHasUpdater = @($arrayAsts | Where-Object {
+        ($_.Elements.Value -contains 'bootstrap-update.ps1') -and
+        ($_.Elements.Value -contains 'mumu-menu.ps1')
+    }).Count -gt 0
+    Assert-True -Name 'bootstrap-update.ps1 file list contains itself' -Condition $bootHasUpdater -Detail 'no array literal with mumu-menu.ps1 + SKILL.md + bootstrap-update.ps1 found'
+
+    $menuPath = Join-Path $root 'mumu-menu.ps1'
+    if (Test-Path -LiteralPath $menuPath -PathType Leaf) {
+        $menuErrors = $null
+        $menuAst = [System.Management.Automation.Language.Parser]::ParseFile($menuPath, [ref]$null, [ref]$menuErrors)
+        if (-not ($menuErrors -and $menuErrors.Count)) {
+            $menuArrays = $menuAst.FindAll({
+                param($node)
+                $node -is [System.Management.Automation.Language.ArrayLiteralAst]
+            }, $true)
+            $menuHasUpdater = @($menuArrays | Where-Object {
+                ($_.Elements.Value -contains 'bootstrap-update.ps1') -and
+                ($_.Elements.Value -contains 'mumu-menu.ps1')
+            }).Count -gt 0
+            Assert-True -Name 'menu [U] file list contains bootstrap-update.ps1' -Condition $menuHasUpdater -Detail 'no array literal with mumu-menu.ps1 + SKILL.md + bootstrap-update.ps1 found'
+        }
+    }
+
+    # Self-apply behavior: Apply-PendingUpdater must copy .new over the
+    # current updater, remove the .new and journal the updater-refresh event.
+    $apFn = $ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Apply-PendingUpdater'
+    }, $true) | Select-Object -First 1
+    if (-not $apFn) { throw 'Apply-PendingUpdater function not found in bootstrap-update.ps1' }
+    . ([scriptblock]::Create($apFn.Extent.Text))
+    $journalFile = Join-Path $tmp 'update-journal-selfrefresh.log'
+    $uDir = Join-Path $tmp 'selfrefresh'
+    New-Item -ItemType Directory -Path $uDir -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $uDir 'bootstrap-update.ps1') -Value '# old updater' -Encoding ASCII
+    Set-Content -LiteralPath (Join-Path $uDir 'bootstrap-update.ps1.new') -Value '# new updater' -Encoding ASCII
+    $applied = Apply-PendingUpdater -Dir $uDir -From 'v1.19.1' -To 'v1.19.2'
+    Assert-True -Name 'pending updater .new applied (returns true)' -Condition ($applied -eq $true) -Detail "returned: $applied"
+    Assert-True -Name '.new removed after apply' -Condition (-not (Test-Path -LiteralPath (Join-Path $uDir 'bootstrap-update.ps1.new'))) -Detail 'bootstrap-update.ps1.new still exists'
+    Assert-True -Name 'updater content replaced by .new' -Condition ((Get-Content -LiteralPath (Join-Path $uDir 'bootstrap-update.ps1') -Raw).Trim() -eq '# new updater') -Detail 'content not swapped'
+    Assert-True -Name 'updater-refresh event journaled' -Condition (@(Get-Content -LiteralPath $journalFile -Encoding UTF8 -ErrorAction SilentlyContinue | Where-Object { (($_ -split "`t")[2]) -eq 'updater-refresh' }).Count -eq 1) -Detail 'no updater-refresh line in journal'
+    $noop = Apply-PendingUpdater -Dir $uDir -From 'v1.19.2' -To 'v1.19.2'
+    Assert-True -Name 'no .new present - apply is a no-op (returns false)' -Condition ($noop -eq $false) -Detail "returned: $noop"
 
     $passCount = 0
     if ($script:failures -eq 0) { $passCount = 1 }
