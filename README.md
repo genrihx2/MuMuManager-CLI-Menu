@@ -173,6 +173,7 @@ cd MuMuManager-CLI-Menu
   --- Info ---
   [V] Version info
   [U] Check for updates
+  [J] Update journal
   [DL] Download repository
   [CR] Create release
   [FR] Fix release encoding
@@ -343,7 +344,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.19.0
+Script version: 1.19.1
 MuMu version: 6.5.2.0
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -469,6 +470,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.19.1 | 14.09.2026 | Журнал обновлений: общий `update-journal.log` для [U] и bootstrap, просмотр в меню `[J]`, санитизация и ротация лога |
 | v1.19.0 | 14.09.2026 | Milestone Verification UX: автоскан всех файлов, вердикты в описании релиза, автозапуск скана (#14 #15 #16) |
 | v1.18.10 | 14.09.2026 | bootstrap-update.ps1 в релизном ZIP; VT-скан ZIP + ps1 + SKILL.md в CI (issue #14) |
 | v1.18.9 | 14.09.2026 | Sigma #8 (NTFS ADS): убран MIME-литерал «-stream», VT-загрузка через curl.exe multipart |

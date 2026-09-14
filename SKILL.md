@@ -47,6 +47,7 @@ cd MuMuManager-CLI-Menu
 - `[DM]` Spoof device model (brand/model/certification)
 - `[SIM]` Change SIM operator (MCC/MNC) — 38 presets + custom
 - `[U]` Check for updates (downloads from GitHub Releases)
+- `[J]` Update journal (history of [U]/bootstrap updates: OK, failures, version fixes)
 - `[V]` Version info (script, MuMu, .NET, disk, ADB, certificate)
 - `[K]` Update GitHub token (DPAPI-encrypted)
 - `[CRT]` Certificate manager (self-signed code signing)

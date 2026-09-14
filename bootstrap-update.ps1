@@ -6,9 +6,15 @@
 #   powershell -ExecutionPolicy Bypass -File bootstrap-update.ps1
 #   powershell -ExecutionPolicy Bypass -File bootstrap-update.ps1 -TargetDir "C:\MyPath"
 #   powershell -ExecutionPolicy Bypass -File bootstrap-update.ps1 -Force
+#   powershell -ExecutionPolicy Bypass -File bootstrap-update.ps1 -LogDir "D:\logs"
+#
+# Update journal: every completed run appends one event to
+# update-journal.log (same file the menu [U] updater uses). Override the
+# location with -LogDir (e.g. when the install dir is read-only).
 
 param(
     [string]$TargetDir = $PSScriptRoot,
+    [string]$LogDir = '',
     [switch]$Force
 )
 
@@ -29,6 +35,30 @@ $apiBase    = "https://api.github.com/repos/$repo"
 $files      = @('mumu-menu.ps1', 'SKILL.md', 'README.md')
 $maxRetries = 3
 $retryDelay = 3   # seconds between retries
+
+# ── Update journal (shared with the menu [U] updater) ────────────────
+# Tab-separated UTF-8, one event per line:
+#   timestamp<TAB>actor<TAB>event<TAB>from<TAB>to<TAB>detail
+# Rotates at 256 KB keeping a single .old generation. Journal writes are
+# best-effort: a logging failure must never break the update itself.
+$journalFile = if ($LogDir) { Join-Path $LogDir 'update-journal.log' } else { Join-Path $TargetDir 'update-journal.log' }
+
+function Write-UpdateJournal {
+    param([string]$Event, [string]$From = '', [string]$To = '', [string]$Detail = '')
+    try {
+        $oldPath = "$journalFile.old"
+        if ((Test-Path -LiteralPath $journalFile -PathType Leaf) -and (Get-Item -LiteralPath $journalFile).Length -gt 256KB) {
+            Move-Item -LiteralPath $journalFile -Destination $oldPath -Force
+        }
+        $line = "{0}`t{1}`t{2}`t{3}`t{4}`t{5}" -f @(
+            (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), 'bootstrap', $Event, $From, $To,
+            ($Detail -replace "`t", ' ' -replace "`r?`n", ' | ')
+        )
+        [System.IO.File]::AppendAllText($journalFile, $line + [Environment]::NewLine, [System.Text.Encoding]::UTF8)
+    } catch {
+        Write-Debug "Update journal write failed: $($_.Exception.Message)"
+    }
+}
 
 Write-Host ''
 Write-Host '=== Bootstrap Update ===' -ForegroundColor Cyan
@@ -245,9 +275,11 @@ if ($remoteTag -and $fail -eq 0 -and $ok -gt 0) {
 # ── Summary ──────────────────────────────────────────────────────────
 Write-Host ''
 if ($fail -eq 0 -and $ok -gt 0) {
+    Write-UpdateJournal -Event 'update-ok' -From $localTag -To $remoteTag -Detail "$ok file(s) updated"
     Write-Host "Done: $ok file(s) updated to $remoteTag" -ForegroundColor Green
     Write-Host "Restart the menu to use the new version." -ForegroundColor Green
 } elseif ($fail -gt 0) {
+    Write-UpdateJournal -Event 'update-fail' -From $localTag -To $remoteTag -Detail "$ok ok, $fail failed"
     Write-Host "Done: $ok ok, $fail failed" -ForegroundColor Yellow
     if ($backedUp) {
         Write-Host "Backup saved: $backupDir" -ForegroundColor DarkGray

@@ -226,7 +226,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.19.0'
+$scriptVer = '1.19.1'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -329,6 +329,31 @@ function Get-ContentHash {
     }
 }
 
+# ── Update journal (shared with bootstrap-update.ps1) ────────────────
+# Tab-separated UTF-8 at $ScriptDir\update-journal.log, one event per line:
+#   timestamp<TAB>actor<TAB>event<TAB>from<TAB>to<TAB>detail
+# Actors: menu ([U] updater), bootstrap (bootstrap-update.ps1).
+# Rotates at 256 KB keeping a single .old generation. Best-effort: a
+# logging failure must never break the update itself.
+$script:JournalFile = Join-Path $ScriptDir 'update-journal.log'
+
+function Write-UpdateJournal {
+    param([string]$Event, [string]$From = '', [string]$To = '', [string]$Detail = '')
+    try {
+        $oldPath = "$script:JournalFile.old"
+        if ((Test-Path -LiteralPath $script:JournalFile -PathType Leaf) -and (Get-Item -LiteralPath $script:JournalFile).Length -gt 256KB) {
+            Move-Item -LiteralPath $script:JournalFile -Destination $oldPath -Force
+        }
+        $line = "{0}`t{1}`t{2}`t{3}`t{4}`t{5}" -f @(
+            (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), 'menu', $Event, $From, $To,
+            ($Detail -replace "`t", ' ' -replace "`r?`n", ' | ')
+        )
+        [System.IO.File]::AppendAllText($script:JournalFile, $line + [Environment]::NewLine, [System.Text.Encoding]::UTF8)
+    } catch {
+        Write-Debug "Update journal write failed: $($_.Exception.Message)"
+    }
+}
+
 function Update-FromGitHub {
     # Passive mode = read-only version check (used at startup).
     # Downloads happen only in interactive mode via menu option [U].
@@ -411,12 +436,9 @@ function Update-FromGitHub {
             return
         }
 
-        # Tag mismatch — verify by comparing file content (handles manual edits)
-        $localMenuPath = Join-Path $ScriptDir 'mumu-menu.ps1'
-        $localText = [System.IO.File]::ReadAllText($localMenuPath)
-        $remoteText = Get-RemoteFile 'mumu-menu.ps1' $tag
-
+        # Content matches the tag but .version is stale/absent - heal it.
         if ((Get-ContentHash $localText) -eq (Get-ContentHash $remoteText)) {
+            Write-UpdateJournal -Event 'version-fix' -From $localTag -To $tag -Detail 'content matches tag; .version healed'
             Set-Content -Path $VersionFile -Value $tag -NoNewline -ErrorAction SilentlyContinue
             if (-not $Passive) {
                 Write-Host "  Up to date ($tag)" -ForegroundColor DarkGray
@@ -653,8 +675,8 @@ function Update-FromGitHub {
         Remove-OldBackups
 
         $failed = 0
-
-        # Download files with progress bar (curl.exe -# shows speed/size)
+        $okFiles = 0
+        $fileResults = @()
         # Helper: download a file via curl with token fallback and rate-limit retry
         function _DlFile([string]$Url, [string]$Out) {
             $baseArgs = @('-s', '--retry', '3', '--retry-delay', '3', '--connect-timeout', '30', '--max-time', '120',
@@ -731,7 +753,7 @@ function Update-FromGitHub {
                           elseif ($bytes.Length -gt 1KB) { "$([math]::Round($bytes.Length / 1KB, 1)) KB" }
                           else { "$($bytes.Length) B" }
 
-                # Self-update: can't overwrite the running script directly.
+                # Self-update: can't overwrite the running script.
                 # Write .new file, apply on next startup.
                 if ($f -eq 'mumu-menu.ps1') {
                     $newPath = $dest + '.new'
@@ -741,6 +763,8 @@ function Update-FromGitHub {
                     [System.IO.File]::WriteAllBytes($dest, $bytes)
                     Write-Host "    $f OK ($dlSize)" -ForegroundColor Green
                 }
+                $okFiles++
+                $fileResults += "$f=$dlSize"
             } catch {
                 $errMsg = $_.Exception.Message
                 if (-not $errMsg) { $errMsg = 'Unknown error - check network connection and try again' }
@@ -751,8 +775,10 @@ function Update-FromGitHub {
         }
 
         if ($failed -gt 0) {
+            Write-UpdateJournal -Event 'update-fail' -From $localTag -To $tag -Detail "$okFiles ok, $failed failed ($($fileResults -join ', '))"
             Write-Host "Update finished with $failed failed file(s). Restore from backup if needed." -ForegroundColor Red
         } else {
+            Write-UpdateJournal -Event 'update-ok' -From $localTag -To $tag -Detail ($fileResults -join ', ')
             Set-Content -Path $VersionFile -Value $tag -NoNewline -ErrorAction SilentlyContinue
             Write-Host ''
             Write-Host 'Update complete! Restart the menu to use the new version.' -ForegroundColor Green
@@ -793,6 +819,7 @@ try {
         # Apply .new
         Copy-Item -LiteralPath $selfNew -Destination $selfDest -Force
         Remove-Item -LiteralPath $selfNew -Force -ErrorAction SilentlyContinue
+        if ($script:JournalFile) { Write-UpdateJournal -Event 'self-apply' -To 'mumu-menu.ps1' -Detail 'applied pending .new file from previous update' }
         Write-Host '  Applied pending update from .new file' -ForegroundColor Green
     }
 } catch {
@@ -858,6 +885,72 @@ function Show-QuickStatus {
     } catch {
         Write-Host "  v$scriptVer | MuMu $muVer" -ForegroundColor DarkGray
     }
+}
+
+function Show-UpdateJournal {
+    # Viewer for update-journal.log (written by [U] and bootstrap-update.ps1).
+    # -Mode (1/2/3/4) makes the selection scriptable and testable; without it
+    # the mode is asked interactively.
+    param([string]$Mode = '')
+    $file = $script:JournalFile
+    Write-Host ''
+    if (-not ($file -and (Test-Path -LiteralPath $file -PathType Leaf))) {
+        Write-Host '  Update journal is empty - no updates have been performed yet.' -ForegroundColor Yellow
+        Write-Host "  Expected file: $file" -ForegroundColor DarkGray
+        return
+    }
+    $lines = @(Get-Content -LiteralPath $file -Encoding UTF8 -ErrorAction SilentlyContinue | Where-Object { $_.Trim() })
+    if ($lines.Count -eq 0) {
+        Write-Host '  Update journal is empty.' -ForegroundColor Yellow
+        return
+    }
+
+    if (-not $Mode) {
+        Write-Host '  [1] Last 20 events (default)' -ForegroundColor White
+        Write-Host '  [2] Full journal' -ForegroundColor White
+        Write-Host '  [3] Errors and partial failures only' -ForegroundColor White
+        Write-Host '  [4] Open journal file in notepad' -ForegroundColor White
+        Write-Host '  [0] Cancel' -ForegroundColor Yellow
+        $Mode = Read-Host 'Select'
+    }
+    $mode = $Mode
+    if ($mode -eq '0' -or $mode -eq '') { return }
+
+    if ($mode -eq '4') {
+        try { Start-Process notepad.exe $file } catch { Write-Host "  Cannot open notepad: $($_.Exception.Message)" -ForegroundColor Red }
+        return
+    }
+
+    $selected = switch ($mode) {
+        '2' { $lines }
+        '3' { @($lines | Where-Object { (($_ -split "`t")[2]) -match 'fail|error' }) }
+        default { @($lines | Select-Object -Last 20) }
+    }
+    if ($selected.Count -eq 0) {
+        Write-Host '  No matching entries.' -ForegroundColor Yellow
+        return
+    }
+
+    Write-Host ''
+    Write-Host ("  === Update journal ({0} of {1} events) ===" -f $selected.Count, $lines.Count) -ForegroundColor Cyan
+    foreach ($raw in $selected) {
+        $p = $raw -split "`t", 6
+        if ($p.Count -lt 6) { Write-Host "  $raw" -ForegroundColor White; continue }
+        $color = switch -Regex ($p[2]) {
+            'fail|error' { 'Red' }
+            'ok|fix|apply' { 'Green' }
+            'start' { 'Cyan' }
+            default { 'White' }
+        }
+        $info = @()
+        if ($p[3] -or $p[4]) {
+            $arrow = if ($p[3] -and $p[4]) { "$($p[3]) -> $($p[4])" } elseif ($p[4]) { "-> $($p[4])" } else { $p[3] }
+            $info += $arrow
+        }
+        if ($p[5]) { $info += $p[5] }
+        Write-Host ("  {0}  {1,-9} {2,-12} {3}" -f $p[0], $p[1], $p[2], ($info -join ' | ')) -ForegroundColor $color
+    }
+    Write-Host ("  file: {0}" -f $file) -ForegroundColor DarkGray
 }
 
 function Show-Menu {
@@ -931,6 +1024,7 @@ function Show-Menu {
     Write-Host '  --- Info ---' -ForegroundColor Green
     Write-Host '  [V] Version info' -ForegroundColor Yellow
     Write-Host '  [U] Check for updates' -ForegroundColor Yellow
+    Write-Host '  [J] Update journal' -ForegroundColor Yellow
     Write-Host '  [DL] Download repository' -ForegroundColor Yellow
     Write-Host '  [CR] Create release' -ForegroundColor Yellow
     Write-Host '  [FR] Fix release encoding' -ForegroundColor Yellow
@@ -6053,6 +6147,7 @@ do {
         's' { Save-Screenshot }
         'v' { Show-VersionInfo }
         'u' { Update-FromGitHub }
+        'j' { Show-UpdateJournal }
         'dl' { Download-Repository }
         'cr' { Create-GitHubRelease }
         'fr' { Fix-ReleaseEncoding }

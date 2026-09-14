@@ -127,6 +127,27 @@ try {
     $token  = $null
     Assert-True -Name 'bad-credentials JSON rejected (returns 0)' -Condition ($size3 -eq 0) -Detail "returned size: $size3"
 
+    # ── T5: journal writer (Write-UpdateJournal) — format + sanitization ──
+    Write-Host 'T5: Update journal writer must emit well-formed events' -ForegroundColor Cyan
+    $jfn = $ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Write-UpdateJournal'
+    }, $true) | Select-Object -First 1
+    if (-not $jfn) { throw 'Write-UpdateJournal function not found in bootstrap-update.ps1' }
+    . ([scriptblock]::Create($jfn.Extent.Text))
+    $journalFile = Join-Path $tmp 'update-journal.log'
+    Write-UpdateJournal -Event 'update-ok' -From 'v1.19.0' -To 'v1.19.1' -Detail "mumu-menu.ps1=260.0 KB`tSKILL.md=4.0 KB"
+    Write-UpdateJournal -Event 'update-fail' -From 'v1.19.1' -To 'v1.19.2' -Detail "1 ok, 2 failed`nmumu-menu.ps1 FAILED"
+    $jLines = @(Get-Content -LiteralPath $journalFile -Encoding UTF8 -ErrorAction SilentlyContinue | Where-Object { $_.Trim() })
+    Assert-True -Name 'journal file created with one line per event' -Condition ($jLines.Count -eq 2) -Detail "lines: $($jLines.Count)"
+    $wellFormed = $true
+    foreach ($jl in $jLines) {
+        if ((($jl -split "`t").Count -lt 6) -or ($jl -notmatch '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\t')) { $wellFormed = $false }
+    }
+    Assert-True -Name 'every event has timestamp + 6 tab-separated fields' -Condition $wellFormed -Detail ($jLines -join ' / ')
+    Assert-True -Name 'tabs/newlines in detail are sanitized to spaces' -Condition (-not ($jLines | Where-Object { ($_ -split "`t")[5] -match "[\t\r\n]" })) -Detail 'raw control chars found in detail column'
+    Assert-True -Name 'fail event is detectable by viewers (event column contains fail)' -Condition (@($jLines | Where-Object { (($_ -split "`t")[2]) -match 'fail' }).Count -eq 1) -Detail 'no fail-marker line'
+
     $passCount = 0
     if ($script:failures -eq 0) { $passCount = 1 }
     Write-Host ''
