@@ -10,7 +10,7 @@ on:
         required: false
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   virustotal:
@@ -203,3 +203,77 @@ jobs:
               echo "Scan status: ${STATUS:-not started}"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Post verdicts to release notes
+        # Appends/updates a marker-scoped section in the release body so the
+        # verdict table and permalinks are visible where users look first.
+        # Idempotent: re-runs replace the previous section (issue #15).
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          REPO: ${{ github.repository }}
+          STATUS: ${{ steps.vt.outputs.status }}
+          DETECTIONS: ${{ steps.vt.outputs.detections }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          # Only post when we actually scanned and produced a verdict table.
+          if [ ! -f vt-results.md ] || [ "$STATUS" != "completed" ]; then
+            echo "No completed verdict table (status=${STATUS:-none}) - release notes unchanged"
+            exit 0
+          fi
+
+          START='<!-- VIRUSTOTAL-VERDICTS:START -->'
+          END='<!-- VIRUSTOTAL-VERDICTS:END -->'
+
+          if [ "$DETECTIONS" = "true" ]; then
+            VERDICT="**Status: DETECTIONS FOUND - do not use this release**"
+          else
+            VERDICT="**Status: CLEAN** - 0 malicious / 0 suspicious"
+          fi
+
+          TODAY=$(date -u +%Y-%m-%d)
+
+          {
+            echo "$START"
+            echo ""
+            echo "## VirusTotal verdicts"
+            echo ""
+            echo "| File | SHA-256 | Malicious | Suspicious | Harmless | Report |"
+            echo "|---|---|---|---|---|---|"
+            cat vt-results.md
+            echo ""
+            echo "$VERDICT (CI scan $TODAY, [scan run]($RUN_URL))"
+            echo ""
+            echo "<details><summary>Verify the download yourself</summary>"
+            echo ""
+            echo '```bash'
+            echo "sha256sum -c MuMuManager-CLI-Menu-${TAG}.zip.sha256"
+            echo '```'
+            echo "</details>"
+            echo "$END"
+          } > vt-section.md
+
+          RELEASE_JSON=$(gh api "repos/$REPO/releases/tags/$TAG")
+          RELEASE_ID=$(printf '%s' "$RELEASE_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+          printf '%s' "$RELEASE_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['body'] or '')" > release-body.md
+
+          if grep -q "$START" release-body.md; then
+            # Replace the existing section (markers inclusive)
+            awk -v s="$START" -v e="$END" -v sect=vt-section.md '
+              $0 ~ s { inblk=1; while ((getline line < sect) > 0) print line; next }
+              inblk && $0 ~ e { inblk=0; next }
+              !inblk { print }
+            ' release-body.md > release-body-new.md
+          else
+            # Append the section at the end
+            cat release-body.md > release-body-new.md
+            echo "" >> release-body-new.md
+            cat vt-section.md >> release-body-new.md
+          fi
+
+          gh api -X PATCH "repos/$REPO/releases/$RELEASE_ID" \
+            -f body="$(cat release-body-new.md)" > /dev/null
+          echo "Release notes updated with VirusTotal verdicts"
