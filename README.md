@@ -71,8 +71,9 @@ function mumu { & "C:\путь\к\mumu-menu.ps1" }
 **Как работают релизы:**
 - Релизы создаются **автоматически** (GitHub Actions) из тегов `v*`: пуш тега или `[CR]` в меню — ZIP всегда собирается из содержимого тега
 - Релиз не публикуется, если `$scriptVer` в `mumu-menu.ps1` не совпадает с версией тега
-- Каждый релиз привязан к **тегу** (например `v1.13.40`) — обновления берутся только из тегов
-- ZIP-архив содержит: `mumu-menu.ps1`, `README.md`, `SKILL.md`, `.version`
+- Каждый релиз привязан к **тегу** (например `v1.19.0`) — обновления берутся только из тегов
+- ZIP-архив содержит: `mumu-menu.ps1`, `bootstrap-update.ps1`, `README.md`, `SKILL.md`, `.version`
+- После публикации релиз **автоматически сканируется на VirusTotal** (ZIP + `mumu-menu.ps1` + `SKILL.md`), а вердикты с пермалинками публикуются в описании релиза
 - Теги нельзя удалить/перезаписать — это гарантирует целостность истории обновлений
 
 **Способы установки:**
@@ -560,7 +561,7 @@ URL-сканеры (SafeToOpen, Chong Lua Dao) помечают ссылки в�
 - Токен хранится исключительно DPAPI-шифрованным; плейнтекст не пишется и при обнаружении мигрируется/удаляется
 - Нет инъекций, доступа к критическим системным процессам, дампов памяти, обфускации, encoded-команд, persistence
 - Эмулятор управляется официальным CLI Netease (`MuMuManager.exe`); ADB-команды выполняются только по явному запросу пользователя внутри виртуальных машин
-- Мультидвижковый вердикт VirusTotal: **0 malicious / 0 suspicious** (62 движка)
+- Мультидвижковый вердикт VirusTotal: **0 malicious / 0 suspicious** (актуальные счётчики — в таблице выше)
 - Подробнее: [SECURITY.md](SECURITY.md)
 
 ## Компоненты
@@ -571,7 +572,12 @@ URL-сканеры (SafeToOpen, Chong Lua Dao) помечают ссылки в�
 | `update-readme.ps1` | Синхронизация README с меню/версией скрипта |
 | `.github/workflows/sync-readme.yml` | Автообновление README при пуше (GitHub Actions) |
 | `.github/workflows/release.yml` | Автоматические релизы при смене версии |
+| `.github/workflows/virustotal.yml` | VT-скан всех файлов релиза + вердикты в описании релиза |
 | `.github/workflows/security-scan.yml` | PSScriptAnalyzer → SARIF → Code Scanning |
+| `.github/workflows/lint.yml` | actionlint + shellcheck по всем workflow |
+| `.github/workflows/tests.yml` | Регресс-тесты обновлятора (windows-latest) |
+| `tests/test-bootstrap-update.ps1` | Регресс-тест JSON-детектора обновлятора |
+| `RELEASE-RUNBOOK.md` | Runbook релизного конвейера (RU/EN) |
 | `SECURITY.md` | Политика безопасности (RU/EN) |
 | `relnotes.md` | Журнал изменений |
 | `.gitattributes` | Нормализация окончаний строк (LF) |
