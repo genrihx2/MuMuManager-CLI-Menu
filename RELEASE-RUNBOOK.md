@@ -174,6 +174,11 @@ v1.18.6 теперь содержит `MuMuManager-CLI-Menu-v1.18.6.zip` + `.zip
 В CI: `.github/workflows/tests.yml` (windows-latest) — запускается при
 изменениях `bootstrap-update.ps1`, `mumu-menu.ps1`, `tests/**`.
 
+Отдельно `tests/test-changelog-sync.ps1` (CI: `changelog-check.yml`)
+проверяет консистентность changelog в README: каждой строке таблицы
+соответствует секция «Что нового» и наоборот, без дублей — иначе
+генератор описания релиза молча теряет версию (так пропала v1.19.1).
+
 ---
 
 ## English summary

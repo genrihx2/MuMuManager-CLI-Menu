@@ -591,6 +591,7 @@ URL-сканеры (SafeToOpen, Chong Lua Dao) помечают ссылки в�
 | `.github/workflows/security-scan.yml` | PSScriptAnalyzer → SARIF → Code Scanning |
 | `.github/workflows/lint.yml` | actionlint + shellcheck по всем workflow |
 | `.github/workflows/tests.yml` | Регресс-тесты обновлятора (windows-latest) |
+| `.github/workflows/changelog-check.yml` | Проверка консистентности changelog: строкам таблицы соответствуют секции «Что нового» |
 | `tests/test-bootstrap-update.ps1` | Регресс-тест JSON-детектора обновлятора |
 | `RELEASE-RUNBOOK.md` | Runbook релизного конвейера (RU/EN) |
 | `SECURITY.md` | Политика безопасности (RU/EN) |
