@@ -482,7 +482,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 ## Безопасность
 
 - **VirusTotal (v1.18.10): 0 malicious / 0 suspicious** — релизный ZIP (66 движков), `mumu-menu.ps1` (62), SKILL.md — скан CI (run #209, все файлы релиза)
-- CI автоматически сканирует релизный ZIP, а также `mumu-menu.ps1` и `SKILL.md` из его состава (`virustotal.yml`, секрет `VT_API_KEY`); известные VT объекты переиспользуются по SHA-256
+- CI автоматически сканирует релизный ZIP, а также `mumu-menu.ps1` и `SKILL.md` из его состава (`virustotal.yml`, секрет `VT_API_KEY`); известные VT объекты переиспользуются по SHA-256; вердикты и пермалинки автоматически публикуются в описании релиза (маркерная секция «VirusTotal verdicts», идемпотентно)
 - Встроенное сканирование: `[VT] VirusTotal scan` — проверяет файлы через VT API
 
 | Файл | SHA-256 | Движков | Отчёт |

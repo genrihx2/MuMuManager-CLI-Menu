@@ -201,7 +201,10 @@ from tag content via `git archive` → ZIP + `.sha256` attached):
 silently skipped scanning since v1.18.0. The secret is configured now;
 releases are scanned on publish, but releases published by the Release
 workflow's `GITHUB_TOKEN` do not auto-trigger the VT workflow (GitHub
-suppression) — dispatch it manually with the tag as input.
+suppression) — dispatch it manually with the tag as input. Since v1.18.10
+the scan covers the ZIP plus `mumu-menu.ps1`/`SKILL.md` extracted from it,
+and the workflow posts the verdict table with permalinks into the release
+notes (marker-scoped «VirusTotal verdicts» section, idempotent on re-runs).
 
 **Guarantees:** the ZIP always contains exactly the five release files from
 the tag (never branch HEAD) - including `bootstrap-update.ps1` since v1.18.10,
