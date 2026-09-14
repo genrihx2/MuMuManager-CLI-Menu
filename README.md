@@ -340,7 +340,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.18.7
+Script version: 1.18.8
 MuMu version: 6.5.2.0
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -375,6 +375,11 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 Для приватных репозиториев сохраните токен через пункт меню `[K] Update GitHub token` — он проверяется и хранится **зашифрованным через Windows DPAPI** в `.github-token.dpapi`; плейнтекстовый `.github-token` мигрирует в зашифрованное хранилище автоматически при первом запуске.
 
 ## Что нового
+
+### v1.18.8 (14.09.2026)
+- **Fix bootstrap-update**: JSON-детектор ложно срабатывал на raw `mumu-menu.ps1` («Received JSON metadata instead of raw file») — raw-скрипт содержит литералы `"name":` и `_links` в собственных API-проверках; теперь JSON-проверки применяются только когда тело ответа начинается с `{`
+- **Fix [U] Check for updates**: та же защита в обновляторе меню (тот же класс ложного срабатывания)
+- **Fix .version**: bootstrap-update обновляет `.version` только при успешной загрузке всех файлов — частичный сбой больше не оставляет `.version` впереди фактической версии скрипта
 
 ### v1.18.7 (14.09.2026)
 - **Release pipeline**: tag-driven Release workflow — ZIP и SHA256 собираются строго из содержимого тега (`git archive`), проверка соответствия `$scriptVer` тегу, идемпотентные перезапуски
@@ -447,6 +452,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.18.8 | 14.09.2026 | Fix bootstrap-update/[U]: JSON-детектор самоматчился на raw ps1; .version только при полном успехе |
 | v1.18.7 | 14.09.2026 | Release pipeline: tag-driven CI, VT-скан релиза в CI, actionlint/shellcheck, RELEASE-RUNBOOK |
 | v1.18.6 | 04.09.2026 | Auto-detect MuMuManager.exe: generic shell\ paths + registry shell fallback |
 | v1.18.5 | 04.09.2026 | Fix download helpers: stale $LASTEXITCODE, token length check |

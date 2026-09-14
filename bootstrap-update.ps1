@@ -104,10 +104,14 @@ function Download-File {
         & cmd /c $dlCmd | Out-Null
         if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $tmpFile) -and (Get-Item -LiteralPath $tmpFile).Length -gt 0) {
             $size = (Get-Item -LiteralPath $tmpFile).Length
-            # Validate: detect JSON error or metadata instead of raw content
+            # Validate: detect JSON error or metadata instead of raw content.
+            # JSON checks apply ONLY when the body actually starts with '{':
+            # raw scripts legitimately contain JSON-looking strings, and an
+            # unanchored match false-positived on mumu-menu.ps1 itself.
             try {
                 $body = [System.IO.File]::ReadAllText($tmpFile)
-                if ($body -match '"message"\s*:\s*"Bad credentials"') {
+                $isJsonBody = $body.TrimStart().StartsWith('{')
+                if ($isJsonBody -and $body -match '"message"\s*:\s*"Bad credentials"') {
                     Remove-Item -LiteralPath $tmpFile -Force
                     if ($token) {
                         Write-Host "  Token rejected — retrying without auth..." -ForegroundColor Yellow
@@ -116,18 +120,18 @@ function Download-File {
                     }
                     return 0
                 }
-                if ($body -match '"message"\s*:\s*"') {
+                if ($isJsonBody -and $body -match '"message"\s*:\s*"') {
                     $errMsg = if ($body -match '"message"\s*:\s*"([^"]+)"') { $Matches[1] } else { 'API error' }
                     Remove-Item -LiteralPath $tmpFile -Force
                     Write-Host "  Error: $errMsg" -ForegroundColor Red
                     return 0
                 }
-                if ($body -match '"encoding"\s*:\s*"base64"') {
+                if ($isJsonBody -and $body -match '"encoding"\s*:\s*"base64"') {
                     Remove-Item -LiteralPath $tmpFile -Force
                     Write-Host "  Error: Received JSON metadata instead of raw file" -ForegroundColor Red
                     return 0
                 }
-                if ($body -match '"name"\s*:\s*"' -and $body -match '"_links"') {
+                if ($isJsonBody -and $body -match '"name"\s*:\s*"' -and $body -match '"_links"') {
                     Remove-Item -LiteralPath $tmpFile -Force
                     Write-Host "  Error: Received JSON metadata instead of raw file" -ForegroundColor Red
                     return 0
@@ -228,7 +232,9 @@ foreach ($f in $files) {
 }
 
 # ── Update .version file ─────────────────────────────────────────────
-if ($remoteTag -and $ok -gt 0) {
+# Only claim the new version when EVERY file was replaced successfully —
+# a partial failure must not leave .version ahead of the actual script.
+if ($remoteTag -and $fail -eq 0 -and $ok -gt 0) {
     try {
         Set-Content -Path $versionFile -Value $remoteTag -NoNewline -Encoding UTF8 -Force
     } catch {

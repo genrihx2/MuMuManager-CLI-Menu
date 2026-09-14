@@ -218,7 +218,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.18.7'
+$scriptVer = '1.18.8'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -703,16 +703,20 @@ function Update-FromGitHub {
                         Write-Host '    Re-save: [K] Update GitHub token.' -ForegroundColor Yellow
                     }
                 }
-                # Validate response is raw content, not JSON metadata
-                if ($text -match '"message"\s*:\s*"') {
-                    $errMsg = if ($text -match '"message"\s*:\s*"([^"]+)"') { $Matches[1] } else { 'API error' }
-                    throw $errMsg
-                }
-                if ($text -match '"encoding"\s*:\s*"base64"') {
-                    throw 'Received base64 JSON instead of raw content - Accept header may be missing'
-                }
-                if ($text -match '"name"\s*:\s*"' -and $text -match '"_links"') {
-                    throw 'Received GitHub API JSON metadata instead of raw file content'
+                # Validate response is raw content, not JSON metadata.
+                # Checks apply only when the body starts with '{': raw files may
+                # legitimately contain JSON-like strings (self-match false positive).
+                if ($text -and $text.TrimStart().StartsWith('{')) {
+                    if ($text -match '"message"\s*:\s*"') {
+                        $errMsg = if ($text -match '"message"\s*:\s*"([^"]+)"') { $Matches[1] } else { 'API error' }
+                        throw $errMsg
+                    }
+                    if ($text -match '"encoding"\s*:\s*"base64"') {
+                        throw 'Received base64 JSON instead of raw content - Accept header may be missing'
+                    }
+                    if ($text -match '"name"\s*:\s*"' -and $text -match '"_links"') {
+                        throw 'Received GitHub API JSON metadata instead of raw file content'
+                    }
                 }
 
                 $dlSize = if ($bytes.Length -gt 1MB) { "$([math]::Round($bytes.Length / 1MB, 1)) MB" }
