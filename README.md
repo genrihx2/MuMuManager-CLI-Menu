@@ -12,6 +12,8 @@
 
 Интерактивное PowerShell-меню для управления MuMu Emulator 6.0
 
+**Языки:** [Русский](#mu-mu-manager-cli-menu) · [English summary](#english-summary)
+
 ## Возможности
 
 - 🚀 Запуск, выключение, перезагрузка эмулятора
@@ -597,3 +599,21 @@ MIT License
 ## Автор
 
 [genrihx2](https://github.com/genrihx2)
+
+---
+
+## English summary
+
+**MuMu Manager CLI Menu** is an interactive PowerShell menu for managing Netease MuMu Emulator 6.x through the official `MuMuManager.exe` CLI on Windows 10/11 (PowerShell 5.1+).
+
+**Features:** emulator start/stop/restart, instance cloning/renaming/deletion, APK install/uninstall (including batch to all instances), ADB commands with file transfer, screenshots and screen recording, interactive ADB shell, data export and backup with ZIP compression, device-model spoofing, SIM operator/country presets (38 + custom), random IMEI/Android ID/MAC generation, window management, log viewing (files + live logcat), a DPAPI-encrypted GitHub token manager, Authenticode self-signing (`[CRT]`), and a VirusTotal integration (`[VT]` scan / `[VF]` upload).
+
+**Installation:** run the one-liner below, or grab a release ZIP — every release is CI-built strictly from its tag (`git archive`) and contains exactly five files: `mumu-menu.ps1`, `bootstrap-update.ps1`, `README.md`, `SKILL.md`, `.version`.
+
+```powershell
+irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-menu.ps1 -OutFile $env:TEMP\mumu-menu.ps1; & $env:TEMP\mumu-menu.ps1
+```
+
+**Release integrity:** tag/`$scriptVer` mismatches fail the pipeline instead of publishing an empty release; every published release is automatically scanned on VirusTotal (the ZIP plus `mumu-menu.ps1`/`SKILL.md` extracted from it) and the per-file verdict table with report permalinks is posted into the release notes. The latest verdicts and hashes are in the security table above; threat model and Sigma false-positive analysis are in [SECURITY.md](SECURITY.md), the release pipeline runbook in [RELEASE-RUNBOOK.md](RELEASE-RUNBOOK.md).
+
+**Updater:** `[U] Check for updates` compares the local `.version` against GitHub release tags and downloads only from tagged releases after explicit confirmation, with backups of the previous files in `backup\<timestamp>\`. `bootstrap-update.ps1` ships inside every release ZIP as a recovery path if the in-menu updater ever breaks. Docs are maintained in Russian with English summaries; the menu itself is in English.
