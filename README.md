@@ -340,7 +340,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.18.10
+Script version: 1.19.0
 MuMu version: 6.5.2.0
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -375,6 +375,12 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 Для приватных репозиториев сохраните токен через пункт меню `[K] Update GitHub token` — он проверяется и хранится **зашифрованным через Windows DPAPI** в `.github-token.dpapi`; плейнтекстовый `.github-token` мигрирует в зашифрованное хранилище автоматически при первом запуске.
 
 ## Что нового
+
+### v1.19.0 (14.09.2026)
+- **Milestone «Verification UX» завершён** — вся цепочка верификации релиза теперь автоматическая
+- **VT-скан всех файлов релиза** (#14): ZIP + `mumu-menu.ps1` + `SKILL.md` из состава ZIP, переиспользование известных объектов по SHA-256
+- **Вердикты в описании релиза** (#15): маркерная секция «VirusTotal verdicts» с таблицей, пермалинками и блоком самопроверки `sha256sum -c`, идемпотентно
+- **Автозапуск скана** (#16): публикация через `RELEASE_PAT` (fallback `GITHUB_TOKEN`) — триггер `on: release published` срабатывает без ручных запусков
 
 ### v1.18.10 (14.09.2026)
 - **bootstrap-update.ps1 в релизном ZIP**: установщик обновлений теперь поставляется в каждом релизе — инсталляция всегда может починить/обновить сам обновлятор (урок v1.18.8: ZIP не содержал фикс обновлятора)
@@ -460,6 +466,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.19.0 | 14.09.2026 | Milestone Verification UX: автоскан всех файлов, вердикты в описании релиза, автозапуск скана (#14 #15 #16) |
 | v1.18.10 | 14.09.2026 | bootstrap-update.ps1 в релизном ZIP; VT-скан ZIP + ps1 + SKILL.md в CI (issue #14) |
 | v1.18.9 | 14.09.2026 | Sigma #8 (NTFS ADS): убран MIME-литерал «-stream», VT-загрузка через curl.exe multipart |
 | v1.18.8 | 14.09.2026 | Fix bootstrap-update/[U]: JSON-детектор самоматчился на raw ps1; .version только при полном успехе |
