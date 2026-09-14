@@ -260,11 +260,23 @@ jobs:
       - name: Create release
         if: steps.tag.outputs.skip != 'true' && steps.ver.outputs.skip != 'true'
         env:
+          RELEASE_PAT: ${{ secrets.RELEASE_PAT }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.tag }}
           ZIPNAME: ${{ steps.zip.outputs.zipname }}
         run: |
           set -euo pipefail
+          # Publish with a PAT when available so the `on: release published`
+          # trigger fires for the VirusTotal workflow - GitHub suppresses
+          # workflow triggers for releases created with GITHUB_TOKEN (issue #16).
+          # Fall back to GITHUB_TOKEN when the secret is absent so publishing
+          # can never break; in that case the VT scan must be dispatched manually.
+          if [ -n "$RELEASE_PAT" ]; then
+            export GH_TOKEN="$RELEASE_PAT"
+            echo "Publishing with RELEASE_PAT - VirusTotal scan will auto-trigger"
+          else
+            echo "RELEASE_PAT not configured - publishing with GITHUB_TOKEN (dispatch the VT scan manually)"
+          fi
           gh release create "$TAG" \
             "$ZIPNAME" \
             "$ZIPNAME.sha256" \
