@@ -33,4 +33,6 @@ jobs:
 
       - name: Run regression tests (bootstrap-update JSON detector)
         shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./tests/test-bootstrap-update.ps1

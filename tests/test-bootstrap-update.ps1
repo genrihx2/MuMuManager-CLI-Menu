@@ -69,9 +69,19 @@ if (-not $fn) { throw 'Download-File function not found in bootstrap-update.ps1'
 . ([scriptblock]::Create($fn.Extent.Text))
 
 # Production-equivalent environment for the extracted function.
+# GITHUB_TOKEN: on shared CI runners the anonymous 60 req/hr GitHub quota is
+# routinely exhausted by other tenants, so T1's live-API download fails with
+# size 0. The workflow passes its own token; locally the variable is usually
+# unset (anonymous) or may point to any valid PAT.
 $maxRetries = 2
 $retryDelay = 1
-$token      = $null   # public API; bootstrap reads its own token file, tests must not
+$ciToken = $env:GITHUB_TOKEN
+if ($ciToken) {
+    $token = $ciToken
+    Write-Host 'T1 auth: using GITHUB_TOKEN from environment' -ForegroundColor DarkGray
+} else {
+    $token = $null   # public API; anonymous is fine from residential IPs
+}
 
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('bsreg-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $tmp -Force | Out-Null
