@@ -151,10 +151,12 @@ jobs:
           ZIP_SIZE=$(stat -c%s "${ZIPNAME}")
           ZIP_SIZE_KB=$((ZIP_SIZE / 1024))
 
-          echo "zipname=${ZIPNAME}" >> "$GITHUB_OUTPUT"
-          echo "sha256=${SHA256}" >> "$GITHUB_OUTPUT"
-          echo "file_count=${FILE_COUNT}" >> "$GITHUB_OUTPUT"
-          echo "size_kb=${ZIP_SIZE_KB}" >> "$GITHUB_OUTPUT"
+          {
+            echo "zipname=${ZIPNAME}"
+            echo "sha256=${SHA256}"
+            echo "file_count=${FILE_COUNT}"
+            echo "size_kb=${ZIP_SIZE_KB}"
+          } >> "$GITHUB_OUTPUT"
           echo "ZIP: ${ZIPNAME} (${ZIP_SIZE_KB}KB, ${FILE_COUNT} files)"
           echo "SHA256: ${SHA256}"
 

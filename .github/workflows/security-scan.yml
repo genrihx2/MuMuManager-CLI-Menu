@@ -57,7 +57,7 @@ jobs:
         if: always()
         run: |
           if [ ! -f results.sarif ]; then
-            echo "### PSScriptAnalyzer: no SARIF output generated" >> $GITHUB_STEP_SUMMARY
+            echo "### PSScriptAnalyzer: no SARIF output generated" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           TOTAL=$(python3 -c "
@@ -91,16 +91,18 @@ jobs:
                       c += 1
           print(c)
           ")
-          echo "### PSScriptAnalyzer Results" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Metric | Count |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Total findings | $TOTAL |" >> $GITHUB_STEP_SUMMARY
-          echo "| Errors | $ERRORS |" >> $GITHUB_STEP_SUMMARY
-          echo "| Warnings | $WARNINGS |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "### PSScriptAnalyzer Results"
+            echo ""
+            echo "| Metric | Count |"
+            echo "|--------|-------|"
+            echo "| Total findings | $TOTAL |"
+            echo "| Errors | $ERRORS |"
+            echo "| Warnings | $WARNINGS |"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
           if [ "$ERRORS" -gt 0 ]; then
-            echo "**Status: FAIL** ($ERRORS error(s))" >> $GITHUB_STEP_SUMMARY
+            echo "**Status: FAIL** ($ERRORS error(s))" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "**Status: PASS**" >> $GITHUB_STEP_SUMMARY
+            echo "**Status: PASS**" >> "$GITHUB_STEP_SUMMARY"
           fi
