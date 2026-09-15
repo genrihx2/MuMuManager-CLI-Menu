@@ -4,6 +4,10 @@
 
 ---
 
+## v1.19.5 (15.09.2026)
+- **DNS и HTTP-тесты через busybox-fallback**: в образах MuMu 12 нет `nslookup`/`curl`, но есть `/system/xbin/busybox` — тесты используют `busybox nslookup` и `busybox wget` (с `-q -O /dev/null --timeout`, код выхода решает), если нативных инструментов нет
+- **Живая проверка**: ping по ICMP фильтруется MuMu NAT — DNS ✓ / HTTP ✓ при FAILED-пингах означает рабочий интернет без ICMP
+
 ## v1.19.4 (15.09.2026)
 - **Диагностика сети эмулятора честнее**: перед тестами определяется наличие инструментов в гостевой ОС (`ping`, `nslookup`/`getent`, `curl`) — отсутствие инструмента выводится как `N/A` с пояснением, а не как `FAILED` сети
 - **Парсер ping понимает toybox**: вывод Android toybox (`round-trip min/avg/max`, `2 packets received`) распознаётся наравне с busybox/iputils

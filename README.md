@@ -345,7 +345,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.19.4
+Script version: 1.19.5
 MuMu version: 6.5.2.0
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -380,6 +380,10 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 Для приватных репозиториев сохраните токен через пункт меню `[K] Update GitHub token` — он проверяется и хранится **зашифрованным через Windows DPAPI** в `.github-token.dpapi`; плейнтекстовый `.github-token` мигрирует в зашифрованное хранилище автоматически при первом запуске.
 
 ## Что нового
+
+### v1.19.5 (15.09.2026)
+- **DNS и HTTP-тесты через busybox-fallback**: в образах MuMu 12 нет `nslookup`/`curl`, но есть `/system/xbin/busybox` — тесты используют `busybox nslookup` и `busybox wget` (с `-q -O /dev/null --timeout`, код выхода решает), если нативных инструментов нет
+- **Живая проверка на реальной машине**: ping по ICMP фильтруется MuMu NAT (100% loss на все цели при валидном HTTP) — теперь это видно честно: DNS ✓ / HTTP ✓ при FAILED-пингах означает рабочий интернет без ICMP
 
 ### v1.19.4 (15.09.2026)
 - **Диагностика сети эмулятора честнее**: перед тестами определяется наличие инструментов в гостевой ОС (`ping`, `nslookup`/`getent`, `curl`) — отсутствие инструмента (замечено вживую: в образе нет `curl`) выводится как `N/A` с пояснением, а не как `FAILED` сети
@@ -491,6 +495,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.19.5 | 15.09.2026 | Диагностика сети: busybox-fallback для DNS/HTTP (`busybox nslookup`, `busybox wget`), честный отчёт при ICMP-фильтрации |
 | v1.19.4 | 15.09.2026 | Диагностика сети: N/A вместо FAILED при отсутствии инструментов в гостевой ОС, парсер toybox-ping, без красных блоков ошибок в PS 5.1 |
 | v1.19.3 | 14.09.2026 | Проверка установки [F] (#18): сверка файлов с тегом релиза, отчёт OK/DRIFT/MISSING, защита от API-ошибок |
 | v1.19.2 | 14.09.2026 | Самоновляемый обновлятор (#21): [U] и bootstrap обновляют bootstrap-update.ps1, .new-самоприменение, события updater-refresh |

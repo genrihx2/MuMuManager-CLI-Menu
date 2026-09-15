@@ -226,7 +226,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.19.4'
+$scriptVer = '1.19.5'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -2291,7 +2291,12 @@ function Test-Network {
     $dnsCmd = ''
     if ((& $run 'command -v nslookup 2>/dev/null').Trim() -match '^/') { $dnsCmd = 'nslookup' }
     elseif ((& $run 'command -v getent 2>/dev/null').Trim() -match '^/') { $dnsCmd = 'getent' }
+    elseif ((& $run 'command -v busybox 2>/dev/null').Trim() -match '^/') { $dnsCmd = 'busybox-nslookup' }
     $hasCurl = (& $run 'command -v curl 2>/dev/null || which curl 2>/dev/null').Trim() -match '^/'
+    $httpCmd = if ($hasCurl) { 'curl' }
+    elseif ((& $run 'command -v wget 2>/dev/null').Trim() -match '^/') { 'wget' }
+    elseif ((& $run 'command -v busybox 2>/dev/null').Trim() -match '^/') { 'busybox-wget' }
+    else { '' }
 
     # Ping test
     Write-Host '[1] Ping test' -ForegroundColor Yellow
@@ -2321,9 +2326,14 @@ function Test-Network {
     $dnsTargets = @('google.com', 'github.com', 'baidu.com')
     if ($dnsCmd) {
         foreach ($d in $dnsTargets) {
+            $dnsOk = $false
             if ($dnsCmd -eq 'nslookup') {
                 $result = & $run "nslookup $d"
                 $dnsOk = $result -match 'Address:\s+\d'
+            } elseif ($dnsCmd -eq 'busybox-nslookup') {
+                # MuMu 12 images ship /system/xbin/busybox without nslookup symlink
+                $result = & $run "busybox nslookup $d"
+                $dnsOk = $result -match 'Address\s+\d+:\s+\d+'
             } else {
                 $result = & $run "getent hosts $d"
                 $dnsOk = $result -match '\d+\.\d+\.\d+\.\d+'
@@ -2346,18 +2356,27 @@ function Test-Network {
         @{ Url = 'http://www.baidu.com'; Name = 'Baidu' },
         @{ Url = 'https://github.com'; Name = 'GitHub' }
     )
-    if ($hasCurl) {
+    if ($httpCmd) {
         foreach ($h in $httpTargets) {
-            $result = & $run "curl -s -o /dev/null -w '%{http_code}' --max-time 10 $($h.Url)"
-            $code = $result.Trim()
-            if ($code -match '^(200|301|302|204)$') {
-                Write-Host "  $($h.Name) ($code) : OK" -ForegroundColor Green
+            $code = 'ERR'
+            if ($httpCmd -eq 'curl') {
+                $code = (& $run "curl -s -o /dev/null -w '%{http_code}' --max-time 10 $($h.Url)").Trim()
+                $ok = $code -match '^(200|301|302|204)$'
             } else {
-                Write-Host "  $($h.Name) ($code) : FAILED" -ForegroundColor Red
+                # busybox 1.22 wget has no -S; old GNU wget: -S prints to stderr,
+                # both captured through the flattened stderr helper. Exit code
+                # decides - codes are parsed only when the tool prints them.
+                $result = & $run "$httpCmd wget -q -O /dev/null --timeout=10 $($h.Url)"
+                $ok = ($result -notmatch 'wget: (not an http|bad address|I/O error|server returned error)')
+            }
+            if ($ok) {
+                Write-Host "  $($h.Name) : OK$(if ($code -ne 'ERR') { " ($code)" })" -ForegroundColor Green
+            } else {
+                Write-Host "  $($h.Name) : FAILED" -ForegroundColor Red
             }
         }
     } else {
-        Write-Host '  N/A: curl not available in guest - HTTP test skipped' -ForegroundColor DarkGray
+        Write-Host '  N/A: no curl/wget/busybox in guest - HTTP test skipped' -ForegroundColor DarkGray
         Write-Host '  (missing tool in the Android image, not a network failure)' -ForegroundColor DarkGray
     }
 
