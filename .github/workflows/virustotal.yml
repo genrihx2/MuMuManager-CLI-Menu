@@ -15,7 +15,8 @@ permissions:
 jobs:
   virustotal:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Budget: worst case ~10 min poll per file x 3 files + overhead.
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -126,7 +127,11 @@ jobs:
               echo "Analysis ID: $ANALYSIS_ID"
 
               STATS=""
-              for i in $(seq 1 12); do
+              # VT queues can backlog heavily (observed 2026-09-14: a fresh
+              # upload sat 'queued' for >3 min while the same day's other
+              # uploads took ~2.5 min). Poll up to ~10 min per file instead
+              # of failing the whole release scan on a slow queue.
+              for i in $(seq 1 40); do
                 sleep 15
                 R=$(curl -sL --retry 3 --connect-timeout 20 --max-time 60 \
                   "https://www.virustotal.com/api/v3/analyses/$ANALYSIS_ID" \
