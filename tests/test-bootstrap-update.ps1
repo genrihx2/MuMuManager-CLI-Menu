@@ -27,6 +27,10 @@
 #       correct ZIP (sha256 + file set + scriptVer) and fail a tampered
 #       ZIP, a wrong sidecar hash, a wrong scriptVer, an incomplete file
 #       set and a missing archive - before anything is unpacked.
+#   T9. Bootstrap post-download hash verification (parity with [U]):
+#       Get-ContentHash vectors + symmetric trailing trim;
+#       Get-ExpectedHashes hashes tag content, skips rate-limit JSON
+#       bodies and null responses; -NoVerify wiring is present.
 #
 # Run locally:
 #   powershell -ExecutionPolicy Bypass -File tests\test-bootstrap-update.ps1
@@ -394,6 +398,40 @@ try {
     # Client entry points: bootstrap -VerifyZip mode and the [F] prompt
     Assert-True -Name 'bootstrap -VerifyZip mode is wired' -Condition ((Get-Content -LiteralPath (Join-Path $root 'bootstrap-update.ps1') -Raw -Encoding UTF8) -match '\$VerifyZip') -Detail 'VerifyZip param not found'
     Assert-True -Name '[F] offers release ZIP verification' -Condition ((Get-Content -LiteralPath $menuPath -Raw -Encoding UTF8) -match 'Verify a downloaded release ZIP') -Detail 'prompt not found'
+
+    # ── T9: bootstrap post-download hash verification (parity with [U]) ──
+    Write-Host 'T9: bootstrap hash verify - vectors, symmetric trim, API-error skip, wiring' -ForegroundColor Cyan
+    $bErrors = $null
+    $bAst = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $root 'bootstrap-update.ps1'), [ref]$null, [ref]$bErrors)
+    if ($bErrors -and $bErrors.Count) { throw "bootstrap-update.ps1 has syntax errors: $($bErrors[0].Message)" }
+    foreach ($name in 'Get-ContentHash', 'Get-ExpectedHashes') {
+        $bf = $bAst.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
+        }, $true) | Select-Object -First 1
+        if (-not $bf) { throw "$name function not found in bootstrap-update.ps1" }
+        . ([scriptblock]::Create($bf.Extent.Text))
+    }
+    Assert-True -Name 'Get-ContentHash matches the SHA-256 vector for "abc"' -Condition ((Get-ContentHash 'abc') -eq 'BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD') -Detail (Get-ContentHash 'abc')
+    Assert-True -Name 'Get-ContentHash trims trailing whitespace symmetrically (no phantom mismatch)' -Condition ((Get-ContentHash "body`r`n") -eq (Get-ContentHash 'body')) -Detail 'trailing newline changes the hash'
+    # Hermetic stub for the API fetch inside Get-ExpectedHashes
+    function Invoke-CurlGet { param([string]$Url)
+        if ($Url -match '/contents/([^?]+)\?') { $n = $Matches[1] } else { $n = '' }
+        switch ($n) {
+            'mumu-menu.ps1'        { return "# menu body`n" }
+            'SKILL.md'             { return '{"message":"API rate limit exceeded for 1.2.3.4.","documentation_url":"https://docs.github.com"}' }
+            'README.md'            { return $null }
+            default                { return $null }
+        }
+    }
+    $exp = Get-ExpectedHashes -Tag 'v1.20.2' -Names @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1')
+    Assert-True -Name 'expected hash computed from tag content' -Condition ($exp['mumu-menu.ps1'] -eq (Get-ContentHash "# menu body`n")) -Detail "got: $($exp['mumu-menu.ps1'])"
+    Assert-True -Name 'rate-limit JSON body skipped (never treated as content)' -Condition (-not $exp.ContainsKey('SKILL.md')) -Detail 'SKILL.md present in expected hashes'
+    Assert-True -Name 'null response skipped' -Condition (-not $exp.ContainsKey('README.md')) -Detail 'README.md present in expected hashes'
+    $bRaw = Get-Content -LiteralPath (Join-Path $root 'bootstrap-update.ps1') -Raw -Encoding UTF8
+    Assert-True -Name '-NoVerify opt-out is wired' -Condition ($bRaw -match '\[switch\]\$NoVerify') -Detail 'NoVerify param not found'
+    Assert-True -Name 'post-download (hash OK) verdict is wired' -Condition ($bRaw -match 'hash OK') -Detail 'hash OK output not found'
+    Assert-True -Name 'expected-hashes fetch is wired before the download loop' -Condition ($bRaw -match 'Get-ExpectedHashes -Tag \$remoteTag') -Detail 'fetch call not found'
 
 
     $passCount = 0

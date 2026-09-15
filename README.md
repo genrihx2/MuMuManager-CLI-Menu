@@ -345,7 +345,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.20.1
+Script version: 1.20.2
 MuMu version: 6.5.2.0
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -380,6 +380,12 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 Для приватных репозиториев сохраните токен через пункт меню `[K] Update GitHub token` — он проверяется и хранится **зашифрованным через Windows DPAPI** в `.github-token.dpapi`; плейнтекстовый `.github-token` мигрирует в зашифрованное хранилище автоматически при первом запуске.
 
 ## Что нового
+
+### v1.20.2 (15.09.2026)
+- **Пост-проверка хешей в `bootstrap-update.ps1` (паритет с `[U]`)**: после загрузки каждый файл сверяется с ожидаемой SHA-256 из содержимого тега — `OK (hash OK)` / `HASH MISMATCH`; расхождение останавливает обновление (`.version` не двигается, самоприменение обновлятора отменяется, событие `update-fail` в журнале)
+- Тот же hashing-контракт, что и в меню (CR/BOM/симметричный TrimEnd) — вынесено в `Get-ContentHash`/`Get-ExpectedHashes`; JSON-ошибки API (rate limit) никогда не принимаются за эталон
+- Опция `-NoVerify` для отключения; при недоступности хешей обновление продолжается с пометкой `unverified` в журнале
+- **Регресс-тест T9**: векторы SHA-256, симметричный TrimEnd, пропуск rate-limit JSON, wiring `-NoVerify`
 
 ### v1.20.1 (15.09.2026)
 - **Fix post-download hash-проверки `[U]` (v1.20.0)**: локальная сторона сверялась без TrimEnd, тогда как ожидаемые хеши считались от TrimEnd-нутого ответа API — любой файл с переводом строки на конце давал ложный `HASH MISMATCH` и отменял легитимное обновление. TrimEnd перенесён внутрь `Get-ContentHash`, все потребители симметричны по построению; регресс-тест в Pester-сьюте
@@ -508,6 +514,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.20.2 | 15.09.2026 | Пост-проверка SHA-256 в `bootstrap-update.ps1` (паритет с `[U]`): hash OK / HASH MISMATCH, `-NoVerify`, unverified-пометка, тест T9 |
 | v1.20.1 | 15.09.2026 | Fix `[U]`: ложный HASH MISMATCH в пост-проверке (несимметричный TrimEnd), TrimEnd в `Get-ContentHash` |
 | v1.20.0 | 15.09.2026 | Milestone Update Trust: SHA-256 таблица в подтверждении `[U]` + сверка после загрузки (#17), Pester-покрытие хелперов + CI job (#20) |
 | v1.19.6 | 15.09.2026 | Самопроверка релизного ZIP (#19): `Test-ReleaseZip` (sha256-сайдкар, набор файлов, scriptVer), `-VerifyZip` в bootstrap, запрос в [F], тест T8 |

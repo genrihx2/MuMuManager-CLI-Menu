@@ -4,6 +4,12 @@
 
 ---
 
+## v1.20.2 (15.09.2026)
+- **Post-download SHA-256 verification in `bootstrap-update.ps1` (parity with `[U]`)**: every downloaded file is re-hashed and compared with the expected hash from the release tag content - `OK (hash OK)` / `HASH MISMATCH`. A mismatch fails the update: `.version` is not advanced, the updater self-refresh is cancelled, and `update-fail` is journaled.
+- Same hashing contract as the menu (CR/BOM/symmetric TrimEnd) factored into `Get-ContentHash` / `Get-ExpectedHashes`; API JSON error bodies (rate limit) are never accepted as the reference.
+- `-NoVerify` opt-out; if expected hashes are unavailable the update proceeds and is marked `unverified` in the journal.
+- **Regression test T9**: SHA-256 vectors, symmetric trailing trim, rate-limit JSON skip, `-NoVerify` wiring.
+
 ## v1.20.1 (15.09.2026)
 - **Fix `[U]` post-download hash verification (regression of v1.20.0)**: the local side was hashed without a trailing trim while expected hashes came from the TrimEnd-ed API response - any file ending with a newline false-alarmed `HASH MISMATCH` and aborted a legitimate update. The trim now lives inside `Get-ContentHash`, so every consumer is symmetric by construction. Regression test added to the Pester suite.
 

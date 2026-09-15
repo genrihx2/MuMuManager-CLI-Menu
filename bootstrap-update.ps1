@@ -7,6 +7,12 @@
 #   powershell -ExecutionPolicy Bypass -File bootstrap-update.ps1 -TargetDir "C:\MyPath"
 #   powershell -ExecutionPolicy Bypass -File bootstrap-update.ps1 -Force
 #   powershell -ExecutionPolicy Bypass -File bootstrap-update.ps1 -LogDir "D:\logs"
+#   powershell -ExecutionPolicy Bypass -File bootstrap-update.ps1 -VerifyHash
+#
+# Post-download verification (parity with the [U] updater): after each
+# successful download the file is re-hashed and compared with the expected
+# SHA-256 computed from the release tag content. A mismatch fails the update
+# like a failed download. Skip with -NoVerify.
 #   powershell -ExecutionPolicy Bypass -File bootstrap-update.ps1 -VerifyZip "MuMuManager-CLI-Menu-v1.19.6.zip"
 #
 # Update journal: every completed run appends one event to
@@ -23,7 +29,8 @@ param(
     [string]$LogDir = '',
     [switch]$Force,
     [string]$VerifyZip = '',
-    [string]$ZipTag = ''
+    [string]$ZipTag = '',
+    [switch]$NoVerify
 )
 
 if (-not $TargetDir) { $TargetDir = $PWD.Path }
@@ -332,6 +339,42 @@ function Download-File {
     return 0
 }
 
+# ── Post-download SHA-256 verification (parity with [U], issue #20) ──
+# Same hashing rules as mumu-menu.ps1's Get-ContentHash: CR stripped, BOM
+# stripped, trailing whitespace trimmed (mirrors Invoke-CurlGet, which
+# Out-Strings the response body without the blob's trailing newline).
+function Get-ContentHash {
+    param([string]$Text)
+    $norm = $Text -replace "`r", ''
+    $norm = $norm.TrimStart([char]0xFEFF).TrimEnd()
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        ([BitConverter]::ToString($sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($norm))) -replace '-', '')
+    } finally {
+        $sha.Dispose()
+    }
+}
+
+# Expected SHA-256 per file, from the tag content via the contents API
+# (bodies that start with '{' are API errors/rate limits - skipped, never
+# treated as content; a missing entry means 'unknown', not 'zero').
+function Get-ExpectedHashes {
+    param([string]$Tag, [string[]]$Names)
+    $result = @{}
+    foreach ($n in $Names) {
+        try {
+            $remote = Invoke-CurlGet "https://api.github.com/repos/$repo/contents/$n`?ref=$Tag"
+            if (-not $remote) { continue }
+            $t = $remote.TrimEnd()
+            if ($t.StartsWith('{') -and $t -match '"message"\s*:\s*"') { continue }
+            $result[$n] = Get-ContentHash $t
+        } catch {
+            Write-Debug "Expected hash fetch failed for ${n}: $($_.Exception.Message)"
+        }
+    }
+    return $result
+}
+
 # ── Fast version check ──────────────────────────────────────────────
 $localTag = ''
 $versionFile = Join-Path $TargetDir '.version'
@@ -394,6 +437,14 @@ if ($backedUp) { Write-Host '' }
 # ── Download files ───────────────────────────────────────────────────
 $ok   = 0
 $fail = 0
+$unverified = 0
+$expectedHashes = @{}
+if ($remoteTag -and -not $NoVerify) {
+    $expectedHashes = Get-ExpectedHashes -Tag $remoteTag -Names $files
+    if ($expectedHashes.Count -eq 0) {
+        Write-Host "  Note: expected hashes unavailable - proceeding without post-download verification." -ForegroundColor Yellow
+    }
+}
 
 foreach ($f in $files) {
     $dest = Join-Path $TargetDir $f
@@ -405,9 +456,27 @@ foreach ($f in $files) {
     Write-Host "  $f" -ForegroundColor Yellow -NoNewline
     $size = Download-File $url $dest
     if ($size -gt 0) {
-        $sizeKB = '{0:N1}' -f ($size / 1024)
-        Write-Host "  OK  ${sizeKB} KB" -ForegroundColor Green
-        $ok++
+        # Post-download verification (parity with [U], issue #20): compare the
+        # downloaded body against the expected hash. Mismatch fails the update
+        # like a failed download - $fail advances, so .version is not advanced,
+        # the journal shows update-fail, and the self-refresh is skipped (a
+        # tampered updater copy must not be applied).
+        if ($expectedHashes.ContainsKey($f)) {
+            $actual = Get-ContentHash ([System.IO.File]::ReadAllText($dest))
+            if ($actual -eq $expectedHashes[$f]) {
+                $sizeKB = '{0:N1}' -f ($size / 1024)
+                Write-Host "  OK  ${sizeKB} KB  (hash OK)" -ForegroundColor Green
+                $ok++
+            } else {
+                Write-Host "  HASH MISMATCH (expected $($expectedHashes[$f].Substring(0, 16))..., got $($actual.Substring(0, 16))...)" -ForegroundColor Red
+                $fail++
+            }
+        } else {
+            $sizeKB = '{0:N1}' -f ($size / 1024)
+            Write-Host "  OK  ${sizeKB} KB" -ForegroundColor Green
+            $ok++
+            $unverified++
+        }
     } else {
         Write-Host "  FAILED" -ForegroundColor Red
         $fail++
@@ -428,7 +497,9 @@ if ($remoteTag -and $fail -eq 0 -and $ok -gt 0) {
 # ── Summary ──────────────────────────────────────────────────────────
 Write-Host ''
 if ($fail -eq 0 -and $ok -gt 0) {
-    Write-UpdateJournal -EventType 'update-ok' -From $localTag -To $remoteTag -Detail "$ok file(s) updated"
+    $detail = "$ok file(s) updated"
+    if ($unverified -gt 0) { $detail += ", $unverified unverified (expected hashes unavailable)" }
+    Write-UpdateJournal -EventType 'update-ok' -From $localTag -To $remoteTag -Detail $detail
     # Self-refresh: apply the freshly downloaded updater now - PowerShell
     # has already parsed this script, so overwriting the file is safe.
     if (Apply-PendingUpdater -Dir $TargetDir -From $localTag -To $remoteTag) {
@@ -436,7 +507,9 @@ if ($fail -eq 0 -and $ok -gt 0) {
     } elseif (Test-Path -LiteralPath (Join-Path $TargetDir 'bootstrap-update.ps1.new')) {
         Write-Host "  Updater .new saved (file busy) - the menu will apply it at startup." -ForegroundColor Yellow
     }
-    Write-Host "Done: $ok file(s) updated to $remoteTag" -ForegroundColor Green
+    $doneMsg = "Done: $ok file(s) updated to $remoteTag"
+    if ($unverified -gt 0) { $doneMsg += " ($unverified unverified - hashes unavailable)" }
+    Write-Host $doneMsg -ForegroundColor Green
     Write-Host "Restart the menu to use the new version." -ForegroundColor Green
 } elseif ($fail -gt 0) {
     Write-UpdateJournal -EventType 'update-fail' -From $localTag -To $remoteTag -Detail "$ok ok, $fail failed"
