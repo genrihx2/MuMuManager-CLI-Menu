@@ -174,8 +174,8 @@ cd MuMuManager-CLI-Menu
   [V] Version info
   [U] Check for updates
   [F] Verify installation (files vs release tag)
-  [J] Update journal
   [ST] Install status (read-only)
+  [J] Update journal
   [DIAG] Problem diagnostics
   [DL] Download repository
   [CR] Create release
