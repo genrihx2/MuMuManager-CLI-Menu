@@ -410,6 +410,24 @@ Describe 'Invoke-GitHubGet: ETag cache, 304 replay, ref pinning (issue #22)' {
     }
 }
 
+Describe 'Test-InstallationIntegrity: tag/SHA split (v1.21.0 regression guard)' {
+
+    It 'fetches content through $FetchRef while keeping $Tag for the semantic .version compare' {
+        $f = $script:ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Test-InstallationIntegrity'
+        }, $true) | Select-Object -First 1
+        $t = $f.Extent.Text
+        $t | Should -Match '\$FetchRef = \$Tag'
+        $t | Should -Match 'ref=\$FetchRef'
+        # Overwriting $Tag with the SHA disabled the semantic marker branch
+        # and false-DRIFTed healthy installs (v1.21.0 regression) - the
+        # function must never fetch through $Tag again.
+        $t | Should -Not -Match 'ref=\$Tag'
+        $t | Should -Match 'Compare-ScriptVersion -A \$localTag -B \$Tag'
+    }
+}
+
 Describe 'README changelog sync (static check)' {
 
     It 'has a What''s-new section for every changelog table row' {

@@ -4,6 +4,9 @@
 
 ---
 
+## v1.21.1 (15.09.2026)
+- **Fix a v1.21.0 regression in `[F]`**: the tag-pin overwrote `$Tag` with the commit SHA, silently disabling the semantic `.version` comparison - a healthy marker was reported as DRIFT on every check (caught live on the `C:\test` install right after v1.21.0 shipped). `$Tag` now stays the human-readable tag for the semantic compare, while content fetches go through a separate pinned `$FetchRef`. A Pester regression guard asserts the tag/SHA split in the function text.
+
 ## v1.21.0 (15.09.2026)
 - **Tag→commit-SHA pinning everywhere (issue #22)**: every `?ref=<tag>` contents fetch in `[U]`, `[F]`, the heal and the bootstrap is rewritten to `?ref=<commit sha>`. The contents API resolves a ref at fetch time, so a CDN edge can serve the previous commit's blob minutes after a tag push - the bug class behind the v1.20.3-v1.20.6 incident fixes. A commit SHA is immutable; a stale read is impossible by construction. If resolution fails, the plain tag URL is used and SHA-256 verification still covers every byte.
 - **ETag cache with 304 replay** in `Invoke-GitHubGet`: repeat fetches of the same URL within one menu session send `If-None-Match` and replay the cached body on `304 Not Modified` without transferring it. Only real content bodies are cached - API error responses (rate limits) stay retryable and never anchor an ETag.

@@ -226,7 +226,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.21.0'
+$scriptVer = '1.21.1'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -563,19 +563,24 @@ function Test-InstallationIntegrity {
         }
         $report += "verify-start|$Tag"
 
-        # Issue #22: resolve the tag once to its commit SHA and re-fetch the
-        # tag URL with that pinned ref before reading any content. The
-        # contents API resolves ?ref=<tag> at fetch time, so an edge can
-        # serve the previous commit's blob minutes after the push (seen live
-        # after v1.20.3 and again after v1.20.4). A commit SHA is immutable,
-        # so a fetch through the pinned URL cannot see a stale tag mapping.
-        # If resolution fails, the check proceeds exactly as before.
+        # Issue #22: resolve the tag once to its commit SHA and fetch all
+        # content through that pinned ref. The contents API resolves
+        # ?ref=<tag> at fetch time, so an edge can serve the previous
+        # commit's blob minutes after the push (seen live after v1.20.3 and
+        # again after v1.20.4). A commit SHA is immutable, so a fetch
+        # through the pinned URL cannot see a stale tag mapping. If
+        # resolution fails, the check proceeds exactly as before.
+        # NOTE: $Tag stays the human-readable tag - the semantic .version
+        # comparison below needs a parseable version, not a SHA (regression
+        # caught live in v1.21.0: overwriting $Tag disabled the semantic
+        # branch and false-DRIFTed a healthy .version marker).
+        $FetchRef = $Tag
         $pinnedRefNote = ''
         if ($Tag -notmatch '^[0-9a-fA-F]{40}$' -and $GitHubRepo) {
             try {
                 $sha = Resolve-GitRefSha -RepoPart $GitHubRepo -Ref $Tag 15
                 if ($sha -and $sha -match '^[0-9a-fA-F]{40}$') {
-                    $Tag = $sha
+                    $FetchRef = $sha
                     $pinnedRefNote = " (pinned to commit $($sha.Substring(0, 8)))"
                     $report += "ref-pin|$sha"
                     Write-Host "  Tag pinned to commit $($sha.Substring(0, 8)) - stale-CDN reads impossible" -ForegroundColor DarkGray
@@ -630,7 +635,7 @@ function Test-InstallationIntegrity {
             # (mirrors Invoke-GitHubGet's TrimEnd) - see its header comment.
             $localHash = Get-ContentHash ([System.IO.File]::ReadAllText($local))
             try {
-                $remote = Invoke-GitHubGet "https://api.github.com/repos/$GitHubRepo/contents/$f`?ref=$Tag" 30
+                $remote = Invoke-GitHubGet "https://api.github.com/repos/$GitHubRepo/contents/$f`?ref=$FetchRef" 30
             } catch {
                 $report += "DOWNLOAD-FAIL|$f|$($_.Exception.Message)"
                 Write-Host ("  {0,-8} {1}  ({2})" -f 'N/A', $f, $_.Exception.Message) -ForegroundColor Yellow
@@ -660,7 +665,7 @@ function Test-InstallationIntegrity {
                 # one conditional request (usually a 304 replay).
                 $remoteHash2 = ''
                 try {
-                    $remote2 = Invoke-GitHubGet "https://api.github.com/repos/$GitHubRepo/contents/$f`?ref=$Tag" 30
+                    $remote2 = Invoke-GitHubGet "https://api.github.com/repos/$GitHubRepo/contents/$f`?ref=$FetchRef" 30
                     if ($remote2) {
                         $t2 = $remote2.TrimEnd()
                         if (-not ($t2.StartsWith('{') -and $t2 -match '"message"\s*:\s*"')) { $remoteHash2 = Get-ContentHash $t2 }
