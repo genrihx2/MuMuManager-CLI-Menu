@@ -25,4 +25,5 @@ backup/
 
 # Temp update/sign files
 *.old
-*.newtestResults.xml
+*.new
+testResults.xml
