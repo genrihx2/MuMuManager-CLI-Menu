@@ -226,7 +226,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.20.4'
+$scriptVer = '1.20.5'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -391,6 +391,17 @@ function Get-ExpectedFileHashes {
         }
     }
     return $result
+}
+
+# True when the $scriptVer embedded in the fetched text matches the tag
+# (v-prefix agnostic). Guards the version-fix heal against stale CDN blobs:
+# fetched content claiming an older scriptVer must never heal the marker
+# to the tag - the tag's content has not actually arrived.
+function Test-ScriptVerMatchesTag {
+    param([string]$Text, [string]$Tag)
+    $m = [regex]::Match($Text, "(?m)^\s*\`$scriptVer\s*=\s*'(\d+(?:\.\d+){1,3})'")
+    if (-not $m.Success) { return $false }
+    try { return ((Compare-ScriptVersion -A $m.Groups[1].Value -B $Tag) -eq 0) } catch { return $false }
 }
 
 # ── Update journal (shared with bootstrap-update.ps1) ────────────────
@@ -783,13 +794,21 @@ function Update-FromGitHub {
         }
 
         # Content matches the tag but .version is stale/absent - heal it.
+        # Guard: the fetched content must claim the tag's own scriptVer.
+        # A stale CDN blob of the PREVIOUS release hashes equal to a local
+        # install of that previous release, and healing on it wedges the
+        # install: the marker jumps to a tag whose content never arrived
+        # and every later check says 'up to date' (seen live on v1.20.4).
         if ((Get-ContentHash $localText) -eq (Get-ContentHash $remoteText)) {
-            Write-UpdateJournal -EventType 'version-fix' -From $localTag -To $tag -Detail 'content matches tag; .version healed'
-            Set-Content -Path $VersionFile -Value $tag -NoNewline -ErrorAction SilentlyContinue
-            if (-not $Passive) {
-                Write-Host "  Up to date ($tag)" -ForegroundColor DarkGray
+            if (Test-ScriptVerMatchesTag -Text $remoteText -Tag $tag) {
+                Write-UpdateJournal -EventType 'version-fix' -From $localTag -To $tag -Detail 'content matches tag; .version healed'
+                Set-Content -Path $VersionFile -Value $tag -NoNewline -ErrorAction SilentlyContinue
+                if (-not $Passive) {
+                    Write-Host "  Up to date ($tag)" -ForegroundColor DarkGray
+                }
+                return
             }
-            return
+            Write-Debug 'version-fix skipped: fetched content scriptVer does not match the tag (stale CDN read?)'
         }
 
         Write-Host "  Update available!" -ForegroundColor $(if ($Passive) { 'DarkGray' } else { 'Yellow' })

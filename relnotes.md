@@ -4,6 +4,9 @@
 
 ---
 
+## v1.20.5 (15.09.2026)
+- **Fix the startup `.version` heal**: fetched content must claim the tag's own `scriptVer` or the heal is skipped - a stale CDN blob of the *previous* release can no longer raise the marker to a tag whose content never arrived (seen live on v1.20.4: the install wedged on "Up to date" with v1.20.3 content under a v1.20.4 marker).
+
 ## v1.20.4 (15.09.2026)
 - **`[F]` Verify installation**: the `.version` marker is now compared **semantically** - a local marker equal to or newer than the tag's lagged marker (the sync-version bot lands after the tag) is no longer false DRIFT (seen live on v1.20.3).
 - **One re-fetch before declaring DRIFT**: a GitHub CDN edge can serve a stale blob for minutes after a tag push (seen live: `bootstrap-update.ps1` was byte-identical to the tag, yet the fetch returned old content). Genuine drift still drifts.

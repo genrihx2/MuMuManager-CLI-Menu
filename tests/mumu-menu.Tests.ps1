@@ -19,7 +19,7 @@ BeforeAll {
     # definitions stay visible to every It (dot-sourcing inside a helper
     # function would scope them to the helper and lose them).
     foreach ($name in @('Get-ContentHash', 'ConvertTo-ShellSafe', 'Compare-ScriptVersion',
-                        'Format-JournalEvent', 'Test-ReleaseZip', 'Write-UpdateJournal')) {
+                        'Format-JournalEvent', 'Test-ReleaseZip', 'Write-UpdateJournal', 'Test-ScriptVerMatchesTag')) {
         $f = $script:ast.FindAll({
             param($node)
             $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -70,8 +70,26 @@ Describe 'Get-ContentHash (SHA-256 helper)' {
     }
 }
 
-Describe 'ConvertTo-ShellSafe (Android sh escaping)' {
+Describe 'Test-ScriptVerMatchesTag (version-fix heal guard)' {
 
+    It 'accepts content whose scriptVer equals the tag' {
+        Test-ScriptVerMatchesTag -Text "`$scriptVer = '1.20.4'" -Tag 'v1.20.4' | Should -BeTrue
+    }
+
+    It 'accepts a tag without the v prefix' {
+        Test-ScriptVerMatchesTag -Text "`$scriptVer = '1.20.4'" -Tag '1.20.4' | Should -BeTrue
+    }
+
+    It 'rejects content claiming an older scriptVer (stale CDN blob)' {
+        Test-ScriptVerMatchesTag -Text "`$scriptVer = '1.20.3'" -Tag 'v1.20.4' | Should -BeFalse
+    }
+
+    It 'rejects content without a scriptVer line' {
+        Test-ScriptVerMatchesTag -Text '# no version here' -Tag 'v1.20.4' | Should -BeFalse
+    }
+}
+
+Describe 'ConvertTo-ShellSafe (Android sh escaping)' {
     It 'passes through safe values unchanged' {
         ConvertTo-ShellSafe 'China Mobile' | Should -Be 'China Mobile'
         ConvertTo-ShellSafe '46000' | Should -Be '46000'
