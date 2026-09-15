@@ -7,6 +7,7 @@
 #   powershell -ExecutionPolicy Bypass -File bootstrap-update.ps1 -TargetDir "C:\MyPath"
 #   powershell -ExecutionPolicy Bypass -File bootstrap-update.ps1 -Force
 #   powershell -ExecutionPolicy Bypass -File bootstrap-update.ps1 -LogDir "D:\logs"
+#   powershell -ExecutionPolicy Bypass -File bootstrap-update.ps1 -VerifyZip "MuMuManager-CLI-Menu-v1.19.6.zip"
 #
 # Update journal: every completed run appends one event to
 # update-journal.log (same file the menu [U] updater uses). Override the
@@ -20,7 +21,9 @@
 param(
     [string]$TargetDir = $PSScriptRoot,
     [string]$LogDir = '',
-    [switch]$Force
+    [switch]$Force,
+    [string]$VerifyZip = '',
+    [string]$ZipTag = ''
 )
 
 if (-not $TargetDir) { $TargetDir = $PWD.Path }
@@ -87,6 +90,124 @@ function Apply-PendingUpdater {
     } catch {
         Write-Debug "Updater self-apply failed: $($_.Exception.Message)"
         return $false
+    }
+}
+
+# ── Release ZIP self-test (issue #19) ────────────────────────────────
+# Mirrors the CI checks (release.yml) on the client, before any install:
+#   1. the ZIP's SHA-256 equals the .sha256 sidecar
+#   2. the archive contains exactly the release file set (5 files, no extras)
+#   3. mumu-menu.ps1's $scriptVer matches the release tag
+# Release ZIPs are flat (files at the archive root, git archive output).
+# Returns a report object so tests can assert the logic without IO side
+# effects beyond reading the archive.
+function Test-ReleaseZip {
+    param(
+        [Parameter(Mandatory = $true)] [string]$ZipPath,
+        [Parameter(Mandatory = $true)] [string]$ExpectedTag,
+        [string]$SidecarPath = "$ZipPath.sha256"
+    )
+    $expectedFiles = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', '.version')
+    $checks = @()
+    $ok = $true
+    $zipVer = ''
+    $names = @()
+
+    if (-not (Test-Path -LiteralPath $ZipPath -PathType Leaf)) {
+        return [pscustomobject]@{ Ok = $false; ZipHash = ''; SidecarHash = ''; Checks = @("zip: MISSING ($ZipPath)"); EntryNames = @(); ZipVersion = '' }
+    }
+
+    Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+
+    # Check 1: ZIP hash vs sidecar
+    $zipHash = ''
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $stream = [System.IO.File]::OpenRead($ZipPath)
+        try { $zipHash = ([BitConverter]::ToString($sha.ComputeHash($stream)) -replace '-', '').ToLower() } finally { $stream.Dispose() }
+    } finally { $sha.Dispose() }
+    $sidecarHash = ''
+    if (Test-Path -LiteralPath $SidecarPath -PathType Leaf) {
+        $first = (Get-Content -LiteralPath $SidecarPath -TotalCount 1) -as [string]
+        if ($first -match '^([0-9a-fA-F]{64})\b') { $sidecarHash = $Matches[1].ToLower() }
+    }
+    $sidecarOk = ($sidecarHash -ne '') -and ($sidecarHash -eq $zipHash)
+    if ($sidecarOk) {
+        $checks += "sha256: OK (match with sidecar)"
+    } else {
+        $sidecarShown = if ($sidecarHash) { $sidecarHash.Substring(0, [Math]::Min(16, $sidecarHash.Length)) + '...' } else { 'MISSING' }
+        $checks += "sha256: MISMATCH (zip=$($zipHash.Substring(0, 16))... sidecar=$sidecarShown)"
+        $ok = $false
+    }
+
+    # Checks 2 + 3: archive contents
+    $zip = $null
+    try { $zip = [System.IO.Compression.ZipFile]::OpenRead($ZipPath) } catch {
+        $checks += "archive: unreadable ($($_.Exception.Message))"
+        $ok = $false
+    }
+    if ($zip) {
+        try {
+            $names = @($zip.Entries | ForEach-Object { $_.FullName } | Where-Object { $_ -and ($_ -notmatch '/$') } | ForEach-Object { $_ -replace '^\./', '' -replace '^.*[/\\]', '' } | Sort-Object -Unique)
+            $missing = @($expectedFiles | Where-Object { $names -notcontains $_ })
+            $extras = @($names | Where-Object { $expectedFiles -notcontains $_ })
+            if (($missing.Count -eq 0) -and ($extras.Count -eq 0)) {
+                $checks += "file set: OK ($($expectedFiles.Count) files)"
+            } else {
+                $parts = @()
+                if ($missing.Count -gt 0) { $parts += "missing: $($missing -join ', ')" }
+                if ($extras.Count -gt 0) { $parts += "unexpected: $($extras -join ', ')" }
+                $checks += "file set: MISMATCH ($($parts -join '; '))"
+                $ok = $false
+            }
+
+            $menuEntry = $zip.Entries | Where-Object { (($_.FullName -replace '^\./', '') -replace '^.*[/\\]', '') -eq 'mumu-menu.ps1' } | Select-Object -First 1
+            if ($menuEntry) {
+                $reader = New-Object System.IO.StreamReader($menuEntry.Open(), [System.Text.Encoding]::UTF8)
+                try {
+                    for ($i = 0; ($i -lt 320) -and (-not $reader.EndOfStream); $i++) {
+                        $line = $reader.ReadLine()
+                        if ($line -match "^\s*\`$scriptVer\s*=\s*'([0-9]+\.[0-9]+\.[0-9]+)'") { $zipVer = $Matches[1]; break }
+                    }
+                } finally { $reader.Dispose() }
+            }
+            $expectedVer = $ExpectedTag -replace '^v', ''
+            if ($zipVer -and ($zipVer -eq $expectedVer)) {
+                $checks += "scriptVer: OK ($zipVer matches $ExpectedTag)"
+            } else {
+                $checks += "scriptVer: MISMATCH (zip=$(if ($zipVer) { $zipVer } else { 'NOT FOUND' }) expected=$expectedVer)"
+                $ok = $false
+            }
+        } finally { $zip.Dispose() }
+    }
+
+    [pscustomobject]@{ Ok = $ok; ZipHash = $zipHash; SidecarHash = $sidecarHash; Checks = $checks; EntryNames = $names; ZipVersion = $zipVer }
+}
+
+# ── Verify-only mode: check a release ZIP + sidecar and exit (#19) ────
+if ($VerifyZip) {
+    $zipPath = $VerifyZip
+    $zipTag = if ($ZipTag) { $ZipTag } else {
+        if ([IO.Path]::GetFileName($zipPath) -match '(v[0-9]+\.[0-9]+\.[0-9]+)') { $Matches[1] } else { '' }
+    }
+    if (-not $zipTag) {
+        Write-Host "ERROR: cannot infer the release tag from the file name - pass -ZipTag vX.Y.Z" -ForegroundColor Red
+        exit 1
+    }
+    Write-Host ''
+    Write-Host "=== Verify release ZIP: $([IO.Path]::GetFileName($zipPath)) ($zipTag) ===" -ForegroundColor Cyan
+    $r = Test-ReleaseZip -ZipPath $zipPath -ExpectedTag $zipTag
+    foreach ($c in $r.Checks) {
+        Write-Host "  $c" -ForegroundColor $(if ($c -match ': OK') { 'Green' } else { 'Red' })
+    }
+    if ($r.Ok) {
+        Write-Host "ZIP: OK ($($r.EntryNames.Count) files, sha256 match)" -ForegroundColor Green
+        Write-UpdateJournal -EventType 'zip-verify-ok' -From '' -To $zipTag -Detail "sha256 match; $($r.EntryNames.Count) files"
+        exit 0
+    } else {
+        Write-Host "ZIP: FAILED - do not install from this archive" -ForegroundColor Red
+        Write-UpdateJournal -EventType 'zip-verify-fail' -From '' -To $zipTag -Detail ($r.Checks -join '; ')
+        exit 1
     }
 }
 

@@ -345,7 +345,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.19.5
+Script version: 1.19.6
 MuMu version: 6.5.2.0
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -380,6 +380,11 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 Для приватных репозиториев сохраните токен через пункт меню `[K] Update GitHub token` — он проверяется и хранится **зашифрованным через Windows DPAPI** в `.github-token.dpapi`; плейнтекстовый `.github-token` мигрирует в зашифрованное хранилище автоматически при первом запуске.
 
 ## Что нового
+
+### v1.19.6 (15.09.2026)
+- **Самопроверка релизного ZIP перед установкой (issue #19)**: переиспользуемая функция `Test-ReleaseZip` повторяет на клиенте проверки CI — SHA-256 ZIP против `.sha256`-сайдкара, точный набор из 5 файлов, `$scriptVer` из архива против тега релиза; при любом несоответствии — вердикт «FAILED - do not install» и событие `zip-verify-fail` в журнале `[J]`
+- **Три способа проверки**: `bootstrap-update.ps1 -VerifyZip <файл.zip>`, запрос после `[F] Verify installation`, либо напрямую в своих скриптах через `Test-ReleaseZip`
+- **Регресс-тест T8**: 12 ассертов на реальных ZIP-фикстурах — корректный ZIP, подменённый байт, неверный сайдкар, несовпадение версий, неполный набор файлов (с перечислением лишних/недостающих), отсутствие архива
 
 ### v1.19.5 (15.09.2026)
 - **DNS и HTTP-тесты через busybox-fallback**: в образах MuMu 12 нет `nslookup`/`curl`, но есть `/system/xbin/busybox` — тесты используют `busybox nslookup` и `busybox wget` (с `-q -O /dev/null --timeout`, код выхода решает), если нативных инструментов нет
@@ -495,6 +500,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.19.6 | 15.09.2026 | Самопроверка релизного ZIP (#19): `Test-ReleaseZip` (sha256-сайдкар, набор файлов, scriptVer), `-VerifyZip` в bootstrap, запрос в [F], тест T8 |
 | v1.19.5 | 15.09.2026 | Диагностика сети: busybox-fallback для DNS/HTTP (`busybox nslookup`, `busybox wget`), честный отчёт при ICMP-фильтрации |
 | v1.19.4 | 15.09.2026 | Диагностика сети: N/A вместо FAILED при отсутствии инструментов в гостевой ОС, парсер toybox-ping, без красных блоков ошибок в PS 5.1 |
 | v1.19.3 | 14.09.2026 | Проверка установки [F] (#18): сверка файлов с тегом релиза, отчёт OK/DRIFT/MISSING, защита от API-ошибок |

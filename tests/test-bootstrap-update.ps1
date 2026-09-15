@@ -23,6 +23,10 @@
 #   T6. Updater self-refresh (issue #21): both updaters' file lists include
 #       bootstrap-update.ps1, and Apply-PendingUpdater swaps in the .new
 #       copy, removes it and journals the updater-refresh event.
+#   T8. Release ZIP self-test (issue #19): Test-ReleaseZip must pass a
+#       correct ZIP (sha256 + file set + scriptVer) and fail a tampered
+#       ZIP, a wrong sidecar hash, a wrong scriptVer, an incomplete file
+#       set and a missing archive - before anything is unpacked.
 #
 # Run locally:
 #   powershell -ExecutionPolicy Bypass -File tests\test-bootstrap-update.ps1
@@ -289,6 +293,98 @@ try {
     Assert-True -Name 'rate-limit body reported as DOWNLOAD-FAIL, not drift' -Condition (@($rlReport | Where-Object { $_ -like 'DOWNLOAD-FAIL|mumu-menu.ps1|API error*' }).Count -eq 1) -Detail ($rlReport -join ' // ')
     Assert-True -Name 'rate-limited run ends partial, not drift' -Condition (@($rlReport | Where-Object { $_ -eq 'summary|partial|download failures' }).Count -eq 1) -Detail ($rlReport -join ' // ')
     Remove-Item -LiteralPath (Join-Path $vDir2 'mumu-menu.ps1') -Force
+
+    # ── T8: release ZIP self-test (#19) - Test-ReleaseZip before unpacking ──
+    Write-Host 'T8: ZIP self-test must pass a correct ZIP and fail tampered/wrong ones' -ForegroundColor Cyan
+    foreach ($name in 'Test-ReleaseZip') {
+        $zf = $mAst.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
+        }, $true) | Select-Object -First 1
+        if (-not $zf) { throw "$name function not found in mumu-menu.ps1" }
+        . ([scriptblock]::Create($zf.Extent.Text))
+    }
+    Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+    Add-Type -AssemblyName System.IO.Compression -ErrorAction SilentlyContinue
+    $zDir = Join-Path $tmp 'zipcheck'
+    New-Item -ItemType Directory -Path $zDir -Force | Out-Null
+    $scriptVerLine = "`$scriptVer = '1.19.6'"
+
+    function New-ZipFixture {
+        param([string]$Path, [string]$Ver = '1.19.6', [string[]]$Omit = @(), [string[]]$Extra = @())
+        $zipToCreate = Join-Path $zDir ('tmp_' + [IO.Path]::GetFileName($Path) + '.zip')
+        if (Test-Path -LiteralPath $zipToCreate) { Remove-Item -LiteralPath $zipToCreate -Force }
+        $archive = [System.IO.Compression.ZipFile]::Open($zipToCreate, [System.IO.Compression.ZipArchiveMode]::Create)
+        try {
+            $fileBodies = @{
+                'mumu-menu.ps1'        = "# menu`n$scriptVerLine`n# body`n"
+                'SKILL.md'             = "# skill`n"
+                'README.md'            = "# readme`n"
+                'bootstrap-update.ps1' = "# updater`n"
+                '.version'             = 'v1.19.6'
+            }
+            foreach ($name in $fileBodies.Keys) {
+                if ($Omit -contains $name) { continue }
+                $entry = $archive.CreateEntry($name)
+                $w = New-Object System.IO.StreamWriter($entry.Open(), (New-Object System.Text.UTF8Encoding($false)))
+                $w.Write($fileBodies[$name]); $w.Dispose()
+            }
+            foreach ($extra in $Extra) {
+                $entry = $archive.CreateEntry($extra)
+                $w = New-Object System.IO.StreamWriter($entry.Open(), (New-Object System.Text.UTF8Encoding($false)))
+                $w.Write('extra'); $w.Dispose()
+            }
+        } finally { $archive.Dispose() }
+        Move-Item -LiteralPath $zipToCreate -Destination $Path -Force
+        # Sidecar: canonical 'sha256  filename' line
+        $h = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLower()
+        Set-Content -LiteralPath "$Path.sha256" -Value "$h  $([IO.Path]::GetFileName($Path))" -Encoding Ascii
+    }
+
+    # Case 1: correct ZIP -> all three checks OK
+    $zipOk = Join-Path $zDir 'MuMuManager-CLI-Menu-v1.19.6.zip'
+    New-ZipFixture -Path $zipOk
+    $r1 = Test-ReleaseZip -ZipPath $zipOk -ExpectedTag 'v1.19.6'
+    Assert-True -Name 'correct ZIP passes all checks' -Condition ($r1.Ok) -Detail ($r1.Checks -join ' // ')
+    Assert-True -Name 'sidecar sha256 matched exactly' -Condition ($r1.ZipHash -eq $r1.SidecarHash) -Detail ($r1.Checks -join ' // ')
+    Assert-True -Name 'file set check present and OK' -Condition (@($r1.Checks) -contains 'file set: OK (5 files)') -Detail ($r1.Checks -join ' // ')
+    Assert-True -Name 'scriptVer read from archive matches tag' -Condition ($r1.ZipVersion -eq '1.19.6') -Detail ($r1.Checks -join ' // ')
+
+    # Case 2: tampered archive (byte flip after sidecar) -> sha256 must fail
+    $zipTamper = Join-Path $zDir 'MuMuManager-CLI-Menu-v1.19.6-tampered.zip'
+    Copy-Item -LiteralPath $zipOk -Destination $zipTamper -Force
+    $bytes = [System.IO.File]::ReadAllBytes($zipTamper); $bytes[200] = $bytes[200] -bxor 0xFF; [System.IO.File]::WriteAllBytes($zipTamper, $bytes)
+    $r2 = Test-ReleaseZip -ZipPath $zipTamper -ExpectedTag 'v1.19.6'
+    Assert-True -Name 'tampered ZIP fails the sha256 check' -Condition (-not $r2.Ok -and $r2.ZipHash -ne $r2.SidecarHash) -Detail ($r2.Checks -join ' // ')
+
+    # Case 3: wrong sidecar content -> must fail even with a good ZIP
+    $zipWrong = Join-Path $zDir 'MuMuManager-CLI-Menu-v1.19.6-wrongsidecar.zip'
+    Copy-Item -LiteralPath $zipOk -Destination $zipWrong -Force
+    Copy-Item -LiteralPath "$zipOk.sha256" -Destination "$zipWrong.sha256" -Force
+    Set-Content -LiteralPath "$zipWrong.sha256" -Value (('0' * 64) + "  wrong") -Encoding Ascii
+    $r3 = Test-ReleaseZip -ZipPath $zipWrong -ExpectedTag 'v1.19.6'
+    Assert-True -Name 'bad sidecar hash fails verification' -Condition (-not $r3.Ok) -Detail ($r3.Checks -join ' // ')
+
+    # Case 4: scriptVer inside the archive does not match the tag
+    $zipVer = Join-Path $zDir 'MuMuManager-CLI-Menu-v1.19.9.zip'
+    New-ZipFixture -Path $zipVer -Ver '1.19.6'
+    $r4 = Test-ReleaseZip -ZipPath $zipVer -ExpectedTag 'v1.19.9'
+    Assert-True -Name 'scriptVer/tag mismatch fails verification' -Condition (-not $r4.Ok -and (@($r4.Checks | Where-Object { $_ -like 'scriptVer: MISMATCH*' }).Count -eq 1)) -Detail ($r4.Checks -join ' // ')
+
+    # Case 5: incomplete file set (missing SKILL.md + .version, extra file)
+    $zipSet = Join-Path $zDir 'MuMuManager-CLI-Menu-v1.19.6-badset.zip'
+    New-ZipFixture -Path $zipSet -Omit @('SKILL.md', '.version') -Extra @('bonus.txt')
+    $r5 = Test-ReleaseZip -ZipPath $zipSet -ExpectedTag 'v1.19.6'
+    Assert-True -Name 'incomplete file set fails verification' -Condition (-not $r5.Ok) -Detail ($r5.Checks -join ' // ')
+    Assert-True -Name 'missing and unexpected files are named' -Condition ((@($r5.Checks | Where-Object { $_ -match 'missing: SKILL\.md, \.version' }).Count -eq 1) -and (@($r5.Checks | Where-Object { $_ -match 'unexpected: bonus\.txt' }).Count -eq 1)) -Detail ($r5.Checks -join ' // ')
+
+    # Case 6: missing archive -> clean failure, no throw
+    $r6 = Test-ReleaseZip -ZipPath (Join-Path $zDir 'no-such-zip.zip') -ExpectedTag 'v1.19.6'
+    Assert-True -Name 'missing archive fails cleanly' -Condition ((-not $r6.Ok) -and (@($r6.Checks | Where-Object { $_ -like 'zip: MISSING*' }).Count -eq 1)) -Detail ($r6.Checks -join ' // ')
+
+    # Client entry points: bootstrap -VerifyZip mode and the [F] prompt
+    Assert-True -Name 'bootstrap -VerifyZip mode is wired' -Condition ((Get-Content -LiteralPath (Join-Path $root 'bootstrap-update.ps1') -Raw -Encoding UTF8) -match '\$VerifyZip') -Detail 'VerifyZip param not found'
+    Assert-True -Name '[F] offers release ZIP verification' -Condition ((Get-Content -LiteralPath $menuPath -Raw -Encoding UTF8) -match 'Verify a downloaded release ZIP') -Detail 'prompt not found'
 
 
     $passCount = 0
