@@ -226,7 +226,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.19.3'
+$scriptVer = '1.19.4'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -2151,8 +2151,17 @@ function Test-EmulatorConnection {
     Write-Host '=== Emulator Connection Test ===' -ForegroundColor Cyan
     Write-Host ''
 
-    # Helper: run ADB shell command through MuMuManager (targets specific instance)
-    $run = { param($cmd) & $MumuPath adb -v $index -c "shell $cmd" 2>&1 | Out-String }
+    # Helper: run ADB shell command through MuMuManager (targets specific instance).
+    # Guest stderr (e.g. toybox "curl: inaccessible or not found") must never
+    # render as PS 5.1 NativeCommandError blocks: capture with EAP
+    # SilentlyContinue and flatten ErrorRecords to plain text.
+    $run = {
+        param($cmd)
+        $prevEap = $ErrorActionPreference
+        $ErrorActionPreference = 'SilentlyContinue'
+        try { $raw = & $MumuPath adb -v $index -c "shell $cmd" 2>&1 } finally { $ErrorActionPreference = $prevEap }
+        (($raw | ForEach-Object { "$_" }) -join "`n").TrimEnd()
+    }
 
     # 1. Instance status
     Write-Host '[1] Instance status' -ForegroundColor Yellow
@@ -2190,18 +2199,23 @@ function Test-EmulatorConnection {
     # 4. Internet connectivity
     Write-Host ''
     Write-Host '[4] Internet test' -ForegroundColor Yellow
-    $netResult = & $run 'ping -c 2 -W 5 8.8.8.8'
-    if ($netResult -match '(\d+) packets transmitted') {
-        $sent = [int]($Matches[1])
-        $recv = if ($netResult -match '(\d+) received') { [int]($Matches[1]) } else { 0 }
-        if ($recv -gt 0) {
-            $loss = (($sent - $recv) / $sent) * 100
-            Write-Host "  Ping: OK (sent=$sent recv=$recv loss=$loss%)" -ForegroundColor Green
+    $hasPing = (& $run 'command -v ping 2>/dev/null || which ping 2>/dev/null').Trim() -match '^/'
+    if ($hasPing) {
+        $netResult = & $run 'ping -c 2 -W 5 8.8.8.8'
+        if ($netResult -match '(\d+) packets transmitted') {
+            $sent = [int]($Matches[1])
+            $recv = if ($netResult -match '(\d+)\s+(?:packets?\s+)?received') { [int]($Matches[1]) } else { 0 }
+            if ($recv -gt 0) {
+                $loss = (($sent - $recv) / $sent) * 100
+                Write-Host "  Ping: OK (sent=$sent recv=$recv loss=$loss%)" -ForegroundColor Green
+            } else {
+                Write-Host '  Ping: FAILED (0 received)' -ForegroundColor Red
+            }
         } else {
-            Write-Host '  Ping: FAILED (0 received)' -ForegroundColor Red
+            Write-Host "  Ping: FAILED" -ForegroundColor Red
         }
     } else {
-        Write-Host "  Ping: FAILED" -ForegroundColor Red
+        Write-Host '  Ping: N/A (ping not available in guest)' -ForegroundColor DarkGray
     }
 
     # 5. Memory
@@ -2258,36 +2272,70 @@ function Test-Network {
         return
     }
 
-    # Helper: run ADB shell command through MuMuManager (targets specific instance)
-    $run = { param($cmd) & $MumuPath adb -v $index -c "shell $cmd" 2>&1 | Out-String }
+    # Helper: run ADB shell command through MuMuManager (targets specific instance).
+    # Guest stderr (e.g. toybox "curl: inaccessible or not found") must never
+    # render as PS 5.1 NativeCommandError blocks: capture with EAP
+    # SilentlyContinue and flatten ErrorRecords to plain text.
+    $run = {
+        param($cmd)
+        $prevEap = $ErrorActionPreference
+        $ErrorActionPreference = 'SilentlyContinue'
+        try { $raw = & $MumuPath adb -v $index -c "shell $cmd" 2>&1 } finally { $ErrorActionPreference = $prevEap }
+        (($raw | ForEach-Object { "$_" }) -join "`n").TrimEnd()
+    }
+
+    # Guest tool availability: toybox images ship without some commands
+    # (observed in the field: no curl). A missing tool is N/A, not a network
+    # failure - detect before testing so results stay honest.
+    $hasPing = (& $run 'command -v ping 2>/dev/null || which ping 2>/dev/null').Trim() -match '^/'
+    $dnsCmd = ''
+    if ((& $run 'command -v nslookup 2>/dev/null').Trim() -match '^/') { $dnsCmd = 'nslookup' }
+    elseif ((& $run 'command -v getent 2>/dev/null').Trim() -match '^/') { $dnsCmd = 'getent' }
+    $hasCurl = (& $run 'command -v curl 2>/dev/null || which curl 2>/dev/null').Trim() -match '^/'
 
     # Ping test
     Write-Host '[1] Ping test' -ForegroundColor Yellow
     $targets = @('8.8.8.8', '1.1.1.1', '223.5.5.5', 'google.com', 'github.com')
-    foreach ($t in $targets) {
-        $result = & $run "ping -c 2 -W 5 $t"
-        if ($result -match 'rtt min.*=\s*([\d.]+)/([\d.]+)/([\d.]+)') {
-            Write-Host "  $t : OK (avg $($Matches[2])ms)" -ForegroundColor Green
-        } elseif ($result -match '(\d+) received') {
-            $recv = [int]$Matches[1]
-            if ($recv -gt 0) { Write-Host "  $t : OK" -ForegroundColor Green }
-            else { Write-Host "  $t : FAILED" -ForegroundColor Red }
-        } else {
-            Write-Host "  $t : FAILED" -ForegroundColor Red
+    if ($hasPing) {
+        foreach ($t in $targets) {
+            $result = & $run "ping -c 2 -W 5 $t"
+            # busybox/iputils: "rtt min/avg/max/mdev = ..."; Android toybox:
+            # "round-trip min/avg/max = ..." - accept both.
+            if ($result -match '(?:rtt|round-trip) min[^=\n]*=\s*([\d.]+)/([\d.]+)/([\d.]+)') {
+                Write-Host "  $t : OK (avg $($Matches[2])ms)" -ForegroundColor Green
+            } elseif ($result -match '(\d+)\s+(?:packets?\s+)?received') {
+                $recv = [int]$Matches[1]
+                if ($recv -gt 0) { Write-Host "  $t : OK" -ForegroundColor Green }
+                else { Write-Host "  $t : FAILED" -ForegroundColor Red }
+            } else {
+                Write-Host "  $t : FAILED" -ForegroundColor Red
+            }
         }
+    } else {
+        Write-Host '  N/A: ping not available in guest - ping test skipped' -ForegroundColor DarkGray
     }
 
     # DNS resolution
     Write-Host ''
     Write-Host '[2] DNS resolution' -ForegroundColor Yellow
     $dnsTargets = @('google.com', 'github.com', 'baidu.com')
-    foreach ($d in $dnsTargets) {
-        $result = & $run "nslookup $d"
-        if ($result -match 'Address:\s+\d') {
-            Write-Host "  $d : OK" -ForegroundColor Green
-        } else {
-            Write-Host "  $d : FAILED" -ForegroundColor Red
+    if ($dnsCmd) {
+        foreach ($d in $dnsTargets) {
+            if ($dnsCmd -eq 'nslookup') {
+                $result = & $run "nslookup $d"
+                $dnsOk = $result -match 'Address:\s+\d'
+            } else {
+                $result = & $run "getent hosts $d"
+                $dnsOk = $result -match '\d+\.\d+\.\d+\.\d+'
+            }
+            if ($dnsOk) {
+                Write-Host "  $d : OK" -ForegroundColor Green
+            } else {
+                Write-Host "  $d : FAILED" -ForegroundColor Red
+            }
         }
+    } else {
+        Write-Host '  N/A: no nslookup/getent in guest - DNS test skipped' -ForegroundColor DarkGray
     }
 
     # HTTP test
@@ -2298,14 +2346,19 @@ function Test-Network {
         @{ Url = 'http://www.baidu.com'; Name = 'Baidu' },
         @{ Url = 'https://github.com'; Name = 'GitHub' }
     )
-    foreach ($h in $httpTargets) {
-        $result = & $run "curl -s -o /dev/null -w '%{http_code}' --max-time 10 $($h.Url)"
-        $code = $result.Trim()
-        if ($code -match '^(200|301|302|204)$') {
-            Write-Host "  $($h.Name) ($code) : OK" -ForegroundColor Green
-        } else {
-            Write-Host "  $($h.Name) ($code) : FAILED" -ForegroundColor Red
+    if ($hasCurl) {
+        foreach ($h in $httpTargets) {
+            $result = & $run "curl -s -o /dev/null -w '%{http_code}' --max-time 10 $($h.Url)"
+            $code = $result.Trim()
+            if ($code -match '^(200|301|302|204)$') {
+                Write-Host "  $($h.Name) ($code) : OK" -ForegroundColor Green
+            } else {
+                Write-Host "  $($h.Name) ($code) : FAILED" -ForegroundColor Red
+            }
         }
+    } else {
+        Write-Host '  N/A: curl not available in guest - HTTP test skipped' -ForegroundColor DarkGray
+        Write-Host '  (missing tool in the Android image, not a network failure)' -ForegroundColor DarkGray
     }
 
     # WiFi info

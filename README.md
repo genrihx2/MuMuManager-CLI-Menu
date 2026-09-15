@@ -345,7 +345,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.19.3
+Script version: 1.19.4
 MuMu version: 6.5.2.0
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -380,6 +380,11 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 Для приватных репозиториев сохраните токен через пункт меню `[K] Update GitHub token` — он проверяется и хранится **зашифрованным через Windows DPAPI** в `.github-token.dpapi`; плейнтекстовый `.github-token` мигрирует в зашифрованное хранилище автоматически при первом запуске.
 
 ## Что нового
+
+### v1.19.4 (15.09.2026)
+- **Диагностика сети эмулятора честнее**: перед тестами определяется наличие инструментов в гостевой ОС (`ping`, `nslookup`/`getent`, `curl`) — отсутствие инструмента (замечено вживую: в образе нет `curl`) выводится как `N/A` с пояснением, а не как `FAILED` сети
+- **Парсер ping понимает toybox**: вывод Android toybox (`round-trip min/avg/max`, `2 packets received`) распознаётся наравне с busybox/iputils — раньше все цели рисовались FAILED при успешном пинге
+- **Убраны красные блоки ошибок в PowerShell 5.1**: stderr гостя (например `curl: inaccessible or not found`) больше не оборачивается в NativeCommandError — выводится как обычный текст
 
 ### v1.19.3 (14.09.2026)
 - **Проверка установки `[F]` (issue #18)**: сверка SHA-256 локальных файлов (`mumu-menu.ps1`, `SKILL.md`, `README.md`, `bootstrap-update.ps1`, `.version`) с содержимым текущего тега релиза — отчёт OK / DRIFT (с обоими хешами) / MISSING и итог «installation matches vX.Y.Z» или «drift detected (files: ...)»
@@ -486,6 +491,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.19.4 | 15.09.2026 | Диагностика сети: N/A вместо FAILED при отсутствии инструментов в гостевой ОС, парсер toybox-ping, без красных блоков ошибок в PS 5.1 |
 | v1.19.3 | 14.09.2026 | Проверка установки [F] (#18): сверка файлов с тегом релиза, отчёт OK/DRIFT/MISSING, защита от API-ошибок |
 | v1.19.2 | 14.09.2026 | Самоновляемый обновлятор (#21): [U] и bootstrap обновляют bootstrap-update.ps1, .new-самоприменение, события updater-refresh |
 | v1.19.1 | 14.09.2026 | Журнал обновлений: общий `update-journal.log` для [U] и bootstrap, просмотр в меню `[J]`, санитизация и ротация лога |
