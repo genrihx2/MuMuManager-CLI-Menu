@@ -356,7 +356,7 @@ function Invoke-GitHubGet {
 
     $etag = ''
     if ($script:EtagTags.ContainsKey($pinnedUrl)) { $etag = $script:EtagTags[$pinnedUrl] }
-    $r1 = _Fetch $true $pinnedUrl $etag
+    $r1 = _Fetch -UseToken $true -UrlToUse $pinnedUrl -Etag $etag
     if ($r1.NotModified) {
         Write-Debug "ETag 304 - replaying cached body ($($script:EtagCache[$pinnedUrl].Length) chars): $Url"
         return $script:EtagCache[$pinnedUrl]
@@ -365,7 +365,7 @@ function Invoke-GitHubGet {
     if ($null -ne $resp) {
         if ($GitHubToken -and $resp -match '"message"\s*:\s*"Bad credentials"') {
             Write-Host '  Token rejected — retrying without auth...' -ForegroundColor Yellow
-            $r2 = _Fetch $false $pinnedUrl $etag
+            $r2 = _Fetch -UseToken $false -UrlToUse $pinnedUrl -Etag $etag
             if ($r2.NotModified) { return $script:EtagCache[$pinnedUrl] }
             $resp = $r2.Body
             if ($null -eq $resp) { throw "Request failed: $Url" }
