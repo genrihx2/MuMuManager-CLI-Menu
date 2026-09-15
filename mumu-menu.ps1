@@ -226,7 +226,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.21.7'
+$scriptVer = '1.21.8'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -1850,7 +1850,8 @@ function Invoke-MumuManagerProbe {
     # found, instances, running, adbReady, error, rawFirstLine.
     param(
         [string]$MumuPathOverride = '',
-        [string]$TargetPath = ''
+        [string]$TargetPath = '',
+        [string]$AdbPathOverride = ''
     )
     $r = @{ found = $false; instances = -1; running = -1; adbReady = $false; error = ''; rawFirstLine = '' }
     $exe = if ($MumuPathOverride) { $MumuPathOverride } else { $TargetPath }
@@ -1872,9 +1873,39 @@ function Invoke-MumuManagerProbe {
         if ($null -eq $inst -or -not $inst.PSObject.Properties['player_state']) { continue }
         $total++
         $st = "$($inst.player_state)"
-        if ($st -notmatch 'stopped|shutting') { $running++ }
-        $av = if ($inst.PSObject.Properties['adb_version']) { "$($inst.adb_version)" } else { '' }
-        if ($av -and $av.Trim() -and $av -ne '0') { $adb = $true }
+        if ($st -notmatch 'stopped|shutting') {
+            $running++
+            $av = if ($inst.PSObject.Properties['adb_version']) { "$($inst.adb_version)" } else { '' }
+            if ($av -and $av.Trim() -and $av -ne '0') {
+                $adb = $true
+            } else {
+                # v1.21.8 fix: some MuMu builds never report adb_version, which
+                # made the readiness flag a permanent false positive. Ask ADB
+                # itself, per instance, via its adb_port (local socket only).
+                $port = if ($inst.PSObject.Properties['adb_port']) { "$($inst.adb_port)" } else { '' }
+                if ($port -and $port -ne '0') {
+                    $adbRoot = if ($TargetPath) { Split-Path -Parent (Split-Path -Parent $TargetPath) } else { '' }
+                    $shellAdb = if ($adbRoot) { Join-Path $adbRoot 'shell\adb.exe' } else { '' }
+                    $adbExe = $AdbPathOverride
+                    if (-not $adbExe) {
+                        foreach ($cand in @($shellAdb, 'adb.exe')) {
+                            $found = $false
+                            if ($cand -and (Test-Path -LiteralPath $cand -PathType Leaf)) { $found = $true }
+                            elseif ($cand -and (Get-Command $cand -ErrorAction SilentlyContinue)) { $found = $true }
+                            if ($found) { $adbExe = $cand; break }
+                        }
+                    }
+                    if ($adbExe) {
+                        foreach ($attempt in 1..2) {
+                            $dev = (& $adbExe -s "127.0.0.1:$port" devices 2>$null | Out-String)
+                            if ($dev -match "127\.0\.0\.1:$port\s+device") { $adb = $true; break }
+                            if ($dev -match "127\.0\.0\.1:$port\s+(offline|unauthorized)") { break }
+                            if ($attempt -eq 1) { Start-Sleep -Milliseconds 800 }  # cold adb daemon
+                        }
+                    }
+                }
+            }
+        }
     }
     $r.instances = $total
     $r.running = $running
@@ -2032,6 +2063,146 @@ function Get-ProblemFindings {
     } catch { Write-Debug "disk check failed: $($_.Exception.Message)" }
 
     return $findings.ToArray()
+}
+
+function Get-BackupFolders {
+    # Lists rollback candidates: backup\YYYYMMDD_HHMMSS directories, newest
+    # first, with size and completeness (issue #27). Read-only.
+    param([string]$InstallDir)
+    $backupRoot = Join-Path $InstallDir 'backup'
+    if (-not (Test-Path -LiteralPath $backupRoot -PathType Container)) { return @() }
+    $result = @()
+    $dirs = @(Get-ChildItem -LiteralPath $backupRoot -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^\d{8}_\d{6}$' } | Sort-Object Name -Descending)
+    foreach ($d in $dirs) {
+        $sizeBytes = (Get-ChildItem -LiteralPath $d.FullName -Recurse -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+        if (-not $sizeBytes) { $sizeBytes = 0 }
+        $result += [pscustomobject]@{
+            Path      = $d.FullName
+            Name      = $d.Name
+            LastWrite = $d.LastWriteTime
+            SizeMB    = [Math]::Round($sizeBytes / 1MB, 1)
+            Files     = @(Get-ChildItem -LiteralPath $d.FullName -File -ErrorAction SilentlyContinue).Count
+            HasMenu   = (Test-Path -LiteralPath (Join-Path $d.FullName 'mumu-menu.ps1') -PathType Leaf)
+        }
+    }
+    return $result
+}
+
+function Build-RollbackPlan {
+    # Pure decision logic for [RB]: validates a backup folder and returns the
+    # restore plan. The marker is earned from the restored content's own
+    # $scriptVer - backups contain no .version (bootstrap copies only files),
+    # and the guard principle of v1.20.5 says: never write a version the
+    # content does not claim.
+    param(
+        [Parameter(Mandatory = $true)] [string]$BackupDir,
+        [Parameter(Mandatory = $true)] [string]$InstallDir,
+        [string[]]$FileSet = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1')
+    )
+    $r = @{ Ok = $false; Reason = ''; Files = @(); MarkerTo = ''; MarkerWrite = $false }
+    if (-not ($BackupDir -and (Test-Path -LiteralPath $BackupDir -PathType Container))) { $r.Reason = "backup folder not found: $BackupDir"; return $r }
+    $missing = @()
+    foreach ($f in $FileSet) { if (-not (Test-Path -LiteralPath (Join-Path $BackupDir $f) -PathType Leaf)) { $missing += $f } }
+    if ($missing.Count -gt 0) { $r.Reason = "backup is incomplete - missing: $($missing -join ', ')"; return $r }
+    $r.Files = $FileSet
+    $menuText = ''
+    try { $menuText = [System.IO.File]::ReadAllText((Join-Path $BackupDir 'mumu-menu.ps1')) } catch { $r.Reason = "cannot read the backed-up mumu-menu.ps1: $($_.Exception.Message)"; return $r }
+    $ver = ''
+    foreach ($line in ($menuText -split "`n" | Select-Object -First 320)) {
+        if ($line -match "\`$scriptVer\s*=\s*'([0-9]+\.[0-9]+\.[0-9]+)'") { $ver = $Matches[1]; break }
+    }
+    if ($ver) { $r.MarkerTo = "v$ver"; $r.MarkerWrite = $true }
+    $r.Ok = $true
+    return $r
+}
+
+function Invoke-Rollback {
+    # Restores the file set from a backup folder and re-aligns the marker
+    # from the restored content's own $scriptVer. Journals 'rollback'
+    # (from = marker before, to = marker after); 'rollback-fail' on errors.
+    param(
+        [Parameter(Mandatory = $true)] [string]$BackupDir,
+        [Parameter(Mandatory = $true)] [string]$InstallDir,
+        [string]$VersionFile = '',
+        [string[]]$FileSet = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1')
+    )
+    if (-not $VersionFile) { $VersionFile = Join-Path $InstallDir '.version' }
+    $markerBefore = ''
+    try { if (Test-Path -LiteralPath $VersionFile -PathType Leaf) { $markerBefore = (Get-Content -LiteralPath $VersionFile -Raw).Trim() } } catch { Write-Debug "marker read failed: $($_.Exception.Message)" }
+    $restored = 0
+    foreach ($f in $FileSet) {
+        try {
+            Copy-Item -LiteralPath (Join-Path $BackupDir $f) -Destination (Join-Path $InstallDir $f) -Force -ErrorAction Stop
+            $restored++
+        } catch {
+            Write-Host "  Failed to restore ${f}: $($_.Exception.Message)" -ForegroundColor Red
+        }
+    }
+    if ($restored -lt $FileSet.Count) {
+        Write-UpdateJournal -EventType 'rollback-fail' -From $markerBefore -To '' -Detail "restored $restored of $($FileSet.Count) file(s) from $(Split-Path -Leaf $BackupDir)"
+        return $false
+    }
+    # Re-align the marker from the restored content's own claim (never guess).
+    $markerTo = $markerBefore
+    $ver = ''
+    try {
+        $menuText = [System.IO.File]::ReadAllText((Join-Path $InstallDir 'mumu-menu.ps1'))
+        foreach ($line in ($menuText -split "`n" | Select-Object -First 320)) {
+            if ($line -match "\`$scriptVer\s*=\s*'([0-9]+\.[0-9]+\.[0-9]+)'") { $ver = $Matches[1]; break }
+        }
+    } catch { Write-Debug "restored menu read failed: $($_.Exception.Message)" }
+    if ($ver) {
+        $markerTo = "v$ver"
+        try { [System.IO.File]::WriteAllText($VersionFile, $markerTo, (New-Object System.Text.UTF8Encoding($false))) } catch { Write-Debug "marker write failed: $($_.Exception.Message)" }
+    }
+    Write-UpdateJournal -EventType 'rollback' -From $markerBefore -To $markerTo -Detail "restored $($FileSet.Count) file(s) from $(Split-Path -Leaf $BackupDir)"
+    return $true
+}
+
+function Show-RollbackFromBackup {
+    Write-Host ''
+    Write-Host '=== Rollback from backup ===' -ForegroundColor Cyan
+    $backups = @(Get-BackupFolders -InstallDir $ScriptDir)
+    if ($backups.Count -eq 0) {
+        Write-Host '  No backup folders found - nothing to roll back to.' -ForegroundColor Yellow
+        Write-Host '  Backups are created automatically before every update (backup\YYYYMMDD_HHMMSS).' -ForegroundColor DarkGray
+        return
+    }
+    Write-Host '  Available backups (newest first):' -ForegroundColor White
+    $i = 1
+    foreach ($b in $backups) {
+        $note = if ($b.HasMenu) { '' } else { '  (incomplete - no mumu-menu.ps1)' }
+        Write-Host ("  [{0}] {1}  {2} MB  {3}{4}" -f $i, $b.Name, $b.SizeMB, $b.LastWrite.ToString('yyyy-MM-dd HH:mm'), $note) -ForegroundColor $(if ($b.HasMenu) { 'Yellow' } else { 'DarkGray' })
+        $i++
+    }
+    Write-Host '  [0] Cancel'
+    $sel = Read-Host 'Select backup to restore'
+    if ($sel -eq '' -or $sel -eq '0' -or $sel -eq 'q') { Write-Host '  Cancelled.' -ForegroundColor DarkGray; return }
+    $idx = 0
+    if (-not [int]::TryParse($sel, [ref]$idx) -or $idx -lt 1 -or $idx -gt $backups.Count) {
+        Write-Host '  Invalid selection.' -ForegroundColor Red; return
+    }
+    $chosen = $backups[$idx - 1]
+    $plan = Build-RollbackPlan -BackupDir $chosen.Path -InstallDir $ScriptDir
+    if (-not $plan.Ok) { Write-Host "  Cannot roll back: $($plan.Reason)" -ForegroundColor Red; return }
+    Write-Host ''
+    Write-Host "  Will restore $($plan.Files.Count) file(s) from $($chosen.Name):" -ForegroundColor White
+    Write-Host "    $($plan.Files -join ', ')"
+    if ($plan.MarkerWrite) {
+        Write-Host "  Marker will be re-aligned to $($plan.MarkerTo) (the restored content's own scriptVer)." -ForegroundColor DarkGray
+    } else {
+        Write-Host '  The restored content claims no version - the marker will be left unchanged.' -ForegroundColor DarkGray
+    }
+    Write-Host '  Note: the current (newer) files are not backed up by this operation.' -ForegroundColor Yellow
+    $confirm = Read-Host 'Type ROLLBACK to confirm'
+    if ($confirm -cne 'ROLLBACK') { Write-Host '  Cancelled.' -ForegroundColor DarkGray; return }
+    if (Invoke-Rollback -BackupDir $chosen.Path -InstallDir $ScriptDir) {
+        Write-Host '  Rollback complete. Restart the menu to run the restored version.' -ForegroundColor Green
+        $vf = Read-Host '  Run [F] verify installation now? (y/N)'
+        if ($vf -eq 'y') { Show-InstallVerify }
+    } else {
+        Write-Host '  Rollback FAILED - see the journal for details.' -ForegroundColor Red
+    }
 }
 
 function Show-ProblemDiagnostics {
@@ -2286,6 +2457,7 @@ function Show-Menu {
     Write-Host '  [ST] Install status (read-only)' -ForegroundColor Yellow
     Write-Host '  [J] Update journal' -ForegroundColor Yellow
     Write-Host '  [DIAG] Problem diagnostics' -ForegroundColor Yellow
+    Write-Host '  [RB] Rollback from backup' -ForegroundColor Yellow
     Write-Host '  [DL] Download repository' -ForegroundColor Yellow
     Write-Host '  [CR] Create release' -ForegroundColor Yellow
     Write-Host '  [FR] Fix release encoding' -ForegroundColor Yellow
@@ -7484,6 +7656,7 @@ do {
         'j' { Show-UpdateJournal }
         'st' { Show-InstallStatus; $resp = Read-Host '  d = full drift check, Enter = back'; if ($resp -eq 'd') { Show-InstallStatus -Deep } }
         'diag' { Show-ProblemDiagnostics }
+        'rb' { Show-RollbackFromBackup }
         'dl' { Download-Repository }
         'cr' { Create-GitHubRelease }
         'fr' { Fix-ReleaseEncoding }

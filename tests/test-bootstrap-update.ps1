@@ -522,6 +522,45 @@ try {
     Assert-True -Name 'bootstrap acquires the lock before touching files' -Condition ($bRaw -match 'New-UpdateLock -Dir \$TargetDir') -Detail 'bootstrap lock wiring not found'
     Assert-True -Name 'bootstrap releases the lock in finally' -Condition ($bRaw -match 'finally \{[\s\S]*?Remove-UpdateLock -Dir \$TargetDir[\s\S]*?\}') -Detail 'no finally release found'
 
+    # ── T11: -Diagnose report without the menu (issue #29) ──────────────
+    Write-Host 'T11: -Diagnose - menu-free findings, scriptVer parse incl. broken file, wiring' -ForegroundColor Cyan
+    foreach ($name in 'Get-ScriptVerFromText', 'Get-BootstrapFindings') {
+        $df = $bAst.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
+        }, $true) | Select-Object -First 1
+        if (-not $df) { throw "$name function not found in bootstrap-update.ps1" }
+        . ([scriptblock]::Create($df.Extent.Text))
+    }
+    $diagDir = Join-Path $tmp 'diag-install'
+    New-Item -ItemType Directory -Path $diagDir -Force | Out-Null
+    try {
+        $diagMenu = Join-Path $diagDir 'mumu-menu.ps1'
+        $diagVer = Join-Path $diagDir '.version'
+        $diagJournal = Join-Path $diagDir 'update-journal.log'
+        Set-Content -LiteralPath $diagMenu -Value "`$scriptVer = '1.21.8'"
+        Set-Content -LiteralPath $diagVer -Value 'v1.21.8' -NoNewline
+        $fOk = @(Get-BootstrapFindings -Dir $diagDir -MenuPath $diagMenu -VersionFile $diagVer -JournalFile $diagJournal)
+        Assert-True -Name 'healthy install: zero error/warn findings' -Condition (@($fOk | Where-Object { $_.severity -ne 'info' }).Count -eq 0) -Detail "findings: $($fOk.Count)"
+        # Wedge: marker ahead of the content -> error naming the repair path.
+        Set-Content -LiteralPath $diagVer -Value 'v1.22.0' -NoNewline
+        $fWedge = @(Get-BootstrapFindings -Dir $diagDir -MenuPath $diagMenu -VersionFile $diagVer -JournalFile $diagJournal)
+        Assert-True -Name 'wedge detected as error naming -Force repair' -Condition (@($fWedge | Where-Object { $_.severity -eq 'error' -and $_.message -match 'AHEAD' }).Count -eq 1) -Detail "findings: $($fWedge.Count)"
+        # Broken menu file: the scriptVer parse must still work on unparseable text.
+        # Content (1.23.0) is ahead of the marker (v1.22.0) -> warn about an interrupted update.
+        Set-Content -LiteralPath $diagMenu -Value "this file is ) not ( parseable as PowerShell`r`n`$scriptVer = '1.23.0'"
+        $parsedVer = Get-ScriptVerFromText -Text ([System.IO.File]::ReadAllText($diagMenu))
+        Assert-True -Name 'scriptVer parsed from unparseable menu text' -Condition ($parsedVer -eq '1.23.0') -Detail "got: $parsedVer"
+        $fBroken = @(Get-BootstrapFindings -Dir $diagDir -MenuPath $diagMenu -VersionFile $diagVer -JournalFile $diagJournal)
+        Assert-True -Name 'content ahead of marker still warns via the broken file' -Condition (@($fBroken | Where-Object { $_.severity -eq 'warn' -and $_.message -match 'newer than the marker' }).Count -eq 1) -Detail "findings: $($fBroken.Count)"
+        # Wiring: the switch exists, runs before anything else, no network.
+        Assert-True -Name 'bootstrap wires -Diagnose with the findings report' -Condition (($bRaw -match '\[switch\]\$Diagnose') -and ($bRaw -match 'if \(\$Diagnose\)') -and ($bRaw -match 'Get-BootstrapFindings ')) -Detail 'diagnose wiring not found'
+        Assert-True -Name 'diagnose exit codes: 1 on error/warn, 0 otherwise' -Condition ($bRaw -match 'if \(\$errCount -gt 0 -or \$warnCount -gt 0\) \{ exit 1 \} else \{ exit 0 \}') -Detail 'exit-code contract not found'
+        Assert-True -Name 'diagnose is read-only (no network in the report path)' -Condition ($bRaw -match 'No network, no mutations') -Detail 'guard comment missing'
+    } finally {
+        Remove-Item -LiteralPath $diagDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
 
     $passCount = 0
     if ($script:failures -eq 0) { $passCount = 1 }

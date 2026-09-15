@@ -23,7 +23,8 @@ BeforeAll {
                         'Get-JournalArrow', 'Show-UpdateJournal',
                         'Test-UpdateLockStale', 'Get-UpdateLockMessage', 'New-UpdateLock', 'Remove-UpdateLock',
                         'ConvertTo-JournalMarkdown', 'ConvertTo-JournalCsv', 'ConvertTo-JournalJson', 'Export-UpdateJournal',
-                        'Get-ProblemFindings', 'Get-InstallStatus', 'Get-IntegrityVerdict', 'Invoke-MumuManagerProbe')) {
+                        'Get-ProblemFindings', 'Get-InstallStatus', 'Get-IntegrityVerdict', 'Invoke-MumuManagerProbe',
+                        'Get-BackupFolders', 'Build-RollbackPlan', 'Invoke-Rollback')) {
         $f = $script:ast.FindAll({
             param($node)
             $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -854,6 +855,142 @@ Describe 'Integrity verdict classifier ([ST] deep check)' {
         $v2 = Get-IntegrityVerdict -Report @()
         $v2.ok | Should -BeFalse
         $v2.detail | Should -Match 'could not run'
+    }
+}
+
+Describe 'Rollback from backup (issue #27)' {
+
+    BeforeAll {
+        function New-RbInstall {
+            $d = Join-Path $TestDrive "rb_$(Get-Random)"
+            New-Item -ItemType Directory -Path $d -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $d 'mumu-menu.ps1') -Value "`$scriptVer = '1.21.7'"
+            Set-Content -LiteralPath (Join-Path $d 'SKILL.md') -Value 'x'
+            Set-Content -LiteralPath (Join-Path $d 'README.md') -Value 'x'
+            Set-Content -LiteralPath (Join-Path $d 'bootstrap-update.ps1') -Value 'x'
+            Set-Content -LiteralPath (Join-Path $d '.version') -Value 'v1.21.7' -NoNewline
+            return $d
+        }
+        function New-RbBackup {
+            param([string]$InstallDir, [string]$Ver = '1.20.9', [string]$Stamp = '20260915_120000', [switch]$Incomplete)
+            $b = Join-Path (Join-Path $InstallDir 'backup') $Stamp
+            New-Item -ItemType Directory -Path $b -Force | Out-Null
+            if (-not $Incomplete) {
+                Set-Content -LiteralPath (Join-Path $b 'mumu-menu.ps1') -Value "`$scriptVer = '$Ver'"
+                Set-Content -LiteralPath (Join-Path $b 'SKILL.md') -Value 'x'
+                Set-Content -LiteralPath (Join-Path $b 'README.md') -Value 'x'
+                Set-Content -LiteralPath (Join-Path $b 'bootstrap-update.ps1') -Value 'x'
+            } else {
+                Set-Content -LiteralPath (Join-Path $b 'SKILL.md') -Value 'x'
+            }
+            return $b
+        }
+        $script:rbMenuPath = { param($d) Join-Path $d 'mumu-menu.ps1' }
+        $script:rbVerPath = { param($d) Join-Path $d '.version' }
+    }
+
+    It 'Get-BackupFolders lists newest-first with size, date, completeness' {
+        $d = New-RbInstall
+        $null = New-RbBackup -InstallDir $d -Stamp '20260915_120000'
+        $null = New-RbBackup -InstallDir $d -Stamp '20260914_090000' -Incomplete
+        $null = New-Item -ItemType Directory -Path (Join-Path $d 'backup\not-a-stamp') -Force
+        $list = @(Get-BackupFolders -InstallDir $d)
+        $list.Count | Should -Be 2
+        $list[0].Name | Should -Be '20260915_120000'
+        $list[0].HasMenu | Should -BeTrue
+        $list[1].HasMenu | Should -BeFalse
+        $list[0].SizeMB | Should -Be 0
+    }
+
+    It 'Build-RollbackPlan validates completeness and earns the marker from content' {
+        $d = New-RbInstall
+        $b = New-RbBackup -InstallDir $d -Ver '1.20.9'
+        $plan = Build-RollbackPlan -BackupDir $b -InstallDir $d
+        $plan.Ok | Should -BeTrue
+        $plan.Files.Count | Should -Be 4
+        $plan.MarkerWrite | Should -BeTrue
+        $plan.MarkerTo | Should -Be 'v1.20.9'
+        $bad = Build-RollbackPlan -BackupDir (Join-Path $d 'backup\nope') -InstallDir $d
+        $bad.Ok | Should -BeFalse
+        $b2 = New-RbBackup -InstallDir $d -Stamp '20260913_080000' -Incomplete
+        $plan2 = Build-RollbackPlan -BackupDir $b2 -InstallDir $d
+        $plan2.Ok | Should -BeFalse
+        $plan2.Reason | Should -Match 'incomplete'
+    }
+
+    It 'Invoke-Rollback restores files and re-aligns the marker to the restored content' {
+        $d = New-RbInstall
+        $b = New-RbBackup -InstallDir $d -Ver '1.20.9'
+        $ok = Invoke-Rollback -BackupDir $b -InstallDir $d -VersionFile (Join-Path $d '.version')
+        $ok | Should -BeTrue
+        (Get-Content -LiteralPath (Join-Path $d '.version') -Raw).Trim() | Should -Be 'v1.20.9'
+        ((Get-Content -LiteralPath (Join-Path $d 'mumu-menu.ps1') -Raw) -match "\`$scriptVer = '1\.20\.9'") | Should -BeTrue
+        # Rollback events land in the journal (writer targets $script:JournalFile)
+        $j = Get-Content -LiteralPath $script:JournalFile
+        ($j | Where-Object { $_ -match "`trollback`t" }) | Should -Not -BeNullOrEmpty
+    }
+
+    It 'Invoke-Rollback without a version claim leaves the marker unchanged and still journals' {
+        $d = New-RbInstall
+        $b = New-RbBackup -InstallDir $d -Ver '9.9.9'
+        # Corrupt the backup's menu so no scriptVer can be parsed
+        Set-Content -LiteralPath (Join-Path $b 'mumu-menu.ps1') -Value '# no version claim here'
+        $ok = Invoke-Rollback -BackupDir $b -InstallDir $d -VersionFile (Join-Path $d '.version')
+        $ok | Should -BeTrue
+        (Get-Content -LiteralPath (Join-Path $d '.version') -Raw).Trim() | Should -Be 'v1.21.7'   # unchanged
+        $j = Get-Content -LiteralPath $script:JournalFile
+        ($j | Where-Object { $_ -match "`trollback`t" }) | Should -Not -BeNullOrEmpty
+    }
+
+    It 'Invoke-Rollback failure journals rollback-fail and returns false' {
+        $d = New-RbInstall
+        $b = New-RbBackup -InstallDir $d -Ver '1.20.9'
+        # Make README undeletable-to-overwrite by opening a lock on the destination
+        $dest = Join-Path $d 'README.md'
+        $stream = [System.IO.File]::Open($dest, 'Open', 'Read', 'None')
+        try {
+            $ok = Invoke-Rollback -BackupDir $b -InstallDir $d -VersionFile (Join-Path $d '.version')
+            $ok | Should -BeFalse
+        } finally { $stream.Dispose() }
+        $j = Get-Content -LiteralPath $script:JournalFile
+        ($j | Where-Object { $_ -match "`trollback-fail`t" }) | Should -Not -BeNullOrEmpty
+    }
+
+    It 'the probe ADB fallback verifies via adb devices when adb_version is absent' {
+        # Regression for the v1.21.8 live catch: MuMu builds without adb_version
+        # in the info output made the readiness flag a permanent false positive.
+        $d = Join-Path $TestDrive "adbfallback_$(Get-Random)"
+        New-Item -ItemType Directory -Path (Join-Path $d 'shell') -Force | Out-Null
+        # A fake adb.cmd (real child process - a text .exe cannot execute) that
+        # reports the instance as connected; injected via -AdbPathOverride.
+        $fakeAdb = Join-Path $d 'shell\adb.cmd'
+        $adbBat = "@echo off`r`necho List of devices attached`r`necho 127.0.0.1:16384`tdevice`r`n"
+        [System.IO.File]::WriteAllText($fakeAdb, $adbBat)
+        # A MuMuManager stub reporting a running instance without adb_version
+        $stub = Join-Path $d 'MuMuManager.cmd'
+        [System.IO.File]::WriteAllText((Join-Path $d 'mu-stub-out.txt'), '{"0":{"player_state":"start_finished","adb_host_ip":"127.0.0.1","adb_port":16384}}')
+        [System.IO.File]::WriteAllText((Join-Path $d 'mu-stub-mode.txt'), 'json')
+        $bat = "@echo off`r`nfindstr /C:`"crash`" `"$(Join-Path $d 'mu-stub-mode.txt')`" >nul 2>&1 && exit /b 3`r`ntype `"$(Join-Path $d 'mu-stub-out.txt')`"`r`n"
+        [System.IO.File]::WriteAllText($stub, $bat)
+        $p = Invoke-MumuManagerProbe -MumuPathOverride $stub -AdbPathOverride $fakeAdb
+        $p.adbReady | Should -BeTrue
+    }
+
+    It 'the probe ADB fallback does not crash without any adb binary and stays honest' {
+        # No adb.exe next to the MuMuManager root and none on PATH (the test
+        # process PATH may carry one - force a root without shell\adb.exe).
+        $d = Join-Path $TestDrive "adbnone_$(Get-Random)"
+        New-Item -ItemType Directory -Path $d -Force | Out-Null
+        $stub = Join-Path $d 'MuMuManager.cmd'
+        [System.IO.File]::WriteAllText((Join-Path $d 'mu-stub-out.txt'), '{"0":{"player_state":"start_finished","adb_port":16384}}')
+        [System.IO.File]::WriteAllText((Join-Path $d 'mu-stub-mode.txt'), 'json')
+        $bat = "@echo off`r`ntype `"$(Join-Path $d 'mu-stub-out.txt')`"`r`n"
+        [System.IO.File]::WriteAllText($stub, $bat)
+        # Only evaluates honestly: no adb anywhere -> adbReady stays false but
+        # the probe must NOT crash. We assert it runs and reports the instance.
+        $p = Invoke-MumuManagerProbe -MumuPathOverride $stub
+        $p.instances | Should -Be 1
+        $p.running | Should -Be 1
     }
 }
 

@@ -4,6 +4,11 @@
 
 ---
 
+## v1.21.8 (15.09.2026)
+- **`[RB]` Rollback from backup (issue #27)**: list `backup\YYYYMMDD_HHMMSS` folders (newest first, size + date + completeness), pick one, confirm with `ROLLBACK`, restore the 4 files. The `.version` marker is **earned from the restored content's own `$scriptVer`** - never guessed (backups carry no marker; guard principle of v1.20.5). Journals `rollback` (from = marker before, to = restored claim) or `rollback-fail`; offers `[F]` verification after. Pure helpers (`Get-BackupFolders`, `Build-RollbackPlan`, `Invoke-Rollback`) covered by 5 Pester tests incl. journal assertions.
+- **`bootstrap-update.ps1 -Diagnose` (issue #29)**: the menu-free diagnostics entry point for installs where `mumu-menu.ps1` will not start. Prints the `[DIAG]`-style findings report (marker vs the scriptVer parsed from raw - possibly broken - menu text, lock states, journal health, MuMu path, disk) with **no network and no mutations**; exit 0 when clean, exit 1 on error/warn findings (scriptable for support). T11 in the bootstrap suite asserts the parse-from-broken-file behavior and the wiring.
+- **Fixed a false positive in the ADB-bridge readiness check (caught on a real machine)**: some MuMu builds never report `adb_version` in `info -v all`, so v1.21.7 warned "ADB bridge not ready" forever. The probe now falls back to asking ADB itself - `adb devices` against the instance's `adb_port` (local socket only), resolved from the MuMu `shell\adb.exe`, with a cold-daemon retry. Regression-tested with an injected stub adb.
+
 ## v1.21.7 (15.09.2026)
 - **Emulator diagnostics in `[DIAG]` (issue #32)**: one `MuMuManager info -v all` query adds the emulator side to the problem screen - instance count, running state, and ADB-bridge readiness. No instances / none running are info (create/launch hints), a running instance with no ready ADB bridge is a warning (the exact state that made in-emulator commands like `curl` fail with "inaccessible or not found"), and a MuMuManager that does not answer cleanly warns without breaking the diagnostics. Live catch fixed before ship: the real binary emits pretty-printed multi-line JSON, which pwsh 7 parses line-by-line in a pipeline - the probe now joins lines before parsing (regression-tested). 9 new Pester tests with a real-child-process `.cmd` stub; suite 81 green on PS 5.1 and pwsh 7.
 

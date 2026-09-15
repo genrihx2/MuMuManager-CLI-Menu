@@ -30,7 +30,8 @@ param(
     [switch]$Force,
     [string]$VerifyZip = '',
     [string]$ZipTag = '',
-    [switch]$NoVerify
+    [switch]$NoVerify,
+    [switch]$Diagnose
 )
 
 if (-not $TargetDir) { $TargetDir = $PWD.Path }
@@ -200,6 +201,142 @@ function Remove-UpdateLock {
     param([string]$Dir)
     try { Remove-Item -LiteralPath (Join-Path $Dir '.update-lock') -Force -ErrorAction SilentlyContinue } catch { Write-Debug "Lock removal failed: $($_.Exception.Message)" }
     try { Remove-Item -LiteralPath (Join-Path $Dir '.update-lock.new') -Force -ErrorAction SilentlyContinue } catch { Write-Debug "Lock claim cleanup failed: $($_.Exception.Message)" }
+}
+
+# ── Diagnose: findings report without the menu (issue #29) ───────────
+# The entry point when mumu-menu.ps1 itself is broken: prints the same
+# classes of findings as the menu's [DIAG] screen - marker vs the scriptVer
+# parsed from (possibly unparseable) menu content, update-lock states,
+# journal health, MuMu path, disk space. No network, no mutations.
+# Exit 0 = no error/warn findings, exit 1 = problems (scriptable).
+function Get-ScriptVerFromText {
+    # Reads $scriptVer out of raw menu text - works even when the file
+    # cannot be parsed as PowerShell (that is the point of -Diagnose).
+    param([string]$Text)
+    foreach ($line in ($Text -split "`n" | Select-Object -First 320)) {
+        if ($line -match "\`$scriptVer\s*=\s*'([0-9]+\.[0-9]+\.[0-9]+)'") { return $Matches[1] }
+    }
+    return ''
+}
+function Get-BootstrapFindings {
+    # Subset of the menu's Get-ProblemFindings, implementable without the
+    # menu. Returns the same shape: severity, area, message objects.
+    param(
+        [string]$Dir,
+        [string]$MenuPath,
+        [string]$VersionFile,
+        [string]$JournalFile
+    )
+    $findings = New-Object System.Collections.Generic.List[object]
+    $add = { param($sev, $area, $msg) $findings.Add([pscustomobject]@{ severity = $sev; area = $area; message = $msg }) }
+
+    if (-not (Test-Path -LiteralPath $Dir -PathType Container)) {
+        & $add 'error' 'install' "install directory not found: $Dir"
+        return $findings.ToArray()
+    }
+
+    # Marker vs the content's own version claim (wedge detector)
+    $marker = ''
+    if (Test-Path -LiteralPath $VersionFile -PathType Leaf) {
+        try { $marker = (Get-Content -LiteralPath $VersionFile -Raw).Trim() } catch { Write-Debug "marker read failed: $($_.Exception.Message)" }
+    }
+    $fileVer = ''
+    if (Test-Path -LiteralPath $MenuPath -PathType Leaf) {
+        try { $fileVer = Get-ScriptVerFromText -Text ([System.IO.File]::ReadAllText($MenuPath)) } catch { Write-Debug "menu read failed: $($_.Exception.Message)" }
+    } else {
+        & $add 'error' 'install' "mumu-menu.ps1 missing from the install directory"
+    }
+    if (-not $marker) {
+        & $add 'info' 'install' "no .version marker yet - the install has never recorded an update"
+    }
+    if ($marker -and $fileVer) {
+        try {
+            $mv = [version]($marker.TrimStart('v'))
+            $fv = [version]$fileVer
+            if ($mv -gt $fv) {
+                & $add 'error' 'install' "marker ($marker) is AHEAD of the installed content ($fileVer) - wedged heal; run bootstrap-update.ps1 -Force to repair"
+            } elseif ($mv -lt $fv) {
+                & $add 'warn' 'install' "installed content ($fileVer) is newer than the marker ($marker) - an update may have been interrupted"
+            }
+        } catch {
+            & $add 'warn' 'install' "cannot compare marker '$marker' with content version '$fileVer'"
+        }
+    } elseif ($marker -and -not $fileVer) {
+        & $add 'warn' 'install' "could not read a scriptVer from mumu-menu.ps1 - the file may be corrupted"
+    }
+
+    # Update lock states
+    $lockPath = Join-Path $Dir '.update-lock'
+    if (Test-Path -LiteralPath $lockPath -PathType Leaf) {
+        if (Test-UpdateLockStale -LockPath $lockPath) {
+            & $add 'info' 'lock' ("stale update lock (leftover of a crashed updater) - will be broken on the next update: " + (Get-UpdateLockMessage -LockPath $lockPath))
+        } else {
+            & $add 'warn' 'lock' ("update lock held right now: " + (Get-UpdateLockMessage -LockPath $lockPath))
+        }
+    }
+    if (Test-Path -LiteralPath "$lockPath.new" -PathType Leaf) {
+        & $add 'info' 'lock' "claim residue .update-lock.new found - a stale lock was being broken; harmless"
+    }
+
+    # Journal health
+    if (-not (Test-Path -LiteralPath $JournalFile -PathType Leaf)) {
+        & $add 'info' 'journal' "no update journal yet - no updates have been performed"
+    } else {
+        $jLines = @()
+        try { $jLines = @(Get-Content -LiteralPath $JournalFile -ErrorAction Stop) } catch { $jLines = @() }
+        $bad = 0; $fails = 0; $skips = 0
+        foreach ($jl in $jLines) {
+            if (-not $jl) { continue }
+            $p = $jl -split "`t", 6
+            if ($p.Count -lt 6) { $bad++; continue }
+            switch ($p[2]) {
+                'update-fail' { $fails++ }
+                'update-skipped' { $skips++ }
+            }
+        }
+        if ($bad -gt 0) { & $add 'warn' 'journal' "$bad malformed journal line(s) - the journal may be truncated" }
+        if ($fails -gt 0) { & $add 'warn' 'journal' "$fails failed update event(s) - inspect with [J] option 3 or read $JournalFile" }
+        if ($skips -gt 0) { & $add 'info' 'journal' "$skips update-skipped event(s) - concurrent runs refused while one was active" }
+        if ((Get-Item -LiteralPath $JournalFile).Length -gt 256KB) { & $add 'info' 'journal' "journal over 256 KB - it will rotate to .old on the next update" }
+    }
+
+    # MuMu path (existence only - the emulator probe needs the menu)
+    $mumu = $null
+    foreach ($p in @('C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe', 'C:\Program Files (x86)\Netease\MuMuPlayer\nx_main\MuMuManager.exe')) {
+        if (Test-Path $p) { $mumu = $p; break }
+    }
+    if (-not $mumu) {
+        & $add 'error' 'mumu' "MuMuManager.exe not found - emulator functions will not work"
+    }
+
+    # Disk space
+    try {
+        $drive = (Get-Item -LiteralPath $Dir).PSDrive
+        $freeGB = [Math]::Round($drive.Free / 1GB, 1)
+        if ($freeGB -lt 2) { & $add 'warn' 'disk' "only $freeGB GB free on $($drive.Name): - updates and backups need headroom" }
+    } catch { Write-Debug "disk check failed: $($_.Exception.Message)" }
+
+    return $findings.ToArray()
+}
+
+if ($Diagnose) {
+    Write-Host ''
+    Write-Host "=== Problem diagnostics: $TargetDir ===" -ForegroundColor Cyan
+    Write-Host '  (read-only, local-only - no network, nothing is changed)' -ForegroundColor DarkGray
+    $f = Get-BootstrapFindings -Dir $TargetDir -MenuPath (Join-Path $TargetDir 'mumu-menu.ps1') -VersionFile (Join-Path $TargetDir '.version') -JournalFile $journalFile
+    $icons = @{ error = '[ERROR]'; warn = '[WARN]'; info = '[info]' }
+    $colors = @{ error = 'Red'; warn = 'Yellow'; info = 'DarkGray' }
+    if (@($f).Count -eq 0) {
+        Write-Host '  No problems detected.' -ForegroundColor Green
+        Write-Host '  Problems found: 0' -ForegroundColor Green
+        exit 0
+    }
+    foreach ($x in $f) { Write-Host "  $($icons[$x.severity]) $($x.message)" -ForegroundColor $colors[$x.severity] }
+    $errCount = @($f | Where-Object { $_.severity -eq 'error' }).Count
+    $warnCount = @($f | Where-Object { $_.severity -eq 'warn' }).Count
+    $infoCount = @($f | Where-Object { $_.severity -eq 'info' }).Count
+    Write-Host "  Problems found: $errCount error(s), $warnCount warning(s), $infoCount info" -ForegroundColor $(if ($errCount -gt 0 -or $warnCount -gt 0) { 'Yellow' } else { 'Green' })
+    if ($errCount -gt 0 -or $warnCount -gt 0) { exit 1 } else { exit 0 }
 }
 
 # ── Release ZIP self-test (issue #19) ────────────────────────────────

@@ -1,0 +1,173 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<test-results xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="nunit_schema_2.5.xsd" name="Pester" total="88" errors="0" failures="0" not-run="0" inconclusive="0" ignored="0" skipped="0" invalid="0" date="2026-09-15" time="20:20:16">
+  <environment clr-version="4.0.30319.42000" user-domain="DESKTOP-SS9MCQ2" cwd="C:\ggggggg\mumu-manager-cli\.freebuff\worktrees\ac50afaa-1687-4383-a0e3-610533013b71" platform="Майкрософт Windows 11 Pro|C:\Windows|\Device\Harddisk2\Partition3" machine-name="DESKTOP-SS9MCQ2" nunit-version="2.5.8.0" os-version="10.0.28000" user="neko" />
+  <culture-info current-culture="ru-RU" current-uiculture="ru-RU" />
+  <test-suite type="TestFixture" name="Pester" executed="True" result="Success" success="True" time="15.1588" asserts="0" description="Pester">
+    <results>
+      <test-suite type="TestFixture" name="C:\ggggggg\mumu-manager-cli\.freebuff\worktrees\ac50afaa-1687-4383-a0e3-610533013b71\tests\mumu-menu.Tests.ps1" executed="True" result="Success" success="True" time="15.1588" asserts="0" description="C:\ggggggg\mumu-manager-cli\.freebuff\worktrees\ac50afaa-1687-4383-a0e3-610533013b71\tests\mumu-menu.Tests.ps1">
+        <results>
+          <test-suite type="TestFixture" name="Get-ContentHash (SHA-256 helper)" executed="True" result="Success" success="True" time="0.3061" asserts="0" description="Get-ContentHash (SHA-256 helper)">
+            <results>
+              <test-case description="produces a 64-char uppercase hex digest" name="Get-ContentHash (SHA-256 helper).produces a 64-char uppercase hex digest" time="0.1501" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="is deterministic for identical input" name="Get-ContentHash (SHA-256 helper).is deterministic for identical input" time="0.0348" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="changes when the input changes" name="Get-ContentHash (SHA-256 helper).changes when the input changes" time="0.0096" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="ignores CR (CRLF and LF hash the same)" name="Get-ContentHash (SHA-256 helper).ignores CR (CRLF and LF hash the same)" time="0.0067" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="strips a UTF-8 BOM prefix" name="Get-ContentHash (SHA-256 helper).strips a UTF-8 BOM prefix" time="0.0174" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="matches the known SHA-256 of &quot;abc&quot;" name="Get-ContentHash (SHA-256 helper).matches the known SHA-256 of &quot;abc&quot;" time="0.007" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="trims trailing whitespace symmetrically with Invoke-GitHubGet (no phantom drift)" name="Get-ContentHash (SHA-256 helper).trims trailing whitespace symmetrically with Invoke-GitHubGet (no phantom drift)" time="0.0104" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Test-ScriptVerMatchesTag (version-fix heal guard)" executed="True" result="Success" success="True" time="0.3706" asserts="0" description="Test-ScriptVerMatchesTag (version-fix heal guard)">
+            <results>
+              <test-case description="accepts content whose scriptVer equals the tag" name="Test-ScriptVerMatchesTag (version-fix heal guard).accepts content whose scriptVer equals the tag" time="0.0345" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="accepts a tag without the v prefix" name="Test-ScriptVerMatchesTag (version-fix heal guard).accepts a tag without the v prefix" time="0.0064" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="rejects content claiming an older scriptVer (stale CDN blob)" name="Test-ScriptVerMatchesTag (version-fix heal guard).rejects content claiming an older scriptVer (stale CDN blob)" time="0.0085" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="rejects content without a scriptVer line" name="Test-ScriptVerMatchesTag (version-fix heal guard).rejects content without a scriptVer line" time="0.0051" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Get-JournalArrow (from/to rendering)" executed="True" result="Success" success="True" time="0.4154" asserts="0" description="Get-JournalArrow (from/to rendering)">
+            <results>
+              <test-case description="joins both fields with an arrow" name="Get-JournalArrow (from/to rendering).joins both fields with an arrow" time="0.0085" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="renders an empty from as (new)" name="Get-JournalArrow (from/to rendering).renders an empty from as (new)" time="0.0067" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="passes a lone from through" name="Get-JournalArrow (from/to rendering).passes a lone from through" time="0.006" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="returns empty when both are empty" name="Get-JournalArrow (from/to rendering).returns empty when both are empty" time="0.0148" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Show-UpdateJournal rendering" executed="True" result="Success" success="True" time="0.4901" asserts="0" description="Show-UpdateJournal rendering">
+            <results>
+              <test-case description="renders (new) markers and groups same-run events" name="Show-UpdateJournal rendering.renders (new) markers and groups same-run events" time="0.0529" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="ConvertTo-ShellSafe (Android sh escaping)" executed="True" result="Success" success="True" time="0.5562" asserts="0" description="ConvertTo-ShellSafe (Android sh escaping)">
+            <results>
+              <test-case description="passes through safe values unchanged" name="ConvertTo-ShellSafe (Android sh escaping).passes through safe values unchanged" time="0.0111" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="replaces shell metacharacters with underscore" name="ConvertTo-ShellSafe (Android sh escaping).replaces shell metacharacters with underscore" time="0.0331" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="handles combined metacharacters" name="ConvertTo-ShellSafe (Android sh escaping).handles combined metacharacters" time="0.0063" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="never leaves a metacharacter in the output" name="ConvertTo-ShellSafe (Android sh escaping).never leaves a metacharacter in the output" time="0.0058" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Compare-ScriptVersion" executed="True" result="Success" success="True" time="0.651" asserts="0" description="Compare-ScriptVersion">
+            <results>
+              <test-case description="treats vX.Y.Z and X.Y.Z as equal" name="Compare-ScriptVersion.treats vX.Y.Z and X.Y.Z as equal" time="0.0105" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="detects older, newer and equal correctly" name="Compare-ScriptVersion.detects older, newer and equal correctly" time="0.0139" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="is component-wise numeric, not lexicographic" name="Compare-ScriptVersion.is component-wise numeric, not lexicographic" time="0.0126" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="pads missing components with zero" name="Compare-ScriptVersion.pads missing components with zero" time="0.0128" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="returns unknown (-2) for unparseable input" name="Compare-ScriptVersion.returns unknown (-2) for unparseable input" time="0.0339" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Format-JournalEvent" executed="True" result="Success" success="True" time="0.7446" asserts="0" description="Format-JournalEvent">
+            <results>
+              <test-case description="emits six tab-separated fields" name="Format-JournalEvent.emits six tab-separated fields" time="0.012" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="places actor, event, from and to in the correct columns" name="Format-JournalEvent.places actor, event, from and to in the correct columns" time="0.0107" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="flattens tabs in the detail column" name="Format-JournalEvent.flattens tabs in the detail column" time="0.0122" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="flattens newlines in the detail column" name="Format-JournalEvent.flattens newlines in the detail column" time="0.027" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="writes a real journal file through Write-UpdateJournal with the same format" name="Format-JournalEvent.writes a real journal file through Write-UpdateJournal with the same format" time="0.0202" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Test-ReleaseZip (ZIP self-test)" executed="True" result="Success" success="True" time="1.1068" asserts="0" description="Test-ReleaseZip (ZIP self-test)">
+            <results>
+              <test-case description="passes a correct release ZIP (all three checks)" name="Test-ReleaseZip (ZIP self-test).passes a correct release ZIP (all three checks)" time="0.1755" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="fails a tampered ZIP on the sha256 check" name="Test-ReleaseZip (ZIP self-test).fails a tampered ZIP on the sha256 check" time="0.0448" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="fails a scriptVer/tag mismatch" name="Test-ReleaseZip (ZIP self-test).fails a scriptVer/tag mismatch" time="0.0431" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="names missing and unexpected files in the file-set check" name="Test-ReleaseZip (ZIP self-test).names missing and unexpected files in the file-set check" time="0.0608" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="fails cleanly on a missing archive" name="Test-ReleaseZip (ZIP self-test).fails cleanly on a missing archive" time="0.0092" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Invoke-GitHubGet: ETag cache, 304 replay, ref pinning (issue #22)" executed="True" result="Success" success="True" time="2.0876" asserts="0" description="Invoke-GitHubGet: ETag cache, 304 replay, ref pinning (issue #22)">
+            <results>
+              <test-case description="replays the cached body on HTTP 304 (curl exit 33) instead of failing" name="Invoke-GitHubGet: ETag cache, 304 replay, ref pinning (issue #22).replays the cached body on HTTP 304 (curl exit 33) instead of failing" time="0.129" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="never caches an API error body (rate limit) even when an ETag is present" name="Invoke-GitHubGet: ETag cache, 304 replay, ref pinning (issue #22).never caches an API error body (rate limit) even when an ETag is present" time="0.0676" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="pins a tag to its commit SHA before the contents request" name="Invoke-GitHubGet: ETag cache, 304 replay, ref pinning (issue #22).pins a tag to its commit SHA before the contents request" time="0.0584" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="derefs annotated tags (object type tag) to the commit SHA" name="Invoke-GitHubGet: ETag cache, 304 replay, ref pinning (issue #22).derefs annotated tags (object type tag) to the commit SHA" time="0.0248" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="returns null (never throws) when the ref cannot be resolved" name="Invoke-GitHubGet: ETag cache, 304 replay, ref pinning (issue #22).returns null (never throws) when the ref cannot be resolved" time="0.0274" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Test-InstallationIntegrity: tag/SHA split (v1.21.0 regression guard)" executed="True" result="Success" success="True" time="2.4323" asserts="0" description="Test-InstallationIntegrity: tag/SHA split (v1.21.0 regression guard)">
+            <results>
+              <test-case description="fetches content through $FetchRef while keeping $Tag for the semantic .version compare" name="Test-InstallationIntegrity: tag/SHA split (v1.21.0 regression guard).fetches content through $FetchRef while keeping $Tag for the semantic .version compare" time="0.3377" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="README changelog sync (static check)" executed="True" result="Success" success="True" time="2.4713" asserts="0" description="README changelog sync (static check)">
+            <results>
+              <test-case description="has a What's-new section for every changelog table row" name="README changelog sync (static check).has a What's-new section for every changelog table row" time="0.0318" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Update lock (issue #24)" executed="True" result="Success" success="True" time="2.6454" asserts="0" description="Update lock (issue #24)">
+            <results>
+              <test-case description="acquires an absent lock and leaves PID payload behind" name="Update lock (issue #24).acquires an absent lock and leaves PID payload behind" time="0.0439" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="refuses a second concurrent lock, journals update-skipped, releases cleanly" name="Update lock (issue #24).refuses a second concurrent lock, journals update-skipped, releases cleanly" time="0.0389" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="treats a fresh lock as not stale and a 20-minute-old lock as stale" name="Update lock (issue #24).treats a fresh lock as not stale and a 20-minute-old lock as stale" time="0.0158" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="breaks a stale lock and acquires afterwards" name="Update lock (issue #24).breaks a stale lock and acquires afterwards" time="0.0305" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="describes the holder and age in the refusal message" name="Update lock (issue #24).describes the holder and age in the refusal message" time="0.0104" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="survives a removal race: no .update-lock.new claim file left behind" name="Update lock (issue #24).survives a removal race: no .update-lock.new claim file left behind" time="0.0201" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Journal export (issue #23)" executed="True" result="Success" success="True" time="2.8233" asserts="0" description="Journal export (issue #23)">
+            <results>
+              <test-case description="Markdown is an issue-ready table: header, all events, escaped pipes" name="Journal export (issue #23).Markdown is an issue-ready table: header, all events, escaped pipes" time="0.025" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="CSV has header, one row per event, RFC-4180 quoting for special cells" name="Journal export (issue #23).CSV has header, one row per event, RFC-4180 quoting for special cells" time="0.0146" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="JSON round-trips every field verbatim (object wrapper, edition-uniform parse)" name="Journal export (issue #23).JSON round-trips every field verbatim (object wrapper, edition-uniform parse)" time="0.0484" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Export-UpdateJournal writes UTF-8 BOM, leaves the journal untouched, and is idempotent" name="Journal export (issue #23).Export-UpdateJournal writes UTF-8 BOM, leaves the journal untouched, and is idempotent" time="0.0517" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="errors-only range exports just the failing events" name="Journal export (issue #23).errors-only range exports just the failing events" time="0.0169" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="unknown format fails cleanly with a message" name="Journal export (issue #23).unknown format fails cleanly with a message" time="0.0078" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Problem diagnostics (Get-ProblemFindings)" executed="True" result="Success" success="True" time="3.9012" asserts="0" description="Problem diagnostics (Get-ProblemFindings)">
+            <results>
+              <test-case description="reports a healthy fixture install as zero findings" name="Problem diagnostics (Get-ProblemFindings).reports a healthy fixture install as zero findings" time="0.1761" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="flags a marker ahead of content as the wedge error" name="Problem diagnostics (Get-ProblemFindings).flags a marker ahead of content as the wedge error" time="0.1637" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="flags content ahead of marker as a warning" name="Problem diagnostics (Get-ProblemFindings).flags content ahead of marker as a warning" time="0.069" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="missing mumu-menu.ps1 is an error; missing marker is info" name="Problem diagnostics (Get-ProblemFindings).missing mumu-menu.ps1 is an error; missing marker is info" time="0.1359" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="a fresh lock warns; a stale lock is only info; claim residue is info" name="Problem diagnostics (Get-ProblemFindings).a fresh lock warns; a stale lock is only info; claim residue is info" time="0.191" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="journal: malformed lines warn, fail events warn, skips are info, rotation noted" name="Problem diagnostics (Get-ProblemFindings).journal: malformed lines warn, fail events warn, skips are info, rotation noted" time="0.1356" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="old MuMu version warns; missing MuMuManager errors" name="Problem diagnostics (Get-ProblemFindings).old MuMu version warns; missing MuMuManager errors" time="0.0859" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="pending .new files and .old leftover are reported as info" name="Problem diagnostics (Get-ProblemFindings).pending .new files and .old leftover are reported as info" time="0.0808" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="the diagnostics screen is wired into the menu" name="Problem diagnostics (Get-ProblemFindings).the diagnostics screen is wired into the menu" time="0.0104" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Install status (issue #25)" executed="True" result="Success" success="True" time="4.0807" asserts="0" description="Install status (issue #25)">
+            <results>
+              <test-case description="fast path: marker + journal + zip verdict, no network, honest unknowns" name="Install status (issue #25).fast path: marker + journal + zip verdict, no network, honest unknowns" time="0.0525" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="compares marker vs latest release via the injected tag source" name="Install status (issue #25).compares marker vs latest release via the injected tag source" time="0.0323" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="deep path: drift result is rendered from the injected check" name="Install status (issue #25).deep path: drift result is rendered from the injected check" time="0.0399" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="missing journal is honest: exists=false, zip verdict = not checked" name="Install status (issue #25).missing journal is honest: exists=false, zip verdict = not checked" time="0.0109" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="a FAILED zip verdict is surfaced, not hidden" name="Install status (issue #25).a FAILED zip verdict is surfaced, not hidden" time="0.0146" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="the status screen is wired into the menu as [ST]" name="Install status (issue #25).the status screen is wired into the menu as [ST]" time="0.0126" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Integrity verdict classifier ([ST] deep check)" executed="True" result="Success" success="True" time="4.1183" asserts="0" description="Integrity verdict classifier ([ST] deep check)">
+            <results>
+              <test-case description="summary|ok| is OK - metadata lines never look like drift (v1.21.5 regression)" name="Integrity verdict classifier ([ST] deep check).summary|ok| is OK - metadata lines never look like drift (v1.21.5 regression)" time="0.0079" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="summary|drift| names the drifting files" name="Integrity verdict classifier ([ST] deep check).summary|drift| names the drifting files" time="0.0081" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="summary|partial| is not drift - downloads failed, files that were checked are OK" name="Integrity verdict classifier ([ST] deep check).summary|partial| is not drift - downloads failed, files that were checked are OK" time="0.0056" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="an error line and an absent summary fail honestly" name="Integrity verdict classifier ([ST] deep check).an error line and an absent summary fail honestly" time="0.0086" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Rollback from backup (issue #27)" executed="True" result="Success" success="True" time="5.5841" asserts="0" description="Rollback from backup (issue #27)">
+            <results>
+              <test-case description="Get-BackupFolders lists newest-first with size, date, completeness" name="Rollback from backup (issue #27).Get-BackupFolders lists newest-first with size, date, completeness" time="0.0683" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Build-RollbackPlan validates completeness and earns the marker from content" name="Rollback from backup (issue #27).Build-RollbackPlan validates completeness and earns the marker from content" time="0.0615" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Invoke-Rollback restores files and re-aligns the marker to the restored content" name="Rollback from backup (issue #27).Invoke-Rollback restores files and re-aligns the marker to the restored content" time="0.0566" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Invoke-Rollback without a version claim leaves the marker unchanged and still journals" name="Rollback from backup (issue #27).Invoke-Rollback without a version claim leaves the marker unchanged and still journals" time="0.041" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="Invoke-Rollback failure journals rollback-fail and returns false" name="Rollback from backup (issue #27).Invoke-Rollback failure journals rollback-fail and returns false" time="0.0591" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="the probe ADB fallback verifies via adb devices when adb_version is absent" name="Rollback from backup (issue #27).the probe ADB fallback verifies via adb devices when adb_version is absent" time="0.1465" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="the probe ADB fallback does not crash without any adb binary and stays honest" name="Rollback from backup (issue #27).the probe ADB fallback does not crash without any adb binary and stays honest" time="0.9842" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="Emulator diagnostics (issue #32)" executed="True" result="Success" success="True" time="6.4884" asserts="0" description="Emulator diagnostics (issue #32)">
+            <results>
+              <test-case description="probe parses the real info shape: instances, running, adb readiness" name="Emulator diagnostics (issue #32).probe parses the real info shape: instances, running, adb readiness" time="0.0968" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="probe flags a running instance whose ADB bridge is not ready" name="Emulator diagnostics (issue #32).probe flags a running instance whose ADB bridge is not ready" time="0.079" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="probe degrades quietly on crash and non-JSON output" name="Emulator diagnostics (issue #32).probe degrades quietly on crash and non-JSON output" time="0.1267" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="probe: missing binary is found=false, empty output is an error" name="Emulator diagnostics (issue #32).probe: missing binary is found=false, empty output is an error" time="0.006" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="probe parses pretty-printed multi-line JSON like the real MuMuManager output" name="Emulator diagnostics (issue #32).probe parses pretty-printed multi-line JSON like the real MuMuManager output" time="0.0689" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="diagnostics warn when a running instance has no ADB bridge" name="Emulator diagnostics (issue #32).diagnostics warn when a running instance has no ADB bridge" time="0.1054" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="diagnostics stay quiet for a healthy running instance with ADB ready" name="Emulator diagnostics (issue #32).diagnostics stay quiet for a healthy running instance with ADB ready" time="0.102" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="diagnostics: no instances and stopped instances are info, MuMuManager crash is a warning" name="Emulator diagnostics (issue #32).diagnostics: no instances and stopped instances are info, MuMuManager crash is a warning" time="0.2928" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+        </results>
+      </test-suite>
+    </results>
+  </test-suite>
+</test-results>
