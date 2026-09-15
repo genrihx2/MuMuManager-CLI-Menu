@@ -347,7 +347,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.21.5
+Script version: 1.21.6
 MuMu version: 6.5.2.0
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -447,6 +447,9 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 **EN summary:** Recovering from a failed update: diagnose first (`[ST]` status, `[DIAG]` problems, `[F]` file-vs-tag verification, `[J] → 3` errors), then act. HASH MISMATCH → re-run `[F]` (stale-CDN false alarms vanish on the re-fetch; stable mismatches mean re-download the ZIP and verify with `-VerifyZip`). Wedged marker ("Up to date" but old content) → `bootstrap-update.ps1 -Force`. Broken files → restore from `backup\YYYYMMDD_HHMMSS`. Lock refusal → wait (locks older than 10 minutes break automatically). The table above maps each symptom to its cause and fix.
 
 ## Что нового
+
+### v1.21.6 (15.09.2026)
+- Релиз с фиксом ложного DRIFT глубокой проверки `[ST]` (`07f30fa`): `Get-IntegrityVerdict` читает вердикт из `summary|`-строки отчёта — метаданные больше не маскируются под дрейф. Набор 73 зелёный
 
 ### v1.21.5 (15.09.2026)
 - **Fix ложного DRIFT в глубокой проверке `[ST]` (поймано живьём через минуты после релиза)**: обёртка drift-чека считала информационные строки отчёта (`verify-start|`, `ref-pin|`, даже `summary|ok|`) дрейфом, потому что они не начинаются с `OK`, — полностью здоровая установка сама себе докладывала DRIFT. Теперь выделенный `Get-IntegrityVerdict` классифицирует отчёт по его собственному вердикту (`summary|ok|` / `summary|drift|<файлы>` / `summary|partial|` / `error|`) — метаданные больше не маскируются под дрейф; проверка, упёршаяся в rate limit, по-прежнему честно деградирует в «unknown». 4 Pester-теста, включая точный регрессионный отчёт из живого поимка; набор 73 зелёный
@@ -627,6 +630,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.21.6 | 15.09.2026 | Fix: `[ST]` глубокая проверка больше не даёт ложный DRIFT на здоровой установке (вердикт из `summary|`) |
 | v1.21.5 | 15.09.2026 | #25: статус-экран `[ST]` (офлайн-быстрый путь, drift по запросу); #26: README-раздел восстановления; закрыт milestone v1.21.0 |
 | v1.21.4 | 15.09.2026 | `[DIAG]`: диагностика проблем — клин маркера, блокировка, здоровье журнала, MuMu, диск (только чтение, локально) |
 | v1.21.3 | 15.09.2026 | issue #23: экспорт журнала `[J]` (MD / CSV / JSON, UTF-8 BOM, диапазон и путь на выбор, golden-тесты) |

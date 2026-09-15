@@ -4,6 +4,9 @@
 
 ---
 
+## v1.21.6 (15.09.2026)
+- Release carrying the `[ST]` deep-check false-DRIFT fix (`07f30fa`): `Get-IntegrityVerdict` classifies the integrity report by its own `summary|` verdict, so metadata lines can never masquerade as drift. Suite 73 green.
+
 ## v1.21.5 (15.09.2026)
 - **Fix `[ST]` deep-check false DRIFT (caught live minutes after ship)**: the drift-check wrapper treated the integrity report's informational lines (`verify-start|`, `ref-pin|`, even `summary|ok|`) as drift because they don't start with `OK` - a fully healthy install self-reported DRIFT. Now a dedicated `Get-IntegrityVerdict` classifies the report by its own verdict line (`summary|ok|` / `summary|drift|<files>` / `summary|partial|` / `error|`), so metadata never masquerades as drift; a rate-limited check still degrades honestly to "unknown". 4 Pester tests incl. the exact regression report from the live catch; suite 73 green.
 - **Install status screen `[ST]` (issue #25)**: one read-only screen answering "what am I on and am I OK?" - script version, local marker, latest release, version state, drift check, last ZIP verification (from the journal), and a journal summary. Fast path (Enter) is fully offline with honest unknown states; `d` in the menu adds the release comparison and the full drift check vs the tag. Status is built by a testable `Get-InstallStatus` collector with injected network/drift sources (6 Pester tests: fast path, release compare ok/behind/ahead, drift OK/DRIFT/failure, missing journal, FAILED zip verdict surfaced, menu wiring); suite 69 green. The key `[S]` stays with screenshots; status is `[ST]`.
