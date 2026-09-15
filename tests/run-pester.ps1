@@ -1,9 +1,10 @@
-# Runner for the Pester unit tests (issue #20) on Windows PowerShell 5.1.
-# Installs Pester 5.x to a user scope only if no suitable version exists -
-# non-interactively (the stock PS 5.1 NuGet-provider prompt would hang
-# unattended runs). CI (pwsh) ships Pester 5 and can call this too.
+# Runner for the Pester unit tests (issue #20) - works on Windows PowerShell
+# 5.1 and PowerShell 7+ (pwsh). Installs Pester 5.x to a user scope only if no
+# suitable version exists - non-interactively (the stock PS 5.1 NuGet-provider
+# prompt would hang unattended runs).
 #
 #   powershell -ExecutionPolicy Bypass -File tests/run-pester.ps1
+#   pwsh -NoProfile -ExecutionPolicy Bypass -File tests/run-pester.ps1
 
 $ErrorActionPreference = 'Stop'
 
@@ -13,9 +14,27 @@ if (-not $pester) {
     try {
         [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
     } catch { }
-    Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser | Out-Null
-    Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction SilentlyContinue
-    Install-Module Pester -MinimumVersion 5.0 -Scope CurrentUser -Force -SkipPublisherCheck -AllowClobber
+    if ($PSVersionTable.PSEdition -eq 'Core') {
+        # PowerShell 7+ ships PowerShellGet 2.x / PSResourceGet - no NuGet
+        # provider bootstrap needed, and the gallery must be trusted or
+        # Install-Module prompts (which would hang unattended runs).
+        # The PSResourceGet store may not exist on a fresh profile - create
+        # the directory and an empty store file (the cmdlets don't self-init).
+        $storeDir = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'PSResourceGet'
+        if (-not (Test-Path -LiteralPath $storeDir -PathType Container)) {
+            New-Item -ItemType Directory -Path $storeDir -Force | Out-Null
+        }
+        $storeFile = Join-Path $storeDir 'PSResourceRepository.xml'
+        if (-not (Test-Path -LiteralPath $storeFile -PathType Leaf)) {
+            Set-Content -LiteralPath $storeFile -Value '<?xml version="1.0" encoding="utf-8"?><configuration><RepositoryStore /></configuration>' -Encoding UTF8
+        }
+        Register-PSResourceRepository -PSGallery -Trusted -ErrorAction SilentlyContinue
+        Install-Module Pester -MinimumVersion 5.0 -Scope CurrentUser -Force -SkipPublisherCheck -AllowClobber
+    } else {
+        Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser | Out-Null
+        Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction SilentlyContinue
+        Install-Module Pester -MinimumVersion 5.0 -Scope CurrentUser -Force -SkipPublisherCheck -AllowClobber
+    }
     $pester = Get-Module -ListAvailable Pester | Where-Object { $_.Version.Major -ge 5 } | Select-Object -First 1
     if (-not $pester) { throw 'Pester 5.x installation failed' }
 }
