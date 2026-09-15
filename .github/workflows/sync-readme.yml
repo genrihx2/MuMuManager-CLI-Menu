@@ -45,6 +45,16 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add README.md
           git commit -m "docs: auto-sync README with mumu-menu.ps1"
-          git pull --rebase origin main
-          git push origin main
+          # The other sync bot (.version) can land a commit between our
+          # rebase and our push - retry the rebase+push pair a few times.
+          ok=""
+          for i in 1 2 3 4; do
+            if git push origin main; then ok=1; break; fi
+            git pull --rebase origin main
+            sleep $((i * 3))
+          done
+          if [ -z "$ok" ]; then
+            echo "README push failed after retries"
+            exit 1
+          fi
           echo "README synced and pushed"
