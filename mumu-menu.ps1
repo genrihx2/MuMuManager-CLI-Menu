@@ -226,7 +226,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.21.4'
+$scriptVer = '1.21.5'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -1991,6 +1991,134 @@ function Show-ProblemDiagnostics {
     Write-Host ("  install: {0}" -f $ScriptDir) -ForegroundColor DarkGray
 }
 
+# ── Status screen (issue #25) ────────────────────────────────────────
+# One read-only screen answering "what am I on and am I OK?": local
+# marker vs latest release, journal summary, last ZIP verification from
+# the journal, and (on explicit request) the full drift check vs the tag.
+# The fast path never touches the network; unknown states are honest.
+
+function Get-InstallStatus {
+    # Builds the status as data (rendering lives in Show-InstallStatus).
+    # Network parameters default to off: Get-LatestReleaseTag/Invoke-DriftCheck
+    # are scriptblocks so tests can mock them; production passes real ones.
+    param(
+        [string]$VersionFile,
+        [string]$JournalFile,
+        [string]$ScriptVer = '',
+        [scriptblock]$GetLatestReleaseTag,
+        [scriptblock]$InvokeDriftCheck
+    )
+    $status = [ordered]@{
+        localMarker   = ''
+        latestRelease = ''
+        releaseState  = 'unknown'   # ok | behind | ahead | unknown
+        markerNote    = ''
+        journal       = @{ exists = $false; events = 0; errors = 0; lastAt = '' }
+        lastZipVerify = 'not checked'
+        drift         = 'not checked'
+        driftNote     = ''
+    }
+    if ($VersionFile -and (Test-Path -LiteralPath $VersionFile -PathType Leaf)) {
+        try { $status.localMarker = (Get-Content -LiteralPath $VersionFile -Raw).Trim() } catch { Write-Debug "marker read failed: $($_.Exception.Message)" }
+    }
+    if ($GetLatestReleaseTag) {
+        try { $status.latestRelease = & $GetLatestReleaseTag } catch { $status.latestRelease = '' }
+    }
+    if ($status.latestRelease -and $status.localMarker) {
+        $cmp = Compare-ScriptVersion -A $status.localMarker -B $status.latestRelease
+        if ($cmp -eq 0) { $status.releaseState = 'ok' }
+        elseif ($cmp -eq -1) {
+            $status.releaseState = 'behind'
+            $status.markerNote = "update available: $($status.latestRelease)"
+        } else {
+            $status.releaseState = 'ahead'
+            $status.markerNote = 'marker ahead of the latest release - run bootstrap-update.ps1 to repair'
+        }
+    }
+    if ($JournalFile -and (Test-Path -LiteralPath $JournalFile -PathType Leaf)) {
+        $status.journal.exists = $true
+        $lines = @(Get-Content -LiteralPath $JournalFile -Encoding UTF8 -ErrorAction SilentlyContinue | Where-Object { $_.Trim() })
+        $status.journal.events = $lines.Count
+        $errs = 0
+        foreach ($raw in $lines) {
+            $p = $raw -split "`t", 6
+            if ($p.Count -ge 3 -and $p[2] -match 'fail|error') { $errs++ }
+        }
+        $status.journal.errors = $errs
+        if ($lines.Count -gt 0) {
+            $status.journal.lastAt = ($lines[-1] -split "`t")[0]
+            # Last ZIP verification verdict from the journal, if any.
+            $zipLine = @($lines | Where-Object { (($_ -split "`t")[2]) -match '^zip-verify-(ok|fail)$' } | Select-Object -Last 1)
+            if ($zipLine.Count -gt 0) {
+                $zp = $zipLine[0] -split "`t", 6
+                $status.lastZipVerify = "$(if ($zp[2] -eq 'zip-verify-ok') { 'OK' } else { 'FAILED' }) $($zp[4])".Trim()
+            }
+        }
+    }
+    if ($InvokeDriftCheck) {
+        try {
+            $dr = & $InvokeDriftCheck
+            $status.drift = if ($dr.ok) { 'OK' } else { 'DRIFT' }
+            $status.driftNote = $dr.detail
+        } catch {
+            $status.drift = 'unknown'
+            $status.driftNote = $_.Exception.Message
+        }
+    }
+    return $status
+}
+
+function Show-InstallStatus {
+    # Read-only status screen. Enter/direct = fast local view (no network);
+    # 'd' adds the full drift check vs the release tag (network).
+    param([switch]$Deep)
+    Write-Host ''
+    Write-Host '  === Install status ===' -ForegroundColor Cyan
+    $relTag = $null
+    $driftCheck = $null
+    if ($Deep) {
+        $relTag = {
+            try {
+                $rel = Invoke-GitHubGet "https://api.github.com/repos/$GitHubRepo/releases/latest" 15 | ConvertFrom-Json
+                if ($rel -and $rel.tag_name) { return $rel.tag_name } else { return '' }
+            } catch { return '' }
+        }
+        $driftCheck = {
+            try {
+                $report = Test-InstallationIntegrity
+                $bad = @($report | Where-Object { $_ -notmatch '^OK' })
+                if ($bad.Count -eq 0) { return @{ ok = $true; detail = "all files match the tag" } }
+                return @{ ok = $false; detail = ($bad -join '; ') }
+            } catch {
+                return @{ ok = $false; detail = "check failed: $($_.Exception.Message)" }
+            }
+        }
+    }
+    $st = Get-InstallStatus -VersionFile $VersionFile -JournalFile $script:JournalFile -GetLatestReleaseTag $relTag -InvokeDriftCheck $driftCheck
+    $relShown = if ($st.latestRelease) { $st.latestRelease } else { 'unknown (no network in fast mode; press d for full check)' }
+    Write-Host ("  Script version:            {0}" -f "v$scriptVer") -ForegroundColor White
+    Write-Host ("  Local marker:              {0}" -f $(if ($st.localMarker) { $st.localMarker } else { 'none yet' })) -ForegroundColor White
+    Write-Host ("  Latest release:            {0}" -f $relShown) -ForegroundColor White
+    $relLine = switch ($st.releaseState) {
+        'ok'     { 'marker matches the latest release' }
+        'behind' { $st.markerNote }
+        'ahead'  { $st.markerNote }
+        default  { 'not compared (fast mode - no network)' }
+    }
+    Write-Host ("  Version state:             {0}" -f $relLine) -ForegroundColor $(if ($st.releaseState -eq 'ok') { 'Green' } elseif ($st.releaseState -eq 'ahead') { 'Red' } elseif ($st.releaseState -eq 'behind') { 'Yellow' } else { 'DarkGray' })
+    Write-Host ("  Drift check:               {0}{1}" -f $st.drift, $(if ($st.driftNote) { " - $($st.driftNote)" })) -ForegroundColor $(if ($st.drift -eq 'OK') { 'Green' } elseif ($st.drift -eq 'DRIFT') { 'Red' } else { 'DarkGray' })
+    Write-Host ("  Last ZIP verification:     {0}" -f $st.lastZipVerify) -ForegroundColor $(if ($st.lastZipVerify -match '^OK') { 'Green' } elseif ($st.lastZipVerify -match '^FAILED') { 'Red' } else { 'DarkGray' })
+    if ($st.journal.exists) {
+        Write-Host ("  Journal:                   {0} event(s), {1} error(s), last at {2}" -f $st.journal.events, $st.journal.errors, $(if ($st.journal.lastAt) { $st.journal.lastAt } else { 'n/a' })) -ForegroundColor $(if ($st.journal.errors -gt 0) { 'Yellow' } else { 'White' })
+    } else {
+        Write-Host '  Journal:                   none yet - no updates performed' -ForegroundColor DarkGray
+    }
+    Write-Host ("  install: {0}" -f $ScriptDir) -ForegroundColor DarkGray
+    if (-not $Deep) {
+        Write-Host '  Press d in the menu for a full drift check (network).' -ForegroundColor DarkGray
+    }
+}
+
 function Show-Menu {
     Clear-Host
     Write-Host '======================================' -ForegroundColor Cyan
@@ -2063,6 +2191,7 @@ function Show-Menu {
     Write-Host '  [V] Version info' -ForegroundColor Yellow
     Write-Host '  [U] Check for updates' -ForegroundColor Yellow
     Write-Host '  [F] Verify installation (files vs release tag)' -ForegroundColor Yellow
+    Write-Host '  [ST] Install status (read-only)' -ForegroundColor Yellow
     Write-Host '  [J] Update journal' -ForegroundColor Yellow
     Write-Host '  [DIAG] Problem diagnostics' -ForegroundColor Yellow
     Write-Host '  [DL] Download repository' -ForegroundColor Yellow
@@ -7261,6 +7390,7 @@ do {
         'u' { Update-FromGitHub }
         'f' { Show-InstallVerify }
         'j' { Show-UpdateJournal }
+        'st' { Show-InstallStatus; $resp = Read-Host '  d = full drift check, Enter = back'; if ($resp -eq 'd') { Show-InstallStatus -Deep } }
         'diag' { Show-ProblemDiagnostics }
         'dl' { Download-Repository }
         'cr' { Create-GitHubRelease }

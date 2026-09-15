@@ -23,7 +23,7 @@ BeforeAll {
                         'Get-JournalArrow', 'Show-UpdateJournal',
                         'Test-UpdateLockStale', 'Get-UpdateLockMessage', 'New-UpdateLock', 'Remove-UpdateLock',
                         'ConvertTo-JournalMarkdown', 'ConvertTo-JournalCsv', 'ConvertTo-JournalJson', 'Export-UpdateJournal',
-                        'Get-ProblemFindings')) {
+                        'Get-ProblemFindings', 'Get-InstallStatus')) {
         $f = $script:ast.FindAll({
             param($node)
             $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -734,5 +734,85 @@ Describe 'Problem diagnostics (Get-ProblemFindings)' {
         $raw = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'mumu-menu.ps1') -Raw -Encoding UTF8
         $raw | Should -Match "\[DIAG\] Problem diagnostics"
         $raw | Should -Match "'diag' \{ Show-ProblemDiagnostics \}"
+    }
+}
+
+Describe 'Install status (issue #25)' {
+
+    BeforeAll {
+        function New-StatusInstall {
+            $d = Join-Path $TestDrive "stat_$(Get-Random)"
+            New-Item -ItemType Directory -Path $d -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $d '.version') -Value 'v1.21.4' -NoNewline
+            [System.IO.File]::WriteAllLines((Join-Path $d 'update-journal.log'), [string[]]@(
+                "2026-09-15 10:49:29`tbootstrap`tupdate-ok`tv1.21.3`tv1.21.4`t4 file(s) updated"
+                "2026-09-15 11:00:25`tmenu`tzip-verify-ok`t`tv1.21.4`tsha256 match; 5 files"
+                "2026-09-15 11:05:00`tmenu`tupdate-fail`tv1.21.4`tv1.21.5`tdownload failed"
+            ), (New-Object System.Text.UTF8Encoding($false)))
+            return $d
+        }
+    }
+
+    It 'fast path: marker + journal + zip verdict, no network, honest unknowns' {
+        $d = New-StatusInstall
+        $st = Get-InstallStatus -VersionFile (Join-Path $d '.version') -JournalFile (Join-Path $d 'update-journal.log')
+        $st.localMarker | Should -Be 'v1.21.4'
+        $st.latestRelease | Should -Be ''
+        $st.releaseState | Should -Be 'unknown'
+        $st.journal.exists | Should -BeTrue
+        $st.journal.events | Should -Be 3
+        $st.journal.errors | Should -Be 1
+        $st.journal.lastAt | Should -Be '2026-09-15 11:05:00'
+        $st.lastZipVerify | Should -Be 'OK v1.21.4'
+        $st.drift | Should -Be 'not checked'
+    }
+
+    It 'compares marker vs latest release via the injected tag source' {
+        $d = New-StatusInstall
+        $st = Get-InstallStatus -VersionFile (Join-Path $d '.version') -JournalFile (Join-Path $d 'update-journal.log') -GetLatestReleaseTag { 'v1.21.4' }
+        $st.releaseState | Should -Be 'ok'
+        $st2 = Get-InstallStatus -VersionFile (Join-Path $d '.version') -JournalFile (Join-Path $d 'update-journal.log') -GetLatestReleaseTag { 'v1.22.0' }
+        $st2.releaseState | Should -Be 'behind'
+        $st2.markerNote | Should -Match 'v1\.22\.0'
+        $st3 = Get-InstallStatus -VersionFile (Join-Path $d '.version') -JournalFile (Join-Path $d 'update-journal.log') -GetLatestReleaseTag { 'v1.20.9' }
+        $st3.releaseState | Should -Be 'ahead'
+        $st3.markerNote | Should -Match 'bootstrap-update'
+    }
+
+    It 'deep path: drift result is rendered from the injected check' {
+        $d = New-StatusInstall
+        $st = Get-InstallStatus -VersionFile (Join-Path $d '.version') -JournalFile (Join-Path $d 'update-journal.log') -InvokeDriftCheck { @{ ok = $true; detail = 'all files match the tag' } }
+        $st.drift | Should -Be 'OK'
+        $st2 = Get-InstallStatus -VersionFile (Join-Path $d '.version') -JournalFile (Join-Path $d 'update-journal.log') -InvokeDriftCheck { @{ ok = $false; detail = 'DRIFT bootstrap-update.ps1' } }
+        $st2.drift | Should -Be 'DRIFT'
+        $st2.driftNote | Should -Match 'bootstrap-update\.ps1'
+        $st3 = Get-InstallStatus -VersionFile (Join-Path $d '.version') -JournalFile (Join-Path $d 'update-journal.log') -InvokeDriftCheck { throw 'network down' }
+        $st3.drift | Should -Be 'unknown'
+        $st3.driftNote | Should -Match 'network down'
+    }
+
+    It 'missing journal is honest: exists=false, zip verdict = not checked' {
+        $d = Join-Path $TestDrive "stat2_$(Get-Random)"
+        New-Item -ItemType Directory -Path $d -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $d '.version') -Value 'v1.21.4' -NoNewline
+        $st = Get-InstallStatus -VersionFile (Join-Path $d '.version') -JournalFile (Join-Path $d 'no-journal.log')
+        $st.journal.exists | Should -BeFalse
+        $st.lastZipVerify | Should -Be 'not checked'
+        $st.journal.events | Should -Be 0
+    }
+
+    It 'a FAILED zip verdict is surfaced, not hidden' {
+        $d = New-StatusInstall
+        [System.IO.File]::WriteAllLines((Join-Path $d 'update-journal.log'), [string[]]@(
+            "2026-09-15 11:00:25`tmenu`tzip-verify-fail`t`tv1.21.4`tzip: MISSING"
+        ), (New-Object System.Text.UTF8Encoding($false)))
+        $st = Get-InstallStatus -VersionFile (Join-Path $d '.version') -JournalFile (Join-Path $d 'update-journal.log')
+        $st.lastZipVerify | Should -Match '^FAILED v1\.21\.4'
+    }
+
+    It 'the status screen is wired into the menu as [ST]' {
+        $raw = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'mumu-menu.ps1') -Raw -Encoding UTF8
+        $raw | Should -Match "\[ST\] Install status \(read-only\)"
+        $raw | Should -Match "'st' \{ Show-InstallStatus"
     }
 }
