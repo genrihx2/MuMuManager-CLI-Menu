@@ -275,6 +275,15 @@ try {
     Assert-True -Name 'summary line lists drifted+missing files' -Condition (@($report | Where-Object { $_ -eq 'summary|drift|SKILL.md,bootstrap-update.ps1' }).Count -eq 1) -Detail ($report -join ' // ')
     Assert-True -Name 'console output shows drift summary' -Condition ($out -match 'Drift detected \(files: SKILL\.md, bootstrap-update\.ps1\)') -Detail $out.Trim()
     Assert-True -Name 'stale .version marker is flagged in output' -Condition ($out -match '\.version says v9\.9\.9') -Detail $out.Trim()
+
+    # Semantically equal marker spellings must NOT be flagged as stale:
+    # the sync-version bot lands after the release tag, so a freshly
+    # tagged release can legitimately ship the previous .version spelling
+    # (observed live: tag v1.19.6 shipped .version = v1.19.5 and [F]
+    # reported DRIFT for a hash-only, content-identical difference).
+    $ScriptDir = $vDir
+    $outEq = (Test-InstallationIntegrity -Tag 'v9.9.9' *>&1 | Out-String)
+    Assert-True -Name 'semantically equal .version marker is not flagged as stale' -Condition ($outEq -notmatch '\.version says') -Detail $outEq.Trim()
     Assert-True -Name 'menu label [F] Verify installation present' -Condition ((Get-Content -LiteralPath $menuPath -Raw -Encoding UTF8) -match '\[F\]\s*Verify installation') -Detail 'label not found'
     Assert-True -Name "dispatch 'f' calls Show-InstallVerify" -Condition ((Get-Content -LiteralPath $menuPath -Raw -Encoding UTF8) -match "'f'\s*\{\s*Show-InstallVerify\s*\}") -Detail 'dispatch not found'
 

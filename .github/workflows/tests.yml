@@ -36,3 +36,18 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./tests/test-bootstrap-update.ps1
+
+  pester-unit:
+    # Pester 5 unit tests for mumu-menu.ps1 pure helpers (issue #20):
+    # hashing, version compare, shell escaping, journal formatting, ZIP
+    # self-test. Offline - AST-extracted production functions.
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Run Pester unit tests (mumu-menu helpers)
+        shell: pwsh
+        run: |
+          Invoke-Pester -Path tests/mumu-menu.Tests.ps1 -CI

@@ -133,7 +133,7 @@ function Apply-SavedSim {
     $cc     = $entry.cc;   $alpha = $entry.name
     if (-not $mcc -or -not $mnc -or -not $cc) { return }
     $numeric = "$mcc$mnc"
-    $alphaShell = $alpha.Replace('&', '_').Replace(';', '_').Replace('|', '_').Replace('$', '_')
+    $alphaShell = ConvertTo-ShellSafe $alpha
     # Wait for ADB to be online
     if (-not (Wait-ADBOnline -Index $Index -MaxWait 30)) {
         Write-Host "  [$Index] ADB offline — skipping SIM auto-apply" -ForegroundColor DarkGray
@@ -226,7 +226,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.19.6'
+$scriptVer = '1.20.0'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -329,6 +329,65 @@ function Get-ContentHash {
     }
 }
 
+# ── Pure helpers (unit-tested via tests/mumu-menu.Tests.ps1) ──────────
+
+# Android sh-safe value: the metacharacters that would break a double-
+# quoted `adb shell` command are replaced with '_' (the same policy the
+# SIM settings applied inline since v1.18.x, now one testable unit).
+function ConvertTo-ShellSafe {
+    param([string]$Value)
+    return $Value.Replace('&', '_').Replace(';', '_').Replace('|', '_').Replace('$', '_')
+}
+
+# Version comparison for 'vX.Y.Z' / 'X.Y.Z' tags: numeric component-wise.
+# Returns -1 (A older), 0 (equal), 1 (A newer), -2 (unparseable input).
+# Unparseable input must compare as 'unknown', never as older/newer.
+function Compare-ScriptVersion {
+    param([string]$A, [string]$B)
+    $pa = @($A.TrimStart('v', 'V') -split '\.' | ForEach-Object { try { [int]$_ } catch { -1 } })
+    $pb = @($B.TrimStart('v', 'V') -split '\.' | ForEach-Object { try { [int]$_ } catch { -1 } })
+    if (@($pa | Where-Object { $_ -lt 0 }).Count -gt 0) { return -2 }
+    if (@($pb | Where-Object { $_ -lt 0 }).Count -gt 0) { return -2 }
+    for ($i = 0; $i -lt [Math]::Max($pa.Count, $pb.Count); $i++) {
+        $xa = if ($i -lt $pa.Count) { $pa[$i] } else { 0 }
+        $xb = if ($i -lt $pb.Count) { $pb[$i] } else { 0 }
+        if ($xa -lt $xb) { return -1 }
+        if ($xa -gt $xb) { return 1 }
+    }
+    return 0
+}
+
+# One journal line: timestamp<TAB>actor<TAB>event<TAB>from<TAB>to<TAB>detail.
+# The detail column is sanitized (tabs/newlines flattened) so every event
+# stays exactly one line in update-journal.log.
+function Format-JournalEvent {
+    param([string]$Actor, [string]$EventType, [string]$From = '', [string]$To = '', [string]$Detail = '')
+    return "{0}`t{1}`t{2}`t{3}`t{4}`t{5}" -f @(
+        (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Actor, $EventType, $From, $To,
+        ($Detail -replace "`t", ' ' -replace "`r?`n", ' | ')
+    )
+}
+
+# Expected SHA-256 per file, computed from the tag content via the contents
+# API (issue #20). Files whose fetch fails or that return an API error body
+# (rate limit) are simply absent from the result - the caller treats that
+# as 'unknown', never as a hash to compare against.
+function Get-ExpectedFileHashes {
+    param([string]$Tag, [string[]]$Names)
+    $result = @{}
+    foreach ($n in $Names) {
+        try {
+            $remote = Invoke-GitHubGet "https://api.github.com/repos/$GitHubRepo/contents/$SkillPath/$n`?ref=$Tag" 30
+            $t = $remote.TrimEnd()
+            if ($t.StartsWith('{') -and $t -match '"message"\s*:\s*"') { continue }
+            $result[$n] = Get-ContentHash $t
+        } catch {
+            Write-Debug "Expected hash fetch failed for ${n}: $($_.Exception.Message)"
+        }
+    }
+    return $result
+}
+
 # ── Update journal (shared with bootstrap-update.ps1) ────────────────
 # Tab-separated UTF-8 at $ScriptDir\update-journal.log, one event per line:
 #   timestamp<TAB>actor<TAB>event<TAB>from<TAB>to<TAB>detail
@@ -344,10 +403,7 @@ function Write-UpdateJournal {
         if ((Test-Path -LiteralPath $script:JournalFile -PathType Leaf) -and (Get-Item -LiteralPath $script:JournalFile).Length -gt 256KB) {
             Move-Item -LiteralPath $script:JournalFile -Destination $oldPath -Force
         }
-        $line = "{0}`t{1}`t{2}`t{3}`t{4}`t{5}" -f @(
-            (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), 'menu', $EventType, $From, $To,
-            ($Detail -replace "`t", ' ' -replace "`r?`n", ' | ')
-        )
+        $line = Format-JournalEvent -Actor 'menu' -EventType $EventType -From $From -To $To -Detail $Detail
         [System.IO.File]::AppendAllText($script:JournalFile, $line + [Environment]::NewLine, [System.Text.Encoding]::UTF8)
     } catch {
         Write-Debug "Update journal write failed: $($_.Exception.Message)"
@@ -433,8 +489,16 @@ function Test-InstallationIntegrity {
 
         # Stale .version marker: content matches the tag but the marker file
         # still names an older release - the updater heals this via version-fix.
+        # Semantically equal markers (v-prefix differences, 1.2.3 == v1.2.3)
+        # are NOT drift: the sync-version bot lands after the release tag, so
+        # a freshly tagged release can legitimately ship the previous
+        # .version spelling.
         $verDrift = @($report | Where-Object { $_ -match '^(DRIFT|MISSING)\|\.version\|' }).Count -gt 0
-        if ($localTag -and ($localTag -ne $Tag) -and (-not $verDrift)) {
+        $markerStale = $false
+        if ($localTag -and (-not $verDrift)) {
+            try { $markerStale = ((Compare-ScriptVersion -A $localTag -B $Tag) -lt 0) } catch { $markerStale = ($localTag -ne $Tag) }
+        }
+        if ($markerStale) {
             Write-Host "  Note: content matches $Tag but .version says $localTag (stale marker, run [U] to heal it)" -ForegroundColor Yellow
         }
 
@@ -689,6 +753,24 @@ function Update-FromGitHub {
             return
         }
 
+        # Expected SHA-256 per file (issue #20): shown in the confirmation so
+        # the user approves specific fingerprints, and re-checked after the
+        # download. Fetched only once an actual update was found - the fast
+        # up-to-date path never pays for this.
+        $expectedHashes = @{}
+        try { $expectedHashes = Get-ExpectedFileHashes -Tag $tag -Names $files } catch { Write-Debug "Expected hash fetch failed: $($_.Exception.Message)" }
+        if ($expectedHashes.Count -gt 0) {
+            Write-Host ''
+            Write-Host '  Expected SHA-256 (from release tag):' -ForegroundColor Cyan
+            foreach ($f in $files) {
+                if ($expectedHashes.ContainsKey($f)) {
+                    Write-Host ("    {0,-22} {1}" -f $f, $expectedHashes[$f]) -ForegroundColor DarkGray
+                } else {
+                    Write-Host ("    {0,-22} (unavailable - verified after download instead)" -f $f) -ForegroundColor DarkGray
+                }
+            }
+        }
+
         # --- Release info panel ---
         Write-Host ''
         Write-Host '  ============================================' -ForegroundColor Cyan
@@ -887,7 +969,7 @@ function Update-FromGitHub {
             return
         }
 
-        $confirm = Read-Host '  Download update? (y/N)'
+        $confirm = Read-Host '  Download and verify these files? (y/N)'
         if ($confirm -ne 'y' -and $confirm -ne 'Y') {
             Write-Host '  Skipped.' -ForegroundColor DarkGray
             return
@@ -913,6 +995,7 @@ function Update-FromGitHub {
         $failed = 0
         $okFiles = 0
         $fileResults = @()
+        $downloadedOk = New-Object 'System.Collections.Generic.HashSet[string]'
         # Helper: download a file via curl with token fallback and rate-limit retry
         function _DlFile([string]$Url, [string]$Out) {
             $baseArgs = @('-s', '--retry', '3', '--retry-delay', '3', '--connect-timeout', '30', '--max-time', '120',
@@ -1000,6 +1083,7 @@ function Update-FromGitHub {
                     Write-Host "    $f OK ($dlSize)" -ForegroundColor Green
                 }
                 $okFiles++
+                $null = $downloadedOk.Add($f)
                 $fileResults += "$f=$dlSize"
             } catch {
                 $errMsg = $_.Exception.Message
@@ -1007,6 +1091,34 @@ function Update-FromGitHub {
                 Write-Host "    Failed: $errMsg" -ForegroundColor Red
                 if ($tmpDl -and (Test-Path $tmpDl)) { Remove-Item $tmpDl -Force -ErrorAction SilentlyContinue }
                 $failed++
+            }
+        }
+
+        # Post-download verification (issue #20): hash what was actually
+        # written and compare with the expected fingerprints shown above.
+        # The pending .new copy is hashed in place of the running script.
+        # A mismatch fails the update like a failed download - .version is
+        # not advanced and the failure is journaled.
+        if ($expectedHashes.Count -gt 0) {
+            Write-Host ''
+            Write-Host '  Verifying downloaded files:' -ForegroundColor Cyan
+            foreach ($f in $files) {
+                if (-not ($downloadedOk.Contains($f)) -or -not $expectedHashes.ContainsKey($f)) { continue }
+                $checkPath = if ($f -eq 'mumu-menu.ps1') { Join-Path $ScriptDir 'mumu-menu.ps1.new' } else { Join-Path $ScriptDir $f }
+                if (-not (Test-Path -LiteralPath $checkPath -PathType Leaf)) {
+                    Write-Host ("    {0,-22} MISSING after download" -f $f) -ForegroundColor Red
+                    $failed++
+                    $fileResults += "$f=verify:missing"
+                    continue
+                }
+                $actual = Get-ContentHash ([System.IO.File]::ReadAllText($checkPath))
+                if ($actual -eq $expectedHashes[$f]) {
+                    Write-Host ("    {0,-22} hash OK" -f $f) -ForegroundColor Green
+                } else {
+                    Write-Host ("    {0,-22} HASH MISMATCH (expected {1}..., got {2}...)" -f $f, $expectedHashes[$f].Substring(0, 16), $actual.Substring(0, 16)) -ForegroundColor Red
+                    $failed++
+                    $fileResults += "$f=verify:mismatch"
+                }
             }
         }
 
@@ -6069,7 +6181,7 @@ function Set-SimOperator {
     $cc = $sel.CC.ToLower()
     $alpha = $sel.Name
     # Escape shell-special characters for Android sh (e.g. AT&T -> AT\&T)
-    $alphaShell = $alpha.Replace('&', '_').Replace(';', '_').Replace('|', '_').Replace('$', '_')
+    $alphaShell = ConvertTo-ShellSafe $alpha
     Write-Host ''
     Write-Host '  ┌─────────────────────────────────────────┐' -ForegroundColor Cyan
     Write-Host '  │  SIM CHANGE SUMMARY                     │' -ForegroundColor Cyan

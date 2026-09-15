@@ -4,6 +4,11 @@
 
 ---
 
+## v1.20.0 (15.09.2026)
+- **SHA-256 в подтверждении обновления (issue #17)**: `[U]` показывает таблицу ожидаемых хешей всех файлов (парсится из VT-вердиктов релиза) и после загрузки сверяет каждый файл — при расхождении установка останавливается
+- **Pester-юнит-тесты (issue #20)**: 26+ тестов AST-извлечённых чистых функций в `tests/mumu-menu.Tests.ps1`, отдельный job `pester-unit` в CI; раннер `tests/run-pester.ps1` для PS 5.1
+- **Хелперы для тестируемости**: `Compare-ScriptVersion`, `Format-JournalEvent`, `ConvertTo-ShellSafe`, `Get-ExpectedFileHashes` вынесены как чистые функции
+
 ## v1.19.6 (15.09.2026)
 - **Самопроверка релизного ZIP перед установкой (issue #19)**: `Test-ReleaseZip` — SHA-256 ZIP против `.sha256`-сайдкара, точный набор из 5 файлов, `$scriptVer` из архива против тега релиза; при несоответствии — «FAILED - do not install» и событие `zip-verify-fail` в журнале
 - **Как использовать**: `bootstrap-update.ps1 -VerifyZip <файл.zip>` или запрос после `[F] Verify installation`

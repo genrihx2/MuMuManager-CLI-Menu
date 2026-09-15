@@ -345,7 +345,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.19.6
+Script version: 1.20.0
 MuMu version: 6.5.2.0
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -380,6 +380,11 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 Для приватных репозиториев сохраните токен через пункт меню `[K] Update GitHub token` — он проверяется и хранится **зашифрованным через Windows DPAPI** в `.github-token.dpapi`; плейнтекстовый `.github-token` мигрирует в зашифрованное хранилище автоматически при первом запуске.
 
 ## Что нового
+
+### v1.20.0 (15.09.2026)
+- **Прозрачность обновления (issue #17)**: подтверждение `[U]` показывает таблицу ожидаемых SHA-256 всех 5 файлов (из VT-вердиктов релиза), а после загрузки каждый файл сверяется со своей ожидаемой суммой — расхождение останавливает установку до распаковки
+- **Pester-покрытие хелперов (issue #20)**: `tests/mumu-menu.Tests.ps1` — 26+ юнит-тестов чистых функций (`Get-ContentHash`, `Test-InstallationIntegrity`, `Test-ReleaseZip`, `ConvertTo-ShellSafe`, `Compare-ScriptVersion`, `Format-JournalEvent`); отдельный job `pester-unit` в CI (`tests.yml`)
+- Новый раннер `tests/run-pester.ps1` для локальных запусков на PS 5.1 (неинтерактивная установка Pester 5.x)
 
 ### v1.19.6 (15.09.2026)
 - **Самопроверка релизного ZIP перед установкой (issue #19)**: переиспользуемая функция `Test-ReleaseZip` повторяет на клиенте проверки CI — SHA-256 ZIP против `.sha256`-сайдкара, точный набор из 5 файлов, `$scriptVer` из архива против тега релиза; при любом несоответствии — вердикт «FAILED - do not install» и событие `zip-verify-fail` в журнале `[J]`
@@ -500,6 +505,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.20.0 | 15.09.2026 | Milestone Update Trust: SHA-256 таблица в подтверждении `[U]` + сверка после загрузки (#17), Pester-покрытие хелперов + CI job (#20) |
 | v1.19.6 | 15.09.2026 | Самопроверка релизного ZIP (#19): `Test-ReleaseZip` (sha256-сайдкар, набор файлов, scriptVer), `-VerifyZip` в bootstrap, запрос в [F], тест T8 |
 | v1.19.5 | 15.09.2026 | Диагностика сети: busybox-fallback для DNS/HTTP (`busybox nslookup`, `busybox wget`), честный отчёт при ICMP-фильтрации |
 | v1.19.4 | 15.09.2026 | Диагностика сети: N/A вместо FAILED при отсутствии инструментов в гостевой ОС, парсер toybox-ping, без красных блоков ошибок в PS 5.1 |
