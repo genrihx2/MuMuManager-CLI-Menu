@@ -23,7 +23,7 @@ BeforeAll {
                         'Get-JournalArrow', 'Show-UpdateJournal',
                         'Test-UpdateLockStale', 'Get-UpdateLockMessage', 'New-UpdateLock', 'Remove-UpdateLock',
                         'ConvertTo-JournalMarkdown', 'ConvertTo-JournalCsv', 'ConvertTo-JournalJson', 'Export-UpdateJournal',
-                        'Get-ProblemFindings', 'Get-InstallStatus')) {
+                        'Get-ProblemFindings', 'Get-InstallStatus', 'Get-IntegrityVerdict')) {
         $f = $script:ast.FindAll({
             param($node)
             $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -814,5 +814,43 @@ Describe 'Install status (issue #25)' {
         $raw = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'mumu-menu.ps1') -Raw -Encoding UTF8
         $raw | Should -Match "\[ST\] Install status \(read-only\)"
         $raw | Should -Match "'st' \{ Show-InstallStatus"
+    }
+}
+
+Describe 'Integrity verdict classifier ([ST] deep check)' {
+
+    It 'summary|ok| is OK - metadata lines never look like drift (v1.21.5 regression)' {
+        $report = @(
+            'verify-start|v1.21.5'
+            'ref-pin|31e82e9fc0240d9a758c42f3767c52643652907e'
+            'OK|mumu-menu.ps1|ABC123'
+            'OK-SEMANTIC|.version|local=v1.21.5'
+            'summary|ok|'
+        )
+        $v = Get-IntegrityVerdict -Report $report
+        $v.ok | Should -BeTrue
+        $v.detail | Should -Match 'all files match'
+    }
+
+    It 'summary|drift| names the drifting files' {
+        $report = @('verify-start|v1.21.5', 'DRIFT|README.md|', 'summary|drift|README.md')
+        $v = Get-IntegrityVerdict -Report $report
+        $v.ok | Should -BeFalse
+        $v.detail | Should -Match 'README\.md'
+    }
+
+    It 'summary|partial| is not drift - downloads failed, files that were checked are OK' {
+        $v = Get-IntegrityVerdict -Report @('verify-start|v1.21.5', 'DOWNLOAD-FAIL|README.md|rate limit', 'summary|partial|download failures')
+        $v.ok | Should -BeTrue
+        $v.detail | Should -Match 'could not be downloaded'
+    }
+
+    It 'an error line and an absent summary fail honestly' {
+        $v1 = Get-IntegrityVerdict -Report @('verify-start|v1.21.5', 'error|network down|')
+        $v1.ok | Should -BeFalse
+        $v1.detail | Should -Match 'network down'
+        $v2 = Get-IntegrityVerdict -Report @()
+        $v2.ok | Should -BeFalse
+        $v2.detail | Should -Match 'could not run'
     }
 }

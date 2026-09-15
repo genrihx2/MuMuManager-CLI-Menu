@@ -1997,6 +1997,34 @@ function Show-ProblemDiagnostics {
 # the journal, and (on explicit request) the full drift check vs the tag.
 # The fast path never touches the network; unknown states are honest.
 
+function Get-IntegrityVerdict {
+    # Classifies a Test-InstallationIntegrity report array into a verdict.
+    # The report carries informational lines (verify-start|, ref-pin|,
+    # per-file OK|...) plus the author's own verdict in summary|<kind>|.
+    # Only the summary (or its absence / an error line) decides - metadata
+    # lines must never look like drift (bug caught live in v1.21.5: [ST]
+    # reported DRIFT on a healthy install from 'verify-start|...').
+    param([string[]]$Report)
+    $summary = @($Report | Where-Object { $_ -like 'summary|*' }) | Select-Object -First 1
+    if ($summary) {
+        $p = $summary -split '\|', 3
+        $kind = if ($p.Count -gt 1) { $p[1] } else { '' }
+        $payload = if ($p.Count -gt 2) { $p[2] } else { '' }
+        switch ($kind) {
+            'ok'      { return @{ ok = $true;  detail = 'all files match the tag' } }
+            'partial' { return @{ ok = $true;  detail = "files OK, but some could not be downloaded: $payload" } }
+            'drift'   { return @{ ok = $false; detail = "drift in: $payload" } }
+            default   { return @{ ok = $false; detail = "unknown verdict: $summary" } }
+        }
+    }
+    $errLine = @($Report | Where-Object { $_ -like 'error|*' }) | Select-Object -First 1
+    if ($errLine) {
+        $p = $errLine -split '\|', 3
+        return @{ ok = $false; detail = "check failed: $(if ($p.Count -gt 1) { $p[1] } else { $errLine })" }
+    }
+    return @{ ok = $false; detail = 'check could not run (release not resolved or network failure)' }
+}
+
 function Get-InstallStatus {
     # Builds the status as data (rendering lives in Show-InstallStatus).
     # Network parameters default to off: Get-LatestReleaseTag/Invoke-DriftCheck
@@ -2086,9 +2114,7 @@ function Show-InstallStatus {
         $driftCheck = {
             try {
                 $report = Test-InstallationIntegrity
-                $bad = @($report | Where-Object { $_ -notmatch '^OK' })
-                if ($bad.Count -eq 0) { return @{ ok = $true; detail = "all files match the tag" } }
-                return @{ ok = $false; detail = ($bad -join '; ') }
+                return Get-IntegrityVerdict -Report @($report)
             } catch {
                 return @{ ok = $false; detail = "check failed: $($_.Exception.Message)" }
             }
