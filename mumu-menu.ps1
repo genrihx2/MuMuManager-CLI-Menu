@@ -226,7 +226,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.21.2'
+$scriptVer = '1.21.3'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -1635,6 +1635,7 @@ function Show-UpdateJournal {
         Write-Host '  [2] Full journal' -ForegroundColor White
         Write-Host '  [3] Errors and partial failures only' -ForegroundColor White
         Write-Host '  [4] Open journal file in notepad' -ForegroundColor White
+        Write-Host '  [5] Export journal (MD / CSV / JSON)' -ForegroundColor White
         Write-Host '  [0] Cancel' -ForegroundColor Yellow
         $Mode = Read-Host 'Select'
     }
@@ -1643,6 +1644,12 @@ function Show-UpdateJournal {
 
     if ($mode -eq '4') {
         try { Start-Process notepad.exe $file } catch { Write-Host "  Cannot open notepad: $($_.Exception.Message)" -ForegroundColor Red }
+        return
+    }
+
+    if ($mode -eq '5') {
+        $err = Export-UpdateJournal
+        if ($err) { Write-Host "  $err" -ForegroundColor Red }
         return
     }
 
@@ -1692,6 +1699,141 @@ function Show-UpdateJournal {
         }
     }
     Write-Host ("  file: {0}" -f $file) -ForegroundColor DarkGray
+}
+
+# ── Journal export (issue #23) ────────────────────────────────────────
+# Pure converters first - the file writing is deliberately separated so
+# golden tests can assert the exact output without touching the disk.
+
+function ConvertTo-JournalMarkdown {
+    # Issue-ready Markdown table (same structure the [J] viewer prints).
+    # Pipes inside cells are escaped; a missing field renders empty.
+    param([string[]]$Lines)
+    $out = New-Object System.Collections.Generic.List[string]
+    $out.Add('# Update journal')
+    $out.Add('')
+    $out.Add('| Timestamp | Actor | Event | From | To | Detail |')
+    $out.Add('|---|---|---|---|---|---|')
+    foreach ($raw in $Lines) {
+        $p = $raw -split "`t", 6
+        while ($p.Count -lt 6) { $p += '' }
+        $cells = foreach ($c in $p[0..5]) { ($c -replace '\|', '\|').Trim() }
+        $out.Add('| ' + ($cells -join ' | ') + ' |')
+    }
+    return $out
+}
+
+function ConvertTo-JournalCsv {
+    # RFC-4180-style CSV with header. Cells containing quote, comma or a
+    # newline are wrapped in quotes with inner quotes doubled (the source
+    # format is tab-separated, so commas are common in the detail column).
+    param([string[]]$Lines)
+    $out = New-Object System.Collections.Generic.List[string]
+    $out.Add('timestamp,actor,event,from,to,detail')
+    foreach ($raw in $Lines) {
+        $p = $raw -split "`t", 6
+        while ($p.Count -lt 6) { $p += '' }
+        $cells = foreach ($c in $p[0..5]) {
+            $c = $c.Trim()
+            if ($c -match '[",\r\n]') { '"' + ($c -replace '"', '""') + '"' } else { $c }
+        }
+        $out.Add(($cells -join ','))
+    }
+    return $out
+}
+
+function ConvertTo-JournalJson {
+    # Full-fidelity JSON export for automation: a top-level OBJECT wrapping
+    # the events array (generator + count + events). Top-level arrays hit
+    # inconsistent parse shapes in some PowerShell 5.1 consumers, while an
+    # object property is uniform everywhere (PS 5.1/7, jq, Python). Every
+    # event field verbatim (no trimming). Compact single line; the content
+    # is derived purely from the input lines, so exports are idempotent.
+    param([string[]]$Lines)
+    $events = New-Object System.Collections.Generic.List[object]
+    foreach ($raw in $Lines) {
+        $p = $raw -split "`t", 6
+        while ($p.Count -lt 6) { $p += '' }
+        $events.Add([ordered]@{ timestamp = $p[0]; actor = $p[1]; event = $p[2]; from = $p[3]; to = $p[4]; detail = $p[5] })
+    }
+    $doc = [ordered]@{
+        generator = 'MuMuManager-CLI-Menu update journal'
+        count     = $events.Count
+        events    = @($events.ToArray())
+    }
+    return ConvertTo-Json -InputObject $doc -Depth 3 -Compress
+}
+
+function Export-UpdateJournal {
+    # [J] -> 5 export (issue #23): writes the selected journal events to a
+    # UTF-8 BOM file (repo rule from alert #535). Returns '' on success or
+    # an error message; prompts for format/range/path interactively unless
+    # -Format/-Range/-Path are given (scriptable + testable). -Lines allows
+    # exporting an in-memory selection without re-reading the journal.
+    # The journal itself is never modified and repeated exports with the
+    # same inputs are byte-identical (idempotent).
+    param(
+        [string]$Format = '',
+        [string]$Range = '',
+        [string]$Path = '',
+        [string[]]$Lines
+    )
+    try {
+        if ($Lines -and $Lines.Count -gt 0) {
+            $sel = @($Lines)
+        } else {
+            $file = $script:JournalFile
+            if (-not ($file -and (Test-Path -LiteralPath $file -PathType Leaf))) { return 'journal file not found' }
+            $all = @(Get-Content -LiteralPath $file -Encoding UTF8 -ErrorAction SilentlyContinue | Where-Object { $_.Trim() })
+            if ($all.Count -eq 0) { return 'journal is empty' }
+            if (-not $Range) {
+                Write-Host '  Range:' -ForegroundColor White
+                Write-Host '  [1] Last 20 events (default)' -ForegroundColor White
+                Write-Host '  [2] Full journal' -ForegroundColor White
+                Write-Host '  [3] Errors and partial failures only' -ForegroundColor White
+                $Range = Read-Host 'Select'
+            }
+            $sel = switch ($Range) {
+                '2' { $all }
+                '3' { @($all | Where-Object { (($_ -split "`t")[2]) -match 'fail|error' }) }
+                default { @($all | Select-Object -Last 20) }
+            }
+            if ($sel.Count -eq 0) { return 'nothing to export for this range' }
+        }
+        if (-not $Format) {
+            Write-Host '  Format:' -ForegroundColor White
+            Write-Host '  [1] Markdown (ready for issues)' -ForegroundColor White
+            Write-Host '  [2] CSV' -ForegroundColor White
+            Write-Host '  [3] JSON' -ForegroundColor White
+            $Format = Read-Host 'Select'
+        }
+        $fmtKey = switch -Regex ($Format) {
+            '^(1|md|markdown)$' { 'md' }
+            '^(2|csv)$' { 'csv' }
+            '^(3|json)$' { 'json' }
+            default { '' }
+        }
+        if (-not $fmtKey) { return "unknown format: $Format" }
+        if (-not $Path) {
+            $default = Join-Path (Split-Path -Parent $script:JournalFile) ("update-journal-{0}.{1}" -f (Get-Date -Format 'yyyyMMdd-HHmmss'), $fmtKey)
+            $Path = Read-Host "  Output path (Enter = $default)"
+            if (-not $Path) { $Path = $default }
+        }
+        $out = switch ($fmtKey) {
+            'csv' { ConvertTo-JournalCsv -Lines $sel }
+            'json' { ConvertTo-JournalJson -Lines $sel }
+            default { ConvertTo-JournalMarkdown -Lines $sel }
+        }
+        # Normalizer: the MD/CSV converters return lists, JSON returns a
+        # single string - @() makes one [string[]] for either shape.
+        $linesToWrite = [string[]]@($out | ForEach-Object { [string]$_ })
+        # Explicit BOM: both PS 5.1 and pwsh 7 honor this encoding object.
+        [System.IO.File]::WriteAllLines($Path, $linesToWrite, (New-Object System.Text.UTF8Encoding($true)))
+        Write-Host ("  Exported {0} event(s) -> {1}" -f $sel.Count, $Path) -ForegroundColor Green
+        return ''
+    } catch {
+        return "export failed: $($_.Exception.Message)"
+    }
 }
 
 function Show-Menu {

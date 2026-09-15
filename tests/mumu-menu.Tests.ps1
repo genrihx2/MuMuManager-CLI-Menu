@@ -21,7 +21,8 @@ BeforeAll {
     foreach ($name in @('Get-ContentHash', 'ConvertTo-ShellSafe', 'Compare-ScriptVersion',
                         'Format-JournalEvent', 'Test-ReleaseZip', 'Write-UpdateJournal', 'Test-ScriptVerMatchesTag',
                         'Get-JournalArrow', 'Show-UpdateJournal',
-                        'Test-UpdateLockStale', 'Get-UpdateLockMessage', 'New-UpdateLock', 'Remove-UpdateLock')) {
+                        'Test-UpdateLockStale', 'Get-UpdateLockMessage', 'New-UpdateLock', 'Remove-UpdateLock',
+                        'ConvertTo-JournalMarkdown', 'ConvertTo-JournalCsv', 'ConvertTo-JournalJson', 'Export-UpdateJournal')) {
         $f = $script:ast.FindAll({
             param($node)
             $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -516,5 +517,96 @@ Describe 'Update lock (issue #24)' {
         New-UpdateLock -Dir $dir | Should -BeTrue
         Test-Path -LiteralPath (Join-Path $dir '.update-lock.new') | Should -BeFalse
         Remove-UpdateLock -Dir $dir
+    }
+}
+
+Describe 'Journal export (issue #23)' {
+
+    BeforeAll {
+        # Fixture journal lines (tab-separated, as the two writers emit them).
+        # Event 3 carries the two hard cases: pipe + quote + comma in Detail.
+        $script:fxLines = @(
+            "2026-09-15 10:49:29`tbootstrap`tupdate-ok`tv1.20.3`tv1.20.3`tmumu-menu.ps1=260.0 KB, SKILL.md=4.0 KB"
+            "2026-09-15 11:00:25`tmenu`tversion-fix`tv1.20.3`tv1.20.4`tcontent matches tag; .version healed"
+            "2026-09-15 11:01:00`tbootstrap`tupdate-fail`tv1.20.4`tv1.20.5`t2 ok, 2 failed (pipe | and `"quote`" chars)"
+        )
+    }
+
+    It 'Markdown is an issue-ready table: header, all events, escaped pipes' {
+        $md = (ConvertTo-JournalMarkdown -Lines $script:fxLines) -join "`n"
+        ($md -split "`n")[0] | Should -Be '# Update journal'
+        ($md -split "`n")[2] | Should -Be '| Timestamp | Actor | Event | From | To | Detail |'
+        ($md -split "`n")[3] | Should -Be '|---|---|---|---|---|---|'
+        @($md -split "`n" | Where-Object { $_ -match '^2026-09-15|^\| 2026-09-15' }).Count | Should -Be 3
+        $md | Should -Match 'pipe \\| and "quote" chars'
+        $md | Should -Match '\| v1\.20\.3 \| v1\.20\.4 \| content matches tag; \.version healed \|'
+    }
+
+    It 'CSV has header, one row per event, RFC-4180 quoting for special cells' {
+        $csv = (ConvertTo-JournalCsv -Lines $script:fxLines) -join "`n"
+        ($csv -split "`n")[0] | Should -Be 'timestamp,actor,event,from,to,detail'
+        ($csv -split "`n").Count | Should -Be 4
+        ($csv -split "`n")[2] | Should -Be '2026-09-15 11:00:25,menu,version-fix,v1.20.3,v1.20.4,content matches tag; .version healed'
+        $csv | Should -Match '"2 ok, 2 failed \(pipe \| and ""quote"" chars\)"'
+    }
+
+    It 'JSON round-trips every field verbatim (object wrapper, edition-uniform parse)' {
+        $json = (ConvertTo-JournalJson -Lines $script:fxLines) -join "`n"
+        # -InputObject form: uniform parse shape on PS 5.1 and pwsh 7 (the
+        # pipeline form wraps top-level arrays on 5.1; an object wrapper
+        # avoids that entire class of inconsistency).
+        $doc = ConvertFrom-Json -InputObject $json
+        $doc.generator | Should -Match 'MuMuManager-CLI-Menu'
+        $doc.count | Should -Be 3
+        $events = @($doc.events)
+        $events.Count | Should -Be 3
+        $events[1].event | Should -Be 'version-fix'
+        $events[2].detail | Should -Be '2 ok, 2 failed (pipe | and "quote" chars)'
+        $events[0].from | Should -Be 'v1.20.3'
+        $events[0].actor | Should -Be 'bootstrap'
+    }
+
+    It 'Export-UpdateJournal writes UTF-8 BOM, leaves the journal untouched, and is idempotent' {
+        $dir = Join-Path $TestDrive "jexp_$(Get-Random)"
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        $jr = Join-Path $dir 'update-journal.log'
+        [System.IO.File]::WriteAllLines($jr, [string[]]$script:fxLines, (New-Object System.Text.UTF8Encoding($false)))
+        $saved = $script:JournalFile
+        $script:JournalFile = $jr
+        try {
+            $out = Join-Path $dir 'export.md'
+            $err = Export-UpdateJournal -Format 'md' -Range '2' -Path $out
+            $err | Should -Be ''
+            Test-Path -LiteralPath $out | Should -BeTrue
+            $bytes = [System.IO.File]::ReadAllBytes($out)
+            ($bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) | Should -BeTrue
+            (Get-Content -LiteralPath $out -Encoding UTF8) -join "`n" | Should -Match 'version-fix'
+            $before = [System.IO.File]::ReadAllBytes($jr)
+            $out2 = Join-Path $dir 'export2.md'
+            $null = Export-UpdateJournal -Format 'md' -Range '2' -Path $out2
+            ([System.IO.File]::ReadAllBytes($jr) -join ',') | Should -Be ($before -join ',')
+            (Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash | Should -Be (Get-FileHash -LiteralPath $out2 -Algorithm SHA256).Hash
+        } finally { $script:JournalFile = $saved }
+    }
+
+    It 'errors-only range exports just the failing events' {
+        $dir = Join-Path $TestDrive "jexp2_$(Get-Random)"
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        $jr = Join-Path $dir 'update-journal.log'
+        [System.IO.File]::WriteAllLines($jr, [string[]]$script:fxLines, (New-Object System.Text.UTF8Encoding($false)))
+        $saved = $script:JournalFile
+        $script:JournalFile = $jr
+        try {
+            $out = Join-Path $dir 'errors.csv'
+            $err = Export-UpdateJournal -Format 'csv' -Range '3' -Path $out
+            $err | Should -Be ''
+            $csv = Get-Content -LiteralPath $out -Encoding UTF8
+            $csv.Count | Should -Be 2   # header + 1 fail event
+            $csv[1] | Should -Match 'update-fail'
+        } finally { $script:JournalFile = $saved }
+    }
+
+    It 'unknown format fails cleanly with a message' {
+        Export-UpdateJournal -Format 'xml' -Range '2' -Lines $script:fxLines -Path (Join-Path $TestDrive 'x.xml') | Should -Match 'unknown format'
     }
 }

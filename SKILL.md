@@ -48,7 +48,7 @@ cd MuMuManager-CLI-Menu
 - `[SIM]` Change SIM operator (MCC/MNC) — 38 presets + custom
 - `[U]` Check for updates (downloads from GitHub Releases, incl. bootstrap-update.ps1 itself)
 - `[F]` Verify installation (SHA-256 of local files vs release tag)
-- `[J]` Update journal (history of [U]/bootstrap updates: OK, failures, version fixes)
+- `[J]` Update journal (history of [U]/bootstrap updates: OK, failures, version fixes; export to MD/CSV/JSON via `[J] -> 5`)
 - `[V]` Version info (script, MuMu, .NET, disk, ADB, certificate)
 - `[K]` Update GitHub token (DPAPI-encrypted)
 - `[CRT]` Certificate manager (self-signed code signing)

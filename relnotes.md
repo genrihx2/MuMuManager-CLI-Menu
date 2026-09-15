@@ -4,6 +4,11 @@
 
 ---
 
+## v1.21.3 (15.09.2026)
+- **`[J]` journal export (issue #23)**: new `[J] -> 5 Export` writes the selected events to Markdown (issue-ready table, pipes escaped), RFC-4180 CSV (header + quoting for comma/quote/newline cells) or JSON (top-level object with `generator`/`count`/`events`, fields verbatim). Format -> range (last 20 / full / errors-only, same as the viewer) -> path (Enter = `update-journal-YYYYMMDD-HHMMSS.<ext>` next to the journal). Output is UTF-8 with BOM (repo rule from alert #535), the journal itself is never modified, and repeat exports are byte-identical.
+- JSON is a top-level object rather than a bare array: top-level arrays hit inconsistent parse shapes in some PowerShell 5.1 consumers (verified live - python parsed the same artifact as 3 elements while 5.1's pipeline form wrapped it); an object property parses uniformly in PS 5.1/7, jq and Python. JSON is compact single-line; MD/CSV are the human formats.
+- Tests: 6 golden Pester tests (MD header/escaping, CSV quoting, JSON round-trip, BOM + idempotency + untouched journal, errors-only range, unknown-format error); suite 54 green on PowerShell 5.1 and pwsh 7.
+
 ## v1.21.2 (15.09.2026)
 - **Single-flight update lock (issue #24)**: `[U]` and `bootstrap-update.ps1` now claim a `.update-lock` file (PID + timestamp) with an atomic `CreateNew` open before touching any install file - two concurrent updaters (menu in two windows, menu + bootstrap) can no longer corrupt `.version`/scripts/journal or double-apply an update. A refused run prints the holder's PID and the lock's age, journals `update-skipped`, and exits without changing anything. A lock older than 10 minutes is treated as the leftover of a crashed updater and is broken safely (create-then-break claim file closes the break/recreate race). The lock is always released in `finally`, including Ctrl+C mid-download.
 - `[J]` viewer: `update-skipped` renders yellow (a skip is not an error), and the "errors only" mode's all-clear message now counts skips as successes.
