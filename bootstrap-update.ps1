@@ -355,6 +355,32 @@ function Get-ContentHash {
     }
 }
 
+# Raw byte-exact fetch for hashing. Invoke-CurlGet (used for release JSON)
+# captures output through cmd /c, which decodes in the console OEM codepage -
+# any non-ASCII content (the README/SKILL are largely Cyrillic) would be
+# mangled and produce garbage reference hashes (caught live in v1.20.2).
+# Mirrors the menu's Invoke-GitHubGet: curl writes to a temp file, bytes are
+# read and decoded as UTF-8. Returns the decoded string or $null.
+function Invoke-CurlGetRaw {
+    param([string]$Url)
+    $tmpFile = Join-Path $env:TEMP ('gh_raw_' + [Guid]::NewGuid().ToString('N') + '.bin')
+    try {
+        $curlArgs = @('-sS', '--fail', '--retry', '2', '--retry-delay', '3', '--connect-timeout', '30', '--max-time', '60', '-H', 'Accept: application/vnd.github.raw', '-o', $tmpFile)
+        if ($token) { $curlArgs += @('-H', "Authorization: token $token") }
+        $curlArgs += $Url
+        & curl.exe @curlArgs 2>$null
+        if ((Test-Path -LiteralPath $tmpFile -PathType Leaf) -and (Get-Item -LiteralPath $tmpFile).Length -gt 0) {
+            return ([System.Text.Encoding]::UTF8.GetString([System.IO.File]::ReadAllBytes($tmpFile))).TrimEnd()
+        }
+        return $null
+    } catch {
+        Write-Debug "Raw fetch failed: $($_.Exception.Message)"
+        return $null
+    } finally {
+        Remove-Item -LiteralPath $tmpFile -Force -ErrorAction SilentlyContinue
+    }
+}
+
 # Expected SHA-256 per file, from the tag content via the contents API
 # (bodies that start with '{' are API errors/rate limits - skipped, never
 # treated as content; a missing entry means 'unknown', not 'zero').
@@ -363,7 +389,7 @@ function Get-ExpectedHashes {
     $result = @{}
     foreach ($n in $Names) {
         try {
-            $remote = Invoke-CurlGet "https://api.github.com/repos/$repo/contents/$n`?ref=$Tag"
+            $remote = Invoke-CurlGetRaw "https://api.github.com/repos/$repo/contents/$n`?ref=$Tag"
             if (-not $remote) { continue }
             $t = $remote.TrimEnd()
             if ($t.StartsWith('{') -and $t -match '"message"\s*:\s*"') { continue }

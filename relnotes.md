@@ -4,6 +4,9 @@
 
 ---
 
+## v1.20.3 (15.09.2026)
+- **Fix bootstrap post-download hash verification (regression of v1.20.2)**: reference content was fetched through a `cmd /c`-captured curl invocation, which decodes output in the console OEM codepage - Cyrillic in README/SKILL.md got mangled and every file false-alarmed `HASH MISMATCH` (caught live; the safety design worked - the update was aborted and journaled). Reference hashes now come from a byte-exact raw fetch (curl → temp file → UTF-8 decode), same as the menu. Regression test extended with a non-ASCII body.
+
 ## v1.20.2 (15.09.2026)
 - **Post-download SHA-256 verification in `bootstrap-update.ps1` (parity with `[U]`)**: every downloaded file is re-hashed and compared with the expected hash from the release tag content - `OK (hash OK)` / `HASH MISMATCH`. A mismatch fails the update: `.version` is not advanced, the updater self-refresh is cancelled, and `update-fail` is journaled.
 - Same hashing contract as the menu (CR/BOM/symmetric TrimEnd) factored into `Get-ContentHash` / `Get-ExpectedHashes`; API JSON error bodies (rate limit) are never accepted as the reference.
