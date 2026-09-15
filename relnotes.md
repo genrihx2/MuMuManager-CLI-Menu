@@ -4,6 +4,9 @@
 
 ---
 
+## v1.20.1 (15.09.2026)
+- **Fix `[U]` post-download hash verification (regression of v1.20.0)**: the local side was hashed without a trailing trim while expected hashes came from the TrimEnd-ed API response - any file ending with a newline false-alarmed `HASH MISMATCH` and aborted a legitimate update. The trim now lives inside `Get-ContentHash`, so every consumer is symmetric by construction. Regression test added to the Pester suite.
+
 ## v1.20.0 (15.09.2026)
 - **SHA-256 в подтверждении обновления (issue #17)**: `[U]` показывает таблицу ожидаемых хешей всех файлов (парсится из VT-вердиктов релиза) и после загрузки сверяет каждый файл — при расхождении установка останавливается
 - **Pester-юнит-тесты (issue #20)**: 26+ тестов AST-извлечённых чистых функций в `tests/mumu-menu.Tests.ps1`, отдельный job `pester-unit` в CI; раннер `tests/run-pester.ps1` для PS 5.1

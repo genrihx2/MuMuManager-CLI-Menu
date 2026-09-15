@@ -61,6 +61,13 @@ Describe 'Get-ContentHash (SHA-256 helper)' {
         # ba7816bf... is the standard SHA-256 test vector for "abc"
         Get-ContentHash 'abc' | Should -Be 'BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD'
     }
+
+    It 'trims trailing whitespace symmetrically with Invoke-GitHubGet (no phantom drift)' {
+        # Tag blobs end with a newline; the fetch TrimEnds it. The hash helper
+        # must trim too, or post-download verification false-alarms (v1.20.0 bug).
+        Get-ContentHash "content`n" | Should -Be (Get-ContentHash 'content')
+        Get-ContentHash "content`r`n  " | Should -Be (Get-ContentHash 'content')
+    }
 }
 
 Describe 'ConvertTo-ShellSafe (Android sh escaping)' {

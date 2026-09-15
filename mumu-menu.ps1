@@ -226,7 +226,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.20.0'
+$scriptVer = '1.20.1'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -321,6 +321,11 @@ function Get-ContentHash {
     # Strip UTF-8 BOM (U+FEFF) so local ReadAllText (which strips BOM)
     # and raw remote bytes (which include BOM) produce the same hash.
     $norm = $norm.TrimStart([char]0xFEFF)
+    # Trailing whitespace trimmed here (not at call sites) so every consumer
+    # is symmetric with Invoke-GitHubGet, which TrimEnds response bodies:
+    # a trailing newline at EOF - present in tag blobs, stripped by the
+    # fetch - cannot false-positive as drift or a hash mismatch.
+    $norm = $norm.TrimEnd()
     $sha = [System.Security.Cryptography.SHA256]::Create()
     try {
         ([BitConverter]::ToString($sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($norm))) -replace '-', '')
@@ -449,11 +454,9 @@ function Test-InstallationIntegrity {
                 continue
             }
             # Same normalization as the update path: CRLF stripped, BOM ignored.
-            # Trailing whitespace is trimmed symmetrically with the remote side
-            # (Invoke-GitHubGet TrimEnds the response body) so a trailing
-            # newline at EOF - present in tag blobs but stripped by the fetch -
-            # cannot false-positive as drift.
-            $localHash = Get-ContentHash ([System.IO.File]::ReadAllText($local).TrimEnd())
+            # Get-ContentHash trims trailing whitespace symmetrically
+            # (mirrors Invoke-GitHubGet's TrimEnd) - see its header comment.
+            $localHash = Get-ContentHash ([System.IO.File]::ReadAllText($local))
             try {
                 $remote = Invoke-GitHubGet "https://api.github.com/repos/$GitHubRepo/contents/$f`?ref=$Tag" 30
             } catch {
