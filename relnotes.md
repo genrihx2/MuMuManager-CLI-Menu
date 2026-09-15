@@ -4,6 +4,10 @@
 
 ---
 
+## v1.21.4 (15.09.2026)
+- **Problem diagnostics `[DIAG]`**: new read-only, local-only screen that answers "is anything wrong with this install?" in one view. Checks: install layout (menu script present), version marker vs the script's own `$scriptVer` - a marker AHEAD of content is reported as the wedge error (the v1.20.5 heal-bug class that makes the updater say "Up to date" forever), content ahead of marker warns about an interrupted update; pending `.new`/`.old` files; update lock (held right now = warning with the owner PID, stale = info about the auto-break, claim residue = info); journal health (malformed lines, fail events, `update-skipped` count, rotation size); MuMu environment (missing `MuMuManager.exe` = error, version below minimum = warning) and low disk space.
+- Findings are collected by a pure, path-parameterized `Get-ProblemFindings` (9 new Pester tests over fixture installs: healthy/zero, wedge, interrupted, missing files, lock states, journal health, MuMu, pending files, menu wiring); suite 63 green on PowerShell 5.1 and pwsh 7. Nothing on screen is ever mutated, and no network calls are made (the online comparison stays in `[F]`).
+
 ## v1.21.3 (15.09.2026)
 - **`[J]` journal export (issue #23)**: new `[J] -> 5 Export` writes the selected events to Markdown (issue-ready table, pipes escaped), RFC-4180 CSV (header + quoting for comma/quote/newline cells) or JSON (top-level object with `generator`/`count`/`events`, fields verbatim). Format -> range (last 20 / full / errors-only, same as the viewer) -> path (Enter = `update-journal-YYYYMMDD-HHMMSS.<ext>` next to the journal). Output is UTF-8 with BOM (repo rule from alert #535), the journal itself is never modified, and repeat exports are byte-identical.
 - JSON is a top-level object rather than a bare array: top-level arrays hit inconsistent parse shapes in some PowerShell 5.1 consumers (verified live - python parsed the same artifact as 3 elements while 5.1's pipeline form wrapped it); an object property parses uniformly in PS 5.1/7, jq and Python. JSON is compact single-line; MD/CSV are the human formats.

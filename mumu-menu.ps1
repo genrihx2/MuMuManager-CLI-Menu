@@ -226,7 +226,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.21.3'
+$scriptVer = '1.21.4'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -1836,6 +1836,161 @@ function Export-UpdateJournal {
     }
 }
 
+# ── Problem diagnostics (read-only, local-only) ──────────────────────
+# One screen that answers "is anything wrong with this install?" without
+# touching state and without network calls (the [F] integrity check owns
+# the online comparison). Collects findings from the install layout, the
+# version marker vs the script's own $scriptVer (the v1.20.5 wedge class),
+# the update lock, pending .new/.old files and the journal's health.
+
+function Get-ProblemFindings {
+    # Returns an array of finding objects:
+    #   severity: 'error' | 'warn' | 'info'   area: install|lock|journal|mumu
+    # Pure with respect to its inputs - all paths are parameters, so tests
+    # can drive it against fixture directories. Never mutates anything.
+    param(
+        [string]$ScriptDir,
+        [string]$VersionFile,
+        [string]$MenuPath,
+        [string]$JournalFile,
+        [string]$MumuPath,
+        [string]$InstalledVersion = '',
+        [string]$ScriptVer = '',
+        [string]$MinVersion = '4.0.0.3179'
+    )
+    $findings = New-Object System.Collections.Generic.List[object]
+    $add = { param($sev, $area, $msg) $findings.Add([pscustomobject]@{ severity = $sev; area = $area; message = $msg }) }
+
+    # ── Install layout ────────────────────────────────────────────
+    if (-not ($ScriptDir -and (Test-Path -LiteralPath $ScriptDir -PathType Container))) {
+        & $add 'error' 'install' "install directory not found: $ScriptDir"
+        return $findings.ToArray()
+    }
+    if (-not ($MenuPath -and (Test-Path -LiteralPath $MenuPath -PathType Leaf))) {
+        & $add 'error' 'install' "mumu-menu.ps1 missing from the install directory"
+    }
+
+    # Version marker vs the script's own $scriptVer - the wedge detector:
+    # a marker AHEAD of content means a heal raised .version without the
+    # content ever arriving (v1.20.5 bug class); the updater will then say
+    # "Up to date" forever.
+    $marker = ''
+    if (Test-Path -LiteralPath $VersionFile -PathType Leaf) {
+        try { $marker = (Get-Content -LiteralPath $VersionFile -Raw).Trim() } catch { Write-Debug "marker read failed: $($_.Exception.Message)" }
+    }
+    $fileVer = ''
+    if ($MenuPath -and (Test-Path -LiteralPath $MenuPath -PathType Leaf)) {
+        try {
+            $head = (Get-Content -LiteralPath $MenuPath -TotalCount 260 -ErrorAction SilentlyContinue) -join "`n"
+            if ($head -match "\`$scriptVer\s*=\s*'([\d\.]+)'") { $fileVer = $Matches[1] }
+        } catch { Write-Debug "scriptVer read failed: $($_.Exception.Message)" }
+    }
+    if (-not $marker) {
+        & $add 'info' 'install' "no .version marker yet - the install has never recorded an update"
+    }
+    if ($marker -and $fileVer) {
+        $cmp = Compare-ScriptVersion -A $marker -B "v$fileVer"
+        if ($cmp -eq 1) {
+            & $add 'error' 'install' "marker ($marker) is AHEAD of the installed content ($fileVer) - wedged heal; run bootstrap-update.ps1 to repair"
+        } elseif ($cmp -eq -1) {
+            & $add 'warn' 'install' "installed content ($fileVer) is newer than the marker ($marker) - an update may have been interrupted"
+        }
+    } elseif ($marker -and -not $fileVer) {
+        & $add 'warn' 'install' "could not read the script version from mumu-menu.ps1"
+    }
+
+    # Pending self-apply files and leftovers.
+    foreach ($pending in @('mumu-menu.ps1.new', 'bootstrap-update.ps1.new')) {
+        if (Test-Path -LiteralPath (Join-Path $ScriptDir $pending) -PathType Leaf) {
+            & $add 'info' 'install' "pending $pending will be applied at the next menu start"
+        }
+    }
+    if (Test-Path -LiteralPath (Join-Path $ScriptDir 'mumu-menu.ps1.old') -PathType Leaf) {
+        & $add 'info' 'install' "mumu-menu.ps1.old leftover from the last self-apply (removed at next startup)"
+    }
+
+    # ── Update lock ───────────────────────────────────────────────
+    $lockPath = Join-Path $ScriptDir '.update-lock'
+    if (Test-Path -LiteralPath $lockPath -PathType Leaf) {
+        if (Test-UpdateLockStale -LockPath $lockPath) {
+            & $add 'info' 'lock' "stale .update-lock (older than 10 minutes) - it will be broken automatically on the next update"
+        } else {
+            $owner = ''
+            try { $owner = (Get-Content -LiteralPath $lockPath -TotalCount 1 -ErrorAction SilentlyContinue) } catch { $owner = '' }
+            & $add 'warn' 'lock' "an update lock is held right now ($owner) - another updater may be running"
+        }
+    }
+    if (Test-Path -LiteralPath "$lockPath.new" -PathType Leaf) {
+        & $add 'info' 'lock' ".update-lock.new claim residue - a stale-break was interrupted; harmless, cleaned on the next update"
+    }
+
+    # ── Journal health ────────────────────────────────────────────
+    if (-not ($JournalFile -and (Test-Path -LiteralPath $JournalFile -PathType Leaf))) {
+        & $add 'info' 'journal' "no update journal yet - no updates have been performed"
+    } else {
+        $size = (Get-Item -LiteralPath $JournalFile).Length
+        if ($size -gt 256KB) { & $add 'info' 'journal' "journal is $([math]::Round($size / 1KB, 0)) KB - it will rotate to .old on the next write" }
+        if (Test-Path -LiteralPath "$JournalFile.old" -PathType Leaf) {
+            & $add 'info' 'journal' "rotated journal present: update-journal.log.old"
+        }
+        $lines = @(Get-Content -LiteralPath $JournalFile -Encoding UTF8 -ErrorAction SilentlyContinue | Where-Object { $_.Trim() })
+        $bad = 0; $fails = 0; $skips = 0
+        foreach ($raw in $lines) {
+            $p = $raw -split "`t", 6
+            if (($p.Count -lt 6) -or ($p[0] -notmatch '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$')) { $bad++; continue }
+            if ($p[2] -match 'fail|error') { $fails++ }
+            if ($p[2] -eq 'update-skipped') { $skips++ }
+        }
+        if ($bad -gt 0) { & $add 'warn' 'journal' "$bad malformed journal line(s) - written by an older version or corrupted" }
+        if ($fails -gt 0) { & $add 'warn' 'journal' "$fails failed update event(s) recorded - review with [J] -> 3" }
+        if ($skips -gt 0) { & $add 'info' 'journal' "$skips update-skipped event(s) - concurrent update attempts that were correctly refused" }
+    }
+
+    # ── MuMu environment ──────────────────────────────────────────
+    if (-not ($MumuPath -and (Test-Path -LiteralPath $MumuPath -PathType Leaf))) {
+        & $add 'error' 'mumu' "MuMuManager.exe not found - emulator functions will not work"
+    } elseif ($InstalledVersion) {
+        try {
+            if ([version]$InstalledVersion -lt [version]$MinVersion) {
+                & $add 'warn' 'mumu' "MuMu version $InstalledVersion is below the minimum $MinVersion - some commands may fail"
+            }
+        } catch { & $add 'warn' 'mumu' "could not parse MuMu version '$InstalledVersion'" }
+    }
+
+    # ── Disk space ────────────────────────────────────────────────
+    try {
+        $drive = (Get-Item $ScriptDir).PSDrive
+        if ($drive -and $drive.Free -and $drive.Free -lt 100MB) {
+            & $add 'warn' 'install' "low disk space on $($drive.Name): ($([math]::Round($drive.Free / 1MB, 0)) MB free) - updates and backups may fail"
+        }
+    } catch { Write-Debug "disk check failed: $($_.Exception.Message)" }
+
+    return $findings.ToArray()
+}
+
+function Show-ProblemDiagnostics {
+    # Renders the findings collected by Get-ProblemFindings, grouped by
+    # severity, with an honest summary line. Read-only: nothing here
+    # mutates the install.
+    $findings = @(Get-ProblemFindings -ScriptDir $ScriptDir -VersionFile $VersionFile -MenuPath (Join-Path $ScriptDir 'mumu-menu.ps1') -JournalFile $script:JournalFile -MumuPath $MumuPath -InstalledVersion $InstalledVersion -ScriptVer $scriptVer)
+    Write-Host ''
+    Write-Host '  === Problem diagnostics ===' -ForegroundColor Cyan
+    $errors = @($findings | Where-Object { $_.severity -eq 'error' })
+    $warns  = @($findings | Where-Object { $_.severity -eq 'warn' })
+    $infos  = @($findings | Where-Object { $_.severity -eq 'info' })
+    foreach ($f in $errors) { Write-Host ("  [ERROR] {0}" -f $f.message) -ForegroundColor Red }
+    foreach ($f in $warns)  { Write-Host ("  [WARN ] {0}" -f $f.message) -ForegroundColor Yellow }
+    foreach ($f in $infos)  { Write-Host ("  [info ] {0}" -f $f.message) -ForegroundColor DarkGray }
+    if ($findings.Count -eq 0) {
+        Write-Host '  No problems detected - install, lock, journal and MuMu environment are healthy.' -ForegroundColor Green
+        Write-Host '  Problems found: 0' -ForegroundColor Green
+    } else {
+        Write-Host ''
+        Write-Host ("  Problems found: {0} ({1} error(s), {2} warning(s), {3} info)" -f $findings.Count, $errors.Count, $warns.Count, $infos.Count) -ForegroundColor $(if ($errors.Count -gt 0) { 'Red' } elseif ($warns.Count -gt 0) { 'Yellow' } else { 'DarkGray' })
+    }
+    Write-Host ("  install: {0}" -f $ScriptDir) -ForegroundColor DarkGray
+}
+
 function Show-Menu {
     Clear-Host
     Write-Host '======================================' -ForegroundColor Cyan
@@ -1909,6 +2064,7 @@ function Show-Menu {
     Write-Host '  [U] Check for updates' -ForegroundColor Yellow
     Write-Host '  [F] Verify installation (files vs release tag)' -ForegroundColor Yellow
     Write-Host '  [J] Update journal' -ForegroundColor Yellow
+    Write-Host '  [DIAG] Problem diagnostics' -ForegroundColor Yellow
     Write-Host '  [DL] Download repository' -ForegroundColor Yellow
     Write-Host '  [CR] Create release' -ForegroundColor Yellow
     Write-Host '  [FR] Fix release encoding' -ForegroundColor Yellow
@@ -7105,6 +7261,7 @@ do {
         'u' { Update-FromGitHub }
         'f' { Show-InstallVerify }
         'j' { Show-UpdateJournal }
+        'diag' { Show-ProblemDiagnostics }
         'dl' { Download-Repository }
         'cr' { Create-GitHubRelease }
         'fr' { Fix-ReleaseEncoding }

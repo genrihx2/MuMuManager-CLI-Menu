@@ -22,7 +22,8 @@ BeforeAll {
                         'Format-JournalEvent', 'Test-ReleaseZip', 'Write-UpdateJournal', 'Test-ScriptVerMatchesTag',
                         'Get-JournalArrow', 'Show-UpdateJournal',
                         'Test-UpdateLockStale', 'Get-UpdateLockMessage', 'New-UpdateLock', 'Remove-UpdateLock',
-                        'ConvertTo-JournalMarkdown', 'ConvertTo-JournalCsv', 'ConvertTo-JournalJson', 'Export-UpdateJournal')) {
+                        'ConvertTo-JournalMarkdown', 'ConvertTo-JournalCsv', 'ConvertTo-JournalJson', 'Export-UpdateJournal',
+                        'Get-ProblemFindings')) {
         $f = $script:ast.FindAll({
             param($node)
             $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -608,5 +609,130 @@ Describe 'Journal export (issue #23)' {
 
     It 'unknown format fails cleanly with a message' {
         Export-UpdateJournal -Format 'xml' -Range '2' -Lines $script:fxLines -Path (Join-Path $TestDrive 'x.xml') | Should -Match 'unknown format'
+    }
+}
+
+Describe 'Problem diagnostics (Get-ProblemFindings)' {
+
+    BeforeAll {
+        function New-FixtureInstall {
+            $d = Join-Path $TestDrive "diag_$(Get-Random)"
+            New-Item -ItemType Directory -Path $d -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $d 'mumu-menu.ps1') -Value "`$scriptVer = '1.21.3'`n# body"
+            Set-Content -LiteralPath (Join-Path $d '.version') -Value 'v1.21.3' -NoNewline
+            # The "healthy MuMu" fixture path: the check only requires the
+            # file to exist (no emulator call - diagnostics stay local-only).
+            Set-Content -LiteralPath (Join-Path $d 'MuMuManager.exe') -Value 'stub'
+            # A healthy USED install has a journal with at least one valid
+            # event ("no journal yet" is the fresh-install info finding).
+            [System.IO.File]::WriteAllLines((Join-Path $d 'update-journal.log'), [string[]]@("2026-09-15 10:00:00`tbootstrap`tupdate-ok`tv1.21.2`tv1.21.3`t4 file(s) updated"), (New-Object System.Text.UTF8Encoding($false)))
+            return $d
+        }
+        function Invoke-Diag {
+            param([string]$Dir, [hashtable]$Overrides = @{})
+            $p = @{
+                ScriptDir        = $Dir
+                VersionFile      = (Join-Path $Dir '.version')
+                MenuPath         = (Join-Path $Dir 'mumu-menu.ps1')
+                JournalFile      = (Join-Path $Dir 'update-journal.log')
+                MumuPath         = (Join-Path $Dir 'MuMuManager.exe')
+                InstalledVersion = ''
+                ScriptVer        = '1.21.3'
+            }
+            foreach ($k in $Overrides.Keys) { $p[$k] = $Overrides[$k] }
+            Get-ProblemFindings @p
+        }
+    }
+
+    It 'reports a healthy fixture install as zero findings' {
+        $d = New-FixtureInstall
+        $f = Invoke-Diag -Dir $d
+        $f.Count | Should -Be 0
+    }
+
+    It 'flags a marker ahead of content as the wedge error' {
+        $d = New-FixtureInstall
+        Set-Content -LiteralPath (Join-Path $d '.version') -Value 'v1.22.0' -NoNewline
+        $f = Invoke-Diag -Dir $d
+        $wedge = @($f | Where-Object { $_.severity -eq 'error' -and $_.message -match 'AHEAD' })
+        $wedge.Count | Should -Be 1
+        $wedge[0].area | Should -Be 'install'
+    }
+
+    It 'flags content ahead of marker as a warning' {
+        $d = New-FixtureInstall
+        Set-Content -LiteralPath (Join-Path $d '.version') -Value 'v1.20.9' -NoNewline
+        $f = Invoke-Diag -Dir $d
+        @($f | Where-Object { $_.severity -eq 'warn' -and $_.message -match 'newer than the marker' }).Count | Should -Be 1
+    }
+
+    It 'missing mumu-menu.ps1 is an error; missing marker is info' {
+        $d = New-FixtureInstall
+        Remove-Item -LiteralPath (Join-Path $d '.version') -Force
+        $f = Invoke-Diag -Dir $d
+        @($f | Where-Object { $_.severity -eq 'info' -and $_.message -match 'no \.version marker' }).Count | Should -Be 1
+        $d2 = New-FixtureInstall
+        Remove-Item -LiteralPath (Join-Path $d2 'mumu-menu.ps1') -Force
+        $f2 = Invoke-Diag -Dir $d2
+        @($f2 | Where-Object { $_.severity -eq 'error' -and $_.message -match 'mumu-menu\.ps1 missing' }).Count | Should -Be 1
+    }
+
+    It 'a fresh lock warns; a stale lock is only info; claim residue is info' {
+        $d = New-FixtureInstall
+        $lock = Join-Path $d '.update-lock'
+        Set-Content -LiteralPath $lock -Value 'PID 777 started 2026-09-15 12:00:00'
+        $f = Invoke-Diag -Dir $d
+        @($f | Where-Object { $_.area -eq 'lock' -and $_.severity -eq 'warn' -and $_.message -match 'PID 777' }).Count | Should -Be 1
+        (Get-Item -LiteralPath $lock).LastWriteTime = (Get-Date).AddMinutes(-20)
+        $f2 = Invoke-Diag -Dir $d
+        @($f2 | Where-Object { $_.area -eq 'lock' -and $_.severity -eq 'warn' }).Count | Should -Be 0
+        @($f2 | Where-Object { $_.area -eq 'lock' -and $_.message -match 'stale' }).Count | Should -Be 1
+        Set-Content -LiteralPath "$lock.new" -Value 'stale-break by PID 1'
+        $f3 = Invoke-Diag -Dir $d
+        @($f3 | Where-Object { $_.message -match 'claim residue' }).Count | Should -Be 1
+    }
+
+    It 'journal: malformed lines warn, fail events warn, skips are info, rotation noted' {
+        $d = New-FixtureInstall
+        $jr = Join-Path $d 'update-journal.log'
+        $lines = @(
+            "2026-09-15 10:49:29`tbootstrap`tupdate-ok`tv1.20.3`tv1.20.3`tok"
+            "garbage line"
+            "2026-09-15 11:00:25`tmenu`tupdate-fail`tv1.20.3`tv1.20.4`tdownload failed"
+            "2026-09-15 11:05:00`tbootstrap`tupdate-skipped`t`t`t.update-lock held by another process"
+        )
+        [System.IO.File]::WriteAllLines($jr, [string[]]$lines, (New-Object System.Text.UTF8Encoding($false)))
+        $f = Invoke-Diag -Dir $d
+        @($f | Where-Object { $_.message -match '1 malformed' }).Count | Should -Be 1
+        @($f | Where-Object { $_.message -match '1 failed update event' }).Count | Should -Be 1
+        @($f | Where-Object { $_.message -match '1 update-skipped' }).Count | Should -Be 1
+        [System.IO.File]::WriteAllBytes($jr, (New-Object byte[] 300000))
+        $f2 = Invoke-Diag -Dir $d
+        @($f2 | Where-Object { $_.message -match 'rotate to \.old' }).Count | Should -Be 1
+    }
+
+    It 'old MuMu version warns; missing MuMuManager errors' {
+        $d = New-FixtureInstall
+        $f = Invoke-Diag -Dir $d -Overrides @{ InstalledVersion = '4.0.0.3000' }
+        @($f | Where-Object { $_.area -eq 'mumu' -and $_.severity -eq 'warn' -and $_.message -match 'below the minimum' }).Count | Should -Be 1
+        $f2 = Invoke-Diag -Dir $d -Overrides @{ MumuPath = 'C:\definitely-missing\MuMuManager.exe' }
+        @($f2 | Where-Object { $_.area -eq 'mumu' -and $_.severity -eq 'error' -and $_.message -match 'not found' }).Count | Should -Be 1
+    }
+
+    It 'pending .new files and .old leftover are reported as info' {
+        $d = New-FixtureInstall
+        Set-Content -LiteralPath (Join-Path $d 'mumu-menu.ps1.new') -Value 'pending'
+        Set-Content -LiteralPath (Join-Path $d 'bootstrap-update.ps1.new') -Value 'pending'
+        Set-Content -LiteralPath (Join-Path $d 'mumu-menu.ps1.old') -Value 'leftover'
+        $f = Invoke-Diag -Dir $d
+        @($f | Where-Object { $_.message -match 'pending mumu-menu\.ps1\.new' }).Count | Should -Be 1
+        @($f | Where-Object { $_.message -match 'pending bootstrap-update\.ps1\.new' }).Count | Should -Be 1
+        @($f | Where-Object { $_.message -match '\.old leftover' }).Count | Should -Be 1
+    }
+
+    It 'the diagnostics screen is wired into the menu' {
+        $raw = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'mumu-menu.ps1') -Raw -Encoding UTF8
+        $raw | Should -Match "\[DIAG\] Problem diagnostics"
+        $raw | Should -Match "'diag' \{ Show-ProblemDiagnostics \}"
     }
 }
