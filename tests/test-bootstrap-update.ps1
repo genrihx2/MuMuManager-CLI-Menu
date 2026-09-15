@@ -289,6 +289,34 @@ try {
     $ScriptDir = $vDir
     $outEq = (Test-InstallationIntegrity -Tag 'v9.9.9' *>&1 | Out-String)
     Assert-True -Name 'semantically equal .version marker is not flagged as stale' -Condition ($outEq -notmatch '\.version says') -Detail $outEq.Trim()
+
+    # The marker is compared SEMANTICALLY, not by bytes: when the local
+    # marker is NEWER than the tag's lagged marker (tag v1.20.3 ships
+    # .version = v1.20.2 while the install already says v1.20.3), the
+    # byte-differing marker must not be drift (seen live on v1.20.3).
+    function script:Compare-ScriptVersion { param([string]$A, [string]$B)
+        $pa = @($A.TrimStart('v', 'V') -split '\.' | ForEach-Object { try { [int]$_ } catch { -1 } })
+        $pb = @($B.TrimStart('v', 'V') -split '\.' | ForEach-Object { try { [int]$_ } catch { -1 } })
+        if (@($pa | Where-Object { $_ -lt 0 }).Count -gt 0) { return -2 }
+        if (@($pb | Where-Object { $_ -lt 0 }).Count -gt 0) { return -2 }
+        for ($i = 0; $i -lt [Math]::Max($pa.Count, $pb.Count); $i++) {
+            $xa = if ($i -lt $pa.Count) { $pa[$i] } else { 0 }
+            $xb = if ($i -lt $pb.Count) { $pb[$i] } else { 0 }
+            if ($xa -lt $xb) { return -1 }
+            if ($xa -gt $xb) { return 1 }
+        }
+        return 0
+    }
+    Set-Content -LiteralPath (Join-Path $vDir '.version') -Value 'v9.9.9' -NoNewline -Encoding UTF8
+    $repNewer = Test-InstallationIntegrity -Tag 'v9.9.8'
+    Assert-True -Name 'newer local .version marker is not drift (semantic compare)' -Condition (@($repNewer | Where-Object { $_ -like 'OK-SEMANTIC|.version|*' }).Count -eq 1) -Detail ($repNewer -join ' // ')
+    Assert-True -Name 'newer-marker run does not list .version as drift' -Condition (@($repNewer | Where-Object { $_ -like 'DRIFT|.version|*' }).Count -eq 0) -Detail ($repNewer -join ' // ')
+    # An UNPARSEABLE local marker still falls through to the content compare.
+    Set-Content -LiteralPath (Join-Path $vDir '.version') -Value 'not-a-version' -NoNewline -Encoding UTF8
+    $repJunk = Test-InstallationIntegrity -Tag 'v9.9.8'
+    Assert-True -Name 'unparseable marker falls back to content compare (DRIFT)' -Condition (@($repJunk | Where-Object { $_ -like 'DRIFT|.version|*' }).Count -eq 1) -Detail ($repJunk -join ' // ')
+    Set-Content -LiteralPath (Join-Path $vDir '.version') -Value 'v9.9.9' -NoNewline -Encoding UTF8
+    Assert-True -Name '[F] missing ZIP path says nothing to verify (not FAILED)' -Condition ((Get-Content -LiteralPath $menuPath -Raw -Encoding UTF8) -match 'nothing to verify') -Detail 'missing-ZIP message not found'
     Assert-True -Name 'menu label [F] Verify installation present' -Condition ((Get-Content -LiteralPath $menuPath -Raw -Encoding UTF8) -match '\[F\]\s*Verify installation') -Detail 'label not found'
     Assert-True -Name "dispatch 'f' calls Show-InstallVerify" -Condition ((Get-Content -LiteralPath $menuPath -Raw -Encoding UTF8) -match "'f'\s*\{\s*Show-InstallVerify\s*\}") -Detail 'dispatch not found'
 

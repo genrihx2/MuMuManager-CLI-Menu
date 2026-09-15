@@ -4,6 +4,11 @@
 
 ---
 
+## v1.20.4 (15.09.2026)
+- **`[F]` Verify installation**: the `.version` marker is now compared **semantically** - a local marker equal to or newer than the tag's lagged marker (the sync-version bot lands after the tag) is no longer false DRIFT (seen live on v1.20.3).
+- **One re-fetch before declaring DRIFT**: a GitHub CDN edge can serve a stale blob for minutes after a tag push (seen live: `bootstrap-update.ps1` was byte-identical to the tag, yet the fetch returned old content). Genuine drift still drifts.
+- **`[F]` → ZIP verify: a missing archive is not tampering** - prints "No ZIP found ... nothing to verify" instead of the alarming "FAILED - do not install".
+
 ## v1.20.3 (15.09.2026)
 - **Fix bootstrap post-download hash verification (regression of v1.20.2)**: reference content was fetched through a `cmd /c`-captured curl invocation, which decodes output in the console OEM codepage - Cyrillic in README/SKILL.md got mangled and every file false-alarmed `HASH MISMATCH` (caught live; the safety design worked - the update was aborted and journaled). Reference hashes now come from a byte-exact raw fetch (curl → temp file → UTF-8 decode), same as the menu. Regression test extended with a non-ASCII body.
 

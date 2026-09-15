@@ -226,7 +226,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.20.3'
+$scriptVer = '1.20.4'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -453,6 +453,22 @@ function Test-InstallationIntegrity {
                 Write-Host ("  {0,-8} {1}" -f 'MISSING', $f) -ForegroundColor Red
                 continue
             }
+            # The .version marker is compared semantically, not by content:
+            # a tag can legitimately lag the installed marker by one release
+            # (the sync-version bot lands after the tag), so a local marker
+            # that is EQUAL OR NEWER than the tag's marker is not drift -
+            # even when the bytes differ. An unparseable/older marker still
+            # falls through to the content comparison (conservative).
+            if ($f -eq '.version' -and $localTag) {
+                $sem = $null
+                try { $sem = Compare-ScriptVersion -A $localTag -B $Tag } catch { $sem = $null }
+                if ($null -ne $sem -and $sem -ge 0) {
+                    $okFiles += $f
+                    $report += "OK-SEMANTIC|.version|local=$localTag"
+                    Write-Host ("  {0,-8} .version  (marker {1} - current or newer than the tag's lagged marker)" -f 'OK', $localTag) -ForegroundColor Green
+                    continue
+                }
+            }
             # Same normalization as the update path: CRLF stripped, BOM ignored.
             # Get-ContentHash trims trailing whitespace symmetrically
             # (mirrors Invoke-GitHubGet's TrimEnd) - see its header comment.
@@ -482,11 +498,31 @@ function Test-InstallationIntegrity {
                     Write-Host "           marker is current ($localTag)" -ForegroundColor DarkGray
                 }
             } else {
-                $driftFiles += $f
-                $report += "DRIFT|$f|expected=$remoteHash local=$localHash"
-                Write-Host ("  {0,-8} {1}" -f 'DRIFT', $f) -ForegroundColor Red
-                Write-Host ("           expected {0}..." -f $remoteHash.Substring(0, 16)) -ForegroundColor DarkGray
-                Write-Host ("           local    {0}..." -f $localHash.Substring(0, 16)) -ForegroundColor DarkGray
+                # A CDN edge can serve a stale blob for minutes after a tag
+                # push (seen live on bootstrap-update.ps1 right after v1.20.3:
+                # the file was byte-identical to the tag yet the fetch
+                # returned old content). One re-fetch before declaring drift
+                # keeps the report honest; genuine drift still drifts.
+                $remoteHash2 = ''
+                try {
+                    $remote2 = Invoke-GitHubGet "https://api.github.com/repos/$GitHubRepo/contents/$f`?ref=$Tag" 30
+                    if ($remote2) {
+                        $t2 = $remote2.TrimEnd()
+                        if (-not ($t2.StartsWith('{') -and $t2 -match '"message"\s*:\s*"')) { $remoteHash2 = Get-ContentHash $t2 }
+                    }
+                } catch { Write-Debug "Drift recheck failed for ${f}: $($_.Exception.Message)" }
+                if ($remoteHash2 -eq $localHash) {
+                    $okFiles += $f
+                    $report += "OK|$f|$localHash"
+                    Write-Host ("  {0,-8} {1}  (rechecked - first read was stale)" -f 'OK', $f) -ForegroundColor Green
+                } else {
+                    $shown = if ($remoteHash2) { $remoteHash2 } else { $remoteHash }
+                    $driftFiles += $f
+                    $report += "DRIFT|$f|expected=$shown local=$localHash"
+                    Write-Host ("  {0,-8} {1}" -f 'DRIFT', $f) -ForegroundColor Red
+                    Write-Host ("           expected {0}..." -f $shown.Substring(0, 16)) -ForegroundColor DarkGray
+                    Write-Host ("           local    {0}..." -f $localHash.Substring(0, 16)) -ForegroundColor DarkGray
+                }
             }
         }
 
@@ -639,6 +675,13 @@ function Show-InstallVerify {
             if (-not $zipInput) { $zipInput = $defaultZip }
             $zipPath = if ([System.IO.Path]::IsPathRooted($zipInput)) { $zipInput } else { Join-Path (Get-Location) $zipInput }
             $zipTag = if ([IO.Path]::GetFileName($zipPath) -match '(v[0-9]+\.[0-9]+\.[0-9]+)') { $Matches[1] } else { $resolvedTag }
+            if (-not (Test-Path -LiteralPath $zipPath -PathType Leaf)) {
+                # Nothing sinister: the user just has no archive at that path.
+                # Say so plainly and skip - a missing file is not tampering.
+                Write-Host "  No ZIP found at $zipPath - nothing to verify. (Download MuMuManager-CLI-Menu-$zipTag.zip from the release page first, or correct the path.)" -ForegroundColor Yellow
+                Write-Host ''
+                return
+            }
             $r = Test-ReleaseZip -ZipPath $zipPath -ExpectedTag $zipTag
             Write-Host ''
             foreach ($c in $r.Checks) {
