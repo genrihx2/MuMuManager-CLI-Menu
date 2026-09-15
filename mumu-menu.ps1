@@ -226,7 +226,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.20.6'
+$scriptVer = '1.21.0'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -239,37 +239,143 @@ try {
     Write-Warning "TLS 1.2 enable failed: $($_.Exception.Message)"
 }
 
+# Resolve a tag (or any ref) to the commit SHA it names (issue #22).
+# Annotated tags need one extra dereference through /git/tags/<sha>.
+# Calls Invoke-GitHubGet, which never routes /git/ URLs through the
+# contents rewrite - no recursion. Returns the 40-hex SHA or $null.
+function Resolve-GitRefSha {
+    param([string]$RepoPart, [string]$Ref, [int]$TimeoutSec = 15)
+    try {
+        $j = Invoke-GitHubGet "https://api.github.com/repos/$RepoPart/git/ref/tags/$Ref" $TimeoutSec
+        if (-not $j) { return $null }
+        $o = $j | ConvertFrom-Json
+        if (-not $o.object -or -not $o.object.sha) { return $null }
+        if ($o.object.type -eq 'tag') {
+            $j2 = Invoke-GitHubGet "https://api.github.com/repos/$RepoPart/git/tags/$($o.object.sha)" $TimeoutSec
+            if (-not $j2) { return $null }
+            $o2 = $j2 | ConvertFrom-Json
+            if ($o2.object -and $o2.object.sha) { return $o2.object.sha }
+            return $null
+        }
+        return $o.object.sha
+    } catch {
+        Write-Debug "Resolve-GitRefSha failed for ${Ref}: $($_.Exception.Message)"
+        return $null
+    }
+}
+
 function Invoke-GitHubGet {
     param([string]$Url, [int]$TimeoutSec = 30)
+    # Issue #22 hardening, two layers:
+    #
+    # 1. Tag->SHA pinning: every contents URL that asks for ?ref=<tag> is
+    #    rewritten to ?ref=<commit-sha>. The contents API resolves a ref at
+    #    fetch time, so a CDN edge can serve the blob of the commit the ref
+    #    pointed to BEFORE the push (the stale-blob class behind the
+    #    v1.20.3-v1.20.6 incident fixes). A commit SHA is immutable - a
+    #    stale read becomes impossible by construction. The resolution is
+    #    cached per process and must never cache a failure: a JSON body
+    #    from the ref endpoints would pin nothing and is skipped.
+    #
+    # 2. ETag cache with 304 replay: repeat fetches of the same URL inside
+    #    one menu session send If-None-Match and, on 304 Not Modified,
+    #    replay the cached body without transferring it. Only successful,
+    #    non-API-error bodies are cached - error responses must stay
+    #    retryable.
+    if (-not $script:EtagCache)    { $script:EtagCache    = @{} }
+    if (-not $script:EtagTags)     { $script:EtagTags     = @{} }
+    if (-not $script:RefShaCache)  { $script:RefShaCache  = @{} }
+
+    $pinnedUrl = $Url
+    if ($Url -match '^https://api\.github\.com/repos/(.+)/contents/(.+)$') {
+        $repoPart = $Matches[1]; $rest = $Matches[2]
+        $qIdx = $rest.IndexOf('?')
+        if ($qIdx -ge 0) {
+            $pathPart  = $rest.Substring(0, $qIdx)
+            $queryPart = $rest.Substring($qIdx + 1)
+            if ($queryPart -match '(^|&)ref=([^&]+)') {
+                $ref = $Matches[2]
+                if ($ref -notmatch '^[0-9a-fA-F]{40}$') {
+                    if (-not $script:RefShaCache.ContainsKey($ref)) {
+                        $sha = Resolve-GitRefSha -RepoPart $repoPart -Ref $ref -TimeoutSec $TimeoutSec
+                        if ($sha -and $sha -match '^[0-9a-fA-F]{40}$') { $script:RefShaCache[$ref] = $sha }
+                    }
+                    if ($script:RefShaCache.ContainsKey($ref)) {
+                        $newQuery = $queryPart -replace 'ref=[^&]+', "ref=$($script:RefShaCache[$ref])"
+                        $pinnedUrl = "https://api.github.com/repos/$repoPart/contents/$pathPart`?$newQuery"
+                        Write-Debug "Pinned ref '$ref' -> $($script:RefShaCache[$ref])"
+                    }
+                }
+            }
+        }
+    }
+
+    # Cache key note: the key is the URL only - different Accept semantics
+    # for the same URL would collide. Today every cached URL is fetched with
+    # one fixed Accept per URL shape, so this is safe; keep it that way.
+    # (Verified live in v1.21.0: the vnd.github.sha media type is NOT
+    # supported by the contents endpoint - the cheap-hash idea is dead.)
     $curlBase = @('-s', '--retry', '3', '--retry-delay', '3', '--connect-timeout', '30', '--max-time', "$TimeoutSec")
     if ($Url -match '^https://api\.github\.com/repos/.+/contents/') {
         $curlBase += @('-H', 'Accept: application/vnd.github.raw')
     } elseif ($Url -match '^https://api\.github\.com/') {
         $curlBase += @('-H', 'Accept: application/vnd.github.v3+json')
     }
-    function _Fetch([bool]$UseToken) {
+    # Captures the final HTTP status and ETag via a header dump (-D).
+    # No --fail: a 304 must come back as a result, not a curl error.
+    function _Fetch([bool]$UseToken, [string]$UrlToUse, [string]$Etag) {
         $cmdArgs = @($curlBase)
         if ($UseToken -and $GitHubToken -and $GitHubToken.Length -gt 0) { $cmdArgs += @('-H', "Authorization: token $GitHubToken") }
+        $hdrFile = Join-Path $env:TEMP ('gh_hdr_' + [Guid]::NewGuid().ToString('N') + '.txt')
         $tmpFile = Join-Path $env:TEMP ('gh_resp_' + [Guid]::NewGuid().ToString('N') + '.json')
-        $cmdArgs += @('-o', $tmpFile)
-        & curl.exe @cmdArgs $Url 2>$null
-        if (Test-Path $tmpFile) {
+        $cmdArgs += @('-D', $hdrFile, '-o', $tmpFile)
+        if ($Etag) { $cmdArgs += @('-H', "If-None-Match: $Etag") }
+        & curl.exe @cmdArgs $UrlToUse 2>$null
+        $status = ''; $newEtag = ''
+        if (Test-Path $hdrFile) {
+            try {
+                $hdrText = [System.IO.File]::ReadAllText($hdrFile)
+                foreach ($m in [regex]::Matches($hdrText, '(?m)^HTTP/\S+\s+(\d+)')) { $status = $m.Groups[1].Value }
+                # --retry can produce several responses in one dump - the
+                # last one is the final answer.
+                foreach ($em in [regex]::Matches($hdrText, '(?m)^etag:\s*(\S+)')) { $newEtag = $em.Groups[1].Value }
+            } catch { Write-Debug "Header parse failed: $($_.Exception.Message)" }
+            Remove-Item $hdrFile -Force -ErrorAction SilentlyContinue
+        }
+        $body = $null
+        if ((Test-Path $tmpFile) -and (Get-Item $tmpFile -ErrorAction SilentlyContinue).Length -gt 0) {
             $bytes = [System.IO.File]::ReadAllBytes($tmpFile)
-            Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue
-            if ($bytes -and $bytes.Length -gt 0) {
-                return ([System.Text.Encoding]::UTF8.GetString($bytes)).TrimEnd()
-            }
+            if ($bytes -and $bytes.Length -gt 0) { $body = ([System.Text.Encoding]::UTF8.GetString($bytes)).TrimEnd() }
         }
         Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue
-        return $null
+        if ($status -eq '304') {
+            return [pscustomobject]@{ NotModified = $true; Body = $null; ETag = $Etag }
+        }
+        return [pscustomobject]@{ NotModified = $false; Body = $body; ETag = $newEtag }
     }
-    # Attempt with token (if available)
-    $resp = _Fetch $true
+
+    $etag = ''
+    if ($script:EtagTags.ContainsKey($pinnedUrl)) { $etag = $script:EtagTags[$pinnedUrl] }
+    $r1 = _Fetch $true $pinnedUrl $etag
+    if ($r1.NotModified) {
+        Write-Debug "ETag 304 - replaying cached body ($($script:EtagCache[$pinnedUrl].Length) chars): $Url"
+        return $script:EtagCache[$pinnedUrl]
+    }
+    $resp = $r1.Body
     if ($null -ne $resp) {
         if ($GitHubToken -and $resp -match '"message"\s*:\s*"Bad credentials"') {
             Write-Host '  Token rejected — retrying without auth...' -ForegroundColor Yellow
-            $resp = _Fetch $false
+            $r2 = _Fetch $false $pinnedUrl $etag
+            if ($r2.NotModified) { return $script:EtagCache[$pinnedUrl] }
+            $resp = $r2.Body
             if ($null -eq $resp) { throw "Request failed: $Url" }
+        }
+        # Cache only real content: an API error body (rate limit, auth) must
+        # stay retryable and never anchors an ETag for this URL.
+        $isErrBody = $resp.TrimStart().StartsWith('{') -and $resp -match '"message"\s*:\s*'
+        if (-not $isErrBody -and $r1.ETag) {
+            $script:EtagCache[$pinnedUrl] = $resp
+            $script:EtagTags[$pinnedUrl]  = $r1.ETag
         }
         return $resp
     }
@@ -374,9 +480,11 @@ function Format-JournalEvent {
 }
 
 # Expected SHA-256 per file, computed from the tag content via the contents
-# API (issue #20). Files whose fetch fails or that return an API error body
-# (rate limit) are simply absent from the result - the caller treats that
-# as 'unknown', never as a hash to compare against.
+# API (issue #20 semantics; issue #22 makes it trustworthy and cheap to
+# repeat: the ref is pinned to the tag's commit SHA and repeat fetches in
+# one session are ETag-replayed). Files whose fetch fails or that return an
+# API error body (rate limit) are simply absent from the result - the
+# caller treats that as 'unknown', never as a hash to compare against.
 function Get-ExpectedFileHashes {
     param([string]$Tag, [string[]]$Names)
     $result = @{}
@@ -455,6 +563,33 @@ function Test-InstallationIntegrity {
         }
         $report += "verify-start|$Tag"
 
+        # Issue #22: resolve the tag once to its commit SHA and re-fetch the
+        # tag URL with that pinned ref before reading any content. The
+        # contents API resolves ?ref=<tag> at fetch time, so an edge can
+        # serve the previous commit's blob minutes after the push (seen live
+        # after v1.20.3 and again after v1.20.4). A commit SHA is immutable,
+        # so a fetch through the pinned URL cannot see a stale tag mapping.
+        # If resolution fails, the check proceeds exactly as before.
+        $pinnedRefNote = ''
+        if ($Tag -notmatch '^[0-9a-fA-F]{40}$' -and $GitHubRepo) {
+            try {
+                $sha = Resolve-GitRefSha -RepoPart $GitHubRepo -Ref $Tag 15
+                if ($sha -and $sha -match '^[0-9a-fA-F]{40}$') {
+                    $Tag = $sha
+                    $pinnedRefNote = " (pinned to commit $($sha.Substring(0, 8)))"
+                    $report += "ref-pin|$sha"
+                    Write-Host "  Tag pinned to commit $($sha.Substring(0, 8)) - stale-CDN reads impossible" -ForegroundColor DarkGray
+                } else {
+                    $report += 'ref-pin-failed|tag-url kept'
+                }
+            } catch {
+                # Pinning is an optimization on top of the check, never a
+                # precondition: proceed with the plain tag URL.
+                $report += 'ref-pin-failed|tag-url kept'
+                Write-Debug "Ref pin failed: $($_.Exception.Message)"
+            }
+        }
+
         $files = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1')
         $verFile = Join-Path $ScriptDir '.version'
         $localTag = ''
@@ -519,11 +654,10 @@ function Test-InstallationIntegrity {
                     Write-Host "           marker is current ($localTag)" -ForegroundColor DarkGray
                 }
             } else {
-                # A CDN edge can serve a stale blob for minutes after a tag
-                # push (seen live on bootstrap-update.ps1 right after v1.20.3:
-                # the file was byte-identical to the tag yet the fetch
-                # returned old content). One re-fetch before declaring drift
-                # keeps the report honest; genuine drift still drifts.
+                # The tag->SHA pin above already makes a stale tag mapping
+                # impossible; this second fetch now only guards against a
+                # rare bad edge read. With ETag caching the recheck costs
+                # one conditional request (usually a 304 replay).
                 $remoteHash2 = ''
                 try {
                     $remote2 = Invoke-GitHubGet "https://api.github.com/repos/$GitHubRepo/contents/$f`?ref=$Tag" 30
@@ -809,17 +943,43 @@ function Update-FromGitHub {
         # install of that previous release, and healing on it wedges the
         # install: the marker jumps to a tag whose content never arrived
         # and every later check says 'up to date' (seen live on v1.20.4).
-        if ((Get-ContentHash $localText) -eq (Get-ContentHash $remoteText)) {
-            if (Test-ScriptVerMatchesTag -Text $remoteText -Tag $tag) {
-                Write-UpdateJournal -EventType 'version-fix' -From $localTag -To $tag -Detail 'content matches tag; .version healed'
-                Set-Content -Path $VersionFile -Value $tag -NoNewline -ErrorAction SilentlyContinue
-                if (-not $Passive) {
-                    Write-Host "  Up to date ($tag)" -ForegroundColor DarkGray
+        # Issue #22: heal the marker only after fetching the menu script
+        # through the tag URL pinned to the tag's commit SHA. The contents
+        # API resolves ?ref=<tag> at fetch time, so an edge can serve the
+        # PREVIOUS release's blob minutes after the push - and a stale blob
+        # of release N-1 hashes equal to a local install of N-1, wedging
+        # the marker at N without N's content ever arriving (seen live on
+        # v1.20.4). A commit SHA is immutable, so the fetched text is the
+        # tag's real content by construction; the scriptVer guard below
+        # stays as a defence in depth.
+        # The pre-fix build referenced $localText here without ever
+        # assigning it - the heal could never fire. Local menu text is read
+        # exactly as the drift check reads it.
+        $localText = ''
+        try { $localText = [System.IO.File]::ReadAllText((Join-Path $ScriptDir 'mumu-menu.ps1')) } catch { Write-Debug "Local menu read failed: $($_.Exception.Message)" }
+        $healed = $false
+        try {
+            $healSha = Resolve-GitRefSha -RepoPart $GitHubRepo -Ref $tag 15
+            $healRef = if ($healSha -and $healSha -match '^[0-9a-fA-F]{40}$') { $healSha } else { $tag }
+            $healText = Invoke-GitHubGet "https://api.github.com/repos/$GitHubRepo/contents/$SkillPath/mumu-menu.ps1`?ref=$healRef" 30
+            if ($healText -and -not ($healText.TrimStart().StartsWith('{') -and $healText -match '"message"\s*:\s*')) {
+                if ((Get-ContentHash $localText) -eq (Get-ContentHash $healText)) {
+                    if (Test-ScriptVerMatchesTag -Text $healText -Tag $tag) {
+                        Write-UpdateJournal -EventType 'version-fix' -From $localTag -To $tag -Detail 'content matches tag; .version healed (commit-pinned fetch)'
+                        Set-Content -Path $VersionFile -Value $tag -NoNewline -ErrorAction SilentlyContinue
+                        if (-not $Passive) {
+                            Write-Host "  Up to date ($tag)" -ForegroundColor DarkGray
+                        }
+                        $healed = $true
+                    } else {
+                        Write-Debug 'version-fix skipped: fetched content scriptVer does not match the tag'
+                    }
                 }
-                return
             }
-            Write-Debug 'version-fix skipped: fetched content scriptVer does not match the tag (stale CDN read?)'
+        } catch {
+            Write-Debug "version-fix heal fetch failed: $($_.Exception.Message)"
         }
+        if ($healed) { return }
 
         Write-Host "  Update available!" -ForegroundColor $(if ($Passive) { 'DarkGray' } else { 'Yellow' })
         if ($Passive) {

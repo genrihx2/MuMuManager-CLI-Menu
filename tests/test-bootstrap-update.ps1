@@ -434,7 +434,7 @@ try {
     $bAst = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $root 'bootstrap-update.ps1'), [ref]$null, [ref]$bErrors)
     if ($bErrors -and $bErrors.Count) { throw "bootstrap-update.ps1 has syntax errors: $($bErrors[0].Message)" }
     $gexText = ''
-    foreach ($name in 'Get-ContentHash', 'Get-ExpectedHashes') {
+    foreach ($name in 'Get-ContentHash', 'Get-ExpectedHashes', 'Test-GitSha') {
         $bf = $bAst.FindAll({
             param($node)
             $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -445,10 +445,14 @@ try {
     }
     Assert-True -Name 'Get-ContentHash matches the SHA-256 vector for "abc"' -Condition ((Get-ContentHash 'abc') -eq 'BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD') -Detail (Get-ContentHash 'abc')
     Assert-True -Name 'Get-ContentHash trims trailing whitespace symmetrically (no phantom mismatch)' -Condition ((Get-ContentHash "body`r`n") -eq (Get-ContentHash 'body')) -Detail 'trailing newline changes the hash'
+    # Issue #22: Test-GitSha gate + ref pinning inside Get-ExpectedHashes.
+    Assert-True -Name 'Test-GitSha accepts 40-hex and rejects tag names' -Condition (((Test-GitSha ('a' * 40)) -eq $true) -and ((Test-GitSha 'v1.2.3') -eq $false) -and ((Test-GitSha '') -eq $false)) -Detail '40-hex gate broken'
+    Assert-True -Name 'Get-ExpectedHashes pins the tag to its commit SHA' -Condition ($gexText -match 'git/ref/tags/') -Detail 'no ref-resolution call in Get-ExpectedHashes'
     # Hermetic stub for the API fetch inside Get-ExpectedHashes.
     # Non-ASCII body: with the old console-captured fetch the OEM codepage
     # mangled it (caught live in v1.20.2 - false HASH MISMATCH on every file).
     function Invoke-CurlGetRaw { param([string]$Url)
+        if ($Url -match '/git/ref/tags/([^/]+)$') { return (ConvertTo-Json @{ object = @{ sha = ('a' * 40); type = 'commit' } } -Compress) }
         if ($Url -match '/contents/([^?]+)\?') { $n = $Matches[1] } else { $n = '' }
         switch ($n) {
             'mumu-menu.ps1'        { return "# меню тело`n" }
@@ -462,6 +466,7 @@ try {
     Assert-True -Name 'rate-limit JSON body skipped (never treated as content)' -Condition (-not $exp.ContainsKey('SKILL.md')) -Detail 'SKILL.md present in expected hashes'
     Assert-True -Name 'null response skipped' -Condition (-not $exp.ContainsKey('README.md')) -Detail 'README.md present in expected hashes'
     Assert-True -Name 'expected hashes use the byte-exact raw fetch (OEM-codepage safe)' -Condition (($gexText -match 'Invoke-CurlGetRaw') -and ($gexText -notmatch 'Invoke-CurlGet "')) -Detail 'Get-ExpectedHashes must call Invoke-CurlGetRaw, not the console-captured Invoke-CurlGet'
+    Assert-True -Name 'pin resolution uses the raw fetch, never the console-captured helper' -Condition ($gexText -notmatch 'Invoke-CurlGet "') -Detail 'ref resolution must not use Invoke-CurlGet'
     $bRaw = Get-Content -LiteralPath (Join-Path $root 'bootstrap-update.ps1') -Raw -Encoding UTF8
     Assert-True -Name '-NoVerify opt-out is wired' -Condition ($bRaw -match '\[switch\]\$NoVerify') -Detail 'NoVerify param not found'
     Assert-True -Name 'post-download (hash OK) verdict is wired' -Condition ($bRaw -match 'hash OK') -Detail 'hash OK output not found'

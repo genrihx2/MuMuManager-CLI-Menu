@@ -305,6 +305,111 @@ Describe 'Test-ReleaseZip (ZIP self-test)' {
     }
 }
 
+Describe 'Invoke-GitHubGet: ETag cache, 304 replay, ref pinning (issue #22)' {
+
+    BeforeAll {
+        foreach ($name in @('Invoke-GitHubGet', 'Resolve-GitRefSha')) {
+            $f = $script:ast.FindAll({
+                param($node)
+                $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
+            }, $true) | Select-Object -First 1
+            if (-not $f) { throw "$name function not found in mumu-menu.ps1" }
+            . ([scriptblock]::Create($f.Extent.Text))
+        }
+        $script:GitHubToken = $null
+    }
+
+    It 'replays the cached body on HTTP 304 (curl exit 33) instead of failing' {
+        $calls = [System.Collections.Generic.List[string]]::new()
+        function curl.exe {
+            param([Parameter(ValueFromRemainingArguments = $true)]$curlArgs)
+            $calls.Add(($curlArgs -join ' ')) | Out-Null
+            $h = [array]::IndexOf($curlArgs, '-D'); $o = [array]::IndexOf($curlArgs, '-o')
+            if ($h -ge 0) { Set-Content -LiteralPath $curlArgs[$h + 1] -Value "HTTP/1.1 200 OK`netag: `"abc123`"" -Encoding ASCII }
+            if ($o -ge 0) { [System.IO.File]::WriteAllText($curlArgs[$o + 1], "hello body`n") }
+            $global:LASTEXITCODE = 0
+        }
+        $script:EtagCache = @{}; $script:EtagTags = @{}; $script:RefShaCache = @{}
+        $url = 'https://api.github.com/repos/o/r/contents/README.md?ref=v1.0.0'
+        Invoke-GitHubGet $url | Should -Be 'hello body'
+        $script:EtagTags[$url] | Should -Be '"abc123"'
+        # Second response: a real 304 shape - status line only, empty body file,
+        # curl exits 33 on HTTP 304 without --fail.
+        function curl.exe {
+            param([Parameter(ValueFromRemainingArguments = $true)]$curlArgs)
+            $calls.Add(($curlArgs -join ' ')) | Out-Null
+            $h = [array]::IndexOf($curlArgs, '-D'); $o = [array]::IndexOf($curlArgs, '-o')
+            if ($h -ge 0) { Set-Content -LiteralPath $curlArgs[$h + 1] -Value 'HTTP/1.1 304 Not Modified' -Encoding ASCII }
+            if ($o -ge 0) { Set-Content -LiteralPath $curlArgs[$o + 1] -Value '' -Encoding ASCII }
+            $global:LASTEXITCODE = 33
+        }
+        Invoke-GitHubGet $url | Should -Be 'hello body'
+        ($calls | Select-Object -Last 1) | Should -Match 'If-None-Match: "abc123"'
+    }
+
+    It 'never caches an API error body (rate limit) even when an ETag is present' {
+        function curl.exe {
+            param([Parameter(ValueFromRemainingArguments = $true)]$curlArgs)
+            $h = [array]::IndexOf($curlArgs, '-D'); $o = [array]::IndexOf($curlArgs, '-o')
+            if ($h -ge 0) { Set-Content -LiteralPath $curlArgs[$h + 1] -Value 'HTTP/1.1 200 OK' -Encoding ASCII }
+            if ($o -ge 0) { [System.IO.File]::WriteAllText($curlArgs[$o + 1], '{"message":"API rate limit exceeded"}') }
+            $global:LASTEXITCODE = 0
+        }
+        $script:EtagCache = @{}; $script:EtagTags = @{}; $script:RefShaCache = @{}
+        Invoke-GitHubGet 'https://api.github.com/repos/o/r/contents/README.md?ref=v1.0.0' | Should -Match 'rate limit'
+        $script:EtagCache.Count | Should -Be 0
+    }
+
+    It 'pins a tag to its commit SHA before the contents request' {
+        $calls = [System.Collections.Generic.List[string]]::new()
+        $sha = 'a' * 40
+        function curl.exe {
+            param([Parameter(ValueFromRemainingArguments = $true)]$curlArgs)
+            $url = $curlArgs[-1]
+            $calls.Add($url) | Out-Null
+            $h = [array]::IndexOf($curlArgs, '-D'); $o = [array]::IndexOf($curlArgs, '-o')
+            if ($h -ge 0) { Set-Content -LiteralPath $curlArgs[$h + 1] -Value 'HTTP/1.1 200 OK' -Encoding ASCII }
+            if ($o -ge 0) {
+                if ($url -match '/git/ref/tags/') { [System.IO.File]::WriteAllText($curlArgs[$o + 1], (ConvertTo-Json @{ object = @{ sha = $sha; type = 'commit' } } -Compress)) }
+                else { [System.IO.File]::WriteAllText($curlArgs[$o + 1], "content`n") }
+            }
+            $global:LASTEXITCODE = 0
+        }
+        $script:EtagCache = @{}; $script:EtagTags = @{}; $script:RefShaCache = @{}
+        Invoke-GitHubGet 'https://api.github.com/repos/o/r/contents/README.md?ref=v1.0.0' | Should -Be 'content'
+        $calls | Should -Contain "https://api.github.com/repos/o/r/git/ref/tags/v1.0.0"
+        @($calls | Where-Object { $_ -match "ref=$sha" }).Count | Should -Be 1
+        @($calls | Where-Object { $_ -match 'ref=v1\.0\.0' }).Count | Should -Be 0
+    }
+
+    It 'derefs annotated tags (object type tag) to the commit SHA' {
+        function curl.exe {
+            param([Parameter(ValueFromRemainingArguments = $true)]$curlArgs)
+            $url = $curlArgs[-1]
+            $h = [array]::IndexOf($curlArgs, '-D'); $o = [array]::IndexOf($curlArgs, '-o')
+            if ($h -ge 0) { Set-Content -LiteralPath $curlArgs[$h + 1] -Value 'HTTP/1.1 200 OK' -Encoding ASCII }
+            if ($o -ge 0) {
+                if ($url -match '/git/ref/tags/') { [System.IO.File]::WriteAllText($curlArgs[$o + 1], (ConvertTo-Json @{ object = @{ sha = ('1' * 40); type = 'tag' } } -Compress)) }
+                else { [System.IO.File]::WriteAllText($curlArgs[$o + 1], (ConvertTo-Json @{ object = @{ sha = ('2' * 40); type = 'commit' } } -Compress)) }
+            }
+            $global:LASTEXITCODE = 0
+        }
+        $script:EtagCache = @{}; $script:EtagTags = @{}; $script:RefShaCache = @{}
+        Resolve-GitRefSha -RepoPart 'o/r' -Ref 'vA' | Should -Be ('2' * 40)
+    }
+
+    It 'returns null (never throws) when the ref cannot be resolved' {
+        function curl.exe {
+            param([Parameter(ValueFromRemainingArguments = $true)]$curlArgs)
+            $o = [array]::IndexOf($curlArgs, '-o')
+            if ($o -ge 0) { [System.IO.File]::WriteAllText($curlArgs[$o + 1], '{"message":"Not Found"}') }
+            $global:LASTEXITCODE = 0
+        }
+        $script:EtagCache = @{}; $script:EtagTags = @{}; $script:RefShaCache = @{}
+        Resolve-GitRefSha -RepoPart 'o/r' -Ref 'vGhost' | Should -BeNullOrEmpty
+    }
+}
+
 Describe 'README changelog sync (static check)' {
 
     It 'has a What''s-new section for every changelog table row' {

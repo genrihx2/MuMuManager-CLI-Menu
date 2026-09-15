@@ -4,6 +4,14 @@
 
 ---
 
+## v1.21.0 (15.09.2026)
+- **Tag→commit-SHA pinning everywhere (issue #22)**: every `?ref=<tag>` contents fetch in `[U]`, `[F]`, the heal and the bootstrap is rewritten to `?ref=<commit sha>`. The contents API resolves a ref at fetch time, so a CDN edge can serve the previous commit's blob minutes after a tag push - the bug class behind the v1.20.3-v1.20.6 incident fixes. A commit SHA is immutable; a stale read is impossible by construction. If resolution fails, the plain tag URL is used and SHA-256 verification still covers every byte.
+- **ETag cache with 304 replay** in `Invoke-GitHubGet`: repeat fetches of the same URL within one menu session send `If-None-Match` and replay the cached body on `304 Not Modified` without transferring it. Only real content bodies are cached - API error responses (rate limits) stay retryable and never anchor an ETag.
+- **`bootstrap-update.ps1` pins its tag too**: in reference-hash collection and the download loop, with the post-download SHA-256 verification as the always-on fallback.
+- **Fixed the dead `[U]` heal**: the version-fix block referenced `$localText`/`$remoteText` that were never assigned - the heal could never fire. Local text is now read, and the fetched reference is commit-pinned before comparing.
+- **Honest retreat on "cheap hashes"**: the `application/vnd.github.sha` media type is not supported by the contents endpoint (verified live) - reference hashes still come from bodies; repeat fetches got cheaper via the ETag cache instead.
+- Tests: 6 new Pester tests (304 replay, error-not-cached, pinning call order, annotated-tag deref, unresolvable-ref null), extended bootstrap regression suite (40-hex gate, pinned ref resolution); suite 41 green; live-verified against the real API (resolve → pinned fetch → sha-vs-tag equality → repeat fetch).
+
 ## v1.20.6 (15.09.2026)
 - **`[J]` journal viewer polish**: an empty `from` field renders as `(new) -> vX.Y.Z` (first-ever event on a fresh install, marker file absent), and consecutive events from the same run (identical timestamp + actor, e.g. `update-ok` + `updater-refresh`) are grouped - continuations print with an ASCII `- ` marker instead of repeating the timestamp/actor columns. No box-drawing glyphs: they are not in OEM console codepages.
 

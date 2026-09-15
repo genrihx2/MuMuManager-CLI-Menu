@@ -381,15 +381,51 @@ function Invoke-CurlGetRaw {
     }
 }
 
+# Issue #22: a 40-hex SHA gate. The contents API resolves ?ref=<tag> at
+# fetch time, so a CDN edge can serve the previous commit's blob after a
+# tag push. A commit SHA is immutable - requests through a pinned URL are
+# immune by construction.
+function Test-GitSha {
+    param([string]$S)
+    return ($S -match '^[0-9a-fA-F]{40}$')
+}
+
 # Expected SHA-256 per file, from the tag content via the contents API
 # (bodies that start with '{' are API errors/rate limits - skipped, never
 # treated as content; a missing entry means 'unknown', not 'zero').
+# The tag URL is pinned to the tag's commit SHA first (issue #22): the
+# contents API resolves ?ref=<tag> at fetch time, so an edge can serve the
+# previous commit's blob minutes after the tag push. A commit SHA is
+# immutable - a stale read is impossible by construction.
 function Get-ExpectedHashes {
     param([string]$Tag, [string[]]$Names)
     $result = @{}
+    $ref = $Tag
+    if ($Tag -and -not (Test-GitSha $Tag)) {
+        try {
+            $r = Invoke-CurlGetRaw "https://api.github.com/repos/$repo/git/ref/tags/$Tag"
+            $t = if ($r) { $r.Trim() } else { '' }
+            if ($t -and -not ($t.StartsWith('{') -and $t -match '"message"\s*:\s*')) {
+                $obj = ($t | ConvertFrom-Json).object
+                if ($obj -and $obj.sha -and (Test-GitSha $obj.sha)) {
+                    $ref = $obj.sha
+                    if ($obj.type -eq 'tag') {
+                        $r2 = Invoke-CurlGetRaw "https://api.github.com/repos/$repo/git/tags/$($obj.sha)"
+                        $t2 = if ($r2) { $r2.Trim() } else { '' }
+                        if ($t2 -and -not ($t2.StartsWith('{') -and $t2 -match '"message"\s*:\s*')) {
+                            $obj2 = ($t2 | ConvertFrom-Json).object
+                            if ($obj2 -and $obj2.sha -and (Test-GitSha $obj2.sha)) { $ref = $obj2.sha }
+                        }
+                    }
+                }
+            }
+        } catch {
+            Write-Debug "Ref resolve failed for ${Tag}: $($_.Exception.Message)"
+        }
+    }
     foreach ($n in $Names) {
         try {
-            $remote = Invoke-CurlGetRaw "https://api.github.com/repos/$repo/contents/$n`?ref=$Tag"
+            $remote = Invoke-CurlGetRaw "https://api.github.com/repos/$repo/contents/$n`?ref=$ref"
             if (-not $remote) { continue }
             $t = $remote.TrimEnd()
             if ($t.StartsWith('{') -and $t -match '"message"\s*:\s*"') { continue }
@@ -477,6 +513,31 @@ foreach ($f in $files) {
     # The updater itself goes to .new: never overwrite the running script.
     if ($f -eq 'bootstrap-update.ps1') { $dest = "$dest.new" }
     $tag = if ($remoteTag) { $remoteTag } else { 'main' }
+    # Issue #22: pin a tag name to its commit SHA before fetching. The
+    # contents API resolves ?ref=<tag> at fetch time, so a CDN edge can
+    # serve the previous commit's blob minutes after a tag push; a commit
+    # SHA is immutable. Failure to resolve keeps the plain tag URL (and the
+    # SHA-256 verification still covers every downloaded byte).
+    if (-not (Test-GitSha $tag)) {
+        $pinned = Invoke-CurlGetRaw "https://api.github.com/repos/$repo/git/ref/tags/$tag"
+        $pt = if ($pinned) { $pinned.Trim() } else { '' }
+        if ($pt -and -not ($pt.StartsWith('{') -and $pt -match '"message"\s*:\s*')) {
+            try {
+                $po = ($pt | ConvertFrom-Json).object
+                if ($po -and $po.sha -and (Test-GitSha $po.sha)) {
+                    if ($po.type -eq 'tag') {
+                        $p2 = Invoke-CurlGetRaw "https://api.github.com/repos/$repo/git/tags/$($po.sha)"
+                        $p2t = if ($p2) { $p2.Trim() } else { '' }
+                        if ($p2t -and -not ($p2t.StartsWith('{') -and $p2t -match '"message"\s*:\s*')) {
+                            $po2 = ($p2t | ConvertFrom-Json).object
+                            if ($po2 -and $po2.sha -and (Test-GitSha $po2.sha)) { $tag = $po2.sha } else { $tag = $po.sha }
+                        } else { $tag = $po.sha }
+                    } else { $tag = $po.sha }
+                    Write-Host "  (tag pinned to commit $($tag.Substring(0, 8)))" -ForegroundColor DarkGray
+                }
+            } catch { Write-Debug "Download-loop ref pin failed: $($_.Exception.Message)" }
+        }
+    }
     $url = "https://api.github.com/repos/$repo/contents/$f`?ref=$tag"
 
     Write-Host "  $f" -ForegroundColor Yellow -NoNewline
