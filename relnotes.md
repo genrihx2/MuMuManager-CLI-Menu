@@ -4,6 +4,9 @@
 
 ---
 
+## v1.21.7 (15.09.2026)
+- **Emulator diagnostics in `[DIAG]` (issue #32)**: one `MuMuManager info -v all` query adds the emulator side to the problem screen - instance count, running state, and ADB-bridge readiness. No instances / none running are info (create/launch hints), a running instance with no ready ADB bridge is a warning (the exact state that made in-emulator commands like `curl` fail with "inaccessible or not found"), and a MuMuManager that does not answer cleanly warns without breaking the diagnostics. Live catch fixed before ship: the real binary emits pretty-printed multi-line JSON, which pwsh 7 parses line-by-line in a pipeline - the probe now joins lines before parsing (regression-tested). 9 new Pester tests with a real-child-process `.cmd` stub; suite 81 green on PS 5.1 and pwsh 7.
+
 ## v1.21.6 (15.09.2026)
 - Release carrying the `[ST]` deep-check false-DRIFT fix (`07f30fa`): `Get-IntegrityVerdict` classifies the integrity report by its own `summary|` verdict, so metadata lines can never masquerade as drift. Suite 73 green.
 

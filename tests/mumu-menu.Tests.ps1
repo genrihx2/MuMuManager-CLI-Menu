@@ -23,7 +23,7 @@ BeforeAll {
                         'Get-JournalArrow', 'Show-UpdateJournal',
                         'Test-UpdateLockStale', 'Get-UpdateLockMessage', 'New-UpdateLock', 'Remove-UpdateLock',
                         'ConvertTo-JournalMarkdown', 'ConvertTo-JournalCsv', 'ConvertTo-JournalJson', 'Export-UpdateJournal',
-                        'Get-ProblemFindings', 'Get-InstallStatus', 'Get-IntegrityVerdict')) {
+                        'Get-ProblemFindings', 'Get-InstallStatus', 'Get-IntegrityVerdict', 'Invoke-MumuManagerProbe')) {
         $f = $script:ast.FindAll({
             param($node)
             $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -620,11 +620,11 @@ Describe 'Problem diagnostics (Get-ProblemFindings)' {
             New-Item -ItemType Directory -Path $d -Force | Out-Null
             Set-Content -LiteralPath (Join-Path $d 'mumu-menu.ps1') -Value "`$scriptVer = '1.21.3'`n# body"
             Set-Content -LiteralPath (Join-Path $d '.version') -Value 'v1.21.3' -NoNewline
-            # The "healthy MuMu" fixture path: the check only requires the
-            # file to exist (no emulator call - diagnostics stay local-only).
-            Set-Content -LiteralPath (Join-Path $d 'MuMuManager.exe') -Value 'stub'
             # A healthy USED install has a journal with at least one valid
             # event ("no journal yet" is the fresh-install info finding).
+            Set-Content -LiteralPath (Join-Path $d 'MuMuManager.exe') -Value 'stub'
+            # MuMuManager.exe: existence is still checked by the diagnostics;
+            # emulator-state tests inject the probe result via MumuProbe.
             [System.IO.File]::WriteAllLines((Join-Path $d 'update-journal.log'), [string[]]@("2026-09-15 10:00:00`tbootstrap`tupdate-ok`tv1.21.2`tv1.21.3`t4 file(s) updated"), (New-Object System.Text.UTF8Encoding($false)))
             return $d
         }
@@ -646,8 +646,10 @@ Describe 'Problem diagnostics (Get-ProblemFindings)' {
 
     It 'reports a healthy fixture install as zero findings' {
         $d = New-FixtureInstall
-        $f = Invoke-Diag -Dir $d
-        $f.Count | Should -Be 0
+        # The emulator section now runs a real probe; inject a healthy one.
+        # @(): a single finding unrolls to a scalar - PS 5.1 has no .Count on it
+        $f = @(Invoke-Diag -Dir $d -Overrides @{ MumuProbe = { param($exe) @{ found = $true; instances = 1; running = 0; adbReady = $false; error = '' } } })
+        $f.Count | Should -Be 1   # the single 'none running' info
     }
 
     It 'flags a marker ahead of content as the wedge error' {
@@ -713,7 +715,7 @@ Describe 'Problem diagnostics (Get-ProblemFindings)' {
 
     It 'old MuMu version warns; missing MuMuManager errors' {
         $d = New-FixtureInstall
-        $f = Invoke-Diag -Dir $d -Overrides @{ InstalledVersion = '4.0.0.3000' }
+        $f = Invoke-Diag -Dir $d -Overrides @{ InstalledVersion = '4.0.0.3000'; MumuProbe = { param($exe) @{ found = $true; instances = 0; running = 0; adbReady = $false; error = '' } } }
         @($f | Where-Object { $_.area -eq 'mumu' -and $_.severity -eq 'warn' -and $_.message -match 'below the minimum' }).Count | Should -Be 1
         $f2 = Invoke-Diag -Dir $d -Overrides @{ MumuPath = 'C:\definitely-missing\MuMuManager.exe' }
         @($f2 | Where-Object { $_.area -eq 'mumu' -and $_.severity -eq 'error' -and $_.message -match 'not found' }).Count | Should -Be 1
@@ -852,5 +854,110 @@ Describe 'Integrity verdict classifier ([ST] deep check)' {
         $v2 = Get-IntegrityVerdict -Report @()
         $v2.ok | Should -BeFalse
         $v2.detail | Should -Match 'could not run'
+    }
+}
+
+Describe 'Emulator diagnostics (issue #32)' {
+
+    BeforeAll {
+        # A stub MuMuManager: a real executable child process (same stdio
+        # path as the actual binary). A .cmd file is runnable via & from any
+        # PowerShell edition; the JSON payload lives in a BOM-less file that
+        # the batch prints verbatim via type (BOM would break ConvertFrom-Json).
+        function New-MumuStub {
+            param([string]$Dir, [string]$Json, [switch]$Crash)
+            $exe = Join-Path $Dir 'MuMuManager.cmd'
+            $outFile = Join-Path $Dir 'mu-stub-out.txt'
+            $modeFile = Join-Path $Dir 'mu-stub-mode.txt'
+            if ($Crash) { Set-Content -LiteralPath $modeFile -Value 'crash' } else { Set-Content -LiteralPath $modeFile -Value 'json' }
+            [System.IO.File]::WriteAllText($outFile, $Json)
+            $bat = "@echo off`r`nfindstr /C:`"crash`" `"$modeFile`" >nul 2>&1 && exit /b 3`r`ntype `"$outFile`"`r`n"
+            [System.IO.File]::WriteAllText($exe, $bat)
+            return $exe
+        }
+        function Invoke-Diag2 {
+            param([string]$Dir, [string]$MumuExe, [scriptblock]$Probe)
+            Get-ProblemFindings -ScriptDir $Dir -VersionFile (Join-Path $Dir '.version') -MenuPath (Join-Path $Dir 'mumu-menu.ps1') `
+                -JournalFile (Join-Path $Dir 'update-journal.log') -MumuPath $MumuExe -InstalledVersion '' -ScriptVer '1.21.6' -MumuProbe $Probe
+        }
+        $d = Join-Path $TestDrive "emu_$(Get-Random)"
+        New-Item -ItemType Directory -Path $d -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $d 'mumu-menu.ps1') -Value "`$scriptVer = '1.21.6'"
+        Set-Content -LiteralPath (Join-Path $d '.version') -Value 'v1.21.6' -NoNewline
+        [System.IO.File]::WriteAllLines((Join-Path $d 'update-journal.log'), [string[]]@("2026-09-15 10:00:00`tbootstrap`tupdate-ok`tv1.21.5`tv1.21.6`tok"), (New-Object System.Text.UTF8Encoding($false)))
+        $script:emuDir = $d
+        $script:emuProbe = { param($exe) Invoke-MumuManagerProbe -MumuPathOverride $exe }
+    }
+
+    It 'probe parses the real info shape: instances, running, adb readiness' {
+        $exe = New-MumuStub -Dir $script:emuDir -Json '{"0":{"player_state":"started","adb_version":"1.0.41"},"1":{"player_state":"stopped"}}'
+        $p = Invoke-MumuManagerProbe -MumuPathOverride $exe
+        $p.found | Should -BeTrue
+        $p.instances | Should -Be 2
+        $p.running | Should -Be 1
+        $p.adbReady | Should -BeTrue
+        $p.error | Should -Be ''
+    }
+
+    It 'probe flags a running instance whose ADB bridge is not ready' {
+        $exe = New-MumuStub -Dir $script:emuDir -Json '{"0":{"player_state":"started"}}'
+        $p = Invoke-MumuManagerProbe -MumuPathOverride $exe
+        $p.running | Should -Be 1
+        $p.adbReady | Should -BeFalse
+    }
+
+    It 'probe degrades quietly on crash and non-JSON output' {
+        $exe = New-MumuStub -Dir $script:emuDir -Json '' -Crash
+        $p = Invoke-MumuManagerProbe -MumuPathOverride $exe
+        $p.found | Should -BeTrue
+        $p.error | Should -Not -Be ''
+        $exe2 = New-MumuStub -Dir $script:emuDir -Json 'MuMuManager: fatal error 0x80070002'
+        $p2 = Invoke-MumuManagerProbe -MumuPathOverride $exe2
+        $p2.error | Should -Match 'not JSON'
+    }
+
+    It 'probe: missing binary is found=false, empty output is an error' {
+        $p = Invoke-MumuManagerProbe -MumuPathOverride 'C:\definitely-missing\MuMuManager.exe'
+        $p.found | Should -BeFalse
+        $p.error | Should -Be 'not found'
+    }
+
+    It 'probe parses pretty-printed multi-line JSON like the real MuMuManager output' {
+        # The real binary emits formatted JSON; pwsh 7 parses each pipeline
+        # line separately (every line alone is invalid) - the probe must join
+        # lines before parsing. Regression for the v1.21.7 live catch.
+        $json = "{`n  `"0`": {`n    `"player_state`": `"started`",`n    `"adb_version`": `"1.0.41`"`n  }`n}"
+        $exe = New-MumuStub -Dir $script:emuDir -Json $json
+        $p = Invoke-MumuManagerProbe -MumuPathOverride $exe
+        $p.error | Should -Be ''
+        $p.instances | Should -Be 1
+        $p.running | Should -Be 1
+        $p.adbReady | Should -BeTrue
+    }
+
+    It 'diagnostics warn when a running instance has no ADB bridge' {
+        $exe = New-MumuStub -Dir $script:emuDir -Json '{"0":{"player_state":"started"}}'
+        $f = Invoke-Diag2 -Dir $script:emuDir -MumuExe $exe -Probe $script:emuProbe
+        @($f | Where-Object { $_.area -eq 'emulator' -and $_.severity -eq 'warn' -and $_.message -match 'ADB bridge not ready' }).Count | Should -Be 1
+        @($f | Where-Object { $_.area -eq 'emulator' -and $_.message -match '1 of 1 instance' }).Count | Should -Be 1
+    }
+
+    It 'diagnostics stay quiet for a healthy running instance with ADB ready' {
+        $exe = New-MumuStub -Dir $script:emuDir -Json '{"0":{"player_state":"started","adb_version":"1.0.41"}}'
+        $f = Invoke-Diag2 -Dir $script:emuDir -MumuExe $exe -Probe $script:emuProbe
+        @($f | Where-Object { $_.severity -eq 'error' -or $_.severity -eq 'warn' }).Count | Should -Be 0
+        @($f | Where-Object { $_.area -eq 'emulator' -and $_.message -match '1 of 1 instance\(s\) running' }).Count | Should -Be 1
+    }
+
+    It 'diagnostics: no instances and stopped instances are info, MuMuManager crash is a warning' {
+        $exe = New-MumuStub -Dir $script:emuDir -Json '{}'
+        $f = Invoke-Diag2 -Dir $script:emuDir -MumuExe $exe -Probe $script:emuProbe
+        @($f | Where-Object { $_.area -eq 'emulator' -and $_.severity -eq 'info' -and $_.message -match 'no emulator instances' }).Count | Should -Be 1
+        $exe2 = New-MumuStub -Dir $script:emuDir -Json '{"0":{"player_state":"stopped"}}'
+        $f2 = Invoke-Diag2 -Dir $script:emuDir -MumuExe $exe2 -Probe $script:emuProbe
+        @($f2 | Where-Object { $_.area -eq 'emulator' -and $_.message -match 'none running' }).Count | Should -Be 1
+        $exe3 = New-MumuStub -Dir $script:emuDir -Json '' -Crash
+        $f3 = Invoke-Diag2 -Dir $script:emuDir -MumuExe $exe3 -Probe $script:emuProbe
+        @($f3 | Where-Object { $_.area -eq 'mumu' -and $_.severity -eq 'warn' -and $_.message -match 'did not answer cleanly' }).Count | Should -Be 1
     }
 }

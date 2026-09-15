@@ -226,7 +226,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.21.6'
+$scriptVer = '1.21.7'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -1843,6 +1843,45 @@ function Export-UpdateJournal {
 # version marker vs the script's own $scriptVer (the v1.20.5 wedge class),
 # the update lock, pending .new/.old files and the journal's health.
 
+function Invoke-MumuManagerProbe {
+    # One MuMuManager info query, parsed into testable data (issue #32).
+    # $MumuPathOverride is for tests (stub binary); production passes the
+    # auto-detected $MumuPath via -TargetPath. Returns a hashtable:
+    # found, instances, running, adbReady, error, rawFirstLine.
+    param(
+        [string]$MumuPathOverride = '',
+        [string]$TargetPath = ''
+    )
+    $r = @{ found = $false; instances = -1; running = -1; adbReady = $false; error = ''; rawFirstLine = '' }
+    $exe = if ($MumuPathOverride) { $MumuPathOverride } else { $TargetPath }
+    if (-not ($exe -and (Test-Path -LiteralPath $exe -PathType Leaf))) { $r.error = 'not found'; return $r }
+    $r.found = $true
+    $raw = $null
+    try { $raw = & $exe info -v all 2>$null } catch { $r.error = $_.Exception.Message; return $r }
+    $outLines = @($raw | Where-Object { $_ -and $_.ToString().Trim() })
+    if ($outLines.Count -gt 0) { $r.rawFirstLine = $outLines[0].ToString().Trim() }
+    if ($outLines.Count -eq 0) { $r.error = 'no output'; return $r }
+    $info = $null
+    # Join before parsing: MuMuManager emits pretty-printed multi-line JSON.
+    # PS 5.1's pipeline ConvertFrom-Json concatenates input lines, but pwsh 7
+    # parses each pipeline item separately (every line alone is invalid JSON).
+    try { $info = ($outLines -join "`n") | ConvertFrom-Json } catch { $r.error = 'output is not JSON'; return $r }
+    $total = 0; $running = 0; $adb = $false
+    foreach ($key in $info.PSObject.Properties.Name) {
+        $inst = $info.$key
+        if ($null -eq $inst -or -not $inst.PSObject.Properties['player_state']) { continue }
+        $total++
+        $st = "$($inst.player_state)"
+        if ($st -notmatch 'stopped|shutting') { $running++ }
+        $av = if ($inst.PSObject.Properties['adb_version']) { "$($inst.adb_version)" } else { '' }
+        if ($av -and $av.Trim() -and $av -ne '0') { $adb = $true }
+    }
+    $r.instances = $total
+    $r.running = $running
+    $r.adbReady = $adb
+    return $r
+}
+
 function Get-ProblemFindings {
     # Returns an array of finding objects:
     #   severity: 'error' | 'warn' | 'info'   area: install|lock|journal|mumu
@@ -1856,7 +1895,8 @@ function Get-ProblemFindings {
         [string]$MumuPath,
         [string]$InstalledVersion = '',
         [string]$ScriptVer = '',
-        [string]$MinVersion = '4.0.0.3179'
+        [string]$MinVersion = '4.0.0.3179',
+        [scriptblock]$MumuProbe = { param($exe) Invoke-MumuManagerProbe -TargetPath $exe }
     )
     $findings = New-Object System.Collections.Generic.List[object]
     $add = { param($sev, $area, $msg) $findings.Add([pscustomobject]@{ severity = $sev; area = $area; message = $msg }) }
@@ -1949,12 +1989,38 @@ function Get-ProblemFindings {
     # ── MuMu environment ──────────────────────────────────────────
     if (-not ($MumuPath -and (Test-Path -LiteralPath $MumuPath -PathType Leaf))) {
         & $add 'error' 'mumu' "MuMuManager.exe not found - emulator functions will not work"
-    } elseif ($InstalledVersion) {
+    } else {
+        if ($InstalledVersion) {
+            try {
+                if ([version]$InstalledVersion -lt [version]$MinVersion) {
+                    & $add 'warn' 'mumu' "MuMu version $InstalledVersion is below the minimum $MinVersion - some commands may fail"
+                }
+            } catch { & $add 'warn' 'mumu' "could not parse MuMu version '$InstalledVersion'" }
+        }
+        # Emulator section (issue #32): one info query - instance count,
+        # running state, ADB-bridge readiness. Quiet degradation: a failed
+        # probe warns but never breaks the diagnostics.
         try {
-            if ([version]$InstalledVersion -lt [version]$MinVersion) {
-                & $add 'warn' 'mumu' "MuMu version $InstalledVersion is below the minimum $MinVersion - some commands may fail"
+            $probe = & $MumuProbe $MumuPath
+            if (-not $probe.found) {
+                & $add 'error' 'mumu' "MuMuManager.exe not found - emulator functions will not work"
+            } elseif ($probe.error) {
+                & $add 'warn' 'mumu' "MuMuManager did not answer cleanly ($($probe.error))$(if ($probe.rawFirstLine) { ": $($probe.rawFirstLine)" })"
+            } else {
+                if ($probe.instances -eq 0) {
+                    & $add 'info' 'emulator' "no emulator instances - create one with menu [5]"
+                } elseif ($probe.running -eq 0) {
+                    & $add 'info' 'emulator' "$($probe.instances) instance(s) present, none running - launch with menu [2]"
+                } else {
+                    & $add 'info' 'emulator' "$($probe.running) of $($probe.instances) instance(s) running"
+                    if (-not $probe.adbReady) {
+                        & $add 'warn' 'emulator' "ADB bridge not ready on the running instance - wait a moment or restart it; in-emulator commands (curl, adb shell) will fail until then"
+                    }
+                }
             }
-        } catch { & $add 'warn' 'mumu' "could not parse MuMu version '$InstalledVersion'" }
+        } catch {
+            & $add 'warn' 'mumu' "emulator probe failed: $($_.Exception.Message)"
+        }
     }
 
     # ── Disk space ────────────────────────────────────────────────

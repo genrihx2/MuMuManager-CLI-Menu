@@ -49,7 +49,7 @@ cd MuMuManager-CLI-Menu
 - `[U]` Check for updates (downloads from GitHub Releases, incl. bootstrap-update.ps1 itself)
 - `[F]` Verify installation (SHA-256 of local files vs release tag)
 - `[J]` Update journal (history of [U]/bootstrap updates: OK, failures, version fixes; export to MD/CSV/JSON via `[J] -> 5`)
-- `[DIAG]` Problem diagnostics (read-only health screen: marker wedge, update lock, journal health, MuMu environment, disk space)
+- `[DIAG]` Problem diagnostics (read-only health screen: marker wedge, update lock, journal health, MuMu environment incl. emulator instances/running/ADB bridge, disk space)
 - `[ST]` Install status (read-only: local marker vs latest release, drift, last ZIP verification, journal summary; `d` = full online check)
 - `[V]` Version info (script, MuMu, .NET, disk, ADB, certificate)
 - `[K]` Update GitHub token (DPAPI-encrypted)
