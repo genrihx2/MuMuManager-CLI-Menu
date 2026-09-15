@@ -19,7 +19,8 @@ BeforeAll {
     # definitions stay visible to every It (dot-sourcing inside a helper
     # function would scope them to the helper and lose them).
     foreach ($name in @('Get-ContentHash', 'ConvertTo-ShellSafe', 'Compare-ScriptVersion',
-                        'Format-JournalEvent', 'Test-ReleaseZip', 'Write-UpdateJournal', 'Test-ScriptVerMatchesTag')) {
+                        'Format-JournalEvent', 'Test-ReleaseZip', 'Write-UpdateJournal', 'Test-ScriptVerMatchesTag',
+                        'Get-JournalArrow', 'Show-UpdateJournal')) {
         $f = $script:ast.FindAll({
             param($node)
             $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -89,6 +90,50 @@ Describe 'Test-ScriptVerMatchesTag (version-fix heal guard)' {
     }
 }
 
+Describe 'Get-JournalArrow (from/to rendering)' {
+
+    It 'joins both fields with an arrow' {
+        Get-JournalArrow -From 'v1.20.3' -To 'v1.20.4' | Should -Be 'v1.20.3 -> v1.20.4'
+    }
+
+    It 'renders an empty from as (new)' {
+        Get-JournalArrow -From '' -To 'v1.20.3' | Should -Be '(new) -> v1.20.3'
+    }
+
+    It 'passes a lone from through' {
+        Get-JournalArrow -From 'v1.20.2' -To '' | Should -Be 'v1.20.2'
+    }
+
+    It 'returns empty when both are empty' {
+        Get-JournalArrow -From '' -To '' | Should -Be ''
+    }
+}
+
+Describe 'Show-UpdateJournal rendering' {
+
+    It 'renders (new) markers and groups same-run events' {
+        $jf = Join-Path $TestDrive 'journal-view.log'
+        $lines = @(
+            (@('2026-09-15 10:46:32', 'menu', 'version-fix', '', 'v1.20.3', 'content matches tag; .version healed') -join "`t"),
+            (@('2026-09-15 11:00:00', 'bootstrap', 'update-ok', 'v1.20.4', 'v1.20.5', '4 file(s) updated') -join "`t"),
+            (@('2026-09-15 11:00:00', 'bootstrap', 'updater-refresh', 'v1.20.4', 'v1.20.5', 'bootstrap-update.ps1 updated from .new') -join "`t")
+        )
+        [System.IO.File]::WriteAllLines($jf, $lines)
+        # Point the viewer at the fixture, then restore - other Describes
+        # (Format-JournalEvent) rely on the BeforeAll-configured path.
+        $prev = $script:JournalFile
+        $script:JournalFile = $jf
+        try {
+            $out = (Show-UpdateJournal -Mode '2' 6>&1 | Out-String)
+            $out | Should -Match '\(new\) -> v1\.20\.3'
+            $out | Should -Match '- updater-refresh'
+            # grouped line must not repeat the timestamp
+            $out | Should -Not -Match '11:00:00.*updater-refresh'
+        } finally {
+            $script:JournalFile = $prev
+        }
+    }
+}
 Describe 'ConvertTo-ShellSafe (Android sh escaping)' {
     It 'passes through safe values unchanged' {
         ConvertTo-ShellSafe 'China Mobile' | Should -Be 'China Mobile'

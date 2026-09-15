@@ -226,7 +226,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.20.5'
+$scriptVer = '1.20.6'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -402,6 +402,16 @@ function Test-ScriptVerMatchesTag {
     $m = [regex]::Match($Text, "(?m)^\s*\`$scriptVer\s*=\s*'(\d+(?:\.\d+){1,3})'")
     if (-not $m.Success) { return $false }
     try { return ((Compare-ScriptVersion -A $m.Groups[1].Value -B $Tag) -eq 0) } catch { return $false }
+}
+
+# The from->to arrow for journal lines: an empty 'from' with a non-empty
+# 'to' means the field did not exist yet (fresh install, marker file
+# absent) and renders as (new) instead of a bare leading arrow.
+function Get-JournalArrow {
+    param([string]$From, [string]$To)
+    if ($From -and $To) { return "$From -> $To" }
+    if ($To) { return "(new) -> $To" }
+    return $From
 }
 
 # ── Update journal (shared with bootstrap-update.ps1) ────────────────
@@ -1369,6 +1379,10 @@ function Show-UpdateJournal {
 
     Write-Host ''
     Write-Host ("  === Update journal ({0} of {1} events) ===" -f $selected.Count, $lines.Count) -ForegroundColor Cyan
+    # Consecutive events sharing timestamp+actor come from one run (e.g.
+    # update-ok + updater-refresh written back to back): only the first
+    # prints the timestamp/actor; the rest render as a tree continuation.
+    $prevRunKey = ''
     foreach ($raw in $selected) {
         $p = $raw -split "`t", 6
         if ($p.Count -lt 6) { Write-Host "  $raw" -ForegroundColor White; continue }
@@ -1379,12 +1393,19 @@ function Show-UpdateJournal {
             default { 'White' }
         }
         $info = @()
-        if ($p[3] -or $p[4]) {
-            $arrow = if ($p[3] -and $p[4]) { "$($p[3]) -> $($p[4])" } elseif ($p[4]) { "-> $($p[4])" } else { $p[3] }
-            $info += $arrow
-        }
+        $arrow = Get-JournalArrow -From $p[3] -To $p[4]
+        if ($arrow) { $info += $arrow }
         if ($p[5]) { $info += $p[5] }
-        Write-Host ("  {0}  {1,-9} {2,-12} {3}" -f $p[0], $p[1], $p[2], ($info -join ' | ')) -ForegroundColor $color
+        $runKey = "$($p[0])|$($p[1])"
+        $sameRun = ($runKey -eq $prevRunKey)
+        $prevRunKey = $runKey
+        if ($sameRun) {
+            # ASCII continuation marker: box-drawing glyphs are not in OEM
+            # codepages (cp866 etc.) and would render as garbage in the menu.
+            Write-Host ("  {0}  {1,-9} {2,-12} {3}" -f (' ' * 19), '', ('- ' + $p[2]), ($info -join ' | ')) -ForegroundColor $color
+        } else {
+            Write-Host ("  {0}  {1,-9} {2,-12} {3}" -f $p[0], $p[1], $p[2], ($info -join ' | ')) -ForegroundColor $color
+        }
     }
     Write-Host ("  file: {0}" -f $file) -ForegroundColor DarkGray
 }

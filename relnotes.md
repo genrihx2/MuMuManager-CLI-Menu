@@ -4,6 +4,9 @@
 
 ---
 
+## v1.20.6 (15.09.2026)
+- **`[J]` journal viewer polish**: an empty `from` field renders as `(new) -> vX.Y.Z` (first-ever event on a fresh install, marker file absent), and consecutive events from the same run (identical timestamp + actor, e.g. `update-ok` + `updater-refresh`) are grouped - continuations print with an ASCII `- ` marker instead of repeating the timestamp/actor columns. No box-drawing glyphs: they are not in OEM console codepages.
+
 ## v1.20.5 (15.09.2026)
 - **Fix the startup `.version` heal**: fetched content must claim the tag's own `scriptVer` or the heal is skipped - a stale CDN blob of the *previous* release can no longer raise the marker to a tag whose content never arrived (seen live on v1.20.4: the install wedged on "Up to date" with v1.20.3 content under a v1.20.4 marker).
 
