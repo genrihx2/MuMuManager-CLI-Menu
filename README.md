@@ -177,6 +177,7 @@ cd MuMuManager-CLI-Menu
   [ST] Install status (read-only)
   [J] Update journal
   [DIAG] Problem diagnostics
+  [RB] Rollback from backup
   [DL] Download repository
   [CR] Create release
   [FR] Fix release encoding
@@ -347,7 +348,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.21.7
+Script version: 1.21.8
 MuMu version: 6.5.2.0
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
