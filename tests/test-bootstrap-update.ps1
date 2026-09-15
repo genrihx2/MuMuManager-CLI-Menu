@@ -541,7 +541,9 @@ try {
         Set-Content -LiteralPath $diagMenu -Value "`$scriptVer = '1.21.8'"
         Set-Content -LiteralPath $diagVer -Value 'v1.21.8' -NoNewline
         $fOk = @(Get-BootstrapFindings -Dir $diagDir -MenuPath $diagMenu -VersionFile $diagVer -JournalFile $diagJournal)
-        Assert-True -Name 'healthy install: zero error/warn findings' -Condition (@($fOk | Where-Object { $_.severity -ne 'info' }).Count -eq 0) -Detail "findings: $($fOk.Count)"
+        # Assert only on fixture-controlled areas: 'mumu' depends on the runner
+        # having MuMu installed, 'journal' fires its fresh-install info here.
+        Assert-True -Name 'healthy install: zero error/warn findings (install/lock)' -Condition (@($fOk | Where-Object { ($_.area -eq 'install' -or $_.area -eq 'lock') -and $_.severity -ne 'info' }).Count -eq 0) -Detail "findings: $($fOk.Count)"
         # Wedge: marker ahead of the content -> error naming the repair path.
         Set-Content -LiteralPath $diagVer -Value 'v1.22.0' -NoNewline
         $fWedge = @(Get-BootstrapFindings -Dir $diagDir -MenuPath $diagMenu -VersionFile $diagVer -JournalFile $diagJournal)
