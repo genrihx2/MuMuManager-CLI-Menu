@@ -100,6 +100,108 @@ function Apply-PendingUpdater {
     }
 }
 
+# ── Single-flight update lock (issue #24) ─────────────────────────────
+# The menu's [U] updater and this script write the same files; a concurrent
+# run could corrupt state or double-apply. The lock is a .update-lock file
+# created with CreateNew - the create call itself is the atomic test-and-
+# set, so two processes can never both win. Content: PID + timestamp.
+# A lock older than 10 minutes is treated as the leftover of a crashed
+# process and is broken. Always released in finally, including Ctrl+C.
+# (Same implementation as mumu-menu.ps1; both scripts run standalone.)
+$script:UpdateLockStaleMinutes = 10
+
+function Test-UpdateLockStale {
+    param([string]$LockPath)
+    $limit = if ($script:UpdateLockStaleMinutes) { [int]$script:UpdateLockStaleMinutes } else { 10 }
+    try {
+        if (-not (Test-Path -LiteralPath $LockPath -PathType Leaf)) { return $false }
+        $age = ((Get-Date) - (Get-Item -LiteralPath $LockPath).LastWriteTime).TotalMinutes
+        return ($age -gt $limit)
+    } catch {
+        Write-Debug "Lock staleness check failed: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+function Get-UpdateLockMessage {
+    param([string]$LockPath)
+    $owner = ''
+    try {
+        if (Test-Path -LiteralPath $LockPath -PathType Leaf) {
+            $owner = (Get-Content -LiteralPath $LockPath -TotalCount 1 -ErrorAction SilentlyContinue)
+        }
+    } catch { Write-Debug "Lock owner read failed: $($_.Exception.Message)" }
+    $limit = if ($script:UpdateLockStaleMinutes) { [int]$script:UpdateLockStaleMinutes } else { 10 }
+    $age = ''
+    try {
+        if (Test-Path -LiteralPath $LockPath -PathType Leaf) {
+            $mins = [math]::Round(((Get-Date) - (Get-Item -LiteralPath $LockPath).LastWriteTime).TotalMinutes, 1)
+            $age = ", age ${mins} min"
+        }
+    } catch { Write-Debug "Lock age read failed: $($_.Exception.Message)" }
+    return ("held by {0}{1}. Close that updater or wait; if it crashed, the lock expires after {2} minutes." -f $owner, $age, $limit)
+}
+
+function New-UpdateLock {
+    # Atomically claim the update lock. Returns $true if WE hold it now.
+    # Handles the stale case (break + retry once, create-then-break to close
+    # the classic break/recreate race window) and rethrows anything else.
+    param([string]$Dir)
+    $lockPath = Join-Path $Dir '.update-lock'
+    $now = Get-Date
+    $payload = "PID $PID started $($now.ToString('yyyy-MM-dd HH:mm:ss'))"
+    try {
+        $s = [System.IO.File]::Open($lockPath, 'CreateNew', 'Write', 'None')
+        $w = [System.IO.StreamWriter]::new($s)
+        $w.Write($payload)
+        $w.Flush(); $w.Dispose(); $s.Dispose()
+        return $true
+    } catch [System.IO.IOException] {
+        if (-not (Test-UpdateLockStale -LockPath $lockPath)) {
+            Write-Host ''
+            Write-Host '  Another update is already running:' -ForegroundColor Yellow
+            Write-Host ("  " + (Get-UpdateLockMessage -LockPath $lockPath)) -ForegroundColor Yellow
+            Write-UpdateJournal -EventType 'update-skipped' -Detail '.update-lock held by another process'
+            return $false
+        }
+        # Stale lock: create-then-break. Only the process that successfully
+        # creates .update-lock.new may delete and re-create the lock, so two
+        # racers cannot both end up holding it.
+        $claimPath = "$lockPath.new"
+        try {
+            $c = [System.IO.File]::Open($claimPath, 'CreateNew', 'Write', 'None')
+            $cw = [System.IO.StreamWriter]::new($c)
+            $cw.Write("stale-break by PID $PID")
+            $cw.Flush(); $cw.Dispose(); $c.Dispose()
+        } catch {
+            Write-Host '  Another update is already breaking a stale lock.' -ForegroundColor Yellow
+            Write-UpdateJournal -EventType 'update-skipped' -Detail '.update-lock stale-break race lost'
+            return $false
+        }
+        try {
+            Remove-Item -LiteralPath $lockPath -Force
+            Remove-Item -LiteralPath $claimPath -Force -ErrorAction SilentlyContinue
+            Write-Host '  Removed a stale update lock (leftover of a crashed updater).' -ForegroundColor DarkGray
+            $s2 = [System.IO.File]::Open($lockPath, 'CreateNew', 'Write', 'None')
+            $w2 = [System.IO.StreamWriter]::new($s2)
+            $w2.Write($payload)
+            $w2.Flush(); $w2.Dispose(); $s2.Dispose()
+            return $true
+        } catch {
+            Remove-Item -LiteralPath $claimPath -Force -ErrorAction SilentlyContinue
+            Write-Host '  Another update started while the stale lock was being broken.' -ForegroundColor Yellow
+            Write-UpdateJournal -EventType 'update-skipped' -Detail '.update-lock lost stale-break race'
+            return $false
+        }
+    }
+}
+
+function Remove-UpdateLock {
+    param([string]$Dir)
+    try { Remove-Item -LiteralPath (Join-Path $Dir '.update-lock') -Force -ErrorAction SilentlyContinue } catch { Write-Debug "Lock removal failed: $($_.Exception.Message)" }
+    try { Remove-Item -LiteralPath (Join-Path $Dir '.update-lock.new') -Force -ErrorAction SilentlyContinue } catch { Write-Debug "Lock claim cleanup failed: $($_.Exception.Message)" }
+}
+
 # ── Release ZIP self-test (issue #19) ────────────────────────────────
 # Mirrors the CI checks (release.yml) on the client, before any install:
 #   1. the ZIP's SHA-256 equals the .sha256 sidecar
@@ -470,6 +572,13 @@ if ($localTag -eq $remoteTag -and -not $Force) {
     exit 0
 }
 
+# ── Single-flight lock (issue #24) ───────────────────────────────────
+# Acquired before anything on disk is touched and released in the finally
+# below - including update failures and Ctrl+C. The menu writes the same
+# files via [U], so both paths honor the same lock.
+if (-not (New-UpdateLock -Dir $TargetDir)) { exit 1 }
+try {
+
 if ($remoteTag) {
     Write-Host "  Local:  $localTag" -ForegroundColor DarkGray
     Write-Host "  Remote: $remoteTag" -ForegroundColor Green
@@ -607,4 +716,9 @@ if ($fail -eq 0 -and $ok -gt 0) {
     }
 } else {
     Write-Host "Nothing downloaded." -ForegroundColor Yellow
+}
+
+} finally {
+    # Covers normal exit, update-fail paths and Ctrl+C mid-download.
+    Remove-UpdateLock -Dir $TargetDir
 }

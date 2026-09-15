@@ -20,7 +20,8 @@ BeforeAll {
     # function would scope them to the helper and lose them).
     foreach ($name in @('Get-ContentHash', 'ConvertTo-ShellSafe', 'Compare-ScriptVersion',
                         'Format-JournalEvent', 'Test-ReleaseZip', 'Write-UpdateJournal', 'Test-ScriptVerMatchesTag',
-                        'Get-JournalArrow', 'Show-UpdateJournal')) {
+                        'Get-JournalArrow', 'Show-UpdateJournal',
+                        'Test-UpdateLockStale', 'Get-UpdateLockMessage', 'New-UpdateLock', 'Remove-UpdateLock')) {
         $f = $script:ast.FindAll({
             param($node)
             $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -438,5 +439,82 @@ Describe 'README changelog sync (static check)' {
                     ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
         $rows.Count | Should -BeGreaterThan 0
         $rows | Should -Be $sections
+    }
+}
+
+Describe 'Update lock (issue #24)' {
+
+    It 'acquires an absent lock and leaves PID payload behind' {
+        $dir = Join-Path $TestDrive "lock1_$(Get-Random)"
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        try {
+            New-UpdateLock -Dir $dir | Should -BeTrue
+            $p = Join-Path $dir '.update-lock'
+            Test-Path -LiteralPath $p -PathType Leaf | Should -BeTrue
+            (Get-Content -LiteralPath $p -TotalCount 1) | Should -Match '^PID \d+ started \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$'
+        } finally { Remove-UpdateLock -Dir $dir }
+        Test-Path -LiteralPath (Join-Path $dir '.update-lock') | Should -BeFalse
+    }
+
+    It 'refuses a second concurrent lock, journals update-skipped, releases cleanly' {
+        $dir = Join-Path $TestDrive "lock2_$(Get-Random)"
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        $savedJournal = $script:JournalFile
+        $script:JournalFile = Join-Path $dir 'update-journal.log'
+        try {
+            New-UpdateLock -Dir $dir | Should -BeTrue
+            New-UpdateLock -Dir $dir | Should -BeFalse
+            (Get-Content -LiteralPath $script:JournalFile -Encoding UTF8) | Where-Object { $_ -match "`tupdate-skipped`t" } | Should -Not -BeNullOrEmpty
+        } finally {
+            $script:JournalFile = $savedJournal
+            Remove-UpdateLock -Dir $dir
+        }
+        Test-Path -LiteralPath (Join-Path $dir '.update-lock') | Should -BeFalse
+    }
+
+    It 'treats a fresh lock as not stale and a 20-minute-old lock as stale' {
+        $dir = Join-Path $TestDrive "lock3_$(Get-Random)"
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        $fresh = Join-Path $dir '.update-lock'
+        Set-Content -LiteralPath $fresh -Value 'PID 111 started 2026-09-15 12:00:00'
+        Test-UpdateLockStale -LockPath $fresh | Should -BeFalse
+        (Get-Item -LiteralPath $fresh).LastWriteTime = (Get-Date).AddMinutes(-20)
+        Test-UpdateLockStale -LockPath $fresh | Should -BeTrue
+    }
+
+    It 'breaks a stale lock and acquires afterwards' {
+        $dir = Join-Path $TestDrive "lock4_$(Get-Random)"
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        $stale = Join-Path $dir '.update-lock'
+        Set-Content -LiteralPath $stale -Value 'PID 999999 started 2026-01-01 00:00:00'
+        (Get-Item -LiteralPath $stale).LastWriteTime = (Get-Date).AddMinutes(-20)
+        New-UpdateLock -Dir $dir | Should -BeTrue
+        $p = Get-Content -LiteralPath $stale -TotalCount 1
+        $p | Should -Match "^PID $PID "
+        $p | Should -Not -Match 'PID 999999'
+        Remove-UpdateLock -Dir $dir
+        Test-Path -LiteralPath $stale | Should -BeFalse
+    }
+
+    It 'describes the holder and age in the refusal message' {
+        $dir = Join-Path $TestDrive "lock5_$(Get-Random)"
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        $lock = Join-Path $dir '.update-lock'
+        Set-Content -LiteralPath $lock -Value 'PID 4242 started 2026-09-15 12:00:00'
+        $msg = Get-UpdateLockMessage -LockPath $lock
+        $msg | Should -Match 'held by PID 4242'
+        $msg | Should -Match 'age'
+        $msg | Should -Match '10 minutes'
+    }
+
+    It 'survives a removal race: no .update-lock.new claim file left behind' {
+        $dir = Join-Path $TestDrive "lock6_$(Get-Random)"
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        $stale = Join-Path $dir '.update-lock'
+        Set-Content -LiteralPath $stale -Value 'PID 1 started 2026-01-01 00:00:00'
+        (Get-Item -LiteralPath $stale).LastWriteTime = (Get-Date).AddMinutes(-20)
+        New-UpdateLock -Dir $dir | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $dir '.update-lock.new') | Should -BeFalse
+        Remove-UpdateLock -Dir $dir
     }
 }

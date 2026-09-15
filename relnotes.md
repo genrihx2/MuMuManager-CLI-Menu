@@ -4,6 +4,11 @@
 
 ---
 
+## v1.21.2 (15.09.2026)
+- **Single-flight update lock (issue #24)**: `[U]` and `bootstrap-update.ps1` now claim a `.update-lock` file (PID + timestamp) with an atomic `CreateNew` open before touching any install file - two concurrent updaters (menu in two windows, menu + bootstrap) can no longer corrupt `.version`/scripts/journal or double-apply an update. A refused run prints the holder's PID and the lock's age, journals `update-skipped`, and exits without changing anything. A lock older than 10 minutes is treated as the leftover of a crashed updater and is broken safely (create-then-break claim file closes the break/recreate race). The lock is always released in `finally`, including Ctrl+C mid-download.
+- `[J]` viewer: `update-skipped` renders yellow (a skip is not an error), and the "errors only" mode's all-clear message now counts skips as successes.
+- Tests: 6 new Pester tests (atomic acquire + payload, concurrent refusal + `update-skipped` journaling, staleness threshold, stale-break re-acquire, refusal message, claim-file cleanup) and a T10 block in the bootstrap regression suite (including the cross-script wiring assertions); suite 48 green; live-verified (same-process refusal, cross-process refusal via a child PowerShell, stale break, re-acquire after release).
+
 ## v1.21.1 (15.09.2026)
 - **Fix a v1.21.0 regression in `[F]`**: the tag-pin overwrote `$Tag` with the commit SHA, silently disabling the semantic `.version` comparison - a healthy marker was reported as DRIFT on every check (caught live on the `C:\test` install right after v1.21.0 shipped). `$Tag` now stays the human-readable tag for the semantic compare, while content fetches go through a separate pinned `$FetchRef`. A Pester regression guard asserts the tag/SHA split in the function text.
 

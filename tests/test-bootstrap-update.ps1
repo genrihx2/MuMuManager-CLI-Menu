@@ -472,6 +472,56 @@ try {
     Assert-True -Name 'post-download (hash OK) verdict is wired' -Condition ($bRaw -match 'hash OK') -Detail 'hash OK output not found'
     Assert-True -Name 'expected-hashes fetch is wired before the download loop' -Condition ($bRaw -match 'Get-ExpectedHashes -Tag \$remoteTag') -Detail 'fetch call not found'
 
+    # ── T10: single-flight update lock (issue #24) ─────────────────────
+    Write-Host 'T10: single-flight update lock - atomic create, refusal, stale-break, wiring' -ForegroundColor Cyan
+    foreach ($name in 'Test-UpdateLockStale', 'Get-UpdateLockMessage', 'New-UpdateLock', 'Remove-UpdateLock') {
+        $lf = $bAst.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
+        }, $true) | Select-Object -First 1
+        if (-not $lf) { throw "$name function not found in bootstrap-update.ps1" }
+        . ([scriptblock]::Create($lf.Extent.Text))
+    }
+    $lockDir = Join-Path $tmp 'lockdir'
+    New-Item -ItemType Directory -Path $lockDir -Force | Out-Null
+    $savedJournalFile = $journalFile
+    $journalFile = Join-Path $lockDir 'update-journal.log'
+    try {
+        # Atomic create: absent lock -> acquired, payload present.
+        Assert-True -Name 'lock acquired on empty dir' -Condition ((New-UpdateLock -Dir $lockDir) -eq $true) -Detail 'CreateNew failed on absent lock'
+        $lockPayload = Get-Content -LiteralPath (Join-Path $lockDir '.update-lock') -TotalCount 1 -ErrorAction SilentlyContinue
+        Assert-True -Name 'lock payload records PID and timestamp' -Condition ($lockPayload -match '^PID \d+ started \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$') -Detail "payload: $lockPayload"
+        # Second concurrent claim -> refused + journaled update-skipped.
+        Assert-True -Name 'second concurrent claim refused' -Condition ((New-UpdateLock -Dir $lockDir) -eq $false) -Detail 'CreateNew must fail when the lock exists'
+        $jSkip = @(Get-Content -LiteralPath $journalFile -Encoding UTF8 -ErrorAction SilentlyContinue | Where-Object { ($_ -split "`t")[2] -eq 'update-skipped' })
+        Assert-True -Name 'refusal journaled as update-skipped' -Condition ($jSkip.Count -eq 1) -Detail "events: $($jSkip.Count)"
+        # Release in finally is the contract - the file must vanish.
+        Remove-UpdateLock -Dir $lockDir
+        Assert-True -Name 'lock removed cleanly (finally contract)' -Condition (-not (Test-Path -LiteralPath (Join-Path $lockDir '.update-lock'))) -Detail 'lock file left behind'
+        # Stale break: 20-minute-old lock must be broken and re-acquired.
+        $stalePath = Join-Path $lockDir '.update-lock'
+        Set-Content -LiteralPath $stalePath -Value 'PID 999999 started 2026-01-01 00:00:00'
+        (Get-Item -LiteralPath $stalePath).LastWriteTime = (Get-Date).AddMinutes(-20)
+        Assert-True -Name '20-minute-old lock detected as stale' -Condition ((Test-UpdateLockStale -LockPath $stalePath) -eq $true) -Detail 'staleness threshold broken'
+        Assert-True -Name 'stale lock broken and re-acquired' -Condition ((New-UpdateLock -Dir $lockDir) -eq $true) -Detail 'stale-break failed'
+        $rePayload = Get-Content -LiteralPath $stalePath -TotalCount 1
+        Assert-True -Name 'new holder recorded after stale-break' -Condition (($rePayload -match "^PID $PID ") -and ($rePayload -notmatch '999999')) -Detail "payload: $rePayload"
+        Remove-UpdateLock -Dir $lockDir
+        # Refusal message names the holder and the expiry.
+        Set-Content -LiteralPath $stalePath -Value 'PID 4242 started 2026-09-15 12:00:00'
+        $lmsg = Get-UpdateLockMessage -LockPath $stalePath
+        Assert-True -Name 'refusal message names holder and expiry' -Condition (($lmsg -match 'held by PID 4242') -and ($lmsg -match '10 minutes')) -Detail "msg: $lmsg"
+        Remove-UpdateLock -Dir $lockDir
+    } finally {
+        $journalFile = $savedJournalFile
+        Remove-UpdateLock -Dir $lockDir
+    }
+    # Both updaters honor the same lock in the same directory.
+    $mRaw = Get-Content -LiteralPath $menuPath -Raw -Encoding UTF8
+    Assert-True -Name '[U] acquires the lock after the confirm prompt' -Condition (($mRaw -match 'New-UpdateLock -Dir \$ScriptDir') -and ($mRaw -match 'Remove-UpdateLock -Dir \$ScriptDir')) -Detail 'menu lock wiring not found'
+    Assert-True -Name 'bootstrap acquires the lock before touching files' -Condition ($bRaw -match 'New-UpdateLock -Dir \$TargetDir') -Detail 'bootstrap lock wiring not found'
+    Assert-True -Name 'bootstrap releases the lock in finally' -Condition ($bRaw -match 'finally \{[\s\S]*?Remove-UpdateLock -Dir \$TargetDir[\s\S]*?\}') -Detail 'no finally release found'
+
 
     $passCount = 0
     if ($script:failures -eq 0) { $passCount = 1 }

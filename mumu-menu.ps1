@@ -226,7 +226,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.21.1'
+$scriptVer = '1.21.2'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -542,6 +542,113 @@ function Write-UpdateJournal {
     } catch {
         Write-Debug "Update journal write failed: $($_.Exception.Message)"
     }
+}
+
+# ── Single-flight update lock (issue #24) ─────────────────────────────
+# [U] and bootstrap-update.ps1 write the same files (.version, scripts,
+# journal). Two concurrent updaters could corrupt state or double-apply.
+# The lock is a .update-lock file created with CreateNew - the create call
+# itself is the atomic test-and-set, so two processes can never both win.
+# Content: PID + timestamp (which process holds it, and since when).
+# A lock older than 10 minutes is treated as the leftover of a crashed
+# process and is broken. Always released in finally, including Ctrl+C.
+$script:UpdateLockStaleMinutes = 10
+
+function Test-UpdateLockStale {
+    # Pure-ish decision helper: is this lock file older than the stale limit?
+    param([string]$LockPath)
+    # Local fallback so the helper stays correct even when extracted from
+    # the script without the script-scope default (tests, dot-sourcing).
+    $limit = if ($script:UpdateLockStaleMinutes) { [int]$script:UpdateLockStaleMinutes } else { 10 }
+    try {
+        if (-not (Test-Path -LiteralPath $LockPath -PathType Leaf)) { return $false }
+        $age = ((Get-Date) - (Get-Item -LiteralPath $LockPath).LastWriteTime).TotalMinutes
+        return ($age -gt $limit)
+    } catch {
+        # Unreadable lock - treat as fresh rather than break someone's live update.
+        Write-Debug "Lock staleness check failed: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+function Get-UpdateLockMessage {
+    # Human-readable reason for a lock refusal (owner PID + age).
+    param([string]$LockPath)
+    $owner = ''
+    try {
+        if (Test-Path -LiteralPath $LockPath -PathType Leaf) {
+            $owner = (Get-Content -LiteralPath $LockPath -TotalCount 1 -ErrorAction SilentlyContinue)
+        }
+    } catch { Write-Debug "Lock owner read failed: $($_.Exception.Message)" }
+    $limit = if ($script:UpdateLockStaleMinutes) { [int]$script:UpdateLockStaleMinutes } else { 10 }
+    $age = ''
+    try {
+        if (Test-Path -LiteralPath $LockPath -PathType Leaf) {
+            $mins = [math]::Round(((Get-Date) - (Get-Item -LiteralPath $LockPath).LastWriteTime).TotalMinutes, 1)
+            $age = ", age ${mins} min"
+        }
+    } catch { Write-Debug "Lock age read failed: $($_.Exception.Message)" }
+    return ("held by {0}{1}. Close that updater or wait; if it crashed, the lock expires after {2} minutes." -f $owner, $age, $limit)
+}
+
+function New-UpdateLock {
+    # Atomically claim the update lock. Returns $true if WE hold it now.
+    # Handles the stale case (break + retry once, create-then-break to close
+    # the classic break/recreate race window) and rethrows anything else.
+    param([string]$Dir)
+    $lockPath = Join-Path $Dir '.update-lock'
+    $now = Get-Date
+    $payload = "PID $PID started $($now.ToString('yyyy-MM-dd HH:mm:ss'))"
+    try {
+        $s = [System.IO.File]::Open($lockPath, 'CreateNew', 'Write', 'None')
+        $w = [System.IO.StreamWriter]::new($s)
+        $w.Write($payload)
+        $w.Flush(); $w.Dispose(); $s.Dispose()
+        return $true
+    } catch [System.IO.IOException] {
+        if (-not (Test-UpdateLockStale -LockPath $lockPath)) {
+            Write-Host ''
+            Write-Host '  Another update is already running:' -ForegroundColor Yellow
+            Write-Host ("  " + (Get-UpdateLockMessage -LockPath $lockPath)) -ForegroundColor Yellow
+            if ($script:JournalFile) { Write-UpdateJournal -EventType 'update-skipped' -Detail '.update-lock held by another process' }
+            return $false
+        }
+        # Stale lock: create-then-break. Only the process that successfully
+        # creates .update-lock.new may delete and re-create the lock, so two
+        # racers cannot both end up holding it.
+        $claimPath = "$lockPath.new"
+        try {
+            $c = [System.IO.File]::Open($claimPath, 'CreateNew', 'Write', 'None')
+            $cw = [System.IO.StreamWriter]::new($c)
+            $cw.Write("stale-break by PID $PID")
+            $cw.Flush(); $cw.Dispose(); $c.Dispose()
+        } catch {
+            Write-Host '  Another update is already breaking a stale lock.' -ForegroundColor Yellow
+            if ($script:JournalFile) { Write-UpdateJournal -EventType 'update-skipped' -Detail '.update-lock stale-break race lost' }
+            return $false
+        }
+        try {
+            Remove-Item -LiteralPath $lockPath -Force
+            Remove-Item -LiteralPath $claimPath -Force -ErrorAction SilentlyContinue
+            Write-Host '  Removed a stale update lock (leftover of a crashed updater).' -ForegroundColor DarkGray
+            $s2 = [System.IO.File]::Open($lockPath, 'CreateNew', 'Write', 'None')
+            $w2 = [System.IO.StreamWriter]::new($s2)
+            $w2.Write($payload)
+            $w2.Flush(); $w2.Dispose(); $s2.Dispose()
+            return $true
+        } catch {
+            Remove-Item -LiteralPath $claimPath -Force -ErrorAction SilentlyContinue
+            Write-Host '  Another update started while the stale lock was being broken.' -ForegroundColor Yellow
+            if ($script:JournalFile) { Write-UpdateJournal -EventType 'update-skipped' -Detail '.update-lock lost stale-break race' }
+            return $false
+        }
+    }
+}
+
+function Remove-UpdateLock {
+    param([string]$Dir)
+    try { Remove-Item -LiteralPath (Join-Path $Dir '.update-lock') -Force -ErrorAction SilentlyContinue } catch { Write-Debug "Lock removal failed: $($_.Exception.Message)" }
+    try { Remove-Item -LiteralPath (Join-Path $Dir '.update-lock.new') -Force -ErrorAction SilentlyContinue } catch { Write-Debug "Lock claim cleanup failed: $($_.Exception.Message)" }
 }
 
 # ── Verify installation: local files vs current release tag (#18) ────
@@ -1215,6 +1322,12 @@ function Update-FromGitHub {
             return
         }
 
+        # Single-flight lock (issue #24): from here on the updater mutates
+        # install files. Held until the update finishes (finally below).
+        # Refusal exits like a declined update - nothing was changed.
+        if (-not (New-UpdateLock -Dir $ScriptDir)) { return }
+        try {
+
         # Backup existing files before overwriting
         $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
         $backupDir = Join-Path $ScriptDir "backup\$stamp"
@@ -1373,6 +1486,11 @@ function Update-FromGitHub {
         }
         Start-Sleep -Seconds 2
         exit
+        } finally {
+            # Release in finally: covers normal exit, update-fail paths and
+            # Ctrl+C between acquire and exit.
+            Remove-UpdateLock -Dir $ScriptDir
+        }
     } catch {
         if ($Passive) { return }
         $msg = $_.Exception.Message
@@ -1535,7 +1653,7 @@ function Show-UpdateJournal {
     }
     if ($selected.Count -eq 0) {
         if ($mode -eq '3') {
-            Write-Host ("  No errors recorded - all {0} journal events are successes (update-ok / version-fix / updater-refresh / self-apply)." -f $lines.Count) -ForegroundColor Green
+            Write-Host ("  No errors recorded - all {0} journal events are successes or skips (update-ok / version-fix / updater-refresh / self-apply / update-skipped)." -f $lines.Count) -ForegroundColor Green
         } else {
             Write-Host '  No matching entries.' -ForegroundColor Yellow
         }
@@ -1553,6 +1671,7 @@ function Show-UpdateJournal {
         if ($p.Count -lt 6) { Write-Host "  $raw" -ForegroundColor White; continue }
         $color = switch -Regex ($p[2]) {
             'fail|error' { 'Red' }
+            'skipped' { 'Yellow' }
             'ok|fix|apply' { 'Green' }
             'start' { 'Cyan' }
             default { 'White' }
