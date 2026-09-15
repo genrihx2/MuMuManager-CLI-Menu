@@ -4,19 +4,27 @@ name: Changelog check
 # published release body from the README's «Что нового» sections, so a
 # changelog table row without a matching section silently drops that
 # version from the release notes (happened to v1.19.1). Fails when any
-# table row has no matching section, when a section has no row, or when
-# either side has duplicates.
+# table row has no matching section, when a section has no row, when
+# either side has duplicates - and when the three release version sources
+# (relnotes.md top section, .version, mumu-menu.ps1 $scriptVer) disagree
+# (issue #31).
 
 on:
   push:
     branches: [ main ]
     paths:
       - 'README.md'
+      - 'relnotes.md'
+      - '.version'
+      - 'mumu-menu.ps1'
       - 'tests/test-changelog-sync.ps1'
       - '.github/workflows/changelog-check.yml'
   pull_request:
     paths:
       - 'README.md'
+      - 'relnotes.md'
+      - '.version'
+      - 'mumu-menu.ps1'
       - 'tests/test-changelog-sync.ps1'
       - '.github/workflows/changelog-check.yml'
   workflow_dispatch:
@@ -32,6 +40,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - name: Check changelog consistency (rows <-> «Что нового» sections)
+      - name: Check changelog consistency + release version sync (relnotes / .version / scriptVer)
         shell: pwsh
         run: ./tests/test-changelog-sync.ps1

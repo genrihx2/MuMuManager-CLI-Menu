@@ -11,22 +11,32 @@
 #   - every table row "| vX.Y.Z | ..." has a matching "### vX.Y.Z" section
 #   - every "### vX.Y.Z" section has a matching table row
 #   - no duplicated rows or sections
+#   - (issue #31) the top `## vX.Y.Z` section of relnotes.md matches .version
+#     (= the tag the Release workflow publishes) and mumu-menu.ps1's
+#     $scriptVer - a lagging source is named explicitly in the failure
 #
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File tests\test-changelog-sync.ps1
 #   powershell -ExecutionPolicy Bypass -File tests\test-changelog-sync.ps1 -ReadmePath <path-to-mutated-copy>
+#   powershell -ExecutionPolicy Bypass -File tests\test-changelog-sync.ps1 -RelnotesPath <copy> -VersionPath <copy> -MenuPath <copy>
 #   powershell -ExecutionPolicy Bypass -File tests\test-changelog-sync.ps1 -SelfTest
 # CI: .github/workflows/changelog-check.yml
 
 param(
     [string]$ReadmePath = '',
+    [string]$RelnotesPath = '',
+    [string]$VersionPath = '',
+    [string]$MenuPath = '',
     [switch]$SelfTest
 )
 
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
-if (-not $ReadmePath) { $ReadmePath = Join-Path $root 'README.md' }
+if (-not $ReadmePath)   { $ReadmePath   = Join-Path $root 'README.md' }
+if (-not $RelnotesPath) { $RelnotesPath = Join-Path $root 'relnotes.md' }
+if (-not $VersionPath)  { $VersionPath  = Join-Path $root '.version' }
+if (-not $MenuPath)     { $MenuPath     = Join-Path $root 'mumu-menu.ps1' }
 if (-not (Test-Path -LiteralPath $ReadmePath -PathType Leaf)) { throw "Not found: $ReadmePath" }
 
 $lines = Get-Content -LiteralPath $ReadmePath -Encoding UTF8
@@ -54,6 +64,37 @@ foreach ($dup in @($rowVersions | Group-Object | Where-Object { $_.Count -gt 1 }
 }
 foreach ($dup in @($sectionVersions | Group-Object | Where-Object { $_.Count -gt 1 })) {
     $failures += "duplicate «Что нового» sections for $($dup.Name) ($($dup.Count)x)"
+}
+
+# ── Release version sync: relnotes top <-> .version <-> scriptVer (#31) ──
+# The Release workflow publishes the tag taken from .version, and the
+# published body is built from the README sections - so all three version
+# sources must agree before a release makes any of them stale.
+$relnotesTop = 'NOT FOUND'
+if (Test-Path -LiteralPath $RelnotesPath -PathType Leaf) {
+    $relLines = @(Get-Content -LiteralPath $RelnotesPath -Encoding UTF8)
+    foreach ($rl in $relLines) {
+        if ($rl -match '^##\s+(v\d+\.\d+\.\d+)') { $relnotesTop = $Matches[1]; break }
+    }
+} else {
+    $failures += "relnotes.md not found at $RelnotesPath"
+}
+$versionTag = 'NOT FOUND'
+if (Test-Path -LiteralPath $VersionPath -PathType Leaf) {
+    $vRaw = (Get-Content -LiteralPath $VersionPath -Raw -ErrorAction SilentlyContinue)
+    if ($vRaw) { $vTrim = $vRaw.Trim(); if ($vTrim -match '^v\d+\.\d+\.\d+$') { $versionTag = $vTrim } else { $versionTag = "INVALID ($vTrim)" } }
+} else {
+    $failures += ".version not found at $VersionPath"
+}
+$scriptVer = 'NOT FOUND'
+if (Test-Path -LiteralPath $MenuPath -PathType Leaf) {
+    $menuHead = (Get-Content -LiteralPath $MenuPath -TotalCount 320 -Encoding UTF8) -join "`n"
+    if ($menuHead -match "\`$scriptVer\s*=\s*'([0-9]+\.[0-9]+\.[0-9]+)'") { $scriptVer = $Matches[1] }
+} else {
+    $failures += "mumu-menu.ps1 not found at $MenuPath"
+}
+if ($relnotesTop -ne $versionTag -or $versionTag -ne "v$scriptVer") {
+    $failures += "release version mismatch - relnotes.md top section = $relnotesTop, .version = $versionTag, mumu-menu.ps1 scriptVer = $scriptVer; whichever of the three lags behind the release tag is stale and must be updated (bump all three together)"
 }
 
 # ── Self-test mode: mutate temp copies, assert the check catches each case ──
@@ -118,11 +159,65 @@ if ($SelfTest) {
             Write-Host '  [FAIL] clean copy did not pass' -ForegroundColor Red
             $script:stFailures++
         }
+
+        # ── Version-sync scenarios (issue #31): relnotes top <-> .version <-> scriptVer ──
+        function New-VersionFixtures {
+            # A consistent fixture set: all three sources claim v9.9.9.
+            param([string]$Tag = 'v9.9.9', [string]$Ver = '9.9.9')
+            $r = Join-Path $stTmp ("relnotes-" + [Guid]::NewGuid().ToString('N') + ".md")
+            $v = Join-Path $stTmp ("version-" + [Guid]::NewGuid().ToString('N') + ".txt")
+            $m = Join-Path $stTmp ("menu-" + [Guid]::NewGuid().ToString('N') + ".ps1")
+            [System.IO.File]::WriteAllText($r, "# Notes`n`n## $Tag (15.09.2026)`n- something`n`n## v1.0.0 (14.09.2026)`n- old`n")
+            [System.IO.File]::WriteAllText($v, "$Tag")
+            [System.IO.File]::WriteAllText($m, "`$scriptVer = '$Ver'`n")
+            return @{ Relnotes = $r; Version = $v; Menu = $m }
+        }
+        function Invoke-VersionCheck {
+            param([string]$Name, [hashtable]$Fix, [scriptblock]$Mutate, [switch]$ExpectFail, [string]$MessageMustMatch = '')
+            $r2 = Join-Path $stTmp ("rel-" + $Name + ".md"); $v2 = Join-Path $stTmp ("ver-" + $Name + ".txt"); $m2 = Join-Path $stTmp ("menu-" + $Name + ".ps1")
+            Copy-Item -LiteralPath $Fix.Relnotes -Destination $r2 -Force
+            Copy-Item -LiteralPath $Fix.Version  -Destination $v2 -Force
+            Copy-Item -LiteralPath $Fix.Menu     -Destination $m2 -Force
+            & $Mutate @{ Relnotes = $r2; Version = $v2; Menu = $m2 }
+            $out = (& powershell -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath -ReadmePath $ReadmePath -RelnotesPath $r2 -VersionPath $v2 -MenuPath $m2 2>&1) | Out-String
+            $failed = ($LASTEXITCODE -eq 1)
+            $ok = if ($ExpectFail) { $failed -and (-not $MessageMustMatch -or $out -match $MessageMustMatch) } else { -not $failed }
+            if ($ok) {
+                Write-Host "  [PASS] version-sync: $Name" -ForegroundColor Green
+            } else {
+                Write-Host "  [FAIL] version-sync: $Name (exit=$LASTEXITCODE)" -ForegroundColor Red
+                $script:stFailures++
+            }
+        }
+        $fix = New-VersionFixtures
+        # 6. sanity: consistent version sources pass
+        Invoke-VersionCheck -Name 'consistent sources pass' -Fix $fix -Mutate { param($p) }
+        # 7. relnotes top lags behind -> failure names all three sources
+        Invoke-VersionCheck -Name 'relnotes top lags' -Fix $fix -ExpectFail -MessageMustMatch 'relnotes\.md top section = v9\.9\.8, \.version = v9\.9\.9, mumu-menu\.ps1 scriptVer = 9\.9\.9' -Mutate {
+            param($p)
+            $t = (Get-Content -LiteralPath $p.Relnotes -Raw) -replace '## v9\.9\.9', '## v9.9.8'
+            [System.IO.File]::WriteAllText($p.Relnotes, $t)
+        }
+        # 8. .version lags behind
+        Invoke-VersionCheck -Name '.version lags' -Fix $fix -ExpectFail -MessageMustMatch '\.version = v9\.9\.8' -Mutate {
+            param($p)
+            [System.IO.File]::WriteAllText($p.Version, 'v9.9.8')
+        }
+        # 9. scriptVer lags behind
+        Invoke-VersionCheck -Name 'scriptVer lags' -Fix $fix -ExpectFail -MessageMustMatch 'scriptVer = 9\.9\.8' -Mutate {
+            param($p)
+            [System.IO.File]::WriteAllText($p.Menu, "`$scriptVer = '9.9.8'`n")
+        }
+        # 10. invalid .version content
+        Invoke-VersionCheck -Name 'invalid .version content' -Fix $fix -ExpectFail -MessageMustMatch 'INVALID' -Mutate {
+            param($p)
+            [System.IO.File]::WriteAllText($p.Version, 'garbage')
+        }
     } finally {
         Remove-Item -LiteralPath $stTmp -Recurse -Force -ErrorAction SilentlyContinue
     }
     if ($script:stFailures -gt 0) { Write-Host "Self-test FAILED ($($script:stFailures) failure(s))." -ForegroundColor Red; exit 1 }
-    Write-Host 'Self-test passed: 5/5 scenarios.' -ForegroundColor Green
+    Write-Host 'Self-test passed: 10/10 scenarios.' -ForegroundColor Green
     exit 0
 }
 
@@ -135,5 +230,5 @@ if ($failures.Count -gt 0) {
     exit 1
 }
 
-Write-Host ("README changelog OK: {0} table rows <-> {1} sections, all matched, no duplicates" -f $rowVersions.Count, $sectionVersions.Count) -ForegroundColor Green
+Write-Host ("README changelog OK: {0} table rows <-> {1} sections, all matched, no duplicates; release version sync OK: relnotes {2} = .version {3} = scriptVer {4}" -f $rowVersions.Count, $sectionVersions.Count, $relnotesTop, $versionTag, $scriptVer) -ForegroundColor Green
 exit 0
