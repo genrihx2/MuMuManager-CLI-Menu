@@ -520,19 +520,19 @@ Write-Host ''
 function Invoke-CurlGet {
     param([string]$Url)
     for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
-        $curlCmd = "curl.exe -sS$script:CurlRetryStr --fail --connect-timeout 30 --max-time 30 -H `"Accept: application/vnd.github.v3+json`""
-        if ($token) { $curlCmd += " -H `"Authorization: token $token`"" }
-        $curlCmd += " `"$Url`" 2>nul"
-        $result = & cmd /c $curlCmd
+        $curlArgs = @('-sS', '--fail') + $script:CurlRetryArgs + @('--connect-timeout', '30', '--max-time', '30', '-H', 'Accept: application/vnd.github.v3+json')
+        if ($token) { $curlArgs += @('-H', "Authorization: token $token") }
+        $curlArgs += $Url
+        $result = & curl.exe @curlArgs 2>$null
         if ($LASTEXITCODE -eq 0 -and $result) {
-            $resultStr = $result | Out-String
+            $resultStr = @($result) | Out-String
             # Bad credentials fallback — retry without token
             if ($token -and $resultStr -match '"message"\s*:\s*"Bad credentials"') {
                 Write-Host "  Token rejected — retrying without auth..." -ForegroundColor Yellow
-                $noAuthCmd = "curl.exe -sS$script:CurlRetryStr --fail --connect-timeout 30 --max-time 30 -H `"Accept: application/vnd.github.v3+json`" `"$Url`" 2>nul"
-                $result2 = & cmd /c $noAuthCmd
+                $noAuthArgs = @('-sS', '--fail') + $script:CurlRetryArgs + @('--connect-timeout', '30', '--max-time', '30', '-H', 'Accept: application/vnd.github.v3+json', $Url)
+                $result2 = & curl.exe @noAuthArgs 2>$null
                 if ($LASTEXITCODE -eq 0 -and $result2) {
-                    return ($result2 | Out-String)
+                    return (@($result2) | Out-String)
                 }
                 return $null
             }
@@ -551,10 +551,10 @@ function Download-File {
     param([string]$Url, [string]$Dest)
     for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
         $tmpFile = $Dest + '.tmp'
-        $dlCmd = "curl.exe -sS$script:CurlRetryStr --fail --connect-timeout 30 --max-time 120 -L -H `"Accept: application/vnd.github.v3.raw`" -o `"$tmpFile`""
-        if ($token) { $dlCmd += " -H `"Authorization: token $token`"" }
-        $dlCmd += " `"$Url`" 2>nul"
-        & cmd /c $dlCmd | Out-Null
+        $dlArgs = @('-sS', '--fail') + $script:CurlRetryArgs + @('--connect-timeout', '30', '--max-time', '120', '-L', '-H', 'Accept: application/vnd.github.v3.raw', '-o', $tmpFile)
+        if ($token) { $dlArgs += @('-H', "Authorization: token $token") }
+        $dlArgs += $Url
+        & curl.exe @dlArgs 2>$null | Out-Null
         if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $tmpFile) -and (Get-Item -LiteralPath $tmpFile).Length -gt 0) {
             $size = (Get-Item -LiteralPath $tmpFile).Length
             # Validate: detect JSON error or metadata instead of raw content.

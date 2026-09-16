@@ -235,7 +235,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.22.3'
+$scriptVer = '1.22.4'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -3574,7 +3574,8 @@ function Test-Security {
     function Test-TokenHttp {
         $tmpHead = Join-Path $env:TEMP ("gh_" + [Guid]::NewGuid().ToString('N') + '.hdr')
         try {
-            $rawUser = & curl.exe -s --connect-timeout 30 --max-time 30 -D "$tmpHead" -H "Authorization: token $GitHubToken" 'https://api.github.com/user' 2>$null
+            $headArgs = @('-s', '--connect-timeout', '30', '--max-time', '30', '-D', $tmpHead, '-H', "Authorization: token $GitHubToken", 'https://api.github.com/user')
+            $rawUser = & curl.exe @headArgs 2>$null
             $user = (@($rawUser) | Out-String | ConvertFrom-Json)
             if (-not $user.login) { return $null }
             $scopes = ''
@@ -4917,10 +4918,7 @@ function Download-Repository {
         # Fetch available branches
         Write-Host ''
         Write-Host 'Fetching branches...' -ForegroundColor DarkGray
-        $branchCmd = "curl.exe -s --connect-timeout 15 --max-time 15 -H `"Accept: application/vnd.github.v3+json`""
-        if ($GitHubToken) { $branchCmd += " -H `"Authorization: token $GitHubToken`"" }
-        $branchCmd += " `"https://api.github.com/repos/$GitHubRepo/branches`""
-        $branchJson = & cmd /c $branchCmd 2>$null | Out-String
+        $branchJson = Invoke-GitHubApiGet -Url "https://api.github.com/repos/$GitHubRepo/branches"
         try { $branches = $branchJson | ConvertFrom-Json } catch { $branches = @() }
 
         if ($branches -and $branches.Count -gt 0) {
@@ -4975,10 +4973,7 @@ function Download-Repository {
         # Specific release
         Write-Host ''
         Write-Host 'Fetching releases...' -ForegroundColor DarkGray
-        $relListCmd = "curl.exe -s$script:CurlRetryStr --connect-timeout 30 --max-time 30 -H `"Accept: application/vnd.github.v3+json`""
-        if ($GitHubToken) { $relListCmd += " -H `"Authorization: token $GitHubToken`"" }
-        $relListCmd += " `"https://api.github.com/repos/$GitHubRepo/releases?per_page=20`""
-        $relListJson = & cmd /c $relListCmd 2>$null | Out-String
+        $relListJson = Invoke-GitHubApiGet -Url "https://api.github.com/repos/$GitHubRepo/releases?per_page=20"
         try { $releases = $relListJson | ConvertFrom-Json } catch { $releases = @() }
 
         if (-not $releases -or $releases.Count -eq 0) {
@@ -5038,9 +5033,9 @@ function Download-Repository {
                 $fUrl = "https://api.github.com/repos/$GitHubRepo/contents/$f?ref=$tagName"
                 $fDest = Join-Path $targetDir $f
                 Write-Host "  $f" -ForegroundColor Yellow -NoNewline
-                $dlCmd = "curl.exe -sS --fail --retry 2 --connect-timeout 30 --max-time 60 -L -H `"Accept: application/vnd.github.v3.raw`" -o `"$fDest`" $fUrl"
-                if ($GitHubToken) { $dlCmd += " -H `"Authorization: token $GitHubToken`"" }
-                cmd /c $dlCmd 2>$null | Out-Null
+                $dlArgs = @('-sS', '--fail', '--retry', '2', '--connect-timeout', '30', '--max-time', '60', '-L', '-H', 'Accept: application/vnd.github.v3.raw', '-o', $fDest, $fUrl)
+                if ($GitHubToken) { $dlArgs += @('-H', "Authorization: token $GitHubToken") }
+                & curl.exe @dlArgs 2>$null | Out-Null
                 if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $fDest) -and (Get-Item -LiteralPath $fDest).Length -gt 0) {
                     # Validate: detect JSON metadata instead of raw content
                     $fContent = Get-Content -LiteralPath $fDest -Raw -ErrorAction SilentlyContinue
@@ -5077,10 +5072,9 @@ function Download-Repository {
         Write-Host ''
         Write-Host "Downloading $($zipAsset.name)..." -ForegroundColor Cyan
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
-        $curlCmd = "curl.exe -# --fail --connect-timeout 30 --max-time 300 --retry 3 --retry-delay 3 -L -o `"$zipPath`" `"$zipUrl`""
-        if ($GitHubToken) { $curlCmd += " -H `"Authorization:token $GitHubToken`"" }
-        $curlCmd += ' 2>nul'
-        & cmd /c $curlCmd
+        $zipArgs = @('-#', '--fail', '--connect-timeout', '30', '--max-time', '300', '--retry', '3', '--retry-delay', '3', '-L', '-o', $zipPath, $zipUrl)
+        if ($GitHubToken) { $zipArgs += @('-H', "Authorization: token $GitHubToken") }
+        & curl.exe @zipArgs 2>$null
         $sw.Stop()
 
         if (-not (Test-Path -LiteralPath $zipPath)) {
@@ -5118,10 +5112,7 @@ function Download-Repository {
         # Latest release
         Write-Host ''
         Write-Host 'Fetching latest release...' -ForegroundColor DarkGray
-        $relCmd = "curl.exe -s$script:CurlRetryStr --connect-timeout 30 --max-time 30 -H `"Accept: application/vnd.github.v3+json`""
-        if ($GitHubToken) { $relCmd += " -H `"Authorization: token $GitHubToken`"" }
-        $relCmd += " `"https://api.github.com/repos/$GitHubRepo/releases/latest`""
-        $relJson = & cmd /c $relCmd 2>$null | Out-String
+        $relJson = Invoke-GitHubApiGet -Url "https://api.github.com/repos/$GitHubRepo/releases/latest"
         try { $release = $relJson | ConvertFrom-Json } catch { $release = $null }
 
         if (-not $release -or -not $release.tag_name) {
@@ -5149,9 +5140,9 @@ function Download-Repository {
                 $fUrl = "https://api.github.com/repos/$GitHubRepo/contents/$f?ref=$tag"
                 $fDest = Join-Path $targetDir $f
                 Write-Host "  $f" -ForegroundColor Yellow -NoNewline
-                $dlCmd = "curl.exe -sS --fail --retry 2 --connect-timeout 30 --max-time 60 -L -H `"Accept: application/vnd.github.v3.raw`" -o `"$fDest`" $fUrl"
-                if ($GitHubToken) { $dlCmd += " -H `"Authorization: token $GitHubToken`"" }
-                cmd /c $dlCmd 2>$null | Out-Null
+                $dlArgs = @('-sS', '--fail', '--retry', '2', '--connect-timeout', '30', '--max-time', '60', '-L', '-H', 'Accept: application/vnd.github.v3.raw', '-o', $fDest, $fUrl)
+                if ($GitHubToken) { $dlArgs += @('-H', "Authorization: token $GitHubToken") }
+                & curl.exe @dlArgs 2>$null | Out-Null
                 if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $fDest) -and (Get-Item -LiteralPath $fDest).Length -gt 0) {
                     # Validate: detect JSON metadata instead of raw content
                     $fContent = Get-Content -LiteralPath $fDest -Raw -ErrorAction SilentlyContinue
@@ -5187,10 +5178,9 @@ function Download-Repository {
         Write-Host ''
         Write-Host "Downloading $($zipAsset.name)..." -ForegroundColor Cyan
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
-        $curlCmd = "curl.exe -# --fail --connect-timeout 30 --max-time 300 --retry 3 --retry-delay 3 -L -o `"$zipPath`" `"$zipUrl`""
-        if ($GitHubToken) { $curlCmd += " -H `"Authorization:token $GitHubToken`"" }
-        $curlCmd += ' 2>nul'
-        & cmd /c $curlCmd
+        $zipArgs = @('-#', '--fail', '--connect-timeout', '30', '--max-time', '300', '--retry', '3', '--retry-delay', '3', '-L', '-o', $zipPath, $zipUrl)
+        if ($GitHubToken) { $zipArgs += @('-H', "Authorization: token $GitHubToken") }
+        & curl.exe @zipArgs 2>$null
         $sw.Stop()
 
         if (-not (Test-Path -LiteralPath $zipPath)) {
@@ -5299,10 +5289,7 @@ function Download-Repository {
             Write-Host ''
 
             # Get latest release
-            $relCmd = "curl.exe -s$script:CurlRetryStr --connect-timeout 30 --max-time 30 -H `"Accept: application/vnd.github.v3+json`""
-        if ($GitHubToken) { $relCmd += " -H `"Authorization: token $GitHubToken`"" }
-        $relCmd += " `"https://api.github.com/repos/$GitHubRepo/releases/latest`""
-        $relJson = & cmd /c $relCmd 2>$null | Out-String
+            $relJson = Invoke-GitHubApiGet -Url "https://api.github.com/repos/$GitHubRepo/releases/latest"
             try { $release = $relJson | ConvertFrom-Json } catch { $release = $null }
 
             if (-not $release -or -not $release.tag_name) {
@@ -5380,9 +5367,9 @@ function Download-Repository {
                     $fUrl = "https://api.github.com/repos/$GitHubRepo/contents/$f?ref=$remoteTag"
                     $fDest = Join-Path $ScriptDir $f
                     Write-Host "  $f" -ForegroundColor Yellow -NoNewline
-                    $dlCmd = "curl.exe -sS --fail --retry 2 --connect-timeout 30 --max-time 60 -L -H `"Accept: application/vnd.github.v3.raw`" -o `"$fDest`" $fUrl"
-                    if ($GitHubToken) { $dlCmd += " -H `"Authorization: token $GitHubToken`"" }
-                    cmd /c $dlCmd 2>$null | Out-Null
+                    $dlArgs = @('-sS', '--fail', '--retry', '2', '--connect-timeout', '30', '--max-time', '60', '-L', '-H', 'Accept: application/vnd.github.v3.raw', '-o', $fDest, $fUrl)
+                    if ($GitHubToken) { $dlArgs += @('-H', "Authorization: token $GitHubToken") }
+                    & curl.exe @dlArgs 2>$null | Out-Null
                     if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $fDest) -and (Get-Item -LiteralPath $fDest).Length -gt 0) {
                         $fContent = Get-Content -LiteralPath $fDest -Raw -ErrorAction SilentlyContinue
                         if ($fContent -and $fContent.TrimStart().StartsWith('{') -and $fContent -match '"name"|"_links"|"encoding"') {
@@ -5432,10 +5419,9 @@ function Download-Repository {
             Write-Host "  Downloading $($zipAsset.name)..." -ForegroundColor Cyan
             $sw = [System.Diagnostics.Stopwatch]::StartNew()
 
-            $curlCmd = "curl.exe -# --fail --connect-timeout 30 --max-time 300 --retry 3 --retry-delay 3 -L -o `"$tmp`" `"$zipUrl`""
-            if ($GitHubToken) { $curlCmd += " -H `"Authorization:token $GitHubToken`"" }
-            $curlCmd += ' 2>nul'
-            & cmd /c $curlCmd
+            $zipArgs = @('-#', '--fail', '--connect-timeout', '30', '--max-time', '300', '--retry', '3', '--retry-delay', '3', '-L', '-o', $tmp, $zipUrl)
+            if ($GitHubToken) { $zipArgs += @('-H', "Authorization: token $GitHubToken") }
+            & curl.exe @zipArgs 2>$null
             $sw.Stop()
 
             if (-not (Test-Path -LiteralPath $tmp)) {
@@ -5536,10 +5522,7 @@ function Download-Repository {
             if (-not $ref) { $ref = 'main' }
         } else {
             # Get latest tag
-            $ltCmd = "curl.exe -s$script:CurlRetryStr --connect-timeout 15 -H `"Accept: application/vnd.github.v3+json`""
-            if ($GitHubToken) { $ltCmd += " -H `"Authorization: token $GitHubToken`"" }
-            $ltCmd += " `"https://api.github.com/repos/$GitHubRepo/releases/latest`""
-            $ltJson = & cmd /c $ltCmd 2>$null | Out-String
+            $ltJson = Invoke-GitHubApiGet -Url "https://api.github.com/repos/$GitHubRepo/releases/latest"
             try { $lt = $ltJson | ConvertFrom-Json } catch { $lt = $null }
             if ($lt.tag_name) { $ref = $lt.tag_name; Write-Host "  Using: $ref" -ForegroundColor DarkGray }
             else { $ref = 'main'; Write-Host '  Using: main (no releases found)' -ForegroundColor DarkGray }
@@ -5548,10 +5531,7 @@ function Download-Repository {
         # List files in repo root
         Write-Host ''
         Write-Host "Fetching file list ($ref)..." -ForegroundColor DarkGray
-        $listCmd = "curl.exe -s --connect-timeout 15 -H `"Accept: application/vnd.github.v3+json`""
-        if ($GitHubToken) { $listCmd += " -H `"Authorization: token $GitHubToken`"" }
-        $listCmd += " `"https://api.github.com/repos/$GitHubRepo/contents/?ref=$ref`""
-        $listJson = & cmd /c $listCmd 2>$null | Out-String
+        $listJson = Invoke-GitHubApiGet -Url "https://api.github.com/repos/$GitHubRepo/contents/?ref=$ref"
         try { $files = $listJson | ConvertFrom-Json } catch { $files = @() }
 
         if (-not $files -or $files.Count -eq 0) {
@@ -5608,10 +5588,10 @@ function Download-Repository {
         Write-Host ''
         Write-Host "Downloading $fileName from $ref..." -ForegroundColor Cyan
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
-        $dlCmd = 'curl.exe -sL --connect-timeout 30 --max-time 120 -o "' + (Join-Path $targetDir $fileName) + '"'
-        if ($GitHubToken) { $dlCmd += ' -H "Authorization: token ' + $GitHubToken + '"' }
-        $dlCmd += ' -H "Accept: application/vnd.github.v3.raw" "' + $downloadUrl + '"'
-        & cmd /c $dlCmd 2>&1 | Out-Null
+        $dlArgs = @('-sL', '--connect-timeout', '30', '--max-time', '120', '-o', (Join-Path $targetDir $fileName))
+        if ($GitHubToken) { $dlArgs += @('-H', "Authorization: token $GitHubToken") }
+        $dlArgs += @('-H', 'Accept: application/vnd.github.v3.raw', $downloadUrl)
+        & curl.exe @dlArgs 2>$null | Out-Null
         $sw.Stop()
 
         $destFile = Join-Path $targetDir $fileName
@@ -5737,7 +5717,8 @@ function Fix-ReleaseEncoding {
 
     Write-Host ''
     Write-Host 'Updating release notes...' -ForegroundColor Cyan
-    $result = & curl.exe -s --connect-timeout 30 --max-time 60 -X PATCH -H "Authorization: token $GitHubToken" -H "Accept: application/vnd.github.v3+json" -H "Content-Type: application/json; charset=utf-8" -d "@$jsonFile" "https://api.github.com/repos/$GitHubRepo/releases/$($chosen.id)" 2>$null | Out-String
+    $patchArgs = @('-s', '--connect-timeout', '30', '--max-time', '60', '-X', 'PATCH', '-H', "Authorization: token $GitHubToken", '-H', 'Accept: application/vnd.github.v3+json', '-H', 'Content-Type: application/json; charset=utf-8', '-d', "@$jsonFile", "https://api.github.com/repos/$GitHubRepo/releases/$($chosen.id)")
+    $result = & curl.exe @patchArgs 2>$null | Out-String
 
     Remove-Item $jsonFile -Force -ErrorAction SilentlyContinue
     Remove-Item $bodyFile -Force -ErrorAction SilentlyContinue
@@ -5978,8 +5959,8 @@ function Create-GitHubRelease {
 
         $releaseUrl = "https://api.github.com/repos/$GitHubRepo/releases"
         $tmpResp = Join-Path $env:TEMP ('gh_release_resp_' + [Guid]::NewGuid().ToString('N') + '.txt')
-        $curlCmd = "curl.exe -s -X POST -H `"Authorization: token $GitHubToken`" -H `"Accept: application/vnd.github.v3+json`" -H `"Content-Type: application/json`" -d @$tmpPayload -o `"$tmpResp`" $releaseUrl"
-        & cmd /c $curlCmd 2>$null
+        $postArgs = @('-s', '-X', 'POST', '-H', "Authorization: token $GitHubToken", '-H', 'Accept: application/vnd.github.v3+json', '-H', 'Content-Type: application/json', '-d', "@$tmpPayload", '-o', $tmpResp, $releaseUrl)
+        & curl.exe @postArgs 2>$null
 
         $response = ''
         if (Test-Path -LiteralPath $tmpResp) {

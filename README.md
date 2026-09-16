@@ -348,7 +348,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.22.3
+Script version: 1.22.4
 MuMu version: 6.5.2.0
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -448,6 +448,9 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 **EN summary:** Recovering from a failed update: diagnose first (`[ST]` status, `[DIAG]` problems, `[F]` file-vs-tag verification, `[J] → 3` errors), then act. HASH MISMATCH → re-run `[F]` (stale-CDN false alarms vanish on the re-fetch; stable mismatches mean re-download the ZIP and verify with `-VerifyZip`). Wedged marker ("Up to date" but old content) → `bootstrap-update.ps1 -Force`. Broken files → restore from `backup\YYYYMMDD_HHMMSS`. Lock refusal → wait (locks older than 10 minutes break automatically). The table above maps each symptom to its cause and fix.
 
 ## Что нового
+
+### v1.22.4 (16.09.2026)
+- **Аудит curl-вызовов: строковая сборка через `cmd /c` полностью убрана**. Все 18 вызовов в меню и 2 в bootstrap переведены на массивы аргументов PowerShell: токен больше не попадает в командную строку `cmd.exe` (виден в мониторах процессов), спецсимволы в путях не ломают кавычки, PS 5.1 не склеивает опции (первопричина бага [K] в v1.22.3). Тесты закрепляют: ноль `cmd /c`, каждый curl — через splat `@`
 
 ### v1.22.3 (16.09.2026)
 - **Исправлено: [K] показывал «Token invalid!» при валидном токене**. Прямые вызовы `curl.exe -s$script:CurlRetryStr ...` склеивали `-s` и retry-опции в ОДИН аргумент (особенность парсинга аргументов PS 5.1) — curl отвечал exit 2 (invalid usage), тело ответа было пустым, и меню объявляло токен недействительным, не сохранив его. Все 5 прямых вызовов (оба пути [K] + выборки releases/tags/compare) переведены на новый хелпер `Invoke-GitHubApiGet`, который строит массив аргументов (склейка аргументов теперь невозможна по построению). Пустой ответ теперь честно сообщает «GitHub did not respond (network problem)» вместо «Token invalid», а реальный отказ различает «Bad credentials» и неожиданный ответ. Проба retry-capability стабилизирована (exit 2 = опция не поддерживается; стабильный URL проверки). Регрессионные тесты: форма массива аргументов, fallback на `$script:GitHubToken`, классификация exit-кодов пробы, отсутствие склеенного паттерна, проводка [K]
@@ -661,6 +664,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.4 | 16.09.2026 | Аудит curl: все вызовы переведены на массивы аргументов (ноль `cmd /c`), токен убран из командной строки, кавычки/склейки больше не возможны |
 | v1.22.3 | 16.09.2026 | Фикс: [K] «Token invalid!» при валидном токене — curl-аргументы больше не склеиваются (`Invoke-GitHubApiGet`, массив аргументов), честные сообщения о сбое проверки, стабилизирована retry-проба |
 | v1.22.2 | 16.09.2026 | Честный вердикт при rate-limit в bootstrap/[U]/[V] — 60 req/hr без токена, [K] как решение, token-aware формулировки |
 | v1.22.1 | 16.09.2026 | Фикс: парсер ETag-заголовка стал регистронезависимым (`ETag:` GitHub) — до этого кеш #22/#28 не наполнялся никогда; поймано E2E-дрILLом |

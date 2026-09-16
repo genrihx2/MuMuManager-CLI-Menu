@@ -1347,3 +1347,32 @@ Describe 'GitHub API fetch via argument arrays (v1.22.3, [K] Token invalid fix)'
         $src | Should -Match 'Bad credentials'
     }
 }
+
+Describe 'curl argument-array audit (v1.22.4): no string-built cmd /c curl remains' {
+
+    It 'mumu-menu.ps1 has zero cmd /c curl invocations and zero *Cmd string builders' {
+        $src = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\mumu-menu.ps1'))
+        ([regex]::Matches($src, [regex]::Escape('cmd /c'))).Count | Should -Be 0
+        foreach ($var in @('$curlCmd', '$dlCmd', '$relCmd', '$relListCmd', '$branchCmd', '$ltCmd', '$listCmd', '$noAuthCmd')) {
+            ([regex]::Matches($src, [regex]::Escape($var))).Count | Should -Be 0
+        }
+    }
+
+    It 'bootstrap-update.ps1 has zero cmd /c curl invocations and all fetches build argument arrays' {
+        $src = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\bootstrap-update.ps1'))
+        # count only code: strip comment lines before matching
+        $code = (($src -split "`r?`n") | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
+        ([regex]::Matches($code, [regex]::Escape('cmd /c'))).Count | Should -Be 0
+        # every curl launch goes through splatted arrays
+        ([regex]::Matches($code, [regex]::Escape('& curl.exe @'))).Count | Should -BeGreaterThan 0
+        # no direct curl call with inline string interpolation of retry options
+        ([regex]::Matches($code, [regex]::Escape('-sS$script:CurlRetryStr'))).Count | Should -Be 0
+    }
+
+    It 'every remaining direct "& curl.exe" call in the menu passes a splatted array or literal options' {
+        $src = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\mumu-menu.ps1'))
+        # find every "& curl.exe ..." launch; forbid fusion-prone interpolated option strings
+        $bad = [regex]::Matches($src, '&\s*curl\.exe\s+[^\r\n|;]*\$script:\w+Str')
+        $bad.Count | Should -Be 0
+    }
+}
