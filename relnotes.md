@@ -4,6 +4,14 @@
 
 ---
 
+## v1.22.6 (16.09.2026)
+
+### Improved
+
+- **[DIAG] info-находки больше не выглядят как проблемы**. Живой отчёт: полностью здоровая установка печатала «Problems found: 1 (0 error(s), 0 warning(s), 1 info)» — из-за единственной info-заметки «1 of 1 instance(s) running». Вердикт теперь собирает общая функция `Get-DiagSummary`: чистые/info-only установки получают зелёное «Status: healthy (1 info note(s) - nothing to fix)», а «Problems found: N error(s), M warning(s)» (красный/жёлтый) остаётся для настоящих проблем — с честными счётчиками по severity, включая info. Паритетный вердикт в `bootstrap-update.ps1 -Diagnose`.
+- **Позитивный статус ADB-моста в [DIAG]**: info-строка о запущенных инстансах сообщает и о мосте — «1 of 1 instance(s) running, ADB bridge ready» (или «NOT ready»; предупреждение остаётся отдельной находкой). Раньше экран молчал о мосте, пока тот не падал.
+- Регрессионные тесты (124-я серия): классификация healthy/problems/warn-only, суффикс info, проводка рендера [DIAG] через `Get-DiagSummary`, статус моста в обеих формулировках, паритет bootstrap.
+
 ## v1.22.5 (16.09.2026)
 
 ### Fixed

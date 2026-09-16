@@ -235,7 +235,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.22.5'
+$scriptVer = '1.22.6'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -2298,7 +2298,8 @@ function Get-ProblemFindings {
                 } elseif ($probe.running -eq 0) {
                     & $add 'info' 'emulator' "$($probe.instances) instance(s) present, none running - launch with menu [2]"
                 } else {
-                    & $add 'info' 'emulator' "$($probe.running) of $($probe.instances) instance(s) running"
+                    $adbNote = if ($probe.adbReady) { ', ADB bridge ready' } else { ', ADB bridge NOT ready' }
+                    & $add 'info' 'emulator' "$($probe.running) of $($probe.instances) instance(s) running$adbNote"
                     if (-not $probe.adbReady) {
                         & $add 'warn' 'emulator' "ADB bridge not ready on the running instance - wait a moment or restart it; in-emulator commands (curl, adb shell) will fail until then"
                     }
@@ -2473,12 +2474,20 @@ function Show-ProblemDiagnostics {
     foreach ($f in $errors) { Write-Host ("  [ERROR] {0}" -f $f.message) -ForegroundColor Red }
     foreach ($f in $warns)  { Write-Host ("  [WARN ] {0}" -f $f.message) -ForegroundColor Yellow }
     foreach ($f in $infos)  { Write-Host ("  [info ] {0}" -f $f.message) -ForegroundColor DarkGray }
+    # v1.22.6: the verdict line lives in one shared formatter. Info-only
+    # findings are a healthy install - they no longer read as "Problems
+    # found: 1"; the honest per-severity counts stay visible either way.
+    $diag = Get-DiagSummary -Findings $findings
     if ($findings.Count -eq 0) {
         Write-Host '  No problems detected - install, lock, journal and MuMu environment are healthy.' -ForegroundColor Green
         Write-Host '  Problems found: 0' -ForegroundColor Green
+    } elseif ($diag.errors -eq 0 -and $diag.warns -eq 0) {
+        Write-Host ''
+        Write-Host ("  {0} ({1} info note(s) - nothing to fix)" -f $diag.verdict, $diag.infos) -ForegroundColor Green
     } else {
         Write-Host ''
-        Write-Host ("  Problems found: {0} ({1} error(s), {2} warning(s), {3} info)" -f $findings.Count, $errors.Count, $warns.Count, $infos.Count) -ForegroundColor $(if ($errors.Count -gt 0) { 'Red' } elseif ($warns.Count -gt 0) { 'Yellow' } else { 'DarkGray' })
+        $detail = "Problems found: {0} ({1} error(s), {2} warning(s), {3} info)" -f $findings.Count, $diag.errors, $diag.warns, $diag.infos
+        Write-Host ("  {0} - {1}" -f $diag.verdict, $detail) -ForegroundColor $diag.color
     }
     Write-Host ("  install: {0}" -f $ScriptDir) -ForegroundColor DarkGray
 }
@@ -2489,6 +2498,28 @@ function Show-ProblemDiagnostics {
 # findings ("no .version marker yet") stay in [DIAG] and never nag. The
 # collector is wrapped in try/catch: diagnostics must never block or
 # break the startup. MUMU_MENU_NO_AUTODIAG=1 suppresses the whole thing.
+function Get-DiagSummary {
+    # Pure formatter for the [DIAG] verdict line (v1.22.6). A findings list
+    # that contains only info entries ("1 of 1 instance(s) running", "no
+    # journal yet") is a HEALTHY install - the old unconditional "Problems
+    # found: 1 (0 error(s), 0 warning(s), 1 info)" read like an alarm while
+    # nothing was wrong. Returns a hashtable { verdict, color, errors, warns,
+    # infos } so callers share one classification: red verdict when errors
+    # exist, yellow for warnings-only, green "Status: healthy" for clean or
+    # info-only. Testable without any install fixture.
+    param([object[]]$Findings)
+    $errors = @($Findings | Where-Object { $_.severity -eq 'error' })
+    $warns  = @($Findings | Where-Object { $_.severity -eq 'warn' })
+    $infos  = @($Findings | Where-Object { $_.severity -eq 'info' })
+    if ($errors.Count -eq 0 -and $warns.Count -eq 0) {
+        return @{ verdict = 'Status: healthy'; color = 'Green'; errors = $errors.Count; warns = $warns.Count; infos = $infos.Count }
+    }
+    $color = if ($errors.Count -gt 0) { 'Red' } else { 'Yellow' }
+    $verdict = "Problems found: $($errors.Count) error(s), $($warns.Count) warning(s)"
+    if ($infos.Count -gt 0) { $verdict += ", $($infos.Count) info" }
+    return @{ verdict = $verdict; color = $color; errors = $errors.Count; warns = $warns.Count; infos = $infos.Count }
+}
+
 function Get-AutoDiagSummary {
     # Pure formatter: takes finding objects (severity/message), returns
     # the summary string or '' when nothing needs surfacing (clean or

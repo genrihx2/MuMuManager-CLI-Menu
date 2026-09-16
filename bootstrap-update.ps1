@@ -361,7 +361,14 @@ if ($Diagnose) {
     $errCount = @($f | Where-Object { $_.severity -eq 'error' }).Count
     $warnCount = @($f | Where-Object { $_.severity -eq 'warn' }).Count
     $infoCount = @($f | Where-Object { $_.severity -eq 'info' }).Count
-    Write-Host "  Problems found: $errCount error(s), $warnCount warning(s), $infoCount info" -ForegroundColor $(if ($errCount -gt 0 -or $warnCount -gt 0) { 'Yellow' } else { 'Green' })
+    # v1.22.6 parity with the menu [DIAG]: info-only findings are a healthy
+    # install - they no longer read as "Problems found: N".
+    if ($errCount -eq 0 -and $warnCount -eq 0) {
+        Write-Host "  Status: healthy ($infoCount info note(s) - nothing to fix)" -ForegroundColor Green
+    } else {
+        $color = if ($errCount -gt 0) { 'Red' } else { 'Yellow' }
+        Write-Host "  Problems found: $errCount error(s), $warnCount warning(s), $infoCount info" -ForegroundColor $color
+    }
     if ($errCount -gt 0 -or $warnCount -gt 0) { exit 1 } else { exit 0 }
 }
 

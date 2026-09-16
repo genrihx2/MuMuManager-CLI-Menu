@@ -25,6 +25,7 @@ BeforeAll {
                         'ConvertTo-JournalMarkdown', 'ConvertTo-JournalCsv', 'ConvertTo-JournalJson', 'Export-UpdateJournal',
                         'Get-ProblemFindings', 'Get-InstallStatus', 'Get-IntegrityVerdict', 'Invoke-MumuManagerProbe',
                         'Get-BackupFolders', 'Build-RollbackPlan', 'Invoke-Rollback', 'Test-CurlCapability',
+                        'Get-DiagSummary',
                         'Get-AutoDiagSummary', 'Invoke-StartupAutoDiag', 'Show-AutoDiagLine',
                         'Read-EtagCacheFile', 'Get-EtagCacheFileState', 'Save-EtagCacheFile', 'Invoke-EtagCacheMaintenance',
                         'Test-CurlRetrySupport', 'Get-CurlGitHubArgs', 'Invoke-GitHubApiGet')) {
@@ -983,6 +984,62 @@ Describe 'Startup auto-diag (issue #30)' {
     }
 }
 
+Describe 'Get-DiagSummary - [DIAG] verdict (v1.22.6)' {
+
+    It 'empty findings classify as healthy' {
+        $d = Get-DiagSummary -Findings @()
+        $d.verdict | Should -Be 'Status: healthy'
+        $d.color | Should -Be 'Green'
+        $d.errors | Should -Be 0
+        $d.warns | Should -Be 0
+        $d.infos | Should -Be 0
+    }
+
+    It 'info-only findings are healthy - the [DIAG] false alarm report (1 of 1 instance running)' {
+        # Live report: a fully working install printed "Problems found: 1
+        # (0 error(s), 0 warning(s), 1 info)" - info notes are not problems.
+        $f = @([pscustomobject]@{ severity = 'info'; area = 'emulator'; message = '1 of 1 instance(s) running, ADB bridge ready' })
+        $d = Get-DiagSummary -Findings $f
+        $d.verdict | Should -Be 'Status: healthy'
+        $d.color | Should -Be 'Green'
+        $d.errors | Should -Be 0
+        $d.warns | Should -Be 0
+        $d.infos | Should -Be 1
+    }
+
+    It 'errors produce a red Problems found verdict with honest counts' {
+        $f = @(
+            [pscustomobject]@{ severity = 'error'; area = 'install'; message = 'a' },
+            [pscustomobject]@{ severity = 'warn';  area = 'lock';     message = 'b' },
+            [pscustomobject]@{ severity = 'warn';  area = 'journal';  message = 'c' },
+            [pscustomobject]@{ severity = 'info';  area = 'emulator'; message = 'd' }
+        )
+        $d = Get-DiagSummary -Findings $f
+        $d.verdict | Should -Be 'Problems found: 1 error(s), 2 warning(s), 1 info'
+        $d.color | Should -Be 'Red'
+        $d.errors | Should -Be 1
+        $d.warns | Should -Be 2
+        $d.infos | Should -Be 1
+    }
+
+    It 'warnings-only verdict is yellow and omits the info suffix when there is none' {
+        $f = @([pscustomobject]@{ severity = 'warn'; area = 'lock'; message = 'x' })
+        $d = Get-DiagSummary -Findings $f
+        $d.verdict | Should -Be 'Problems found: 0 error(s), 1 warning(s)'
+        $d.color | Should -Be 'Yellow'
+    }
+
+    It 'wiring: [DIAG] renders via Get-DiagSummary, the healthy branch exists, bootstrap -Diagnose has parity, emulator info carries the bridge state' {
+        $src = [System.IO.File]::ReadAllText($script:menuPath)
+        ($src -match 'Get-DiagSummary -Findings \$findings') | Should -Be $true
+        ($src -match 'nothing to fix') | Should -Be $true
+        ($src -match ', ADB bridge ready') | Should -Be $true
+        ($src -match ', ADB bridge NOT ready') | Should -Be $true
+        $bsrc = [System.IO.File]::ReadAllText((Join-Path (Join-Path $PSScriptRoot '..') 'bootstrap-update.ps1'))
+        ($bsrc -match 'Status: healthy') | Should -Be $true
+    }
+}
+
 Describe 'Persistent ETag cache (issue #28)' {
     BeforeAll {
         $script:cacheFile = Join-Path $TestDrive ".etag-cache_$(Get-Random).json"
@@ -1273,14 +1330,14 @@ Describe 'Emulator diagnostics (issue #32)' {
         $exe = New-MumuStub -Dir $script:emuDir -Json '{"0":{"player_state":"started"}}'
         $f = Invoke-Diag2 -Dir $script:emuDir -MumuExe $exe -Probe $script:emuProbe
         @($f | Where-Object { $_.area -eq 'emulator' -and $_.severity -eq 'warn' -and $_.message -match 'ADB bridge not ready' }).Count | Should -Be 1
-        @($f | Where-Object { $_.area -eq 'emulator' -and $_.message -match '1 of 1 instance' }).Count | Should -Be 1
+        @($f | Where-Object { $_.area -eq 'emulator' -and $_.message -match '1 of 1 instance\(s\) running, ADB bridge NOT ready' }).Count | Should -Be 1
     }
 
     It 'diagnostics stay quiet for a healthy running instance with ADB ready' {
         $exe = New-MumuStub -Dir $script:emuDir -Json '{"0":{"player_state":"started","adb_version":"1.0.41"}}'
         $f = Invoke-Diag2 -Dir $script:emuDir -MumuExe $exe -Probe $script:emuProbe
         @($f | Where-Object { $_.severity -eq 'error' -or $_.severity -eq 'warn' }).Count | Should -Be 0
-        @($f | Where-Object { $_.area -eq 'emulator' -and $_.message -match '1 of 1 instance\(s\) running' }).Count | Should -Be 1
+        @($f | Where-Object { $_.area -eq 'emulator' -and $_.message -match '1 of 1 instance\(s\) running, ADB bridge ready' }).Count | Should -Be 1
     }
 
     It 'diagnostics: no instances and stopped instances are info, MuMuManager crash is a warning' {
