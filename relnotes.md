@@ -4,6 +4,9 @@
 
 ---
 
+## v1.21.10 (16.09.2026)
+- **Startup auto-diag (issue #30)**: the menu now runs the `[DIAG]` findings collector once per process, silently, at startup and surfaces ONE line under the status bar only when errors or warnings exist: `[auto-diag] Problems found: N error(s), M warning(s) - details: [DIAG]`. Info findings ("no .version marker yet", emulator idle states) never nag - they stay in `[DIAG]`. Healthy installs render nothing. `MUMU_MENU_NO_AUTODIAG=1` suppresses the check; the collector is guarded by try/catch so diagnostics can never block startup, and the verdict is collected once (cached for every menu redraw). 8 new Pester tests: formatter severity filter, info suppression, cache behavior, real-fixture wiring, env opt-out.
+
 ## v1.21.9 (16.09.2026)
 - **Retry hardening for flaky networks (fixes "Update check failed: Request failed (exit 35)")**: curl's built-in `--retry` never retries TLS handshake failures (exit 35) - one flaky-network reset killed the whole update check. All GitHub fetches now carry `--retry-all-errors` (probed once per run: the option exists since curl 7.71, older builds degrade to plain `--retry` instead of aborting on an unknown option), the menu's ETag fetch has a PS-level second attempt for every transport failure, `[V]` does 2 attempts, and the bootstrap reports the curl exit code on each retry. Stub-based Pester tests pin the exit-code classification (35 = capable, 2 = not, 0 = capable, no curl = degrade).
 - **Hardened the diagnostics probes under `ErrorActionPreference = Stop`**: a stderr write from the real `adb` ("daemon not running") or from curl surfaced as a terminating error inside `Invoke-MumuManagerProbe`/`_Fetch` under Pester and strict hosts; both are now caught and treated as an empty attempt (caught live in the test run).

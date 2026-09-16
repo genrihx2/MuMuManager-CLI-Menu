@@ -24,7 +24,8 @@ BeforeAll {
                         'Test-UpdateLockStale', 'Get-UpdateLockMessage', 'New-UpdateLock', 'Remove-UpdateLock',
                         'ConvertTo-JournalMarkdown', 'ConvertTo-JournalCsv', 'ConvertTo-JournalJson', 'Export-UpdateJournal',
                         'Get-ProblemFindings', 'Get-InstallStatus', 'Get-IntegrityVerdict', 'Invoke-MumuManagerProbe',
-                        'Get-BackupFolders', 'Build-RollbackPlan', 'Invoke-Rollback', 'Test-CurlCapability')) {
+                        'Get-BackupFolders', 'Build-RollbackPlan', 'Invoke-Rollback', 'Test-CurlCapability',
+                        'Get-AutoDiagSummary', 'Invoke-StartupAutoDiag', 'Show-AutoDiagLine')) {
         $f = $script:ast.FindAll({
             param($node)
             $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -897,6 +898,74 @@ Describe 'Curl retry capability (exit-35 hardening, v1.21.9)' {
 
     It 'the real curl on this machine resolves (probe path is exercised in production)' {
         (Get-Command curl.exe -ErrorAction SilentlyContinue) | Should -Not -Be $null
+    }
+}
+
+Describe 'Startup auto-diag (issue #30)' {
+
+    It 'summary is empty for a clean install' {
+        Get-AutoDiagSummary -Findings @() | Should -Be ''
+    }
+
+    It 'summary is empty when only info findings exist (info stays in [DIAG])' {
+        $f = @(
+            [pscustomobject]@{ severity = 'info'; area = 'install'; message = 'no .version marker yet' },
+            [pscustomobject]@{ severity = 'info'; area = 'emulator'; message = '0 of 2 instance(s) running' }
+        )
+        Get-AutoDiagSummary -Findings $f | Should -Be ''
+    }
+
+    It 'names error and warning counts and points to [DIAG]' {
+        $f = @(
+            [pscustomobject]@{ severity = 'error'; area = 'install'; message = 'boom' },
+            [pscustomobject]@{ severity = 'warn';  area = 'lock';     message = 'hmm' },
+            [pscustomobject]@{ severity = 'warn';  area = 'journal';  message = 'meh' },
+            [pscustomobject]@{ severity = 'info';  area = 'emulator'; message = 'ignored' }
+        )
+        $line = Get-AutoDiagSummary -Findings $f
+        $line | Should -Be 'Problems found: 1 error(s), 2 warning(s) - details: [DIAG]'
+    }
+
+    It 'one error alone still surfaces the line' {
+        $f = @([pscustomobject]@{ severity = 'error'; area = 'install'; message = 'x' })
+        Get-AutoDiagSummary -Findings $f | Should -Match '^Problems found: 1 error\(s\), 0 warning\(s\)'
+    }
+
+    It 'the real install fixture produces a summary from actual findings' {
+        # Real collector against a broken fixture dir: marker ahead of content
+        # (the v1.20.5 wedge class) -> error -> the line must appear. The
+        # collector is extracted from the parsed AST (no copies).
+        $d = Join-Path $TestDrive "adiag_$(Get-Random)"
+        New-Item -ItemType Directory -Path $d -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $d 'mumu-menu.ps1') -Value "`$scriptVer = '1.21.10'"
+        Set-Content -LiteralPath (Join-Path $d '.version') -Value 'v9.9.9' -NoNewline
+        $gpf = $script:ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Get-ProblemFindings' }, $true) | Select-Object -First 1
+        . ([scriptblock]::Create($gpf.Extent.Text))
+        $f = @(Get-ProblemFindings -ScriptDir $d -VersionFile (Join-Path $d '.version') -MenuPath (Join-Path $d 'mumu-menu.ps1') -JournalFile (Join-Path $d 'update-journal.log') -MumuPath '' -ScriptVer '1.21.10')
+        Get-AutoDiagSummary -Findings $f | Should -Not -Be ''
+    }
+
+    It 'Invoke-StartupAutoDiag caches the verdict across calls' {
+        # First call populates the script-scope cache; even if the collector
+        # would change its answer, the second call must return the cached one.
+        $script:AutoDiagSummary = $null
+        $r1 = Invoke-StartupAutoDiag
+        $script:AutoDiagSummary = 'cached-verdict'
+        Invoke-StartupAutoDiag | Should -Be 'cached-verdict'
+        $script:AutoDiagSummary = $null
+    }
+
+    It 'Show-AutoDiagLine renders nothing when the summary is empty' {
+        $script:AutoDiagSummary = ''
+        $out = Show-AutoDiagLine
+        $out | Should -Be ''
+        $script:AutoDiagSummary = $null
+    }
+
+    It 'wiring: Show-Menu renders the auto-diag line after the quick status' {
+        $src = [System.IO.File]::ReadAllText($script:menuPath)
+        ($src -match 'Show-QuickStatus\r?\n\s*Show-AutoDiagLine') | Should -Be $true
+        ($src -match 'MUMU_MENU_NO_AUTODIAG') | Should -Be $true
     }
 }
 

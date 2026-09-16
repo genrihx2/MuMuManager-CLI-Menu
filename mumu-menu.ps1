@@ -226,7 +226,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.21.9'
+$scriptVer = '1.21.10'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -2268,6 +2268,50 @@ function Show-ProblemDiagnostics {
     Write-Host ("  install: {0}" -f $ScriptDir) -ForegroundColor DarkGray
 }
 
+# ── Startup auto-diag (issue #30) ────────────────────────────────────
+# Runs the [DIAG] findings collector once per process, silently, at menu
+# startup and surfaces ONE line only when errors or warnings exist - info
+# findings ("no .version marker yet") stay in [DIAG] and never nag. The
+# collector is wrapped in try/catch: diagnostics must never block or
+# break the startup. MUMU_MENU_NO_AUTODIAG=1 suppresses the whole thing.
+function Get-AutoDiagSummary {
+    # Pure formatter: takes finding objects (severity/message), returns
+    # the summary string or '' when nothing needs surfacing (clean or
+    # info-only). Testable without any install fixture.
+    param([object[]]$Findings)
+    $errors = @($Findings | Where-Object { $_.severity -eq 'error' })
+    $warns  = @($Findings | Where-Object { $_.severity -eq 'warn' })
+    if ($errors.Count -eq 0 -and $warns.Count -eq 0) { return '' }
+    return ("Problems found: {0} error(s), {1} warning(s) - details: [DIAG]" -f $errors.Count, $warns.Count)
+}
+
+function Invoke-StartupAutoDiag {
+    # Collects once per process (guarded by $script:AutoDiagSummary) and
+    # returns the summary line ('' = nothing to show). Never throws.
+    if ($null -ne $script:AutoDiagSummary) { return $script:AutoDiagSummary }
+    $script:AutoDiagSummary = ''
+    try {
+        $f = @(Get-ProblemFindings -ScriptDir $ScriptDir -VersionFile $VersionFile -MenuPath (Join-Path $ScriptDir 'mumu-menu.ps1') -JournalFile $script:JournalFile -MumuPath $MumuPath -InstalledVersion $InstalledVersion -ScriptVer $scriptVer)
+        $script:AutoDiagSummary = Get-AutoDiagSummary -Findings $f
+    } catch {
+        Write-Debug "auto-diag failed (non-fatal): $($_.Exception.Message)"
+    }
+    return $script:AutoDiagSummary
+}
+
+function Show-AutoDiagLine {
+    # Renders the one-line auto-diag verdict under the quick status bar.
+    # Empty output = healthy or suppressed - the menu looks exactly as before.
+    # Returns the rendered line ('' / $null = nothing shown) for testability.
+    if ($env:MUMU_MENU_NO_AUTODIAG -eq '1') { return $null }
+    $line = Invoke-StartupAutoDiag
+    if ($line) { Write-Host "  [auto-diag] $line" -ForegroundColor Yellow }
+    return $line
+}
+
+# The verdict is collected once, right after the journal target is known.
+$script:AutoDiagSummary = $null
+
 # ── Status screen (issue #25) ────────────────────────────────────────
 # One read-only screen answering "what am I on and am I OK?": local
 # marker vs latest release, journal summary, last ZIP verification from
@@ -2427,6 +2471,7 @@ function Show-Menu {
     Write-Host '======================================' -ForegroundColor Cyan
     Write-Host '    MuMuManager CLI Menu' -ForegroundColor Cyan
     Show-QuickStatus
+    Show-AutoDiagLine
     Write-Host '======================================' -ForegroundColor Cyan
     Write-Host ''
     Write-Host '  --- Emulator Control ---' -ForegroundColor Green
