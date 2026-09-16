@@ -4,6 +4,11 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # One batched weekly PR for all action bumps instead of one PR per action.
+    groups:
+      github-actions:
+        patterns:
+          - "*"
     labels:
       - "dependencies"
       - "chore"
