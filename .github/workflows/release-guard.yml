@@ -1,0 +1,156 @@
+name: Release guard
+
+# Weekly audit of published releases (the release-pipeline watchtower).
+#
+# The ISSUE-DRAFT.md / RELEASE-RUNBOOK.md era left this repo with a class of
+# silent empty releases (v1.18.1-v1.18.6 shipped with zero assets for days).
+# The pipeline is tag-driven now, but nothing watched the outcome - this
+# workflow does, every Monday and on demand:
+#   - every release NEWER than v1.18.6 must ship the canonical asset set:
+#     the ZIP and its .sha256 sidecar;
+#   - every such release must carry the VirusTotal verdicts section
+#     (the "Status: CLEAN" marker) in its body;
+#   - the audit report always lands in the run summary; any violation also
+#     opens a dedicated issue (one, marker-scoped, idempotent) and the run
+#     fails so the badge/mail notifies the maintainer;
+#   - when a later run finds no violations, a previously opened guard issue
+#     is closed automatically.
+
+on:
+  schedule:
+    - cron: '30 6 * * 1' # Mondays 06:30 UTC - after security-scan (06:00), before EU workday
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/release-guard.yml'
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Audit releases newer than v1.18.6
+        id: audit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          BASELINE: v1.18.6
+        run: |
+          set -euo pipefail
+
+          BASE_ID=$(gh api "repos/$REPO/releases/tags/$BASELINE" --jq '.id')
+          case "$BASE_ID" in '' | *[!0-9]*) echo "Unexpected baseline id: $BASE_ID" >&2; exit 1 ;; esac
+          echo "Baseline $BASELINE id=$BASE_ID - auditing newer releases"
+
+          # gh ships its own jq engine (--jq) - no separate jq dependency.
+          gh api "repos/$REPO/releases?per_page=100" \
+            --jq "
+              [.[] | select(.draft == false and .prerelease == false and .id > $BASE_ID)]
+              | sort_by(.id) | reverse
+              | .[]
+              | [.tag_name,
+                (.published_at // \"unpublished\"),
+                ([.assets[].name] | join(\";\")),
+                (if (.body // \"\") | contains(\"VIRUSTOTAL-VERDICTS\") then \"yes\" else \"no\" end)]
+              | @tsv" > audit.tsv
+
+          TOTAL=$(wc -l < audit.tsv)
+          echo "Releases newer than $BASELINE: $TOTAL"
+
+          : > violations.txt
+          {
+            echo "### Release guard audit ($BASELINE..latest)"
+            echo ""
+            echo "| Release | Published | ZIP | SHA256 | VT verdicts |"
+            echo "|---|---|---|---|---|"
+          } > report.md
+          while IFS=$'\t' read -r tag pub assets vt; do
+            ZIP="no"; SHA="no"
+            if printf '%s' "$assets" | grep -q '^MuMuManager-CLI-Menu-'"$tag"'\.zip;\?'; then ZIP="yes"; fi
+            if printf '%s' "$assets" | grep -q '\.zip\.sha256$'; then SHA="yes"; fi
+            echo "| \`$tag\` | ${pub%%T*} | $ZIP | $SHA | $vt |" >> report.md
+            if [ "$ZIP" != "yes" ] || [ "$SHA" != "yes" ] || [ "$vt" != "yes" ]; then
+              {
+                echo "- \`$tag\`: zip=$ZIP sha256=$SHA vt=$vt"
+              } >> violations.txt
+            fi
+          done < audit.tsv
+          echo "" >> report.md
+
+          COUNT=$(wc -l < violations.txt)
+          {
+            if [ "$TOTAL" -eq 0 ]; then
+              echo "**No releases newer than $BASELINE found - nothing to audit.**"
+            elif [ "$COUNT" -eq 0 ]; then
+              echo "**Status: CLEAN** - all $TOTAL release(s) newer than \`$BASELINE\` ship ZIP + SHA256 + VirusTotal verdicts."
+            else
+              echo "**Status: $COUNT VIOLATION(S)** of $TOTAL release(s):"
+              echo ""
+              cat violations.txt
+            fi
+          } >> report.md
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
+
+          {
+            echo "count=$COUNT"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Open or update the guard issue
+        id: issue
+        if: steps.audit.outputs.count != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          TITLE='[release-guard] Releases newer than v1.18.6 are missing assets or VT verdicts'
+          MARKER='<!-- release-guard-audit -->'
+          {
+            echo "$MARKER"
+            echo ""
+            echo "The weekly release-guard audit found releases that break the"
+            echo "post-v1.18.6 contract (ZIP + .sha256 + VirusTotal verdicts)."
+            echo ""
+            cat report.md
+            echo "---"
+            echo "Latest audit run: $RUN_URL"
+            echo "Procedures: [RELEASE-RUNBOOK.md](https://github.com/$REPO/blob/main/RELEASE-RUNBOOK.md), Path 3 (backfill)."
+          } > issue-body.md
+
+          # Idempotent: one marker-scoped issue, updated on every failing run.
+          NUMBER=$(gh issue list --repo "$REPO" --search "$MARKER in:body" --state open --json number --jq '.[0].number // ""')
+          if [ -n "$NUMBER" ]; then
+            gh issue edit "$NUMBER" --repo "$REPO" --body-file issue-body.md
+            echo "Updated existing guard issue #$NUMBER"
+          else
+            gh issue create --repo "$REPO" --title "$TITLE" --body-file issue-body.md
+            echo "Opened new guard issue"
+          fi
+
+      - name: Close a stale guard issue
+        if: steps.audit.outputs.count == '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          MARKER='<!-- release-guard-audit -->'
+          NUMBER=$(gh issue list --repo "$REPO" --search "$MARKER in:body" --state open --json number --jq '.[0].number // ""')
+          if [ -n "$NUMBER" ]; then
+            gh issue close "$NUMBER" --repo "$REPO" \
+              --comment "The latest weekly audit is clean - all releases newer than v1.18.6 ship ZIP + SHA256 + VirusTotal verdicts. Closing."
+            echo "Closed stale guard issue #$NUMBER"
+          else
+            echo "No open guard issue - nothing to close"
+          fi
+
+      - name: Fail on violations
+        if: steps.audit.outputs.count != '0'
+        run: |
+          echo "Release guard found violations - see the step summary and the guard issue."
+          exit 1
