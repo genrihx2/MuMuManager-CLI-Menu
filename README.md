@@ -348,7 +348,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.21.8
+Script version: 1.21.9
 MuMu version: 6.5.2.0
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -448,6 +448,10 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 **EN summary:** Recovering from a failed update: diagnose first (`[ST]` status, `[DIAG]` problems, `[F]` file-vs-tag verification, `[J] → 3` errors), then act. HASH MISMATCH → re-run `[F]` (stale-CDN false alarms vanish on the re-fetch; stable mismatches mean re-download the ZIP and verify with `-VerifyZip`). Wedged marker ("Up to date" but old content) → `bootstrap-update.ps1 -Force`. Broken files → restore from `backup\YYYYMMDD_HHMMSS`. Lock refusal → wait (locks older than 10 minutes break automatically). The table above maps each symptom to its cause and fix.
 
 ## Что нового
+
+### v1.21.9 (16.09.2026)
+- **Устойчивость к нестабильной сети (исправление "Update check failed: Request failed (exit 35)")**: встроенный `--retry` curl никогда не повторял сбои TLS-handshake (exit 35) - один сбой сети убивал всю проверку обновлений. Все запросы к GitHub теперь идут с `--retry-all-errors` (проба один раз за запуск: опция есть только с curl 7.71, старые сборки откатываются на обычный `--retry`, а не падают на неизвестной опции), ETag-загрузка меню получает PS-уровень ретрая для любой транспортной ошибки, `[V]` делает 2 попытки, bootstrap печатает код curl при каждом ретрае. Pester-тесты фиксируют классификацию кодов выхода заглушками (35 = поддерживается, 2 = нет, 0 = да, нет curl = деградация)
+- **Устойчивость диагностических проб к `ErrorActionPreference = Stop`**: запись в stderr от реального `adb` ("daemon not running") или curl вызывала терминирующую ошибку внутри `Invoke-MumuManagerProbe`/`_Fetch` под Pester и строгими хостами; теперь перехватывается и трактуется как пустая попытка (поймано живым прогоном тестов)
 
 ### v1.21.8 (15.09.2026)
 - **`[RB]` Откат из backup (issue #27)**: список папок `backup\ГГГГММДД_ЧЧММСС` (новые сверху, размер + дата + полнота), выбор, подтверждение словом `ROLLBACK`, восстановление 4 файлов. Маркер `.version` **выводится из собственного `$scriptVer` восстановленного контента** — никогда не угадывается (в бэкапах маркера нет; принцип guard v1.20.5). В журнал пишется `rollback` (from = маркер до, to = восстановленный) или `rollback-fail`; после предлагается `[F]`. Чистые хелперы (`Get-BackupFolders`, `Build-RollbackPlan`, `Invoke-Rollback`) покрыты 5 Pester-тестами, включая проверки журнала
@@ -639,6 +643,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.21.9 | 16.09.2026 | Ретраи curl для нестабильной сети (`--retry-all-errors` с пробой, exit 35 больше не убивает проверку обновлений); пробы диагностики не падают при `ErrorActionPreference = Stop` |
 | v1.21.8 | 15.09.2026 | #27: `[RB]` откат из backup с выравниванием маркера по контенту; #29: `bootstrap -Diagnose`; фикс ложного ADB-предупреждения |
 | v1.21.7 | 15.09.2026 | #32: диагностика эмулятора в `[DIAG]` — инстансы, running, ADB-мост; фикс парсинга многострочного JSON (pwsh 7) |
 | v1.21.6 | 15.09.2026 | Fix: `[ST]` глубокая проверка больше не даёт ложный DRIFT на здоровой установке (вердикт из `summary|`) |

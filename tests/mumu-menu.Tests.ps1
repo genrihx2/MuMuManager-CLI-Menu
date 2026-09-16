@@ -24,7 +24,7 @@ BeforeAll {
                         'Test-UpdateLockStale', 'Get-UpdateLockMessage', 'New-UpdateLock', 'Remove-UpdateLock',
                         'ConvertTo-JournalMarkdown', 'ConvertTo-JournalCsv', 'ConvertTo-JournalJson', 'Export-UpdateJournal',
                         'Get-ProblemFindings', 'Get-InstallStatus', 'Get-IntegrityVerdict', 'Invoke-MumuManagerProbe',
-                        'Get-BackupFolders', 'Build-RollbackPlan', 'Invoke-Rollback')) {
+                        'Get-BackupFolders', 'Build-RollbackPlan', 'Invoke-Rollback', 'Test-CurlCapability')) {
         $f = $script:ast.FindAll({
             param($node)
             $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -855,6 +855,48 @@ Describe 'Integrity verdict classifier ([ST] deep check)' {
         $v2 = Get-IntegrityVerdict -Report @()
         $v2.ok | Should -BeFalse
         $v2.detail | Should -Match 'could not run'
+    }
+}
+
+Describe 'Curl retry capability (exit-35 hardening, v1.21.9)' {
+    # Pester 6 on PS 5.1 cannot Mock curl.exe (AllScope conflict), so the
+    # stub is a real .cmd child process - the same stdio/exit-code path the
+    # production probe exercises with the real binary.
+    BeforeAll {
+        $script:stubDir = Join-Path $TestDrive 'curlstub'
+        New-Item -ItemType Directory -Path $script:stubDir -Force | Out-Null
+        foreach ($case in @(
+            @{ name = 'cap35.cmd'; code = 'exit /b 35' },
+            @{ name = 'cap2.cmd';  code = 'exit /b 2' },
+            @{ name = 'cap0.cmd';  code = 'exit /b 0' }
+        )) {
+            $p = Join-Path $script:stubDir $case.name
+            [System.IO.File]::WriteAllText($p, "@echo off`r`n" + $case.code + "`r`n", [System.Text.Encoding]::ASCII)
+        }
+    }
+
+    It 'classifies a TLS handshake failure (exit 35) as a CAPABLE curl' {
+        # curl 7.29 (System32, no --retry-all-errors) would exit 2 for the
+        # unknown option; exit 35 means the option was parsed and the probe
+        # URL failed at the TLS layer - capability must be $true (the live
+        # regression behind "Update check failed (exit 35)").
+        Test-CurlCapability -CurlExe (Join-Path $script:stubDir 'cap35.cmd') -ProbeUrl 'https://probe.invalid/' | Should -Be $true
+    }
+
+    It 'classifies an unknown-option rejection (exit 2) as NOT capable' {
+        Test-CurlCapability -CurlExe (Join-Path $script:stubDir 'cap2.cmd') -ProbeUrl 'https://probe.invalid/' | Should -Be $false
+    }
+
+    It 'classifies success (exit 0) as capable' {
+        Test-CurlCapability -CurlExe (Join-Path $script:stubDir 'cap0.cmd') -ProbeUrl 'https://probe.invalid/' | Should -Be $true
+    }
+
+    It 'degrades to $false when curl cannot start at all' {
+        Test-CurlCapability -CurlExe 'definitely-not-a-real-curl-binary-xyz' -ProbeUrl 'https://probe.invalid/' | Should -Be $false
+    }
+
+    It 'the real curl on this machine resolves (probe path is exercised in production)' {
+        (Get-Command curl.exe -ErrorAction SilentlyContinue) | Should -Not -Be $null
     }
 }
 

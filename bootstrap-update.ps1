@@ -52,6 +52,32 @@ $files      = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1'
 $maxRetries = 3
 $retryDelay = 3   # seconds between retries
 
+# Retry flags for curl calls that build cmd strings. curl's own --retry
+# ignores TLS handshake failures (exit 35) - the flaky-network class behind
+# failed update checks. --retry-all-errors makes it retry transport-level
+# errors too, but the option exists only since curl 7.71 and older builds
+# abort on unknown options - probe once, degrade to plain --retry.
+# No -w probe variant: PS 5.1 drops empty-string args ("no URL specified").
+# Returns $true when the given curl accepts --retry-all-errors (curl >= 7.71).
+# An unknown option makes curl exit 2 before any network activity; any other
+# outcome (success or a network error) means the option was accepted. A curl
+# that cannot start -> catch -> $false, degrading callers to plain --retry.
+function Test-CurlCapability {
+    param([string]$CurlExe = 'curl.exe', [string]$ProbeUrl = 'https://api.github.com/')
+    try {
+        $null = & $CurlExe -s --retry-all-errors --connect-timeout 10 --max-time 15 -o NUL $ProbeUrl 2>$null
+        return ($LASTEXITCODE -ne 2)
+    } catch {
+        return $false
+    }
+}
+$script:CurlRetryStr = ' --retry 3 --retry-delay 2'
+$script:CurlRetryArgs = @('--retry', '3', '--retry-delay', '2')
+if (Test-CurlCapability) {
+    $script:CurlRetryStr += ' --retry-all-errors'
+    $script:CurlRetryArgs += '--retry-all-errors'
+}
+
 # ── Update journal (shared with the menu [U] updater) ────────────────
 # Tab-separated UTF-8, one event per line:
 #   timestamp<TAB>actor<TAB>event<TAB>from<TAB>to<TAB>detail
@@ -494,7 +520,7 @@ Write-Host ''
 function Invoke-CurlGet {
     param([string]$Url)
     for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
-        $curlCmd = "curl.exe -sS --fail --connect-timeout 30 --max-time 30 -H `"Accept: application/vnd.github.v3+json`""
+        $curlCmd = "curl.exe -sS$script:CurlRetryStr --fail --connect-timeout 30 --max-time 30 -H `"Accept: application/vnd.github.v3+json`""
         if ($token) { $curlCmd += " -H `"Authorization: token $token`"" }
         $curlCmd += " `"$Url`" 2>nul"
         $result = & cmd /c $curlCmd
@@ -503,7 +529,7 @@ function Invoke-CurlGet {
             # Bad credentials fallback — retry without token
             if ($token -and $resultStr -match '"message"\s*:\s*"Bad credentials"') {
                 Write-Host "  Token rejected — retrying without auth..." -ForegroundColor Yellow
-                $noAuthCmd = "curl.exe -sS --fail --connect-timeout 30 --max-time 30 -H `"Accept: application/vnd.github.v3+json`" `"$Url`" 2>nul"
+                $noAuthCmd = "curl.exe -sS$script:CurlRetryStr --fail --connect-timeout 30 --max-time 30 -H `"Accept: application/vnd.github.v3+json`" `"$Url`" 2>nul"
                 $result2 = & cmd /c $noAuthCmd
                 if ($LASTEXITCODE -eq 0 -and $result2) {
                     return ($result2 | Out-String)
@@ -513,7 +539,7 @@ function Invoke-CurlGet {
             return $resultStr
         }
         if ($attempt -lt $maxRetries) {
-            Write-Host "  Attempt $attempt failed - retrying in ${retryDelay}s..." -ForegroundColor Yellow
+            Write-Host "  Attempt $attempt failed (curl exit $LASTEXITCODE) - retrying in ${retryDelay}s..." -ForegroundColor Yellow
             Start-Sleep -Seconds $retryDelay
         }
     }
@@ -525,7 +551,7 @@ function Download-File {
     param([string]$Url, [string]$Dest)
     for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
         $tmpFile = $Dest + '.tmp'
-        $dlCmd = "curl.exe -sS --fail --retry 2 --connect-timeout 30 --max-time 120 -L -H `"Accept: application/vnd.github.v3.raw`" -o `"$tmpFile`""
+        $dlCmd = "curl.exe -sS$script:CurlRetryStr --fail --connect-timeout 30 --max-time 120 -L -H `"Accept: application/vnd.github.v3.raw`" -o `"$tmpFile`""
         if ($token) { $dlCmd += " -H `"Authorization: token $token`"" }
         $dlCmd += " `"$Url`" 2>nul"
         & cmd /c $dlCmd | Out-Null
@@ -604,7 +630,7 @@ function Invoke-CurlGetRaw {
     param([string]$Url)
     $tmpFile = Join-Path $env:TEMP ('gh_raw_' + [Guid]::NewGuid().ToString('N') + '.bin')
     try {
-        $curlArgs = @('-sS', '--fail', '--retry', '2', '--retry-delay', '3', '--connect-timeout', '30', '--max-time', '60', '-H', 'Accept: application/vnd.github.raw', '-o', $tmpFile)
+        $curlArgs = @('-sS', '--fail') + $script:CurlRetryArgs + @('--connect-timeout', '30', '--max-time', '60', '-H', 'Accept: application/vnd.github.raw', '-o', $tmpFile)
         if ($token) { $curlArgs += @('-H', "Authorization: token $token") }
         $curlArgs += $Url
         & curl.exe @curlArgs 2>$null

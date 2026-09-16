@@ -4,6 +4,10 @@
 
 ---
 
+## v1.21.9 (16.09.2026)
+- **Retry hardening for flaky networks (fixes "Update check failed: Request failed (exit 35)")**: curl's built-in `--retry` never retries TLS handshake failures (exit 35) - one flaky-network reset killed the whole update check. All GitHub fetches now carry `--retry-all-errors` (probed once per run: the option exists since curl 7.71, older builds degrade to plain `--retry` instead of aborting on an unknown option), the menu's ETag fetch has a PS-level second attempt for every transport failure, `[V]` does 2 attempts, and the bootstrap reports the curl exit code on each retry. Stub-based Pester tests pin the exit-code classification (35 = capable, 2 = not, 0 = capable, no curl = degrade).
+- **Hardened the diagnostics probes under `ErrorActionPreference = Stop`**: a stderr write from the real `adb` ("daemon not running") or from curl surfaced as a terminating error inside `Invoke-MumuManagerProbe`/`_Fetch` under Pester and strict hosts; both are now caught and treated as an empty attempt (caught live in the test run).
+
 ## v1.21.8 (15.09.2026)
 - **`[RB]` Rollback from backup (issue #27)**: list `backup\YYYYMMDD_HHMMSS` folders (newest first, size + date + completeness), pick one, confirm with `ROLLBACK`, restore the 4 files. The `.version` marker is **earned from the restored content's own `$scriptVer`** - never guessed (backups carry no marker; guard principle of v1.20.5). Journals `rollback` (from = marker before, to = restored claim) or `rollback-fail`; offers `[F]` verification after. Pure helpers (`Get-BackupFolders`, `Build-RollbackPlan`, `Invoke-Rollback`) covered by 5 Pester tests incl. journal assertions.
 - **`bootstrap-update.ps1 -Diagnose` (issue #29)**: the menu-free diagnostics entry point for installs where `mumu-menu.ps1` will not start. Prints the `[DIAG]`-style findings report (marker vs the scriptVer parsed from raw - possibly broken - menu text, lock states, journal health, MuMu path, disk) with **no network and no mutations**; exit 0 when clean, exit 1 on error/warn findings (scriptable for support). T11 in the bootstrap suite asserts the parse-from-broken-file behavior and the wiring.

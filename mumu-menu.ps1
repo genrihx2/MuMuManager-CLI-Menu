@@ -226,7 +226,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.21.8'
+$scriptVer = '1.21.9'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -262,6 +262,32 @@ function Resolve-GitRefSha {
         Write-Debug "Resolve-GitRefSha failed for ${Ref}: $($_.Exception.Message)"
         return $null
     }
+}
+
+# Retry flags for curl calls. curl's own --retry ignores TLS handshake
+# failures (exit 35) - the flaky-network class behind "Update check failed
+# (exit 35)" (v1.21.9). --retry-all-errors makes it retry transport-level
+# errors too, but the option exists only since curl 7.71 and older builds
+# abort on unknown options - probe once, degrade to plain --retry.
+# Returns $true when the given curl accepts --retry-all-errors (curl >= 7.71).
+# Probing with a real call: an unknown option makes curl exit 2 before any
+# network activity; any other outcome (success or a network error like exit
+# 35) means the option was accepted. Missing curl -> catch -> $false, which
+# degrades every caller to plain --retry. ProbeUrl is injectable for tests.
+function Test-CurlCapability {
+    param([string]$CurlExe = 'curl.exe', [string]$ProbeUrl = 'https://api.github.com/')
+    try {
+        $null = & $CurlExe -s --retry-all-errors --connect-timeout 10 --max-time 15 -o NUL $ProbeUrl 2>$null
+        return ($LASTEXITCODE -ne 2)
+    } catch {
+        return $false
+    }
+}
+$script:CurlRetryArgs = @('--retry', '3', '--retry-delay', '2')
+$script:CurlRetryStr  = ' --retry 3 --retry-delay 2'
+if (Test-CurlCapability) {
+    $script:CurlRetryArgs += '--retry-all-errors'
+    $script:CurlRetryStr += ' --retry-all-errors'
 }
 
 function Invoke-GitHubGet {
@@ -315,7 +341,12 @@ function Invoke-GitHubGet {
     # one fixed Accept per URL shape, so this is safe; keep it that way.
     # (Verified live in v1.21.0: the vnd.github.sha media type is NOT
     # supported by the contents endpoint - the cheap-hash idea is dead.)
-    $curlBase = @('-s', '--retry', '3', '--retry-delay', '3', '--connect-timeout', '30', '--max-time', "$TimeoutSec")
+    # --retry-all-errors: curl's built-in --retry does NOT retry TLS
+    # handshake failures (exit 35) - a single flaky-network reset killed the
+    # whole request ("Update check failed (exit 35)", v1.21.9). The PS-level
+    # loop retries them in-process; the header dump (-D) covers every
+    # internal attempt, so the ETag/status parsing is unaffected.
+    $curlBase = @('-s') + $script:CurlRetryArgs + @('--connect-timeout', '30', '--max-time', "$TimeoutSec")
     if ($Url -match '^https://api\.github\.com/repos/.+/contents/') {
         $curlBase += @('-H', 'Accept: application/vnd.github.raw')
     } elseif ($Url -match '^https://api\.github\.com/') {
@@ -330,7 +361,11 @@ function Invoke-GitHubGet {
         $tmpFile = Join-Path $env:TEMP ('gh_resp_' + [Guid]::NewGuid().ToString('N') + '.json')
         $cmdArgs += @('-D', $hdrFile, '-o', $tmpFile)
         if ($Etag) { $cmdArgs += @('-H', "If-None-Match: $Etag") }
-        & curl.exe @cmdArgs $UrlToUse 2>$null
+        # try/catch: under ErrorActionPreference=Stop a curl stderr write
+        # (TLS warning, retry notice) would surface as terminating - treat
+        # it as an empty attempt instead of crashing the fetch.
+        try { $null = & curl.exe @cmdArgs $UrlToUse 2>$null }
+        catch { Write-Debug "curl threw: $($_.Exception.Message)" }
         $status = ''; $newEtag = ''
         if (Test-Path $hdrFile) {
             try {
@@ -379,7 +414,7 @@ function Invoke-GitHubGet {
         }
         return $resp
     }
-    throw "Request failed (exit $LASTEXITCODE): $Url"
+    throw "Request failed after 4 attempt(s) (curl exit $LASTEXITCODE - 35/56/28 = flaky network/TLS, 403 = rate limit): $Url"
 }
 
 # Auto-detect MuMuManager.exe path
@@ -1897,7 +1932,12 @@ function Invoke-MumuManagerProbe {
                     }
                     if ($adbExe) {
                         foreach ($attempt in 1..2) {
-                            $dev = (& $adbExe -s "127.0.0.1:$port" devices 2>$null | Out-String)
+                            # try/catch: under ErrorActionPreference=Stop (Pester,
+                            # strict hosts) a stderr write from adb - e.g. the
+                            # "daemon not running" banner - surfaces as a
+                            # terminating error and must not crash the probe.
+                            try { $dev = (& $adbExe -s "127.0.0.1:$port" devices 2>$null | Out-String) }
+                            catch { $dev = ''; Write-Debug "adb devices failed: $($_.Exception.Message)" }
                             if ($dev -match "127\.0\.0\.1:$port\s+device") { $adb = $true; break }
                             if ($dev -match "127\.0\.0\.1:$port\s+(offline|unauthorized)") { break }
                             if ($attempt -eq 1) { Start-Sleep -Milliseconds 800 }  # cold adb daemon
@@ -4486,7 +4526,7 @@ function Update-Token {
                 $plain.Substring(0, 4) + '****' + $plain.Substring($plain.Length - 4)
             } else { '****' }
 
-            $rawUser = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Authorization: token $plain" 'https://api.github.com/user' 2>$null
+            $rawUser = & curl.exe -s$script:CurlRetryStr --connect-timeout 30 --max-time 30 -H "Authorization: token $plain" 'https://api.github.com/user' 2>$null
             $user = (@($rawUser) | Out-String | ConvertFrom-Json)
 
             if ($user.login) {
@@ -4542,7 +4582,7 @@ function Update-Token {
     if (ConvertFrom-SecureToken $sec) {
         $plain = ConvertFrom-SecureToken $sec
         Write-Host 'Testing...' -ForegroundColor Yellow
-        $rawUser = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Authorization: token $plain" 'https://api.github.com/user' 2>$null
+        $rawUser = & curl.exe -s$script:CurlRetryStr --connect-timeout 30 --max-time 30 -H "Authorization: token $plain" 'https://api.github.com/user' 2>$null
         $user = (@($rawUser) | Out-String | ConvertFrom-Json)
         if (-not $user.login) {
             Write-Host 'Token invalid! Nothing was saved.' -ForegroundColor Red
@@ -4685,7 +4725,7 @@ function Download-Repository {
         # Specific release
         Write-Host ''
         Write-Host 'Fetching releases...' -ForegroundColor DarkGray
-        $relListCmd = "curl.exe -s --connect-timeout 30 --max-time 30 -H `"Accept: application/vnd.github.v3+json`""
+        $relListCmd = "curl.exe -s$script:CurlRetryStr --connect-timeout 30 --max-time 30 -H `"Accept: application/vnd.github.v3+json`""
         if ($GitHubToken) { $relListCmd += " -H `"Authorization: token $GitHubToken`"" }
         $relListCmd += " `"https://api.github.com/repos/$GitHubRepo/releases?per_page=20`""
         $relListJson = & cmd /c $relListCmd 2>$null | Out-String
@@ -4828,7 +4868,7 @@ function Download-Repository {
         # Latest release
         Write-Host ''
         Write-Host 'Fetching latest release...' -ForegroundColor DarkGray
-        $relCmd = "curl.exe -s --connect-timeout 30 --max-time 30 -H `"Accept: application/vnd.github.v3+json`""
+        $relCmd = "curl.exe -s$script:CurlRetryStr --connect-timeout 30 --max-time 30 -H `"Accept: application/vnd.github.v3+json`""
         if ($GitHubToken) { $relCmd += " -H `"Authorization: token $GitHubToken`"" }
         $relCmd += " `"https://api.github.com/repos/$GitHubRepo/releases/latest`""
         $relJson = & cmd /c $relCmd 2>$null | Out-String
@@ -5009,7 +5049,7 @@ function Download-Repository {
             Write-Host ''
 
             # Get latest release
-            $relCmd = "curl.exe -s --connect-timeout 30 --max-time 30 -H `"Accept: application/vnd.github.v3+json`""
+            $relCmd = "curl.exe -s$script:CurlRetryStr --connect-timeout 30 --max-time 30 -H `"Accept: application/vnd.github.v3+json`""
         if ($GitHubToken) { $relCmd += " -H `"Authorization: token $GitHubToken`"" }
         $relCmd += " `"https://api.github.com/repos/$GitHubRepo/releases/latest`""
         $relJson = & cmd /c $relCmd 2>$null | Out-String
@@ -5246,7 +5286,7 @@ function Download-Repository {
             if (-not $ref) { $ref = 'main' }
         } else {
             # Get latest tag
-            $ltCmd = "curl.exe -s --connect-timeout 15 -H `"Accept: application/vnd.github.v3+json`""
+            $ltCmd = "curl.exe -s$script:CurlRetryStr --connect-timeout 15 -H `"Accept: application/vnd.github.v3+json`""
             if ($GitHubToken) { $ltCmd += " -H `"Authorization: token $GitHubToken`"" }
             $ltCmd += " `"https://api.github.com/repos/$GitHubRepo/releases/latest`""
             $ltJson = & cmd /c $ltCmd 2>$null | Out-String
@@ -5360,7 +5400,7 @@ function Fix-ReleaseEncoding {
 
     # Fetch releases
     Write-Host 'Fetching releases...' -ForegroundColor DarkGray
-    $relJson = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Accept: application/vnd.github.v3+json" -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/releases" 2>$null | Out-String
+    $relJson = & curl.exe -s$script:CurlRetryStr --connect-timeout 30 --max-time 30 -H "Accept: application/vnd.github.v3+json" -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/releases" 2>$null | Out-String
     try { $releases = $relJson | ConvertFrom-Json } catch { $releases = @() }
 
     if (-not $releases -or $releases.Count -eq 0) {
@@ -5493,7 +5533,7 @@ function Create-GitHubRelease {
 
     # 1. Fetch existing tags
     Write-Host 'Fetching tags...' -ForegroundColor DarkGray
-    $tagsJson = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/tags" 2>$null | Out-String
+    $tagsJson = & curl.exe -s$script:CurlRetryStr --connect-timeout 30 --max-time 30 -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/tags" 2>$null | Out-String
     try { $tags = $tagsJson | ConvertFrom-Json } catch { $tags = @() }
 
     if ($tags -and $tags.Count -gt 0) {
@@ -5576,7 +5616,7 @@ function Create-GitHubRelease {
         } else {
             # Fallback: use GitHub compare API
             Write-Host '  git log unavailable, using GitHub API...' -ForegroundColor DarkGray
-            $compareJson = & curl.exe -s --connect-timeout 30 --max-time 30 -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/compare/$baseTag...$tagName" 2>$null | Out-String
+            $compareJson = & curl.exe -s$script:CurlRetryStr --connect-timeout 30 --max-time 30 -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/compare/$baseTag...$tagName" 2>$null | Out-String
             try {
                 $compare = $compareJson | ConvertFrom-Json
                 if ($compare.commits) {
@@ -6394,14 +6434,26 @@ function Show-VersionInfo {
     # Script version (defined at script scope)
     Write-Host "Script version: $scriptVer" -ForegroundColor Green
 
-    # Check for updates
+    # Check for updates (2 attempts - a single TLS flake must not read as
+    # "Cannot check updates"; mirrors the v1.21.9 retry hardening)
+    $latest = $null
+    for ($vAttempt = 1; $vAttempt -le 2 -and -not $latest; $vAttempt++) {
+        try {
+            $latest = (Invoke-WebRequest -Uri "https://api.github.com/repos/$GitHubRepo/releases/latest" -UseBasicParsing -TimeoutSec 10).Content | ConvertFrom-Json
+        } catch {
+            if ($vAttempt -lt 2) { Start-Sleep -Seconds 2 }
+        }
+    }
     try {
-        $latest = (Invoke-WebRequest -Uri "https://api.github.com/repos/$GitHubRepo/releases/latest" -UseBasicParsing -TimeoutSec 10).Content | ConvertFrom-Json
-        $latestVer = $latest.tag_name -replace '^v',''
-        if ($latestVer -ne $scriptVer) {
-            Write-Host "  -> Update available: $latestVer (run [U] to update)" -ForegroundColor Yellow
+        if ($latest -and $latest.tag_name) {
+            $latestVer = $latest.tag_name -replace '^v',''
+            if ($latestVer -ne $scriptVer) {
+                Write-Host "  -> Update available: $latestVer (run [U] to update)" -ForegroundColor Yellow
+            } else {
+                Write-Host '  -> Up to date' -ForegroundColor DarkGray
+            }
         } else {
-            Write-Host '  -> Up to date' -ForegroundColor DarkGray
+            Write-Host '  -> Cannot check updates' -ForegroundColor DarkGray
         }
     } catch {
         Write-Host '  -> Cannot check updates' -ForegroundColor DarkGray
