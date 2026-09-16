@@ -348,7 +348,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.21.10
+Script version: 1.22.0
 MuMu version: 6.5.2.0
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -448,6 +448,12 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 **EN summary:** Recovering from a failed update: diagnose first (`[ST]` status, `[DIAG]` problems, `[F]` file-vs-tag verification, `[J] → 3` errors), then act. HASH MISMATCH → re-run `[F]` (stale-CDN false alarms vanish on the re-fetch; stable mismatches mean re-download the ZIP and verify with `-VerifyZip`). Wedged marker ("Up to date" but old content) → `bootstrap-update.ps1 -Force`. Broken files → restore from `backup\YYYYMMDD_HHMMSS`. Lock refusal → wait (locks older than 10 minutes break automatically). The table above maps each symptom to its cause and fix.
 
 ## Что нового
+
+### v1.22.0 (16.09.2026)
+- **Персистентный ETag-кеш (issue #28)**: сессионный ETag-кеш теперь переживает рестарт меню — `.etag-cache.json` рядом с `.version` хранит url → {etag, body, sha256, timestamp}. При загрузке каждое тело валидируется по сохранённому хешу (подделанная/обрезанная запись отбрасывается, а не доверяется); битый/отсутствующий/невалидный по схеме файл деградирует в обычные запросы, никогда не в ошибку. Сохраняются только реальные тела (правило #22 — ошибки API не кешируются), запись best-effort. `-Force` отключает кеш-файл — ремонтный запуск всегда качает свежий контент по сети
+- **Сессионный кеш deep-чека в `[ST]` (issue #28)**: повторное `d` в той же сессии мгновенно воспроизводит закешированный вердикт с пометкой возраста («from session cache, age N min»), сброс при смене маркера версии
+- **Строка состояния кеша в `[ST]`**: `ETag cache: N URL(s), last entry HH:MM` под заголовком экрана — строка из макета #25, теперь настоящая; `empty`, пока записей нет
+- 6 новых Pester-тестов (всего 107): round-trip файла, отбрасывание подделанной записи, деградация на битом/отсутствующем/невалидном файле, строка состояния, подавление при `-Force`, проводка сессионного кеша
 
 ### v1.21.10 (16.09.2026)
 - **Авто-диагностика на старте (issue #30)**: меню один раз за запуск тихо собирает находки `[DIAG]` и показывает ОДНУ строку под статус-баром — только если есть ошибки или предупреждения: `[auto-diag] Problems found: N error(s), M warning(s) - details: [DIAG]`. Info-находки («no .version marker yet», неактивные инстансы) не напоминанают — они остаются в `[DIAG]`. Здоровая установка не рендерит ничего. `MUMU_MENU_NO_AUTODIAG=1` отключает проверку; сборщик обёрнут в try/catch — диагностика никогда не блокирует старт, вердикт собирается один раз и кэшируется для всех перерисовок меню. 8 новых Pester-тестов: фильтр severity, подавление info, поведение кэша, проводка на реальном фикстуре, env-отключение
@@ -646,6 +652,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.0 | 16.09.2026 | #28: персистентный ETag-кеш (`.etag-cache.json`, хеш-валидация, деградация, `-Force` обходит) + сессионный кеш deep-чека `[ST]` с пометкой возраста + строка состояния кеша |
 | v1.21.10 | 16.09.2026 | #30: авто-диагностика на старте меню — одна строка только при error/warn, `MUMU_MENU_NO_AUTODIAG=1` отключает, info остаётся в `[DIAG]` |
 | v1.21.9 | 16.09.2026 | Ретраи curl для нестабильной сети (`--retry-all-errors` с пробой, exit 35 больше не убивает проверку обновлений); пробы диагностики не падают при `ErrorActionPreference = Stop` |
 | v1.21.8 | 15.09.2026 | #27: `[RB]` откат из backup с выравниванием маркера по контенту; #29: `bootstrap -Diagnose`; фикс ложного ADB-предупреждения |

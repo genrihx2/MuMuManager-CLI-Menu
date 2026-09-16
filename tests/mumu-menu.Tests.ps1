@@ -25,7 +25,8 @@ BeforeAll {
                         'ConvertTo-JournalMarkdown', 'ConvertTo-JournalCsv', 'ConvertTo-JournalJson', 'Export-UpdateJournal',
                         'Get-ProblemFindings', 'Get-InstallStatus', 'Get-IntegrityVerdict', 'Invoke-MumuManagerProbe',
                         'Get-BackupFolders', 'Build-RollbackPlan', 'Invoke-Rollback', 'Test-CurlCapability',
-                        'Get-AutoDiagSummary', 'Invoke-StartupAutoDiag', 'Show-AutoDiagLine')) {
+                        'Get-AutoDiagSummary', 'Invoke-StartupAutoDiag', 'Show-AutoDiagLine',
+                        'Read-EtagCacheFile', 'Get-EtagCacheFileState', 'Save-EtagCacheFile', 'Invoke-EtagCacheMaintenance')) {
         $f = $script:ast.FindAll({
             param($node)
             $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -966,6 +967,78 @@ Describe 'Startup auto-diag (issue #30)' {
         $src = [System.IO.File]::ReadAllText($script:menuPath)
         ($src -match 'Show-QuickStatus\r?\n\s*Show-AutoDiagLine') | Should -Be $true
         ($src -match 'MUMU_MENU_NO_AUTODIAG') | Should -Be $true
+    }
+}
+
+Describe 'Persistent ETag cache (issue #28)' {
+    BeforeAll {
+        $script:cacheFile = Join-Path $TestDrive ".etag-cache_$(Get-Random).json"
+    }
+
+    It 'round-trips an entry: save then read returns the same etag and body' {
+        Save-EtagCacheFile -CacheFile $script:cacheFile -Entries @{ 'https://x/1' = @{ etag = 'W/abc'; body = 'hello body' } }
+        $c = Read-EtagCacheFile -CacheFile $script:cacheFile
+        $c.Count | Should -Be 1
+        $c['https://x/1'].etag | Should -Be 'W/abc'
+        $c['https://x/1'].body | Should -Be 'hello body'
+    }
+
+    It 'validates the stored hash on load and drops a tampered body' {
+        # Simulate tampering: rewrite the file with a wrong sha256 for one
+        # entry and a correct one for another.
+        Save-EtagCacheFile -CacheFile $script:cacheFile -Entries @{
+            'https://x/good' = @{ etag = 'W/good'; body = 'good body' }
+        }
+        $good = Read-EtagCacheFile -CacheFile $script:cacheFile
+        # Build a store with one tampered entry directly.
+        $store = @{
+            'https://x/tampered' = [pscustomobject]@{ etag = 'W/bad'; body = 'evil body'; sha256 = '0000000000000000000000000000000000000000000000000000000000000000'; timestamp = '2026-09-16 10:00:00' }
+        }
+        $json = $store | ConvertTo-Json -Depth 5
+        [System.IO.File]::WriteAllText($script:cacheFile, $json, (New-Object System.Text.UTF8Encoding($false)))
+        $c = Read-EtagCacheFile -CacheFile $script:cacheFile
+        $c.ContainsKey('https://x/tampered') | Should -Be $true   # Read does not validate...
+        # ...the maintenance loader does:
+        $script:EtagCache = @{}; $script:EtagTags = @{}
+        Invoke-EtagCacheMaintenance -CacheFile $script:cacheFile
+        $script:EtagCache.ContainsKey('https://x/tampered') | Should -Be $false
+        # A good entry does hydrate:
+        Save-EtagCacheFile -CacheFile $script:cacheFile -Entries @{ 'https://x/ok' = @{ etag = 'W/ok'; body = 'fine' } }
+        $script:EtagCache = @{}; $script:EtagTags = @{}
+        Invoke-EtagCacheMaintenance -CacheFile $script:cacheFile
+        $script:EtagCache['https://x/ok'] | Should -Be 'fine'
+        $script:EtagTags['https://x/ok'] | Should -Be 'W/ok'
+    }
+
+    It 'degrades silently: missing, corrupt, and schema-invalid files never throw' {
+        (Read-EtagCacheFile -CacheFile (Join-Path $TestDrive 'no-such-file.json')).Count | Should -Be 0
+        $bad = Join-Path $TestDrive "bad_$(Get-Random).json"
+        [System.IO.File]::WriteAllText($bad, '{ this is not json', (New-Object System.Text.UTF8Encoding($false)))
+        (Read-EtagCacheFile -CacheFile $bad).Count | Should -Be 0
+        # Schema-invalid: entries without etag/body/sha256 are dropped.
+        [System.IO.File]::WriteAllText($bad, '{"https://x/": {"etag": ""}}', (New-Object System.Text.UTF8Encoding($false)))
+        (Read-EtagCacheFile -CacheFile $bad).Count | Should -Be 0
+    }
+
+    It 'state line reports count and time, or empty' {
+        Get-EtagCacheFileState -CacheFile (Join-Path $TestDrive 'missing.json') | Should -Be 'empty'
+        $st = Get-EtagCacheFileState -CacheFile $script:cacheFile
+        $st | Should -Match '^\d+ URL\(s\), last entry (\d{2}:\d{2}|n/a)$'
+    }
+
+    It 'the cache file lives next to .version and is not created for -Force' {
+        $src = [System.IO.File]::ReadAllText($script:menuPath)
+        ($src.Contains("'.etag-cache.json'")) | Should -Be $true
+        ($src.Contains('EtagCacheFile = Join-Path')) | Should -Be $true
+        ($src.Contains('param([switch]$Force)')) | Should -Be $true
+        ($src.Contains("BoundParameters.Keys -contains 'Force'")) | Should -Be $true
+    }
+
+    It '[ST] session drift cache: wiring shows replay with age note and marker invalidation' {
+        $src = [System.IO.File]::ReadAllText($script:menuPath)
+        ($src.Contains('StDriftCache')) | Should -Be $true
+        ($src.Contains('from session cache, age')) | Should -Be $true
+        ($src.Contains('$script:StDriftCache.marker -eq $markerNow')) | Should -Be $true
     }
 }
 

@@ -1,4 +1,7 @@
 ﻿# PSScriptAnalyzer -Disable PSUseApprovedVerbs, PSUseDeclaredVarsMoreThanAssignments
+# -Force: repair mode - the persistent ETag cache (issue #28) is suppressed
+# so a repair run always fetches fresh content over the wire.
+param([switch]$Force)
 # MuMuManager CLI - Interactive Menu for Netease MuMu Emulator (Windows)
 # Project:  https://github.com/genrihx2/MuMuManager-CLI-Menu
 # License:  Open Source - MIT (see LICENSE)
@@ -79,6 +82,12 @@ $ScriptDir = $ScriptDir.TrimEnd('\', '/')
 $GitHubRepo = 'genrihx2/MuMuManager-CLI-Menu'
 $SkillPath = '.'
 $VersionFile = Join-Path $ScriptDir '.version'
+# Persistent ETag cache (issue #28) - lives next to .version; suppressed
+# for -Force scenarios so a repair run always fetches over the wire.
+$script:EtagCacheFile = $null
+if (-not ($MyInvocation.BoundParameters.Keys -contains 'Force')) {
+    $script:EtagCacheFile = Join-Path $ScriptDir '.etag-cache.json'
+}
 $TokenFile = Join-Path $ScriptDir '.github-token'
 $DpapiTokenFile = Join-Path $ScriptDir '.github-token.dpapi'
 $SimConfigFile = Join-Path $ScriptDir 'sim-config.json'
@@ -226,7 +235,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.21.10'
+$scriptVer = '1.22.0'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -406,11 +415,15 @@ function Invoke-GitHubGet {
             if ($null -eq $resp) { throw "Request failed: $Url" }
         }
         # Cache only real content: an API error body (rate limit, auth) must
-        # stay retryable and never anchors an ETag for this URL.
+        # stay retryable and never anchors an ETag for this URL. A fresh
+        # body is also persisted to the file store (issue #28) - best-effort.
         $isErrBody = $resp.TrimStart().StartsWith('{') -and $resp -match '"message"\s*:\s*'
         if (-not $isErrBody -and $r1.ETag) {
             $script:EtagCache[$pinnedUrl] = $resp
             $script:EtagTags[$pinnedUrl]  = $r1.ETag
+            if ($script:EtagCacheFile) {
+                Save-EtagCacheFile -CacheFile $script:EtagCacheFile -Entries @{ $pinnedUrl = @{ etag = $r1.ETag; body = $resp } }
+            }
         }
         return $resp
     }
@@ -476,6 +489,97 @@ function Get-ContentHash {
 }
 
 # ── Pure helpers (unit-tested via tests/mumu-menu.Tests.ps1) ──────────
+
+# ── Persistent ETag cache (issue #28) ────────────────────────────────
+# The in-session ETag cache of #22 dies with the menu process, so every
+# start re-downloads reference bodies. This file store (.etag-cache.json
+# next to .version) persists them: url -> { etag, sha256, timestamp }.
+# Read rules: the entry must exist, hash-match the stored body digest,
+# and carry both an etag and a body - anything else degrades to a normal
+# fetch, never an error. Write rules: only real content (the #22 rule -
+# API error bodies are never cached) and best-effort, never fatal.
+function Read-EtagCacheFile {
+    # Returns the deserialized hashtable (url -> entry) or an empty one.
+    # A missing, corrupt, or schema-invalid file is silently ignored.
+    param([string]$CacheFile)
+    $empty = @{}
+    if (-not ($CacheFile -and (Test-Path -LiteralPath $CacheFile -PathType Leaf))) { return $empty }
+    try {
+        $j = [System.IO.File]::ReadAllText($CacheFile) | ConvertFrom-Json
+        if (-not $j) { return $empty }
+        $out = @{}
+        foreach ($p in $j.PSObject.Properties) {
+            $e = $p.Value
+            if ($e -and $e.etag -and $e.body -and $e.sha256) { $out[$p.Name] = $e }
+        }
+        return $out
+    } catch {
+        Write-Debug "etag cache unreadable - degrading to plain fetch: $($_.Exception.Message)"
+        return $empty
+    }
+}
+
+function Get-EtagCacheFileState {
+    # Human-readable cache state for [ST]: 'N URL(s), last entry HH:MM'
+    # or 'empty'. Never throws.
+    param([string]$CacheFile)
+    try {
+        $c = Read-EtagCacheFile -CacheFile $CacheFile
+        if ($c.Count -eq 0) { return 'empty' }
+        $newest = [datetime]::MinValue
+        foreach ($e in $c.Values) {
+            try { $t = [datetime]::Parse("$($e.timestamp)"); if ($t -gt $newest) { $newest = $t } } catch { Write-Debug "cache timestamp unparseable: $($e.timestamp)" }
+        }
+        $last = if ($newest -gt [datetime]::MinValue) { $newest.ToString('HH:mm') } else { 'n/a' }
+        return ("{0} URL(s), last entry {1}" -f $c.Count, $last)
+    } catch { return 'unknown' }
+}
+
+function Save-EtagCacheFile {
+    # Best-effort persist: merges the given url->(etag, body) pairs into
+    # the file store. Hashes are computed here so callers stay simple.
+    # Any I/O or serialization failure is swallowed (cache is an
+    # optimization, never a correctness dependency).
+    param([string]$CacheFile, [hashtable]$Entries)
+    if (-not ($CacheFile -and $Entries -and $Entries.Count -gt 0)) { return }
+    try {
+        $store = Read-EtagCacheFile -CacheFile $CacheFile
+        foreach ($k in $Entries.Keys) {
+            $store[$k] = [pscustomobject]@{
+                etag      = "$($Entries[$k].etag)"
+                body      = "$($Entries[$k].body)"
+                sha256    = Get-ContentHash -Text "$($Entries[$k].body)"
+                timestamp = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+            }
+        }
+        $json = $store | ConvertTo-Json -Depth 5
+        [System.IO.File]::WriteAllText($CacheFile, $json, (New-Object System.Text.UTF8Encoding($false)))
+    } catch {
+        Write-Debug "etag cache save failed (non-fatal): $($_.Exception.Message)"
+    }
+}
+
+function Invoke-EtagCacheMaintenance {
+    # Startup bridge: loads the file store into the session tables the
+    # fetch path already uses, validating each body against its stored
+    # hash (a tampered or truncated body is dropped, not trusted). Called
+    # once at startup; failures degrade to an empty session cache.
+    param([string]$CacheFile)
+    try {
+        $store = Read-EtagCacheFile -CacheFile $CacheFile
+        foreach ($k in $store.Keys) {
+            $e = $store[$k]
+            if ((Get-ContentHash -Text "$($e.body)") -eq "$($e.sha256)") {
+                $script:EtagCache[$k] = "$($e.body)"
+                $script:EtagTags[$k]  = "$($e.etag)"
+            } else {
+                Write-Debug "etag cache entry failed hash validation - dropped: $k"
+            }
+        }
+    } catch {
+        Write-Debug "etag cache load failed (non-fatal): $($_.Exception.Message)"
+    }
+}
 
 # Android sh-safe value: the metacharacters that would break a double-
 # quoted `adb shell` command are replaced with '_' (the same policy the
@@ -2312,6 +2416,15 @@ function Show-AutoDiagLine {
 # The verdict is collected once, right after the journal target is known.
 $script:AutoDiagSummary = $null
 
+# Persistent ETag cache load (issue #28): hydrate the session tables from
+# .etag-cache.json once, after the cache path is known. Hash-validated,
+# best-effort - a corrupt store simply yields an empty session cache.
+if ($script:EtagCacheFile) {
+    if (-not $script:EtagCache)    { $script:EtagCache = @{} }
+    if (-not $script:EtagTags)     { $script:EtagTags  = @{} }
+    Invoke-EtagCacheMaintenance -CacheFile $script:EtagCacheFile
+}
+
 # ── Status screen (issue #25) ────────────────────────────────────────
 # One read-only screen answering "what am I on and am I OK?": local
 # marker vs latest release, journal summary, last ZIP verification from
@@ -2420,9 +2533,13 @@ function Get-InstallStatus {
 function Show-InstallStatus {
     # Read-only status screen. Enter/direct = fast local view (no network);
     # 'd' adds the full drift check vs the release tag (network).
+    # Issue #28: a repeat 'd' in the same session replays the cached verdict
+    # (with its age) unless the version marker changed, and the screen shows
+    # the persistent ETag cache state.
     param([switch]$Deep)
     Write-Host ''
     Write-Host '  === Install status ===' -ForegroundColor Cyan
+    Write-Host ("  ETag cache:                {0}" -f (Get-EtagCacheFileState -CacheFile $script:EtagCacheFile)) -ForegroundColor DarkGray
     $relTag = $null
     $driftCheck = $null
     if ($Deep) {
@@ -2432,16 +2549,38 @@ function Show-InstallStatus {
                 if ($rel -and $rel.tag_name) { return $rel.tag_name } else { return '' }
             } catch { return '' }
         }
-        $driftCheck = {
-            try {
-                $report = Test-InstallationIntegrity
-                return Get-IntegrityVerdict -Report @($report)
-            } catch {
-                return @{ ok = $false; detail = "check failed: $($_.Exception.Message)" }
+        # Session-level cache (issue #28): the deep drift check is the most
+        # expensive operation in the menu (several full-body downloads).
+        # A repeat 'd' replays the verdict with its age unless the version
+        # marker changed since (invalidation on marker change).
+        $markerNow = ''
+        try { if (Test-Path -LiteralPath $VersionFile -PathType Leaf) { $markerNow = (Get-Content -LiteralPath $VersionFile -Raw).Trim() } } catch { Write-Debug "marker read for drift-cache invalidation failed: $($_.Exception.Message)" }
+        if ($script:StDriftCache -and $script:StDriftCache.marker -eq $markerNow) {
+            $ageMin = [int]([datetime]::Now - $script:StDriftCache.at).TotalMinutes
+            $script:StDriftFromCache = "from session cache, age $($ageMin) min (re-check on next menu restart or marker change)"
+            $script:StDriftReplay = $script:StDriftCache.verdict
+        } else {
+            $script:StDriftFromCache = ''
+            $script:StDriftReplay = $null
+            $driftCheck = {
+                try {
+                    $report = Test-InstallationIntegrity
+                    return Get-IntegrityVerdict -Report @($report)
+                } catch {
+                    return @{ ok = $false; detail = "check failed: $($_.Exception.Message)" }
+                }
             }
         }
     }
     $st = Get-InstallStatus -VersionFile $VersionFile -JournalFile $script:JournalFile -GetLatestReleaseTag $relTag -InvokeDriftCheck $driftCheck
+    if ($Deep -and $script:StDriftReplay) {
+        $st.drift = if ($script:StDriftReplay.ok) { 'OK' } else { 'DRIFT' }
+        $st.driftNote = "$($script:StDriftReplay.detail) [$($script:StDriftFromCache)]"
+    }
+    if ($Deep -and $driftCheck) {
+        # Cache the fresh verdict for the rest of the session (issue #28).
+        $script:StDriftCache = @{ marker = $markerNow; at = [datetime]::Now; verdict = @{ ok = ($st.drift -eq 'OK'); detail = $st.driftNote } }
+    }
     $relShown = if ($st.latestRelease) { $st.latestRelease } else { 'unknown (no network in fast mode; press d for full check)' }
     Write-Host ("  Script version:            {0}" -f "v$scriptVer") -ForegroundColor White
     Write-Host ("  Local marker:              {0}" -f $(if ($st.localMarker) { $st.localMarker } else { 'none yet' })) -ForegroundColor White

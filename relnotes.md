@@ -4,6 +4,12 @@
 
 ---
 
+## v1.22.0 (16.09.2026)
+- **Persistent ETag cache (issue #28)**: the session ETag cache now survives menu restarts - `.etag-cache.json` next to `.version` stores url → {etag, body, sha256, timestamp}. On load every body is validated against its stored hash (a tampered/truncated entry is dropped, not trusted); a missing/corrupt/schema-invalid file degrades to plain fetches, never an error. Only real content is persisted (the #22 rule - API error bodies are never cached), saves are best-effort. `-Force` suppresses the cache file so repair runs always fetch fresh content over the wire.
+- **[ST] session drift cache (issue #28)**: a repeat `d` in the same session replays the cached deep-check verdict instantly with an age note ("from session cache, age N min"), invalidated when the version marker changes. Fresh `d` on first use or after invalidation.
+- **[ST] cache-state line**: `ETag cache: N URL(s), last entry HH:MM` under the screen header - the #25 mockup line, now real. `empty` when no entries yet.
+- 6 new Pester tests (107 total): file round-trip, tampered-entry drop, corrupt/missing/schema-invalid degradation, state line, `-Force` suppression, session-cache wiring.
+
 ## v1.21.10 (16.09.2026)
 - **Startup auto-diag (issue #30)**: the menu now runs the `[DIAG]` findings collector once per process, silently, at startup and surfaces ONE line under the status bar only when errors or warnings exist: `[auto-diag] Problems found: N error(s), M warning(s) - details: [DIAG]`. Info findings ("no .version marker yet", emulator idle states) never nag - they stay in `[DIAG]`. Healthy installs render nothing. `MUMU_MENU_NO_AUTODIAG=1` suppresses the check; the collector is guarded by try/catch so diagnostics can never block startup, and the verdict is collected once (cached for every menu redraw). 8 new Pester tests: formatter severity filter, info suppression, cache behavior, real-fixture wiring, env opt-out.
 
