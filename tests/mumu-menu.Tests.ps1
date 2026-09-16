@@ -1376,3 +1376,67 @@ Describe 'curl argument-array audit (v1.22.4): no string-built cmd /c curl remai
         $bad.Count | Should -Be 0
     }
 }
+
+Describe 'ADB probe hardening (v1.22.5): explicit connect, candidates, kill-on-timeout' {
+
+    BeforeAll {
+        function New-AdbTestStub {
+            # Fixture for the v1.22.5 ADB-probe tests: a MuMuManager stub reporting a
+            # running instance WITHOUT adb_version (forces the ADB-fallback path) plus
+            # a controllable adb stub. Defined in BeforeAll: Pester 6 only surfaces
+            # helpers declared this way to the It bodies.
+            param([string]$Name, [string]$AdbBatLines)
+            $d = Join-Path $TestDrive "$Name`_$(Get-Random)"
+            New-Item -ItemType Directory -Path $d -Force | Out-Null
+            [System.IO.File]::WriteAllText((Join-Path $d 'mu-stub-out.txt'), '{"0":{"player_state":"start_finished","adb_host_ip":"127.0.0.1","adb_port":16384}}')
+            $out = Join-Path $d 'mu-stub-out.txt'
+            $bat = "@echo off`r`ntype `"$out`"`r`n"
+            [System.IO.File]::WriteAllText((Join-Path $d 'MuMuManager.cmd'), $bat)
+            $adb = "@echo off`r`n$AdbBatLines"
+            [System.IO.File]::WriteAllText((Join-Path $d 'adb.cmd'), $adb)
+            return @{ Dir = $d; Stub = (Join-Path $d 'MuMuManager.cmd'); Adb = (Join-Path $d 'adb.cmd') }
+        }
+    }
+
+    It 'the probe issues an explicit `adb connect` before reading the device list' {
+        # v1.22.5 live catch: MuMu's bridge LISTENS but plain `adb devices` stays
+        # empty until an explicit connect - the readiness flag was a permanent
+        # false positive ("ADB bridge not ready" on a healthy emulator).
+        $f = New-AdbTestStub -Name 'adbconnect' -AdbBatLines (
+            "if not exist `"%TEMP%\adb-connect-saw-connect.flag`" echo connect %%* >> `"%TEMP%\adb-connect-saw-connect.flag`"`r`n" +
+            "echo connected to 127.0.0.1:16384`r`n" +
+            "echo 127.0.0.1:16384`tdevice"
+        )
+        try {
+            Remove-Item "$env:TEMP\adb-connect-saw-connect.flag" -Force -ErrorAction SilentlyContinue
+            $p = Invoke-MumuManagerProbe -MumuPathOverride $f.Stub -AdbPathOverride $f.Adb
+            $p.adbReady | Should -BeTrue
+            Test-Path "$env:TEMP\adb-connect-saw-connect.flag" | Should -BeTrue
+        } finally {
+            Remove-Item "$env:TEMP\adb-connect-saw-connect.flag" -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'the probe prefers adb.exe next to MuMuManager (nx_main layout) over PATH' {
+        # v1.22.5 live catch: real adb lives in nx_main\ next to MuMuManager.exe;
+        # the old probe only looked at <root>\shell\adb.exe and PATH.
+        $f = New-AdbTestStub -Name 'adborder' -AdbBatLines "echo 127.0.0.1:16384`tdevice"
+        # plant both candidates: side-by-side .cmd must win over shell\.cmd
+        New-Item -ItemType Directory -Path (Join-Path $f.Dir 'shell') -Force | Out-Null
+        [System.IO.File]::WriteAllText((Join-Path $f.Dir 'shell\adb.cmd'), "@echo off`r`necho FROM-SHELL`r`n")
+        $p = Invoke-MumuManagerProbe -MumuPathOverride $f.Stub
+        $p.adbReady | Should -BeTrue
+        $p.adbExeUsed | Should -Be (Join-Path $f.Dir 'adb.cmd')
+    }
+
+    It 'a hung adb call is killed by the timeout wrapper and never freezes the probe' {
+        # the stub blocks for 30s (ping); the wrapper must kill it at 5s and the
+        # probe still completes with honest readiness=false.
+        $f = New-AdbTestStub -Name 'adbhang' -AdbBatLines "ping -n 30 127.0.0.1 >/dev/null"
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        $p = Invoke-MumuManagerProbe -MumuPathOverride $f.Stub -AdbPathOverride $f.Adb
+        $sw.Stop()
+        $p.adbReady | Should -BeFalse
+        $sw.Elapsed.TotalSeconds | Should -BeLessThan 15
+    }
+}

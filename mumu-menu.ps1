@@ -235,7 +235,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.22.4'
+$scriptVer = '1.22.5'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -2043,17 +2043,55 @@ function Invoke-MumuManagerProbe {
     # $MumuPathOverride is for tests (stub binary); production passes the
     # auto-detected $MumuPath via -TargetPath. Returns a hashtable:
     # found, instances, running, adbReady, error, rawFirstLine.
+    # v1.22.5: every external call (info, adb) runs with a kill-on-timeout
+    # wrapper - a hung MuMu RPC or cold adb daemon must never freeze the menu.
     param(
         [string]$MumuPathOverride = '',
         [string]$TargetPath = '',
         [string]$AdbPathOverride = ''
     )
-    $r = @{ found = $false; instances = -1; running = -1; adbReady = $false; error = ''; rawFirstLine = '' }
+    function Invoke-Quick {
+        # Non-blocking external call with a hard timeout; kill on overrun.
+        # All production arguments are space-free, so a single argument string
+        # is safe (PS 5.1 has no array Arguments overload without quoting pain).
+        param([string]$Exe, [string]$ArgumentString, [int]$TimeoutMs = 10000)
+        try {
+            $psi = [System.Diagnostics.ProcessStartInfo]::new()
+            # .cmd/.bat launch: CreateProcess needs cmd.exe in front of batch files
+            if ($Exe -match '\.(cmd|bat)$') {
+                $psi.FileName = $env:ComSpec
+                $psi.Arguments = "/c `"$Exe`" $ArgumentString"
+            } else {
+                $psi.FileName = $Exe
+                $psi.Arguments = $ArgumentString
+            }
+            $psi.UseShellExecute = $false
+            $psi.CreateNoWindow = $true
+            $psi.RedirectStandardOutput = $true
+            $psi.RedirectStandardError = $true
+            $p = [System.Diagnostics.Process]::Start($psi)
+            $outTask = $p.StandardOutput.ReadToEndAsync()
+            $errTask = $p.StandardError.ReadToEndAsync()
+            if (-not $p.WaitForExit($TimeoutMs)) {
+                try { $p.Kill() } catch { Write-Debug "quick-exec kill failed: $($_.Exception.Message)" }
+                return $null
+            }
+            $o = ''; $e = ''
+            try { $o = $outTask.Result } catch { Write-Debug "quick-exec stdout read failed: $($_.Exception.Message)" }
+            try { $e = $errTask.Result } catch { Write-Debug "quick-exec stderr read failed: $($_.Exception.Message)" }
+            return ($o + $e)
+        } catch {
+            Write-Debug "quick-exec failed: $($_.Exception.Message)"
+            return $null
+        }
+    }
+    $r = @{ found = $false; instances = -1; running = -1; adbReady = $false; error = ''; rawFirstLine = ''; adbExeUsed = '' }
     $exe = if ($MumuPathOverride) { $MumuPathOverride } else { $TargetPath }
     if (-not ($exe -and (Test-Path -LiteralPath $exe -PathType Leaf))) { $r.error = 'not found'; return $r }
     $r.found = $true
     $raw = $null
-    try { $raw = & $exe info -v all 2>$null } catch { $r.error = $_.Exception.Message; return $r }
+    try { $raw = Invoke-Quick -Exe $exe -ArgumentString 'info -v all' -TimeoutMs 10000 } catch { $r.error = $_.Exception.Message; return $r }
+    if ($null -eq $raw) { $r.error = 'info query timed out (10s)'; return $r }
     $outLines = @($raw | Where-Object { $_ -and $_.ToString().Trim() })
     if ($outLines.Count -gt 0) { $r.rawFirstLine = $outLines[0].ToString().Trim() }
     if ($outLines.Count -eq 0) { $r.error = 'no output'; return $r }
@@ -2079,28 +2117,45 @@ function Invoke-MumuManagerProbe {
                 # itself, per instance, via its adb_port (local socket only).
                 $port = if ($inst.PSObject.Properties['adb_port']) { "$($inst.adb_port)" } else { '' }
                 if ($port -and $port -ne '0') {
-                    $adbRoot = if ($TargetPath) { Split-Path -Parent (Split-Path -Parent $TargetPath) } else { '' }
-                    $shellAdb = if ($adbRoot) { Join-Path $adbRoot 'shell\adb.exe' } else { '' }
+                    # adb.exe candidates: next to MuMuManager itself (nx_main layout,
+                    # caught live in v1.22.5), the classic shell\ subfolder above it,
+                    # then PATH. Derive from -TargetPath or -MumuPathOverride (tests).
+                    $exeForDir = if ($TargetPath) { $TargetPath } elseif ($MumuPathOverride) { $MumuPathOverride } else { '' }
+                    $adbDir = if ($exeForDir) { Split-Path -Parent $exeForDir } else { '' }
+                    $adbSide = if ($adbDir) { Join-Path $adbDir 'adb.exe' } else { '' }
+                    $adbSideCmd = if ($adbDir) { Join-Path $adbDir 'adb.cmd' } else { '' }
+                    $shellAdb = if ($adbDir) { Join-Path (Split-Path -Parent $adbDir) 'shell\adb.exe' } else { '' }
+                    $shellAdbCmd = if ($adbDir) { Join-Path (Split-Path -Parent $adbDir) 'shell\adb.cmd' } else { '' }
                     $adbExe = $AdbPathOverride
                     if (-not $adbExe) {
-                        foreach ($cand in @($shellAdb, 'adb.exe')) {
+                        foreach ($cand in @($adbSide, $adbSideCmd, $shellAdb, $shellAdbCmd, 'adb.exe')) {
                             $found = $false
                             if ($cand -and (Test-Path -LiteralPath $cand -PathType Leaf)) { $found = $true }
                             elseif ($cand -and (Get-Command $cand -ErrorAction SilentlyContinue)) { $found = $true }
                             if ($found) { $adbExe = $cand; break }
                         }
                     }
+                    $r.adbExeUsed = "$adbExe"
                     if ($adbExe) {
+                        # v1.22.5: MuMu's bridge listens but adb does NOT attach to it
+                        # automatically - plain `adb devices` stays empty (caught live:
+                        # "ADB bridge not ready" forever on a healthy emulator).
+                        # Explicit `adb connect` fixes that; it is idempotent.
+                        # Second live finding: with a COLD adb server the in-band
+                        # daemon start can block for a long time and freeze the menu
+                        # - so every adb call runs through the kill-on-timeout wrapper.
+                        $null = Invoke-Quick -Exe $adbExe -ArgumentString "connect 127.0.0.1:$port" -TimeoutMs 5000
                         foreach ($attempt in 1..2) {
-                            # try/catch: under ErrorActionPreference=Stop (Pester,
-                            # strict hosts) a stderr write from adb - e.g. the
-                            # "daemon not running" banner - surfaces as a
-                            # terminating error and must not crash the probe.
-                            try { $dev = (& $adbExe -s "127.0.0.1:$port" devices 2>$null | Out-String) }
-                            catch { $dev = ''; Write-Debug "adb devices failed: $($_.Exception.Message)" }
+                            $dev = Invoke-Quick -Exe $adbExe -ArgumentString "-s 127.0.0.1:$port devices" -TimeoutMs 5000
+                            $dev = "$dev"
                             if ($dev -match "127\.0\.0\.1:$port\s+device") { $adb = $true; break }
                             if ($dev -match "127\.0\.0\.1:$port\s+(offline|unauthorized)") { break }
-                            if ($attempt -eq 1) { Start-Sleep -Milliseconds 800 }  # cold adb daemon
+                            if ($attempt -eq 1) {
+                                # still not attached: try connect once more (cold adb
+                                # daemon sometimes drops the first attempt), then recheck
+                                $null = Invoke-Quick -Exe $adbExe -ArgumentString "connect 127.0.0.1:$port" -TimeoutMs 5000
+                                Start-Sleep -Milliseconds 800
+                            }
                         }
                     }
                 }
