@@ -563,6 +563,23 @@ try {
         Remove-Item -LiteralPath $diagDir -Recurse -Force -ErrorAction SilentlyContinue
     }
 
+    # ── T12: rate-limit verdict explanation (v1.22.2) ───────────────────
+    Write-Host 'T12: rate-limit response produces an honest, actionable verdict' -ForegroundColor Cyan
+    try {
+        $rlDir = Join-Path $tmp 'ratelimit'
+        New-Item -ItemType Directory -Path $rlDir -Force | Out-Null
+        # The verdict block parses $releaseJson for the rate-limit marker;
+        # assert the exact wiring instead of hitting the live API.
+        $rlWire = $bRaw.Contains('"message"\s*:\s*"([^"]*rate limit[^"]*)"')
+        Assert-True -Name 'verdict block inspects the response body for a rate-limit message' -Condition $rlWire -Detail 'rate-limit detection regex not found in the verdict block'
+        Assert-True -Name 'the warning explains the unauthenticated 60 req/hr quota' -Condition ($bRaw -match '60 requests/hour per IP') -Detail 'quota explanation missing'
+        Assert-True -Name 'the warning points at [K] token setup as the fix' -Condition ($bRaw -match '\[K\]') -Detail 'no token hint in the warning'
+        Assert-True -Name 'token path reports the exhausted/invalid token instead' -Condition ($bRaw -match 'token quota \(5000/hour\) is exhausted') -Detail 'token-path message missing'
+        Assert-True -Name 'no-token path is distinguished from token path' -Condition ($bRaw -match 'if \(-not \$token\)') -Detail 'no branch on token presence'
+    } finally {
+        Remove-Item -LiteralPath $rlDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
 
     $passCount = 0
     if ($script:failures -eq 0) { $passCount = 1 }

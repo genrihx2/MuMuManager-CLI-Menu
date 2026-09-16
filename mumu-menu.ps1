@@ -235,7 +235,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.22.1'
+$scriptVer = '1.22.2'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -1162,8 +1162,13 @@ function Update-FromGitHub {
                 $apiMsg = $release.message
                 if ($apiMsg -match 'rate limit') {
                     if (-not $Passive) {
-                        Write-Host '  GitHub API rate limit exceeded (60 requests/hour without token).' -ForegroundColor Yellow
-                        Write-Host '  Add a token: menu [K] Update GitHub token (stored DPAPI-encrypted).' -ForegroundColor Yellow
+                        Write-Host '  GitHub API rate limit exceeded.' -ForegroundColor Yellow
+                        if (-not $GitHubToken) {
+                            Write-Host '  Without a token the limit is 60 requests/hour per IP.' -ForegroundColor Yellow
+                            Write-Host '  Add a token: menu [K] Update GitHub token (stored DPAPI-encrypted).' -ForegroundColor Yellow
+                        } else {
+                            Write-Host '  Token quota (5000/hour) exhausted or invalid - re-save via [K].' -ForegroundColor Yellow
+                        }
                     }
                 } else {
                     if (-not $Passive) { Write-Host "  GitHub API: $apiMsg" -ForegroundColor Yellow }
@@ -1644,7 +1649,13 @@ function Update-FromGitHub {
                 Write-Host '  Repository or file not found.' -ForegroundColor Yellow
             }
         } elseif ($msg -match '403|rate limit') {
-            Write-Host '  Rate limit exceeded. Try again later.' -ForegroundColor Yellow
+            Write-Host '  GitHub API rate limit exceeded.' -ForegroundColor Yellow
+            if (-not $GitHubToken) {
+                Write-Host '  Without a token the limit is 60 requests/hour per IP - shared networks exhaust it fast.' -ForegroundColor Yellow
+                Write-Host '  Fix: [K] Update GitHub token (stored DPAPI-encrypted), or wait for the hourly reset.' -ForegroundColor Yellow
+            } else {
+                Write-Host '  The token quota (5000/hour) is exhausted or the token is invalid - re-save via [K].' -ForegroundColor Yellow
+            }
         } else {
             Write-Host "  Update check failed: $msg" -ForegroundColor Yellow
         }
@@ -6639,6 +6650,9 @@ function Show-VersionInfo {
             } else {
                 Write-Host '  -> Up to date' -ForegroundColor DarkGray
             }
+        } elseif ($latest -and $latest.message -match 'rate limit') {
+            Write-Host '  -> Rate limit exceeded - cannot check now' -ForegroundColor Yellow
+            Write-Host "     ($($(if ($GitHubToken) { 'token quota exhausted' } else { '60 req/hr without a token; add one via [K]' })))" -ForegroundColor DarkGray
         } else {
             Write-Host '  -> Cannot check updates' -ForegroundColor DarkGray
         }

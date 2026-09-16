@@ -725,6 +725,23 @@ if ($releaseJson) {
 }
 
 if (-not $remoteTag) {
+    # Say WHY the check failed when the reason is knowable. A rate-limit
+    # response arrives as a JSON body with a 'message' - without a token
+    # the unauthenticated quota is only 60 requests/hour per IP, and the
+    # "Could not check releases" verdict alone sends users chasing
+    # network problems (seen live in the v1.22.1 E2E drill).
+    $rlBody = "$releaseJson"
+    if ($rlBody -match '"message"\s*:\s*"([^"]*rate limit[^"]*)"') {
+        Write-Host '  GitHub API rate limit exceeded.' -ForegroundColor Yellow
+        if (-not $token) {
+            Write-Host '  Without a token the limit is 60 requests/hour per IP - shared networks exhaust it fast.' -ForegroundColor Yellow
+            Write-Host '  Fix: run mumu-menu.ps1 once and save a token via [K] (stored DPAPI-encrypted,' -ForegroundColor Yellow
+            Write-Host '  bootstrap picks it up automatically). Until then: wait for the hourly reset' -ForegroundColor Yellow
+            Write-Host '  or run with -Force to download anyway (downloads also fail while limited).' -ForegroundColor Yellow
+        } else {
+            Write-Host '  The token quota (5000/hour) is exhausted or the token is invalid - re-save via [K].' -ForegroundColor Yellow
+        }
+    }
     Write-Host "  Could not check releases. Run with -Force to download anyway." -ForegroundColor Yellow
     if (-not $Force) { exit 1 }
 }

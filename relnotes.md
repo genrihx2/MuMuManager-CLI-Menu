@@ -4,6 +4,9 @@
 
 ---
 
+## v1.22.2 (16.09.2026)
+- **Honest rate-limit verdicts (from the E2E drill)**: when the update check fails because GitHub rate-limits the IP, both update paths now say so instead of a bare "Could not check releases" / "Update check failed". `bootstrap-update.ps1` parses the API error body and explains: no token → 60 requests/hour per IP (shared networks exhaust it fast), fix = save a token via menu [K] (DPAPI-encrypted, bootstrap picks it up automatically) or wait for the hourly reset; with a token → quota exhausted or token invalid, re-save via [K]. The `[U]` catch and the rate-limit message path got the same token-aware wording, and `[V]` now distinguishes "rate limit" from "cannot check". T12 in the bootstrap suite pins the verdict wiring.
+
 ## v1.22.1 (16.09.2026)
 - **Fixed: the ETag cache never populated (caught by the E2E drill)**. GitHub sends the header as `ETag:` with a capital E, but the response parser matched only lowercase `^etag:` - so `$r1.ETag` was always empty, the #22 304-replay never fired and the new #28 file store stayed empty. The pattern is now case-insensitive (`(?im)^etag:`), with a regression test pinning both spellings. Symptom before the fix: `ETag cache: empty` forever and every deep check re-downloading all bodies.
 
