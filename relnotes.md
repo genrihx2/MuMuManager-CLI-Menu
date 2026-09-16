@@ -4,6 +4,9 @@
 
 ---
 
+## v1.22.1 (16.09.2026)
+- **Fixed: the ETag cache never populated (caught by the E2E drill)**. GitHub sends the header as `ETag:` with a capital E, but the response parser matched only lowercase `^etag:` - so `$r1.ETag` was always empty, the #22 304-replay never fired and the new #28 file store stayed empty. The pattern is now case-insensitive (`(?im)^etag:`), with a regression test pinning both spellings. Symptom before the fix: `ETag cache: empty` forever and every deep check re-downloading all bodies.
+
 ## v1.22.0 (16.09.2026)
 - **Persistent ETag cache (issue #28)**: the session ETag cache now survives menu restarts - `.etag-cache.json` next to `.version` stores url → {etag, body, sha256, timestamp}. On load every body is validated against its stored hash (a tampered/truncated entry is dropped, not trusted); a missing/corrupt/schema-invalid file degrades to plain fetches, never an error. Only real content is persisted (the #22 rule - API error bodies are never cached), saves are best-effort. `-Force` suppresses the cache file so repair runs always fetch fresh content over the wire.
 - **[ST] session drift cache (issue #28)**: a repeat `d` in the same session replays the cached deep-check verdict instantly with an age note ("from session cache, age N min"), invalidated when the version marker changes. Fresh `d` on first use or after invalidation.

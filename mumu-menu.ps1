@@ -235,7 +235,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.22.0'
+$scriptVer = '1.22.1'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -381,8 +381,11 @@ function Invoke-GitHubGet {
                 $hdrText = [System.IO.File]::ReadAllText($hdrFile)
                 foreach ($m in [regex]::Matches($hdrText, '(?m)^HTTP/\S+\s+(\d+)')) { $status = $m.Groups[1].Value }
                 # --retry can produce several responses in one dump - the
-                # last one is the final answer.
-                foreach ($em in [regex]::Matches($hdrText, '(?m)^etag:\s*(\S+)')) { $newEtag = $em.Groups[1].Value }
+                # last one is the final answer. (?i): GitHub emits 'ETag:'
+                # with a capital E - a lowercase-only pattern never matched,
+                # which silently killed the whole ETag cache (session AND
+                # file store) until the E2E drill caught it (v1.22.1).
+                foreach ($em in [regex]::Matches($hdrText, '(?im)^etag:\s*(\S+)')) { $newEtag = $em.Groups[1].Value }
             } catch { Write-Debug "Header parse failed: $($_.Exception.Message)" }
             Remove-Item $hdrFile -Force -ErrorAction SilentlyContinue
         }

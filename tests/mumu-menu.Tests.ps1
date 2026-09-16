@@ -900,6 +900,18 @@ Describe 'Curl retry capability (exit-35 hardening, v1.21.9)' {
     It 'the real curl on this machine resolves (probe path is exercised in production)' {
         (Get-Command curl.exe -ErrorAction SilentlyContinue) | Should -Not -Be $null
     }
+
+    It 'the header parser accepts both ETag spellings GitHub sends (v1.22.1 regression)' {
+        # GitHub emits 'ETag:' with a capital E; the v1.22.0 parser matched
+        # only '^etag:' - the cache never populated and the drill caught it.
+        $hdr = "HTTP/1.1 200 OK`r`nETag: `"8fb013c179ebd7146fe486203162019386f7fb6c`"`r`nX-Other: 1`r`n"
+        $m = [regex]::Matches($hdr, '(?im)^etag:\s*(\S+)')
+        $m.Count | Should -Be 1
+        $m[0].Groups[1].Value | Should -Be '"8fb013c179ebd7146fe486203162019386f7fb6c"'
+        # and the production pattern is the case-insensitive one
+        $src = [System.IO.File]::ReadAllText($script:menuPath)
+        ($src.Contains('(?im)^etag:')) | Should -Be $true
+    }
 }
 
 Describe 'Startup auto-diag (issue #30)' {
