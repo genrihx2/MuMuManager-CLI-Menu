@@ -4,7 +4,14 @@
 
 ---
 
+## v1.22.3 (16.09.2026)
+
+### Fixed
+
+- **[K] «Token invalid!» при валидном токене**: прямые вызовы `curl.exe -s$CurlRetryStr` склеивали `-s` и retry-опции в один аргумент (PS 5.1) — curl отвечал exit 2, ответа не было, и меню объявляло токен недействительным. Все 5 прямых вызовов переведены на `Invoke-GitHubApiGet` (массив аргументов), пустой ответ теперь честно сообщает о проблеме сети, а rejection от GitHub различает «Bad credentials» и неожиданный ответ. Проба retry-capability стабилизирована (exit 2 = нет поддержки; стабильный URL).
+
 ## v1.22.2 (16.09.2026)
+
 - **Honest rate-limit verdicts (from the E2E drill)**: when the update check fails because GitHub rate-limits the IP, both update paths now say so instead of a bare "Could not check releases" / "Update check failed". `bootstrap-update.ps1` parses the API error body and explains: no token → 60 requests/hour per IP (shared networks exhaust it fast), fix = save a token via menu [K] (DPAPI-encrypted, bootstrap picks it up automatically) or wait for the hourly reset; with a token → quota exhausted or token invalid, re-save via [K]. The `[U]` catch and the rate-limit message path got the same token-aware wording, and `[V]` now distinguishes "rate limit" from "cannot check". T12 in the bootstrap suite pins the verdict wiring.
 
 ## v1.22.1 (16.09.2026)

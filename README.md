@@ -348,7 +348,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.22.2
+Script version: 1.22.3
 MuMu version: 6.5.2.0
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -448,6 +448,9 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 **EN summary:** Recovering from a failed update: diagnose first (`[ST]` status, `[DIAG]` problems, `[F]` file-vs-tag verification, `[J] → 3` errors), then act. HASH MISMATCH → re-run `[F]` (stale-CDN false alarms vanish on the re-fetch; stable mismatches mean re-download the ZIP and verify with `-VerifyZip`). Wedged marker ("Up to date" but old content) → `bootstrap-update.ps1 -Force`. Broken files → restore from `backup\YYYYMMDD_HHMMSS`. Lock refusal → wait (locks older than 10 minutes break automatically). The table above maps each symptom to its cause and fix.
 
 ## Что нового
+
+### v1.22.3 (16.09.2026)
+- **Исправлено: [K] показывал «Token invalid!» при валидном токене**. Прямые вызовы `curl.exe -s$script:CurlRetryStr ...` склеивали `-s` и retry-опции в ОДИН аргумент (особенность парсинга аргументов PS 5.1) — curl отвечал exit 2 (invalid usage), тело ответа было пустым, и меню объявляло токен недействительным, не сохранив его. Все 5 прямых вызовов (оба пути [K] + выборки releases/tags/compare) переведены на новый хелпер `Invoke-GitHubApiGet`, который строит массив аргументов (склейка аргументов теперь невозможна по построению). Пустой ответ теперь честно сообщает «GitHub did not respond (network problem)» вместо «Token invalid», а реальный отказ различает «Bad credentials» и неожиданный ответ. Проба retry-capability стабилизирована (exit 2 = опция не поддерживается; стабильный URL проверки). Регрессионные тесты: форма массива аргументов, fallback на `$script:GitHubToken`, классификация exit-кодов пробы, отсутствие склеенного паттерна, проводка [K]
 
 ### v1.22.2 (16.09.2026)
 - **Честный вердикт при rate-limit (из E2E-дрилла)**: когда проверка обновлений падает из-за лимита GitHub, оба пути обновления теперь говорят об этом прямо вместо голого «Could not check releases» / «Update check failed». `bootstrap-update.ps1` разбирает тело ошибки API и объясняет: без токена лимит — 60 запросов/час на IP (общие сети исчерпывают его быстро), решение — сохранить токен через [K] в меню (DPAPI-шифрование, bootstrap подхватит автоматически) или ждать часового сброса; с токеном — квота исчерпана или токен невалиден, пересохранить через [K]. `[U]` и `[V]` получили те же token-aware формулировки. T12 в bootstrap-наборе фиксирует проводку вердикта
@@ -658,6 +661,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.3 | 16.09.2026 | Фикс: [K] «Token invalid!» при валидном токене — curl-аргументы больше не склеиваются (`Invoke-GitHubApiGet`, массив аргументов), честные сообщения о сбое проверки, стабилизирована retry-проба |
 | v1.22.2 | 16.09.2026 | Честный вердикт при rate-limit в bootstrap/[U]/[V] — 60 req/hr без токена, [K] как решение, token-aware формулировки |
 | v1.22.1 | 16.09.2026 | Фикс: парсер ETag-заголовка стал регистронезависимым (`ETag:` GitHub) — до этого кеш #22/#28 не наполнялся никогда; поймано E2E-дрILLом |
 | v1.22.0 | 16.09.2026 | #28: персистентный ETag-кеш (`.etag-cache.json`, хеш-валидация, деградация, `-Force` обходит) + сессионный кеш deep-чека `[ST]` с пометкой возраста + строка состояния кеша |

@@ -235,7 +235,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.22.2'
+$scriptVer = '1.22.3'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -294,9 +294,51 @@ function Test-CurlCapability {
 }
 $script:CurlRetryArgs = @('--retry', '3', '--retry-delay', '2')
 $script:CurlRetryStr  = ' --retry 3 --retry-delay 2'
-if (Test-CurlCapability) {
+
+# Detects whether this curl build accepts --retry-all-errors (curl >= 7.71).
+# Signal: exit 2 = option-level failure (unknown option, curl aborts before
+# connecting). Any network-layer code (6, 7, 28, 35, ...) means the option
+# was parsed and the transfer attempted - capability = supported.
+# NOTE: the probe uses a stable URL (api.github.com/zen) so the exit code is
+# not confounded by DNS/rate-limit variance.
+function Test-CurlRetrySupport {
+    param([string]$CurlExe = 'curl.exe')
+    try {
+        $null = & $CurlExe -s --retry-all-errors --connect-timeout 10 --max-time 15 'https://api.github.com/zen' 2>$null
+        return ($LASTEXITCODE -ne 2)
+    } catch {
+        return $false
+    }
+}
+if (Test-CurlRetrySupport) {
     $script:CurlRetryArgs += '--retry-all-errors'
     $script:CurlRetryStr += ' --retry-all-errors'
+}
+
+# Builds a curl ARGUMENT ARRAY for a GitHub API GET. Always use this instead of
+# string interpolation like "-s$script:CurlRetryStr" - under PS 5.1 that
+# interpolation fuses '-s --retry 3 ...' into ONE argument, which curl rejects
+# with exit 2 (invalid usage) and the caller then misreads as an empty/invalid
+# response. This is exactly the bug behind the false "Token invalid!" in [K].
+function Get-CurlGitHubArgs {
+    param([string[]]$ExtraArgs = @(), [string]$Token)
+    $curlArgs = @('-s') + $script:CurlRetryArgs + @('--connect-timeout', '30', '--max-time', '30')
+    $tk = $Token
+    if (-not $PSBoundParameters.ContainsKey('Token')) {
+        try { $tk = (Get-Variable -Scope Script -Name GitHubToken -ErrorAction Stop).Value } catch { $tk = $null }
+    }
+    if ($tk) { $curlArgs += @('-H', "Authorization: token $tk") }
+    if ($ExtraArgs.Count -gt 0) { $curlArgs += $ExtraArgs }
+    return ,$curlArgs
+}
+
+# Shared GitHub API GET via argument array. Returns the raw body as a single
+# string; on a non-2xx/transport failure returns the JSON error body (callers
+# already treat parse failures / missing fields as failure).
+function Invoke-GitHubApiGet {
+    param([string]$Url, [string[]]$ExtraArgs = @(), [string]$Token)
+    $curlArgs = Get-CurlGitHubArgs -ExtraArgs $ExtraArgs -Token $Token
+    return (& curl.exe @curlArgs $Url 2>$null | Out-String)
 }
 
 function Invoke-GitHubGet {
@@ -4724,8 +4766,8 @@ function Update-Token {
                 $plain.Substring(0, 4) + '****' + $plain.Substring($plain.Length - 4)
             } else { '****' }
 
-            $rawUser = & curl.exe -s$script:CurlRetryStr --connect-timeout 30 --max-time 30 -H "Authorization: token $plain" 'https://api.github.com/user' 2>$null
-            $user = (@($rawUser) | Out-String | ConvertFrom-Json)
+            $rawStr = Invoke-GitHubApiGet -Url 'https://api.github.com/user' -Token $plain
+            $user = $rawStr | ConvertFrom-Json
 
             if ($user.login) {
                 Write-Host "  Token:   $masked" -ForegroundColor Green
@@ -4780,10 +4822,20 @@ function Update-Token {
     if (ConvertFrom-SecureToken $sec) {
         $plain = ConvertFrom-SecureToken $sec
         Write-Host 'Testing...' -ForegroundColor Yellow
-        $rawUser = & curl.exe -s$script:CurlRetryStr --connect-timeout 30 --max-time 30 -H "Authorization: token $plain" 'https://api.github.com/user' 2>$null
-        $user = (@($rawUser) | Out-String | ConvertFrom-Json)
+        $rawStr = Invoke-GitHubApiGet -Url 'https://api.github.com/user' -Token $plain
+        if (-not $rawStr.Trim()) {
+            Write-Host 'Token check failed: GitHub did not respond (network problem). Nothing was saved.' -ForegroundColor Red
+            Write-Host 'Note: a valid token is NOT invalidated by a failed check. Try again later.' -ForegroundColor Yellow
+            return
+        }
+        $user = $rawStr | ConvertFrom-Json
         if (-not $user.login) {
-            Write-Host 'Token invalid! Nothing was saved.' -ForegroundColor Red
+            if ($rawStr -match 'Bad credentials') {
+                Write-Host 'Token rejected by GitHub (Bad credentials) - the token is wrong or revoked. Nothing was saved.' -ForegroundColor Red
+            } else {
+                Write-Host 'Token validation failed: unexpected response from GitHub (see above). Nothing was saved.' -ForegroundColor Red
+                Write-Host ($rawStr.Trim() | Select-Object -First 1) -ForegroundColor DarkGray
+            }
             return
         }
         # Sigma FP: "Unsigned Image Loaded Into LSASS" - This is NOT LSASS injection.
@@ -5598,7 +5650,7 @@ function Fix-ReleaseEncoding {
 
     # Fetch releases
     Write-Host 'Fetching releases...' -ForegroundColor DarkGray
-    $relJson = & curl.exe -s$script:CurlRetryStr --connect-timeout 30 --max-time 30 -H "Accept: application/vnd.github.v3+json" -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/releases" 2>$null | Out-String
+    $relJson = Invoke-GitHubApiGet -Url "https://api.github.com/repos/$GitHubRepo/releases" -ExtraArgs @('-H', 'Accept: application/vnd.github.v3+json')
     try { $releases = $relJson | ConvertFrom-Json } catch { $releases = @() }
 
     if (-not $releases -or $releases.Count -eq 0) {
@@ -5731,7 +5783,7 @@ function Create-GitHubRelease {
 
     # 1. Fetch existing tags
     Write-Host 'Fetching tags...' -ForegroundColor DarkGray
-    $tagsJson = & curl.exe -s$script:CurlRetryStr --connect-timeout 30 --max-time 30 -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/tags" 2>$null | Out-String
+    $tagsJson = Invoke-GitHubApiGet -Url "https://api.github.com/repos/$GitHubRepo/tags"
     try { $tags = $tagsJson | ConvertFrom-Json } catch { $tags = @() }
 
     if ($tags -and $tags.Count -gt 0) {
@@ -5814,7 +5866,7 @@ function Create-GitHubRelease {
         } else {
             # Fallback: use GitHub compare API
             Write-Host '  git log unavailable, using GitHub API...' -ForegroundColor DarkGray
-            $compareJson = & curl.exe -s$script:CurlRetryStr --connect-timeout 30 --max-time 30 -H "Authorization: token $GitHubToken" "https://api.github.com/repos/$GitHubRepo/compare/$baseTag...$tagName" 2>$null | Out-String
+            $compareJson = Invoke-GitHubApiGet -Url "https://api.github.com/repos/$GitHubRepo/compare/$baseTag...$tagName"
             try {
                 $compare = $compareJson | ConvertFrom-Json
                 if ($compare.commits) {

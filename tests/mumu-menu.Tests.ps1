@@ -26,7 +26,8 @@ BeforeAll {
                         'Get-ProblemFindings', 'Get-InstallStatus', 'Get-IntegrityVerdict', 'Invoke-MumuManagerProbe',
                         'Get-BackupFolders', 'Build-RollbackPlan', 'Invoke-Rollback', 'Test-CurlCapability',
                         'Get-AutoDiagSummary', 'Invoke-StartupAutoDiag', 'Show-AutoDiagLine',
-                        'Read-EtagCacheFile', 'Get-EtagCacheFileState', 'Save-EtagCacheFile', 'Invoke-EtagCacheMaintenance')) {
+                        'Read-EtagCacheFile', 'Get-EtagCacheFileState', 'Save-EtagCacheFile', 'Invoke-EtagCacheMaintenance',
+                        'Test-CurlRetrySupport', 'Get-CurlGitHubArgs', 'Invoke-GitHubApiGet')) {
         $f = $script:ast.FindAll({
             param($node)
             $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -1292,5 +1293,57 @@ Describe 'Emulator diagnostics (issue #32)' {
         $exe3 = New-MumuStub -Dir $script:emuDir -Json '' -Crash
         $f3 = Invoke-Diag2 -Dir $script:emuDir -MumuExe $exe3 -Probe $script:emuProbe
         @($f3 | Where-Object { $_.area -eq 'mumu' -and $_.severity -eq 'warn' -and $_.message -match 'did not answer cleanly' }).Count | Should -Be 1
+    }
+}
+
+Describe 'GitHub API fetch via argument arrays (v1.22.3, [K] Token invalid fix)' {
+
+    It 'Get-CurlGitHubArgs emits an argument ARRAY - no fused "-s --retry ..." element possible' {
+        $script:CurlRetryArgs = @('--retry', '3', '--retry-delay', '2', '--retry-all-errors')
+        $a = Get-CurlGitHubArgs -Token 'tok123'
+        $a[0] | Should -Be '-s'
+        # the regression: PS 5.1 string interpolation "-s$script:CurlRetryStr" fuses
+        # '-s --retry 3 ...' into ONE argument; curl answers exit 2 and [K] then
+        # claimed 'Token invalid!' for a valid token. Array elements must never fuse.
+        @($a | Where-Object { $_ -match '\s' -and $_ -notmatch '^Authorization: ' }).Count | Should -Be 0
+        $a | Should -Contain '--retry-all-errors'
+    }
+
+    It 'Get-CurlGitHubArgs falls back to $script:GitHubToken when -Token is omitted' {
+        $script:CurlRetryArgs = @('--retry', '3')
+        $script:GitHubToken = 'fallback-token'
+        $a = Get-CurlGitHubArgs
+        (@($a | Where-Object { $_ -eq 'Authorization: token fallback-token' })).Count | Should -Be 1
+        $a = Get-CurlGitHubArgs -Token 'explicit'
+        (@($a | Where-Object { $_ -eq 'Authorization: token explicit' })).Count | Should -Be 1
+        (@($a | Where-Object { $_ -eq 'Authorization: token fallback-token' })).Count | Should -Be 0
+    }
+
+    It 'Test-CurlRetrySupport: exit 2 means NOT supported, any network exit code means supported' {
+        $dir = Join-Path $TestDrive 'curlprobe223'
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        $stub = Join-Path $dir 'curlprobe.cmd'
+        Set-Content -Path $stub -Value '@exit 2' -Encoding Ascii
+        Test-CurlRetrySupport -CurlExe $stub | Should -Be $false
+        Set-Content -Path $stub -Value '@exit 35' -Encoding Ascii
+        Test-CurlRetrySupport -CurlExe $stub | Should -Be $true
+    }
+
+    It 'the broken "-s$script:CurlRetryStr" interpolation pattern is gone from direct curl calls' {
+        $src = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\mumu-menu.ps1'))
+        # direct "& curl.exe -s$script:CurlRetryStr ..." calls fuse into one argument under
+        # PS 5.1 (the [K] bug). String builders consumed via cmd /c re-tokenize and are
+        # exempt - the guard targets the direct-call fusion.
+        ([regex]::Matches($src, [regex]::Escape('& curl.exe -s$script:CurlRetryStr'))).Count | Should -Be 0
+    }
+
+    It '[K] wiring: validation goes through Invoke-GitHubApiGet and empty responses get an honest failure message' {
+        $src = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\mumu-menu.ps1'))
+        # both [K] paths validate through the argument-array helper (no raw fused curl call)
+        ([regex]::Matches($src, [regex]::Escape("Invoke-GitHubApiGet -Url 'https://api.github.com/user'"))).Count | Should -Be 2
+        # empty body must say "did not respond", not "Token invalid"
+        $src | Should -Match 'did not respond \(network problem\)'
+        # genuine rejection keeps a specific message
+        $src | Should -Match 'Bad credentials'
     }
 }
