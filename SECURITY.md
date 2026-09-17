@@ -243,8 +243,12 @@ Set-ExecutionPolicy -Scope LocalMachine -ExecutionPolicy RemoteSigned
 1. **PSScriptAnalyzer:**
    ```powershell
    Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
-   Invoke-ScriptAnalyzer -Path mumu-menu.ps1 -Severity Warning
+   # с настройками репозитория (как в CI) - без -Settings будут сотни
+   # ложных PSAvoidUsingWriteHost: проект сознательно использует Write-Host
+   Invoke-ScriptAnalyzer -Path mumu-menu.ps1 -Settings PSScriptAnalyzerSettings.psd1 -Severity Warning,Error
+   Invoke-ScriptAnalyzer -Path bootstrap-update.ps1 -Settings PSScriptAnalyzerSettings.psd1 -Severity Warning,Error
    ```
+   Ожидаемый результат для релизных файлов: **0 замечаний** (эталон — CI-джоба `psscriptanalyzer` на последнем коммите `main`).
 
 2. **VirusTotal:** проверьте файлы на [virustotal.com](https://www.virustotal.com) (0/75 — чисто)
 
@@ -414,8 +418,12 @@ To verify script security:
 1. **PSScriptAnalyzer:**
    ```powershell
    Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
-   Invoke-ScriptAnalyzer -Path mumu-menu.ps1 -Severity Warning
+   # repo settings (same as CI) - without -Settings you get hundreds of
+   # PSAvoidUsingWriteHost noise: the project uses Write-Host by design
+   Invoke-ScriptAnalyzer -Path mumu-menu.ps1 -Settings PSScriptAnalyzerSettings.psd1 -Severity Warning,Error
+   Invoke-ScriptAnalyzer -Path bootstrap-update.ps1 -Settings PSScriptAnalyzerSettings.psd1 -Severity Warning,Error
    ```
+   Expected result for release files: **0 findings** (reference: the `psscriptanalyzer` CI job on the latest `main` commit).
 
 2. **VirusTotal:** check files at [virustotal.com](https://www.virustotal.com) (0/75 — clean)
 
