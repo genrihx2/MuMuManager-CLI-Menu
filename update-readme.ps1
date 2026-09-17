@@ -19,7 +19,11 @@ foreach ($f in @($menuScript, $readmePath)) {
     if (-not (Test-Path -LiteralPath $f -PathType Leaf)) { throw "Required file not found: $f" }
 }
 
-$utf8 = [System.Text.UTF8Encoding]::new($true)
+# UTF-8 WITHOUT BOM: non-script files must stay BOM-less (the [UW] scanner
+# flags BOM on .md/.json/.yml as 'safe to strip'), and a BOM here would come
+# back on every CI sync run. A BOM-less UTF-8 file is safe for GitHub,
+# PowerShell 5.1 (it only reads .ps1 files here) and every editor.
+$utf8 = [System.Text.UTF8Encoding]::new($false)
 $script = [System.IO.File]::ReadAllText($menuScript)
 $readme = [System.IO.File]::ReadAllText($readmePath)
 $newline = if ($readme -match "`r`n") { "`r`n" } else { "`n" }

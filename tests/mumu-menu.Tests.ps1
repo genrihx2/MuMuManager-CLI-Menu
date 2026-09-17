@@ -1089,6 +1089,28 @@ Describe 'Fix-Unicode mode 5 ([UW] BOM repair, v1.22.10)' {
     }
 }
 
+Describe 'BOM hygiene (v1.22.11)' {
+
+    It 'non-script release and docs files are UTF-8 without BOM; PowerShell scripts keep theirs' {
+        $root = Join-Path $PSScriptRoot '..'
+        # Release/docs payload: BOM must be absent ([UW] 'safe to strip' class).
+        foreach ($name in @('README.md', 'SKILL.md', 'relnotes.md', 'RELEASE-RUNBOOK.md')) {
+            $b = [System.IO.File]::ReadAllBytes((Join-Path $root $name))
+            $hasBom = ($b.Length -ge 3 -and $b[0] -eq 0xEF -and $b[1] -eq 0xBB -and $b[2] -eq 0xBF)
+            $hasBom | Should -BeFalse -Because "$name must be BOM-less UTF-8"
+        }
+        # PowerShell scripts: BOM is intentional and required (PS 5.1 ANSI fallback).
+        foreach ($name in @('mumu-menu.ps1', 'bootstrap-update.ps1', 'update-readme.ps1')) {
+            $b = [System.IO.File]::ReadAllBytes((Join-Path $root $name))
+            $hasBom = ($b.Length -ge 3 -and $b[0] -eq 0xEF -and $b[1] -eq 0xBB -and $b[2] -eq 0xBF)
+            $hasBom | Should -BeTrue -Because "$name needs its BOM under PowerShell 5.1"
+        }
+        # The README sync writer must not re-introduce a BOM.
+        $sync = [System.IO.File]::ReadAllText((Join-Path $root 'update-readme.ps1'))
+        ($sync -match 'UTF8Encoding\]::new\(\$true\)') | Should -Be $false
+    }
+}
+
 Describe 'Get-DiagSummary - [DIAG] verdict (v1.22.6)' {
 
     It 'empty findings classify as healthy' {
