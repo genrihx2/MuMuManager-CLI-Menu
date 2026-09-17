@@ -101,14 +101,20 @@
 
 ### Сетевые эндпоинты
 
-Скрипт обращается **только** к следующим доменам:
+Скрипт обращается к следующим доменам (сверено с полным списком URL-литералов кода, v1.22.12):
 
 | Домен | Протокол | Использование | Аутентификация |
 |-------|----------|---------------|----------------|
 | `api.github.com` | HTTPS (TLS 1.2+) | Проверка версий, загрузка обновлений (contents API), валидация токена | Bearer token (опционально) |
 | `www.virustotal.com` | HTTPS (TLS 1.2+) | `[VF]` загрузка файлов, проверка результатов сканирования | `x-apikey` (VT API key) |
+| `github.com` | HTTPS | `[DL]` git clone репозитория, ссылки на страницы релизов, цель [TN] HTTP-теста | нет |
+| `timestamp.digicert.com` | HTTP (только метка времени) | `[CRT]` timestamp-сервер при подписании | нет |
 
-**Не используются:** `raw.githubusercontent.com` (обновления идут только через contents API `api.github.com` — сырой домен не содержит механизма версионирования), `Invoke-WebRequest`, `Invoke-RestMethod`, WebSocket, SMTP, FTP, DNS-over-HTTPS.
+**Диагностические пробы [TN]** (явное действие пользователя, только проверка связности, без передачи данных): `connectivitycheck.gstatic.com/generate_204`, `www.baidu.com`, `github.com`.
+
+**Механизмы запросов:** обновления и GitHub API — только `curl.exe` (аргументные массивы, без shell-строк); VT-интеграция — `Invoke-RestMethod` (только к `www.virustotal.com`); проверка версии в `[V]` — одиночный `Invoke-WebRequest` к `api.github.com/releases/latest`.
+
+**Не используются:** `raw.githubusercontent.com` (обновления идут только через contents API `api.github.com` — сырой домен не содержит механизма версионирования), WebSocket, SMTP, FTP, DNS-over-HTTPS; `Invoke-WebRequest`/`Invoke-RestMethod` не участвуют в скачивании обновлений (только `curl.exe`).
 
 ### Токены безопасности
 
@@ -254,7 +260,7 @@ Set-ExecutionPolicy -Scope LocalMachine -ExecutionPolicy RemoteSigned
 
 3. **Подпись:** `[V] Version info` → статус подписи должен быть `Valid`
 
-4. **Сетевой трафик:** мониторьте с помощью Wireshark — только HTTPS к `api.github.com`
+4. **Сетевой трафик:** мониторьте с помощью Wireshark — трафик обновлений идёт только к `api.github.com`; остальные эндпоинты задокументированы в таблице выше (VT-интеграция, [DL] clone, [CRT] timestamp, [TN]-пробы)
 
 ### Что НЕ считается уязвимостью
 
@@ -287,7 +293,7 @@ Set-ExecutionPolicy -Scope LocalMachine -ExecutionPolicy RemoteSigned
 **Sigma False Positives:**
 - **#1** (`DMP/HDMP File Creation`): скрипт **НЕ создаёт** .dmp/.hdmp файлы. DPAPI хранит зашифрованный текст — это не memory dump
 - **#2** (`Unsigned Image Loaded Into LSASS`): DPAPI через .NET ProtectedData CurrentUser, **без** загрузки DLL/EXE в LSASS и **без** инъекции; скрипт подписан через `[CRT]`
-- **#3** (`Web Request Commands`): `curl.exe` (нативный Windows) используется **только** для `api.github.com` — **без** `Invoke-WebRequest`, **без** exfiltration
+- **#3** (`Web Request Commands`): GitHub API — через `curl.exe` (аргументные массивы); `Invoke-WebRequest`/`Invoke-RestMethod` — только к `api.github.com` (проверка версии в `[V]`) и `www.virustotal.com` (VT-интеграция) — **без** exfiltration
 - **#4** (`New Root/CA Certificate`): `[CRT]` добавляет self-signed CodeSigning сертификат в Trusted Root — **явное действие пользователя**, **не** тихая установка
 - **#5** (`ADB Shell Commands`): `adb shell` / `adb push` / `adb pull` для управления эмулятором — **явное действие пользователя**, **без** выполнения кода на хост-машине
 - **#6** (`Device Model Modification`): `MuMuManager.exe modify` изменяет модель устройства для **собственных** инстансов — функция приватности, **не** подмена чужих устройств
@@ -363,8 +369,14 @@ The script connects **only** to:
 |--------|----------|---------|------|
 | `api.github.com` | HTTPS (TLS 1.2+) | Version check, updates (contents API), token validation | Bearer token (optional) |
 | `www.virustotal.com` | HTTPS (TLS 1.2+) | `[VF]` file upload, scan result lookup | `x-apikey` (VT API key) |
+| `github.com` | HTTPS | `[DL]` git clone of the repo, release-page links, `[TN]` HTTP test target | none |
+| `timestamp.digicert.com` | HTTP (timestamps only) | `[CRT]` timestamp server during signing | none |
 
-**Not used:** `raw.githubusercontent.com` (updates come from the versioned contents API only), `Invoke-WebRequest`, `Invoke-RestMethod`, WebSocket, SMTP, FTP, DNS-over-HTTPS.
+**[TN] diagnostic probes** (explicit user action, connectivity checks only, no data transfer): `connectivitycheck.gstatic.com/generate_204`, `www.baidu.com`, `github.com`.
+
+**Request mechanisms:** updates and GitHub API — `curl.exe` only (argument arrays, no shell strings); VT integration — `Invoke-RestMethod` (to `www.virustotal.com` only); version check in `[V]` — a single `Invoke-WebRequest` to `api.github.com/releases/latest`.
+
+**Not used:** `raw.githubusercontent.com` (updates come from the versioned contents API only), WebSocket, SMTP, FTP, DNS-over-HTTPS; `Invoke-WebRequest`/`Invoke-RestMethod` never download updates (that is `curl.exe` only).
 
 ### Threat Model
 
@@ -429,7 +441,7 @@ To verify script security:
 
 3. **Signature:** `[V] Version info` → signature status should be `Valid`
 
-4. **Network traffic:** monitor with Wireshark — only HTTPS to `api.github.com`
+4. **Network traffic:** monitor with Wireshark — update traffic goes only to `api.github.com`; other endpoints are documented in the table above (VT integration, `[DL]` clone, `[CRT]` timestamp, `[TN]` probes)
 
 ### Out of Scope
 
@@ -459,7 +471,7 @@ Documented features are not vulnerabilities (see "Note for AV analysts" in READM
 **Sigma False Positives:**
 - **#1** (`DMP/HDMP File Creation`): script does NOT create .dmp/.hdmp files — DPAPI stores encrypted text, not memory dumps
 - **#2** (`Unsigned Image Loaded Into LSASS`): DPAPI via .NET ProtectedData — no DLL/EXE in LSASS, no injection; script is Authenticode-signed
-- **#3** (`Web Request Commands`): `curl.exe` to `api.github.com` ONLY — no `Invoke-WebRequest`, no exfiltration
+- **#3** (`Web Request Commands`): GitHub API via `curl.exe` (argument arrays); `Invoke-WebRequest`/`Invoke-RestMethod` go to `api.github.com` (`[V]` version check) and `www.virustotal.com` (VT integration) only — no exfiltration
 - **#4** (`New Root/CA Certificate`): `[CRT]` adds self-signed CodeSigning cert to Trusted Root — explicit user action, not silent install
 - **#5** (`ADB Shell Commands`): `adb shell` / `adb push` / `adb pull` for MuMu emulator — explicit user action, no host code execution
 - **#6** (`Device Model Modification`): `MuMuManager.exe modify` for user's own instances — privacy feature, not impersonation
