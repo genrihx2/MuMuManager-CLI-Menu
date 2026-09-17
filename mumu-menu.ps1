@@ -235,7 +235,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.22.8'
+$scriptVer = '1.22.9'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -4557,8 +4557,10 @@ function Fix-Unicode {
         # Scan for encoding issues
         Write-Host ''
         Write-Host 'Scanning files...' -ForegroundColor Cyan
+        # update-journal.log is runtime data with arbitrary text fragments -
+        # it always scans as noise and belongs to [J], not to an encoding audit.
         $files = Get-ChildItem -LiteralPath $ScriptDir -File -Include '*.ps1','*.md','*.txt','*.yml','*.json' -Recurse -ErrorAction SilentlyContinue |
-            Where-Object { $_.FullName -notmatch '\\.git\\' -and $_.FullName -notmatch '\\.freebuff\\' }
+            Where-Object { $_.FullName -notmatch '\\.git\\' -and $_.FullName -notmatch '\\.freebuff\\' -and $_.Name -ne 'update-journal.log' }
 
         $ok = 0
         $warn = 0
@@ -4576,16 +4578,24 @@ function Fix-Unicode {
             # Check for replacement characters
             $hasReplacement = $utf8Text -match '\uFFFD'
 
+            $isScript = $f.Extension -eq '.ps1'
             $status = 'OK'
             $color = 'Green'
             if ($mojibake -or $hasReplacement) {
                 $status = 'MOJIBAKE'
                 $color = 'Red'
                 $bad++
-            } elseif ($hasBOM) {
-                $status = 'UTF-8 BOM (OK but BOM present)'
+            } elseif ($hasBOM -and -not $isScript) {
+                $status = 'UTF-8 BOM (OK - safe to strip)'
                 $color = 'Yellow'
                 $warn++
+            } elseif ($hasBOM) {
+                # The BOM on .ps1 files is intentional: PowerShell 5.1 reads
+                # BOM-less files in the system ANSI codepage and garbles
+                # non-ASCII literals (box-drawing chars, Cyrillic strings).
+                $status = 'UTF-8 BOM (required for PowerShell 5.1)'
+                $color = 'DarkGray'
+                $ok++
             } else {
                 $ok++
             }
@@ -4596,12 +4606,18 @@ function Fix-Unicode {
 
         Write-Host ''
         Write-Host "  OK: $ok  |  Warnings: $warn  |  Mojibake: $bad" -ForegroundColor Cyan
+        if ($bad -eq 0) {
+            Write-Host '  BOM on .ps1 files is intentional (PowerShell 5.1 ANSI fallback) - do not strip.' -ForegroundColor DarkGray
+        }
 
     } elseif ($mode -eq '2') {
         # Fix encoding - convert to UTF-8 without BOM
         Write-Host ''
         $path = (Read-Host 'Enter file path (or folder)').Trim()
         $path = $path.Trim('"').Trim()
+
+        Write-Host '  NOTE: .ps1 files are skipped - they need their BOM (PowerShell 5.1'
+        Write-Host '  reads BOM-less scripts in the system ANSI codepage and garbles non-ASCII).'
 
         if (-not (Test-Path -LiteralPath $path)) {
             Write-Host 'Path not found.' -ForegroundColor Red
@@ -4612,6 +4628,18 @@ function Fix-Unicode {
             Get-ChildItem -LiteralPath $path -File -Include '*.ps1','*.md','*.txt','*.yml','*.json' -Recurse -ErrorAction SilentlyContinue
         } else {
             Get-Item -LiteralPath $path
+        }
+
+        # Never strip the BOM from PowerShell scripts (PS 5.1 ANSI fallback).
+        $files = @($files | Where-Object { $_.Extension -ne '.ps1' })
+
+        if ($files.Count -gt 0) {
+            Write-Host ''
+            $resp = Read-Host "  Convert $($files.Count) file(s) to UTF-8 without BOM? (y/N)"
+            if ($resp -ne 'y' -and $resp -ne 'Y') {
+                Write-Host '  Cancelled.' -ForegroundColor DarkGray
+                return
+            }
         }
 
         foreach ($f in $files) {
@@ -4630,7 +4658,7 @@ function Fix-Unicode {
                 # Try to detect UTF-8 without BOM
                 $isUtf8 = $true
                 try {
-                    $dec = [System.Text.UTF8Encoding]::new($false, $true, $true)
+                    $dec = [System.Text.UTF8Encoding]::new($false, $true)
                     $null = $dec.GetString($bytes)
                 } catch {
                     $isUtf8 = $false
@@ -4644,8 +4672,14 @@ function Fix-Unicode {
                 continue
             }
 
-            # Convert to UTF-8 without BOM
-            $content = [System.IO.File]::ReadAllText($f.FullName)
+            # Convert to UTF-8 without BOM. ANSI/other files must be decoded
+            # in the system codepage - UTF-8 decode of ANSI bytes silently
+            # replaces every non-ASCII character with U+FFFD.
+            $content = if ($encoding -eq 'ANSI/other') {
+                [System.Text.Encoding]::Default.GetString($bytes)
+            } else {
+                [System.IO.File]::ReadAllText($f.FullName)
+            }
             $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
             [System.IO.File]::WriteAllText($f.FullName, $content, $utf8NoBom)
 

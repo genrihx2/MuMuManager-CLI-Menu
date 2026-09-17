@@ -350,7 +350,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.22.8
+Script version: 1.22.9
 MuMu version: 6.7.1
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -450,6 +450,10 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 **EN summary:** Recovering from a failed update: diagnose first (`[ST]` status, `[DIAG]` problems, `[F]` file-vs-tag verification, `[J] → 3` errors), then act. HASH MISMATCH → re-run `[F]` (stale-CDN false alarms vanish on the re-fetch; stable mismatches mean re-download the ZIP and verify with `-VerifyZip`). Wedged marker ("Up to date" but old content) → `bootstrap-update.ps1 -Force`. Broken files → restore from `backup\YYYYMMDD_HHMMSS`. Lock refusal → wait (locks older than 10 minutes break automatically). The table above maps each symptom to its cause and fix.
 
 ## Что нового
+
+### v1.22.9 (17.09.2026)
+
+- **`[UW]`: честные вердикты для BOM и безопасность fix-режима**: BOM у `.ps1` — «required for PowerShell 5.1» (не warning), `update-journal.log` исключён из скана; fix не трогает `.ps1`, требует подтверждения и корректно декодирует ANSI-файлы в системной кодировке (раньше — потеря не-ASCII при дефолтном UTF-8-чтении)
 
 ### v1.22.8 (17.09.2026)
 
@@ -681,6 +685,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.9 | 17.09.2026 | `[UW]`: BOM у `.ps1` честно помечен как обязательный (PS 5.1 ANSI fallback); fix-режим — без `.ps1`, с подтверждением и ANSI-safe декодированием |
 | v1.22.8 | 17.09.2026 | `[UP] Update plan (dry-run)` в меню: план [U] без мутаций (`-Plan` в Update-FromGitHub + рендерер `Show-UpdatePlan`, 4 Pester-теста) |
 | v1.22.7 | 17.09.2026 | `bootstrap-update.ps1 -WhatIf`: dry-run план обновления без скачивания и мутаций; честный случай «remote-версия неизвестна»; T13 в bootstrap-наборе |
 | v1.22.6 | 16.09.2026 | Улучшен [DIAG]: info-only установки теперь «Status: healthy», а не ложное «Problems found: 1»; паритет в bootstrap `-Diagnose`; статус ADB-моста в info-строке эмулятора |

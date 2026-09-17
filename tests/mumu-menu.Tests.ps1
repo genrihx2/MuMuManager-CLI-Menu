@@ -1045,6 +1045,26 @@ Describe 'Show-UpdatePlan ([UP] dry-run renderer)' {
     }
 }
 
+Describe 'Fix-Unicode ([UW] encoding screen, v1.22.9)' {
+
+    It 'scan: .ps1 BOM is reported as required (PS 5.1 ANSI fallback), journal is excluded from the audit' {
+        $src = Get-Content -Raw $script:menuPath
+        ($src -match 'required for PowerShell 5\.1') | Should -Be $true
+        ($src -match "Name -ne 'update-journal\.log'") | Should -Be $true
+        ($src -match 'safe to strip') | Should -Be $true
+    }
+
+    It 'fix mode 2: skips .ps1, confirms before writing, decodes ANSI in the system codepage' {
+        $src = Get-Content -Raw $script:menuPath
+        ($src -match "Extension -ne '\.ps1'") | Should -Be $true
+        # Confirmation gate sits before the write loop.
+        ($src -match 'Convert \$\(\$files\.Count\) file\(s\) to UTF-8 without BOM\? \(y/N\)') | Should -Be $true
+        ($src.IndexOf('Convert \$\(\$files\.Count\) file\(s\) to UTF-8 without BOM')) | Should -BeLessThan ($src.IndexOf('[System.IO.File]::WriteAllText($f.FullName, $content, $utf8NoBom)'))
+        # ANSI/other files must not go through the default UTF-8 decode.
+        ($src -match "'ANSI/other'\) \{\r?\n                \[System\.Text\.Encoding\]::Default\.GetString") | Should -Be $true
+    }
+}
+
 Describe 'Get-DiagSummary - [DIAG] verdict (v1.22.6)' {
 
     It 'empty findings classify as healthy' {
