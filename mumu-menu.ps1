@@ -235,7 +235,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.22.12'
+$scriptVer = '1.22.13'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -670,11 +670,15 @@ function Format-JournalEvent {
 # API error body (rate limit) are simply absent from the result - the
 # caller treats that as 'unknown', never as a hash to compare against.
 function Get-ExpectedFileHashes {
-    param([string]$Tag, [string[]]$Names)
+    param([string]$Tag, [string[]]$Names, [string]$FetchRef = '')
+    # $FetchRef: commit SHA the tag resolved to (stale-CDN hardening). The
+    # fingerprints MUST come from the same immutable snapshot the downloads
+    # will use. Falls back to the tag itself when pinning was unavailable.
+    $ref = if ($FetchRef) { $FetchRef } else { $Tag }
     $result = @{}
     foreach ($n in $Names) {
         try {
-            $remote = Invoke-GitHubGet "https://api.github.com/repos/$GitHubRepo/contents/$SkillPath/$n`?ref=$Tag" 30
+            $remote = Invoke-GitHubGet "https://api.github.com/repos/$GitHubRepo/contents/$SkillPath/$n`?ref=$ref" 30
             $t = $remote.TrimEnd()
             if ($t.StartsWith('{') -and $t -match '"message"\s*:\s*"') { continue }
             $result[$n] = Get-ContentHash $t
@@ -1190,7 +1194,7 @@ function Show-UpdatePlan {
     Write-Host "  Files:     $($files -join ', ')"
     Write-Host "  Scope:     $scopeNote"
     if ($diskNote) { Write-Host "  Disk:      $diskNote" -ForegroundColor DarkGray }
-    Write-Host '  Sources:   GitHub contents API (release tag); SHA-256 of every downloaded file is verified against the tag content' -ForegroundColor DarkGray
+    Write-Host '  Sources:   GitHub contents API, tag pinned to its commit SHA (immutable); SHA-256 of every downloaded file is verified against that commit content' -ForegroundColor DarkGray
     Write-Host '  Backup:    existing files would be copied to backup\<timestamp> (last 5 kept)'
     Write-Host "  .version:  would be set to $Tag (only if every file is replaced and verified)"
     Write-Host '  Lock:      a single-flight lock guards the run - parallel updaters wait or refuse'
@@ -1357,15 +1361,39 @@ function Update-FromGitHub {
             return
         }
 
+        # Stale-CDN hardening (same policy as [F] and the heal path): resolve
+        # the tag to its commit SHA and fetch BOTH the expected fingerprints
+        # and the downloads through the pinned ref. A commit SHA is immutable,
+        # so a lagging CDN edge cannot serve the previous release's blob under
+        # the new tag name (seen live on v1.20.3/v1.20.4). If resolution
+        # fails, $pinnedRef stays the tag - the update proceeds exactly as
+        # before; pinning is an optimization, never a precondition. NOTE:
+        # $tag keeps the human-readable name for the semantic .version and
+        # journal entries (v1.21.0 lesson from [F]).
+        $pinnedRef = $tag
+        if ($tag -notmatch '^[0-9a-fA-F]{40}$' -and $GitHubRepo) {
+            try {
+                $pinSha = Resolve-GitRefSha -RepoPart $GitHubRepo -Ref $tag 15
+                if ($pinSha -and $pinSha -match '^[0-9a-fA-F]{40}$') {
+                    $pinnedRef = $pinSha
+                    Write-Host "  Tag pinned to commit $($pinSha.Substring(0, 8)) - stale-CDN reads impossible" -ForegroundColor DarkGray
+                } else {
+                    Write-Debug "Ref pin returned no SHA for ${tag}: proceeding with the tag URL"
+                }
+            } catch {
+                Write-Debug "Ref pin failed for ${tag}: $($_.Exception.Message)"
+            }
+        }
+
         # Expected SHA-256 per file (issue #20): shown in the confirmation so
         # the user approves specific fingerprints, and re-checked after the
         # download. Fetched only once an actual update was found - the fast
         # up-to-date path never pays for this.
         $expectedHashes = @{}
-        try { $expectedHashes = Get-ExpectedFileHashes -Tag $tag -Names $files } catch { Write-Debug "Expected hash fetch failed: $($_.Exception.Message)" }
+        try { $expectedHashes = Get-ExpectedFileHashes -Tag $tag -Names $files -FetchRef $pinnedRef } catch { Write-Debug "Expected hash fetch failed: $($_.Exception.Message)" }
         if ($expectedHashes.Count -gt 0) {
             Write-Host ''
-            Write-Host '  Expected SHA-256 (from release tag):' -ForegroundColor Cyan
+            Write-Host '  Expected SHA-256 (pinned release commit):' -ForegroundColor Cyan
             foreach ($f in $files) {
                 if ($expectedHashes.ContainsKey($f)) {
                     Write-Host ("    {0,-22} {1}" -f $f, $expectedHashes[$f]) -ForegroundColor DarkGray
@@ -1627,7 +1655,7 @@ function Update-FromGitHub {
 
         foreach ($f in $files) {
             $dest = Join-Path $ScriptDir $f
-            $rawUrl = "https://api.github.com/repos/$GitHubRepo/contents/$SkillPath/$f`?ref=$tag"
+            $rawUrl = "https://api.github.com/repos/$GitHubRepo/contents/$SkillPath/$f`?ref=$pinnedRef"
             Write-Host "  Downloading $f..." -ForegroundColor Yellow
             try {
                 $tmpDl = Join-Path $env:TEMP ('mumu_dl_' + [Guid]::NewGuid().ToString('N') + '.tmp')

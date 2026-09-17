@@ -436,6 +436,47 @@ Describe 'Test-InstallationIntegrity: tag/SHA split (v1.21.0 regression guard)' 
     }
 }
 
+Describe 'Update-FromGitHub: tag pinning for downloads and fingerprints (stale-CDN hardening)' {
+
+    It 'resolves the tag to a commit SHA and fetches fingerprints + downloads through the pinned ref' {
+        $f = $script:ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Update-FromGitHub'
+        }, $true) | Select-Object -First 1
+        $t = $f.Extent.Text
+        # Pin resolution present with graceful fallback (tag kept on failure).
+        $t | Should -Match '\$pinnedRef = \$tag'
+        $t | Should -Match 'Resolve-GitRefSha -RepoPart \$GitHubRepo -Ref \$tag'
+        # Both consumers go through the pinned ref: fingerprints and downloads.
+        $t | Should -Match 'Get-ExpectedFileHashes -Tag \$tag -Names \$files -FetchRef \$pinnedRef'
+        $t | Should -Match 'ref=\$pinnedRef'
+        # Regression guard (v1.21.0 lesson): $tag stays the human-readable name
+        # for the semantic .version compare and the journal - it must never
+        # appear in a fetch URL inside Update-FromGitHub.
+        $t | Should -Not -Match 'ref=\$tag\b'
+    }
+
+    It 'Get-ExpectedFileHashes fetches through FetchRef and falls back to the tag' {
+        $f = $script:ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Get-ExpectedFileHashes'
+        }, $true) | Select-Object -First 1
+        $t = $f.Extent.Text
+        $t | Should -Match '\[string\]\$FetchRef'
+        $t | Should -Match '\$ref = if \(\$FetchRef\) \{ \$FetchRef \} else \{ \$Tag \}'
+        $t | Should -Match 'ref=\$ref'
+        $t | Should -Not -Match 'ref=\$Tag'
+    }
+
+    It 'the [UP] plan honestly describes the pinned source' {
+        $f = $script:ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Show-UpdatePlan'
+        }, $true) | Select-Object -First 1
+        $f.Extent.Text | Should -Match 'tag pinned to its commit SHA'
+    }
+}
+
 Describe 'README changelog sync (static check)' {
 
     It 'has a What''s-new section for every changelog table row' {
