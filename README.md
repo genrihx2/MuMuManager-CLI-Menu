@@ -350,7 +350,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.22.9
+Script version: 1.22.10
 MuMu version: 6.7.1
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -450,6 +450,10 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 **EN summary:** Recovering from a failed update: diagnose first (`[ST]` status, `[DIAG]` problems, `[F]` file-vs-tag verification, `[J] → 3` errors), then act. HASH MISMATCH → re-run `[F]` (stale-CDN false alarms vanish on the re-fetch; stable mismatches mean re-download the ZIP and verify with `-VerifyZip`). Wedged marker ("Up to date" but old content) → `bootstrap-update.ps1 -Force`. Broken files → restore from `backup\YYYYMMDD_HHMMSS`. Lock refusal → wait (locks older than 10 minutes break automatically). The table above maps each symptom to its cause and fix.
 
 ## Что нового
+
+### v1.22.10 (17.09.2026)
+
+- **`[UW]` опция 5 — «Add missing BOM to .ps1»**: ремонт чужих сломанных скриптов — находит `.ps1` без BOM, но с не-ASCII (ломаются на PS 5.1), показывает список, после подтверждения добавляет байты `EF BB BF` без перекодирования; попутно убран второй экземпляр бага 3-аргументного UTF-8-декодера в опции 4
 
 ### v1.22.9 (17.09.2026)
 
@@ -685,6 +689,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.10 | 17.09.2026 | `[UW]` опция 5: добавление BOM к BOM-less `.ps1` с не-ASCII (ремонт для PS 5.1), подтверждение + побайтовая префиксация `EF BB BF` |
 | v1.22.9 | 17.09.2026 | `[UW]`: BOM у `.ps1` честно помечен как обязательный (PS 5.1 ANSI fallback); fix-режим — без `.ps1`, с подтверждением и ANSI-safe декодированием |
 | v1.22.8 | 17.09.2026 | `[UP] Update plan (dry-run)` в меню: план [U] без мутаций (`-Plan` в Update-FromGitHub + рендерер `Show-UpdatePlan`, 4 Pester-теста) |
 | v1.22.7 | 17.09.2026 | `bootstrap-update.ps1 -WhatIf`: dry-run план обновления без скачивания и мутаций; честный случай «remote-версия неизвестна»; T13 в bootstrap-наборе |

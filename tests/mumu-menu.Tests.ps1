@@ -1065,6 +1065,30 @@ Describe 'Fix-Unicode ([UW] encoding screen, v1.22.9)' {
     }
 }
 
+Describe 'Fix-Unicode mode 5 ([UW] BOM repair, v1.22.10)' {
+
+    It 'mode 5 wiring: scan prompt, candidate filter, confirm gate before the write, explicit EF BB BF bytes' {
+        $src = Get-Content -Raw $script:menuPath
+        # Single-quoted with doubled inner quotes: $mode must stay literal.
+        ($src -match 'elseif \(\$mode -eq ''5''\)') | Should -Be $true
+        ($src -match 'Add missing BOM to \.ps1 files') | Should -Be $true
+        ($src -match 'Select option \(1/2/3/4/5\)') | Should -Be $true
+        # Repair candidates: BOM-less, no UTF-16 BOM, no NUL bytes, has high bytes.
+        ($src -match [regex]::Escape("FullName -notmatch '\\.git\\'")) | Should -Be $true
+        ($src -match '\$b\[0\] -eq 0 -or \$b\[1\] -eq 0') | Should -Be $true
+        # The confirm gate must sit before the byte write (literal IndexOf;
+        # quotes-free fragments - PowerShell does not escape " with backslash).
+        ($src.IndexOf('Prepend UTF-8 BOM to')) | Should -BeGreaterThan 0
+        ($src.IndexOf('[System.IO.File]::WriteAllBytes($f.FullName, $out)')) | Should -BeGreaterThan 0
+        ($src.IndexOf('Prepend UTF-8 BOM to')) | Should -BeLessThan ($src.IndexOf('[System.IO.File]::WriteAllBytes($f.FullName, $out)'))
+        # BOM bytes are written explicitly; the broken write pattern
+        # '(,[char]0xFEFF) +' must not exist (0xFEFF does not fit a byte).
+        # [char]0xFEFF itself is legit elsewhere (BOM-trim normalization).
+        ($src -match '\$out\[0\] = 0xEF; \$out\[1\] = 0xBB; \$out\[2\] = 0xBF') | Should -Be $true
+        ($src -match '\(,\[char\]0xFEFF\)') | Should -Be $false
+    }
+}
+
 Describe 'Get-DiagSummary - [DIAG] verdict (v1.22.6)' {
 
     It 'empty findings classify as healthy' {

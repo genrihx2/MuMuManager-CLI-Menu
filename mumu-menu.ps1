@@ -235,7 +235,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.22.9'
+$scriptVer = '1.22.10'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -4550,8 +4550,9 @@ function Fix-Unicode {
     Write-Host '  [2] Fix file encoding (convert to UTF-8)' -ForegroundColor White
     Write-Host '  [3] Fix mojibake (garbled Cyrillic/Unicode)' -ForegroundColor White
     Write-Host '  [4] Show file encoding info' -ForegroundColor White
+    Write-Host '  [5] Add missing BOM to .ps1 files (PowerShell 5.1 repair)' -ForegroundColor White
     Write-Host ''
-    $mode = Read-Host 'Select option (1/2/3/4)'
+    $mode = Read-Host 'Select option (1/2/3/4/5)'
 
     if ($mode -eq '1') {
         # Scan for encoding issues
@@ -4773,7 +4774,7 @@ function Fix-Unicode {
         # UTF-8 validation
         $isUtf8 = $true
         try {
-            $dec = [System.Text.UTF8Encoding]::new($false, $true, $true)
+            $dec = [System.Text.UTF8Encoding]::new($false, $true)
             $null = $dec.GetString($bytes)
         } catch {
             $isUtf8 = $false
@@ -4804,6 +4805,63 @@ function Fix-Unicode {
             $preview = $text.Substring(0, [Math]::Min(200, $text.Length))
             Write-Host "  Preview: $preview" -ForegroundColor DarkGray
         }
+
+    } elseif ($mode -eq '5') {
+        # Add BOM to BOM-less .ps1 files - the reverse repair. The scanner
+        # (option 1) treats .ps1 BOM as required; this heals foreign scripts
+        # that non-ASCII-literal code and would garble under PowerShell 5.1's
+        # ANSI fallback (comments/strings become mojibake on RU Windows).
+        # Scan defaults to the install dir - the file may sit anywhere.
+        Write-Host ''
+        Write-Host '  Scans a folder for .ps1 files WITHOUT a BOM that contain non-ASCII' -ForegroundColor White
+        Write-Host '  characters - those garble under PowerShell 5.1 (ANSI fallback).' -ForegroundColor White
+        $path = (Read-Host 'Enter folder (Enter = install dir)').Trim().Trim('"')
+        if (-not $path) { $path = $ScriptDir }
+        if (-not (Test-Path -LiteralPath $path -PathType Container)) {
+            Write-Host "Folder not found: $path" -ForegroundColor Red
+            return
+        }
+        $files = @((Get-ChildItem -LiteralPath $path -Filter '*.ps1' -Recurse -File -ErrorAction SilentlyContinue) |
+            Where-Object { $_.FullName -notmatch '\\.git\\' -and $_.FullName -notmatch '\\.freebuff\\' })
+        $candidates = @()
+        foreach ($f in $files) {
+            $b = [System.IO.File]::ReadAllBytes($f.FullName)
+            if ($b.Length -ge 3 -and $b[0] -eq 0xEF -and $b[1] -eq 0xBB -and $b[2] -eq 0xBF) { continue }
+            if ($b.Length -ge 2 -and (($b[0] -eq 0xFF -and $b[1] -eq 0xFE) -or ($b[0] -eq 0xFE -and $b[1] -eq 0xFF))) { continue }
+            # UTF-16 without BOM: NUL byte in the first two - not a repair case.
+            if ($b.Length -ge 2 -and ($b[0] -eq 0 -or $b[1] -eq 0)) { continue }
+            $nonAscii = $false
+            for ($i = 0; $i -lt $b.Length; $i++) {
+                if ($b[$i] -gt 127) { $nonAscii = $true; break }
+            }
+            if ($nonAscii) { $candidates += $f }
+        }
+        if ($candidates.Count -eq 0) {
+            Write-Host '  No repairable .ps1 files found (all have a BOM, UTF-16, or pure ASCII).' -ForegroundColor Green
+            return
+        }
+        Write-Host "  Repairable .ps1 files (BOM-less, contains non-ASCII):" -ForegroundColor Yellow
+        foreach ($f in $candidates) { Write-Host "    $($f.FullName.Substring($path.Length).TrimStart('\'))" -ForegroundColor Yellow }
+        $resp = Read-Host "  Prepend UTF-8 BOM to $($candidates.Count) file(s)? (y/N)"
+        if ($resp -ne 'y' -and $resp -ne 'Y') {
+            Write-Host '  Cancelled - nothing written.' -ForegroundColor DarkGray
+            return
+        }
+        foreach ($f in $candidates) {
+            try {
+                $b = [System.IO.File]::ReadAllBytes($f.FullName)
+                # Explicit EF BB BF byte array - a char 0xFEFF does not fit a byte.
+                $out = New-Object byte[] (3 + $b.Length)
+                $out[0] = 0xEF; $out[1] = 0xBB; $out[2] = 0xBF
+                [Array]::Copy($b, 0, $out, 3, $b.Length)
+                [System.IO.File]::WriteAllBytes($f.FullName, $out)
+            } catch {
+                Write-Host "  FAILED: $($f.Name) ($($_.Exception.Message))" -ForegroundColor Red
+                continue
+            }
+            Write-Host "  BOM added: $($f.Name)" -ForegroundColor Green
+        }
+        Write-Host '  Done. Re-run option 1 to confirm every .ps1 now reports the BOM as required.' -ForegroundColor Green
     }
 }
 
