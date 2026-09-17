@@ -477,6 +477,23 @@ Describe 'Update-FromGitHub: tag pinning for downloads and fingerprints (stale-C
     }
 }
 
+Describe 'SKILL.md frontmatter (loader-safe YAML)' {
+
+    It 'description value is double-quoted so embedded colons cannot break YAML parsers' {
+        # Plain scalar 'description: ... Features: ...' made strict YAML loaders
+        # fail with "mapping values are not allowed in this context" - the
+        # second colon was read as a nested mapping start.
+        $skillPath = Join-Path (Join-Path $PSScriptRoot '..') 'SKILL.md'
+        $front = (Get-Content -LiteralPath $skillPath -Encoding UTF8) | Select-Object -First 20
+        $end = ($front | Select-String -Pattern '^---$' | Select-Object -Skip 1).LineNumber
+        $fm = $front[0..([Math]::Max($end - 2, 1))]
+        $desc = @($fm | Where-Object { $_ -match '^description:' })
+        @($desc).Count | Should -Be 1
+        $desc[0] | Should -Match '^description: "' -Because 'unquoted description breaks strict YAML loaders'
+        $desc[0].EndsWith('"') | Should -BeTrue
+    }
+}
+
 Describe 'README changelog sync (static check)' {
 
     It 'has a What''s-new section for every changelog table row' {

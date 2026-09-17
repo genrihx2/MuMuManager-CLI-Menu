@@ -4,6 +4,12 @@
 
 ---
 
+## v1.22.14 (17.09.2026)
+
+### Fixed
+
+- **SKILL.md: description во фронтматтере закавычен** — strict YAML-лоадеры (Claude Code, Cursor и пр.) падали с «mapping values are not allowed in this context at line 2 column 108»: второе двоеточие внутри plain-скаляра (`Features:`) читалось как начало вложенного mapping. Значение обёрнуто в двойные кавычки, текст не изменён. Регрессионный Pester-тест: `description:` обязан начинаться и заканчиваться кавычкой
+
 ## v1.22.13 (17.09.2026)
 
 ### Security

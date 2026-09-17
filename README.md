@@ -350,7 +350,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.22.13
+Script version: 1.22.14
 MuMu version: 6.7.1
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -450,6 +450,10 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 **EN summary:** Recovering from a failed update: diagnose first (`[ST]` status, `[DIAG]` problems, `[F]` file-vs-tag verification, `[J] → 3` errors), then act. HASH MISMATCH → re-run `[F]` (stale-CDN false alarms vanish on the re-fetch; stable mismatches mean re-download the ZIP and verify with `-VerifyZip`). Wedged marker ("Up to date" but old content) → `bootstrap-update.ps1 -Force`. Broken files → restore from `backup\YYYYMMDD_HHMMSS`. Lock refusal → wait (locks older than 10 minutes break automatically). The table above maps each symptom to its cause and fix.
 
 ## Что нового
+
+### v1.22.14 (17.09.2026)
+
+- **SKILL.md: description во фронтматтере закавычен** — strict YAML-лоадеры падали на `Features:` внутри plain-скаляра («mapping values are not allowed», col 108); текст не изменён, регрессионный тест закрепляет
 
 ### v1.22.13 (17.09.2026)
 
@@ -701,6 +705,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.14 | 17.09.2026 | SKILL.md: YAML-фронтматтер закавычен (strict-лоадеры падали на `Features:` в description); регрессионный тест |
 | v1.22.13 | 17.09.2026 | [U]: тег пинится на commit SHA (отпечатки + скачивания через immutable-коммит, fallback на тег); [UP]-план честнее |
 | v1.22.12 | 17.09.2026 | Убран вечный мусор `bootstrap-update.ps1.old`: удаление после успешного apply + свип обоих `.old` на старте меню + DIAG |
 | v1.22.11 | 17.09.2026 | README.md/SKILL.md переведены на UTF-8 без BOM; писатель синка не реинтродуцирует BOM; hygiene-тест |

@@ -1,6 +1,6 @@
 ---
 name: mumu-manager-cli
-description: Interactive PowerShell menu for managing MuMu Emulator instances via MuMuManager.exe. Features: instance control, app management, device spoofing, SIM operator change, auto-update, code signing.
+description: "Interactive PowerShell menu for managing MuMu Emulator instances via MuMuManager.exe. Features: instance control, app management, device spoofing, SIM operator change, auto-update, code signing."
 ---
 
 # MuMuManager CLI Menu
