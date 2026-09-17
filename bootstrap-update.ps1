@@ -8,6 +8,11 @@
 #   powershell -ExecutionPolicy Bypass -File bootstrap-update.ps1 -Force
 #   powershell -ExecutionPolicy Bypass -File bootstrap-update.ps1 -LogDir "D:\logs"
 #   powershell -ExecutionPolicy Bypass -File bootstrap-update.ps1 -VerifyHash
+#   powershell -ExecutionPolicy Bypass -File bootstrap-update.ps1 -WhatIf
+#
+# Dry-run: -WhatIf prints the update plan (action, files, verification,
+# backup, journal) and exits - nothing is downloaded, no lock, no backup,
+# no writes. Use it to preview what a real run would do.
 #
 # Post-download verification (parity with the [U] updater): after each
 # successful download the file is re-hashed and compared with the expected
@@ -31,7 +36,8 @@ param(
     [string]$VerifyZip = '',
     [string]$ZipTag = '',
     [switch]$NoVerify,
-    [switch]$Diagnose
+    [switch]$Diagnose,
+    [switch]$WhatIf
 )
 
 if (-not $TargetDir) { $TargetDir = $PWD.Path }
@@ -756,6 +762,49 @@ if (-not $remoteTag) {
 if ($localTag -eq $remoteTag -and -not $Force) {
     Write-Host "  Up to date ($localTag) - nothing to download." -ForegroundColor Green
     Write-Host "  Use -Force to re-download anyway." -ForegroundColor DarkGray
+    exit 0
+}
+
+# ── Dry-run: show the update plan without touching anything (issue: UX) ──
+# Everything below this point that mutates state (lock, backup, downloads,
+# .version, journal, self-refresh) is skipped. Only two read-only API calls
+# were made before here (releases/latest + tag ref pin), exactly like a
+# regular check. -Force only removes the up-to-date short-circuit above, so
+# a dry-run with -Force shows the re-download plan of the current version.
+if ($WhatIf) {
+    Write-Host ''
+    Write-Host '=== Dry-run: update plan (nothing was downloaded or changed) ===' -ForegroundColor Cyan
+    if (-not $remoteTag) {
+        Write-Host '  Remote version unknown - the plan cannot be built.' -ForegroundColor Yellow
+        Write-Host '  A real run would say: Could not check releases. Run with -Force to download anyway.' -ForegroundColor DarkGray
+        exit 1
+    }
+    $action = if (-not $localTag) {
+        "fresh install of $remoteTag (target folder has no .version)"
+    } elseif ($localTag -eq $remoteTag) {
+        "re-download of the current version $remoteTag (because of -Force)"
+    } else {
+        "update $localTag -> $remoteTag"
+    }
+    Write-Host "  Action:    $action" -ForegroundColor White
+    Write-Host "  Target:    $TargetDir"
+    Write-Host "  Files:     $($files -join ', ')"
+    Write-Host '  Sources:   GitHub contents API, tag pinned to its commit SHA (immutable)' -ForegroundColor DarkGray
+    if ($NoVerify) {
+        Write-Host '  Verify:    SKIPPED (-NoVerify)' -ForegroundColor Yellow
+    } else {
+        Write-Host '  Verify:    SHA-256 of every downloaded file vs the tag content (hash mismatch fails the update)' -ForegroundColor DarkGray
+    }
+    Write-Host "  Backup:    existing files would be copied to backup\\<timestamp> before replacing"
+    Write-Host "  .version:  would be set to $remoteTag (only if all files succeed)"
+    Write-Host "  Updater:   bootstrap-update.ps1 goes to .new and self-applies after a successful run"
+    if ($token) {
+        Write-Host '  API:       authenticated (5000 req/hr)' -ForegroundColor DarkGray
+    } else {
+        Write-Host '  API:       unauthenticated - a real run needs ~13 of the 60 req/hr budget' -ForegroundColor DarkGray
+    }
+    Write-Host ''
+    Write-Host 'Run without -WhatIf to apply.' -ForegroundColor Green
     exit 0
 }
 

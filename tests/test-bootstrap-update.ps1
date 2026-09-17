@@ -32,6 +32,9 @@
 #       Get-ExpectedHashes hashes tag content via the byte-exact raw
 #       fetch (OEM-codepage safe), skips rate-limit JSON bodies and
 #       null responses; -NoVerify wiring is present.
+#   T13. Dry-run plan (-WhatIf): wiring sits between the remote check and
+#       every mutation, previews action/files/verification/backup without
+#       side effects, and handles the unknown-remote case honestly.
 #
 # Run locally:
 #   powershell -ExecutionPolicy Bypass -File tests\test-bootstrap-update.ps1
@@ -578,6 +581,38 @@ try {
         Assert-True -Name 'no-token path is distinguished from token path' -Condition ($bRaw -match 'if \(-not \$token\)') -Detail 'no branch on token presence'
     } finally {
         Remove-Item -LiteralPath $rlDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    # ── T13: dry-run plan (-WhatIf) ──────────────────────────────────
+    Write-Host 'T13: -WhatIf dry-run - plan preview, zero mutations, honest unknown-remote case' -ForegroundColor Cyan
+    try {
+        $drDir = Join-Path $tmp 'dryrun'
+        New-Item -ItemType Directory -Path $drDir -Force | Out-Null
+        # Same philosophy as T12: assert the exact wiring and block position
+        # instead of hitting the live API. The block must know the remote
+        # version (plan says what WILL be installed) and must run before
+        # the lock, backup and download loop - the first mutation points.
+        $idxWhatIf = $bRaw.IndexOf('if ($WhatIf) {')
+        $idxRemote = $bRaw.IndexOf('releases/latest')
+        $idxLock   = $bRaw.IndexOf('New-UpdateLock -Dir $TargetDir')
+        $idxLoop   = $bRaw.IndexOf('foreach ($f in $files)')
+        Assert-True -Name 'bootstrap wires the -WhatIf switch and the dry-run block' -Condition (($bRaw -match '\[switch\]\$WhatIf') -and ($idxWhatIf -gt 0)) -Detail 'dry-run wiring not found'
+        Assert-True -Name 'dry-run block sits after the remote version check (plan knows the target version)' -Condition ($idxWhatIf -gt $idxRemote) -Detail "whatif=$idxWhatIf remote=$idxRemote"
+        Assert-True -Name 'dry-run block runs before the lock and the download loop (zero mutations)' -Condition (($idxWhatIf -lt $idxLock) -and ($idxWhatIf -lt $idxLoop)) -Detail "whatif=$idxWhatIf lock=$idxLock loop=$idxLoop"
+        Assert-True -Name 'plan names the three action classes (fresh install / update / forced re-download)' -Condition (($bRaw -match 'fresh install of') -and ($bRaw -match 'update \$localTag -> \$remoteTag') -and ($bRaw -match 're-download of the current version')) -Detail 'action classes missing'
+        Assert-True -Name 'plan documents verification and the -NoVerify exception' -Condition (($bRaw -match 'Verify:') -and ($bRaw -match 'if \(\$NoVerify\)')) -Detail 'verification preview missing'
+        Assert-True -Name 'plan previews backup, .version and self-refresh without promising them' -Condition (($bRaw -match 'would be copied to backup') -and ($bRaw -match 'would be set to') -and ($bRaw -match 'self-applies after a successful run')) -Detail 'preview wording missing'
+        Assert-True -Name 'unknown remote version exits nonzero with an honest message' -Condition (($bRaw -match 'the plan cannot be built') -and ($bRaw -match 'exit 1')) -Detail 'unknown-remote path missing'
+        # Side-effect guard: no mutation calls INSIDE the block. The window
+        # ends at the single-flight lock comment - the first legitimate
+        # mutation lives right after the block and must not be counted.
+        $idxLockComment = $bRaw.IndexOf('Single-flight lock')
+        $blockEnd = if ($idxLockComment -gt $idxWhatIf) { $idxLockComment } else { $idxWhatIf + 4000 }
+        $blockText = $bRaw.Substring($idxWhatIf, $blockEnd - $idxWhatIf)
+        Assert-True -Name 'dry-run ends with the apply hint and exits without side effects' -Condition (($bRaw -match 'Run without -WhatIf to apply\.') -and (-not ($blockText -match 'Download-File|Set-Content|Write-UpdateJournal|New-UpdateLock|Remove-Item'))) -Detail 'apply hint or side-effect guard missing'
+        Assert-True -Name 'usage docs list -WhatIf' -Condition ($bRaw -match '-File bootstrap-update\.ps1 -WhatIf') -Detail 'header comment missing the flag'
+    } finally {
+        Remove-Item -LiteralPath $drDir -Recurse -Force -ErrorAction SilentlyContinue
     }
 
 

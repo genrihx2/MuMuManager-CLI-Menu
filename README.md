@@ -349,7 +349,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.22.6
+Script version: 1.22.7
 MuMu version: 6.7.1
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -449,6 +449,10 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 **EN summary:** Recovering from a failed update: diagnose first (`[ST]` status, `[DIAG]` problems, `[F]` file-vs-tag verification, `[J] → 3` errors), then act. HASH MISMATCH → re-run `[F]` (stale-CDN false alarms vanish on the re-fetch; stable mismatches mean re-download the ZIP and verify with `-VerifyZip`). Wedged marker ("Up to date" but old content) → `bootstrap-update.ps1 -Force`. Broken files → restore from `backup\YYYYMMDD_HHMMSS`. Lock refusal → wait (locks older than 10 minutes break automatically). The table above maps each symptom to its cause and fix.
 
 ## Что нового
+
+### v1.22.7 (17.09.2026)
+
+- **`bootstrap-update.ps1 -WhatIf` (dry-run)**: план обновления без скачивания и любых записей — действие (свежая установка / апгрейд / принудительная перекачка с `-Force`), файлы, источник с пином тега на SHA, статус SHA-256-верификации (и исключение `-NoVerify`), будущий бэкап, условная запись `.version`, самоприменение обновлятора; «remote-версия неизвестна» — честный exit 1. T13 в bootstrap-наборе
 
 ### v1.22.6 (16.09.2026)
 - **Улучшен [DIAG]: info-находки больше не выглядят как проблемы**. Живой отчёт: полностью здоровая установка печатала «Problems found: 1 (0 error(s), 0 warning(s), 1 info)» из-за единственной info-заметки «1 of 1 instance(s) running» — теперь вердикт собирает общая функция `Get-DiagSummary`: «Status: healthy (1 info note(s) - nothing to fix)» зелёным для чистых/info-only установок; «Problems found: N error(s), M warning(s)» (красный/жёлтый) остался для настоящих проблем, с честными счётчиками по severity. Паритет в `bootstrap-update.ps1 -Diagnose`
@@ -672,6 +676,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.7 | 17.09.2026 | `bootstrap-update.ps1 -WhatIf`: dry-run план обновления без скачивания и мутаций; честный случай «remote-версия неизвестна»; T13 в bootstrap-наборе |
 | v1.22.6 | 16.09.2026 | Улучшен [DIAG]: info-only установки теперь «Status: healthy», а не ложное «Problems found: 1»; паритет в bootstrap `-Diagnose`; статус ADB-моста в info-строке эмулятора |
 | v1.22.5 | 16.09.2026 | Фикс: вечный «ADB bridge not ready» — явный `adb connect` + adb рядом с MuMuManager.exe; kill-on-timeout для всех внешних вызовов пробы (холодный adb больше не вешает меню) |
 | v1.22.4 | 16.09.2026 | Аудит curl: все вызовы переведены на массивы аргументов (ноль `cmd /c`), токен убран из командной строки, кавычки/склейки больше не возможны |
