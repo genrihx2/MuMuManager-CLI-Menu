@@ -23,16 +23,27 @@
 
 Используйте приватный канал:
 
-1. **GitHub Private Vulnerability Reporting**: вкладка репозитория **Security → Report a vulnerability**; либо
-2. Email: создайте Issue с пометкой «contact requested», чтобы автор назначил приватный канал.
+1. **GitHub Private Vulnerability Reporting**: вкладка репозитория **Security → Report a vulnerability** — предпочтительный канал; либо
+2. Обходной путь: создайте Issue с пометкой «contact requested», чтобы автор назначил приватный канал.
 
 В отчёте укажите:
 
 - Описание проблемы и потенциальное влияние
 - Шаги воспроизведения (PoC-скрипт приветствуется)
-- Версию скрипта: пункт меню `[V] Version info`
+- Затронутый файл: `mumu-menu.ps1` или `bootstrap-update.ps1`
+- Версию скрипта: пункт меню `[V] Version info` либо `bootstrap-update.ps1 -Diagnose`
 - ОС, версию PowerShell и MuMu Emulator
-- Файлы конфигурации/логов, если относятся (без секретов)
+- Файлы конфигурации/логов, если относятся (**без секретов** — токены и ключи предварительно вымарать)
+
+**Что происходит дальше:**
+
+- Фикс разрабатывается в приватной ветке и выходит через штатный tag-driven конвейер с CI-верификацией (ZIP + SHA256 + VT-вердикты)
+- Публичное раскрытие — только после выхода исправленного релиза
+- Вы указаны в благодарностях и примечаниях к релизу (по вашему согласию)
+
+**Safe harbor:** добросовестное исследование в рамках этой политики (без DoS, спама, спуфинга пользователей и доступа к чужим данным) не повлечёт юридических или административных действий со стороны автора. Bounty-программы нет.
+
+**Не относится к уязвимостям:** задокументированные возможности проекта — см. раздел «Что НЕ считается уязвимостью» ниже.
 
 ### Сроки ответа
 
@@ -40,8 +51,10 @@
 |-----------|------|
 | Первичный ответ | **до 72 часов** |
 | Оценка и план исправления | до 7 дней |
-| Критичные уязвимости | патч вне очереди, в приоритете |
+| Критичные уязвимости | патч вне очереди, emergency-релиз |
 | Подтверждение получения | **до 24 часов** |
+
+**Постоянный автоматизированный контроль:** еженедельный PSScriptAnalyzer с загрузкой SARIF в Security-таб (пн 06:00 UTC), CI VirusTotal-скан каждого релиза, еженедельный Release guard по комплектности релизов, групповые Dependabot-обновления экшенов, actionlint + shellcheck на все workflows.
 
 ### Архитектура безопасности
 
@@ -302,17 +315,29 @@ Security fixes are released only for the latest release.
 
 Use a private channel:
 
-1. **GitHub Private Vulnerability Reporting**: repository tab **Security → Report a vulnerability**; or
-2. Open an issue labeled `contact-requested` so the maintainer can set up a private channel.
+1. **GitHub Private Vulnerability Reporting**: repository tab **Security → Report a vulnerability** — preferred; or
+2. Fallback: open an issue labeled `contact-requested` so the maintainer can set up a private channel.
 
-Please include: description and impact, reproduction steps (PoC welcome), script version (`[V] Version info`), OS / PowerShell / MuMu versions.
+Please include: description and impact, reproduction steps (PoC welcome), affected file (`mumu-menu.ps1` or `bootstrap-update.ps1`), script version (`[V] Version info` or `bootstrap-update.ps1 -Diagnose`), OS / PowerShell / MuMu versions, and any relevant config/log files (**with secrets redacted** — tokens and API keys must be removed first).
+
+**What happens next:**
+
+- The fix is developed on a private branch and ships through the standard tag-driven pipeline with CI verification (ZIP + SHA256 + VT verdicts)
+- Public disclosure happens only after the fixed release is published
+- You are credited in the acknowledgements and release notes (with your consent)
+
+**Safe harbor:** good-faith research within this policy (no DoS, spam, user spoofing, or access to other people's data) will not result in legal or administrative action from the maintainer. There is no bounty program.
+
+**Not a vulnerability:** documented project features — see "Out of Scope" below.
 
 | Priority | SLA |
 |----------|-----|
 | Initial response | **within 72 hours** |
 | Assessment and fix plan | within 7 days |
-| Critical vulnerabilities | emergency patch, highest priority |
+| Critical vulnerabilities | emergency patch, out-of-band release |
 | Receipt confirmation | **within 24 hours** |
+
+**Continuous automated monitoring:** weekly PSScriptAnalyzer with SARIF upload to the Security tab (Mon 06:00 UTC), CI VirusTotal scan of every release, weekly Release guard audit, grouped Dependabot action updates, actionlint + shellcheck on all workflows.
 
 ### Security Architecture
 
