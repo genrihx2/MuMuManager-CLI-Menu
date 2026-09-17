@@ -26,8 +26,9 @@
 #
 # Self-refresh: bootstrap-update.ps1 updates ITSELF on every run - the new
 # copy is downloaded as .new and applied at the end of a successful run
-# (PowerShell has parsed the file by then). If the file is busy, the menu
-# applies the pending .new at startup.
+# (PowerShell has parsed the file by then), keeping a safety .old copy only
+# until the apply succeeds. If the file is busy, the menu applies the
+# pending .new at startup.
 
 param(
     [string]$TargetDir = $PSScriptRoot,
@@ -125,6 +126,14 @@ function Apply-PendingUpdater {
         }
         Copy-Item -LiteralPath $newPath -Destination $curPath -Force
         Remove-Item -LiteralPath $newPath -Force -ErrorAction SilentlyContinue
+        # Application succeeded - the safety copy has served its purpose and
+        # would otherwise linger forever (the menu only sweeps its own
+        # mumu-menu.ps1.old). Removal is best-effort: if the .old is held by
+        # an antivirus/backup scanner it stays and is swept by the menu at
+        # the next startup.
+        if (Test-Path -LiteralPath $oldPath -PathType Leaf) {
+            Remove-Item -LiteralPath $oldPath -Force -ErrorAction SilentlyContinue
+        }
         Write-UpdateJournal -EventType 'updater-refresh' -From $From -To $To -Detail 'bootstrap-update.ps1 updated from .new'
         return $true
     } catch {

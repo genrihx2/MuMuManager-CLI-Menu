@@ -737,6 +737,19 @@ Describe 'Problem diagnostics (Get-ProblemFindings)' {
         @($f | Where-Object { $_.message -match '\.old leftover' }).Count | Should -Be 1
     }
 
+    It 'startup sweep removes both .old self-apply backups' {
+        $raw = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'mumu-menu.ps1') -Raw -Encoding UTF8
+        # The sweep block must list both .old names (mumu-menu.ps1.old was
+        # always swept; bootstrap-update.ps1.old used to linger forever).
+        $raw.Contains("@('mumu-menu.ps1.old', 'bootstrap-update.ps1.old')") | Should -BeTrue
+        # It must sit in the startup region: after the self-apply block that
+        # creates .old copies and before the passive update check.
+        $applyAt = $raw.IndexOf("Join-Path `$ScriptDir 'mumu-menu.ps1.new'")
+        $sweepAt = $raw.IndexOf("@('mumu-menu.ps1.old', 'bootstrap-update.ps1.old')")
+        $checkAt = $raw.IndexOf('Update-FromGitHub -Passive')
+        ($applyAt -ge 0 -and $sweepAt -gt $applyAt -and $checkAt -gt $sweepAt) | Should -BeTrue
+    }
+
     It 'the diagnostics screen is wired into the menu' {
         $raw = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'mumu-menu.ps1') -Raw -Encoding UTF8
         $raw | Should -Match "\[DIAG\] Problem diagnostics"

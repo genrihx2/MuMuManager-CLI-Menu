@@ -223,6 +223,15 @@ try {
     Assert-True -Name 'pending updater .new applied (returns true)' -Condition ($applied -eq $true) -Detail "returned: $applied"
     Assert-True -Name '.new removed after apply' -Condition (-not (Test-Path -LiteralPath (Join-Path $uDir 'bootstrap-update.ps1.new'))) -Detail 'bootstrap-update.ps1.new still exists'
     Assert-True -Name 'updater content replaced by .new' -Condition ((Get-Content -LiteralPath (Join-Path $uDir 'bootstrap-update.ps1') -Raw).Trim() -eq '# new updater') -Detail 'content not swapped'
+    Assert-True -Name '.old safety copy removed after successful apply' -Condition (-not (Test-Path -LiteralPath (Join-Path $uDir 'bootstrap-update.ps1.old'))) -Detail 'bootstrap-update.ps1.old still exists after a successful apply'
+    # Wiring: the .old cleanup must sit between the .new apply and the
+    # updater-refresh journal write (backup Remove-Item earlier in the body
+    # only overwrites a stale copy - it must not count).
+    $apBody = $apFn.Extent.Text
+    $segStart = $apBody.IndexOf('Remove-Item -LiteralPath $newPath')
+    $segEnd = $apBody.IndexOf("Write-UpdateJournal -EventType 'updater-refresh'")
+    $seg = if ($segStart -ge 0 -and $segEnd -gt $segStart) { $apBody.Substring($segStart, $segEnd - $segStart) } else { '' }
+    Assert-True -Name 'apply removes the .old copy between .new removal and journal write' -Condition ($seg -match [regex]::Escape('Remove-Item -LiteralPath $oldPath')) -Detail 'no .old cleanup between .new removal and updater-refresh journal write'
     Assert-True -Name 'updater-refresh event journaled' -Condition (@(Get-Content -LiteralPath $journalFile -Encoding UTF8 -ErrorAction SilentlyContinue | Where-Object { (($_ -split "`t")[2]) -eq 'updater-refresh' }).Count -eq 1) -Detail 'no updater-refresh line in journal'
     $noop = Apply-PendingUpdater -Dir $uDir -From 'v1.19.2' -To 'v1.19.2'
     Assert-True -Name 'no .new present - apply is a no-op (returns false)' -Condition ($noop -eq $false) -Detail "returned: $noop"

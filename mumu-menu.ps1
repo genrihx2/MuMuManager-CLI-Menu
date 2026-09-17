@@ -235,7 +235,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.22.11'
+$scriptVer = '1.22.12'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -1814,11 +1814,15 @@ try {
     Write-Debug "Update apply failed: $($_.Exception.Message)"
 }
 
-# Clean up .old backup
+# Clean up .old backups left by self-apply (both files keep a safety copy
+# until the new version is in place; normally apply removes it itself - this
+# sweep catches copies left behind by a locked/aborted apply).
 try {
-    $selfOld = Join-Path $ScriptDir 'mumu-menu.ps1.old'
-    if (Test-Path -LiteralPath $selfOld) {
-        Remove-Item -LiteralPath $selfOld -Force -ErrorAction SilentlyContinue
+    foreach ($oldName in @('mumu-menu.ps1.old', 'bootstrap-update.ps1.old')) {
+        $oldPath = Join-Path $ScriptDir $oldName
+        if (Test-Path -LiteralPath $oldPath -PathType Leaf) {
+            Remove-Item -LiteralPath $oldPath -Force -ErrorAction SilentlyContinue
+        }
     }
 } catch {
     Write-Debug ".old cleanup failed: $($_.Exception.Message)"
@@ -2299,8 +2303,10 @@ function Get-ProblemFindings {
             & $add 'info' 'install' "pending $pending will be applied at the next menu start"
         }
     }
-    if (Test-Path -LiteralPath (Join-Path $ScriptDir 'mumu-menu.ps1.old') -PathType Leaf) {
-        & $add 'info' 'install' "mumu-menu.ps1.old leftover from the last self-apply (removed at next startup)"
+    foreach ($oldLeft in @('mumu-menu.ps1.old', 'bootstrap-update.ps1.old')) {
+        if (Test-Path -LiteralPath (Join-Path $ScriptDir $oldLeft) -PathType Leaf) {
+            & $add 'info' 'install' "$oldLeft leftover from the last self-apply (removed at next startup)"
+        }
     }
 
     # ── Update lock ───────────────────────────────────────────────
