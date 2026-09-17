@@ -156,6 +156,69 @@ v1.18.6 теперь содержит `MuMuManager-CLI-Menu-v1.18.6.zip` + `.zip
 - Пользователи проверяют загрузки привычно:
   `sha256sum -c MuMuManager-CLI-Menu-vX.Y.Z.zip.sha256`.
 
+## Release guard — еженедельный аудит релизов (.github/workflows/release-guard.yml)
+
+Введён 2026-09-16 (коммиты `a230d98`, `b12624a`) как ответ на класс багов
+«молчаливые пустые релизы» (v1.18.1–v1.18.6 жили без ассетов по несколько
+дней). Конвейер релизов к тому моменту уже был честным — страж добавил
+независимый контроль результата. Расписание: каждый понедельник 06:30 UTC
+(после security-scan, до европейского рабочего дня), плюс `workflow_dispatch`
+(Actions → **Release guard** → Run workflow) и запуск при правках самого
+файла workflow. Checkout не делает — только GitHub API через `gh`
+(встроенный `--jq`, без внешних зависимостей).
+
+**Что проверяет:**
+
+1. **Комплектация релизов.** Каждый опубликованный (не draft, не prerelease)
+   релиз **строго новее v1.18.6** обязан иметь:
+   - ZIP с каноническим именем `MuMuManager-CLI-Menu-<тег>.zip`;
+   - сайдкар `<имя>.zip.sha256`;
+   - секцию вердиктов VirusTotal в теле релиза (маркер `VIRUSTOTAL-VERDICTS`,
+     который ставит VT workflow).
+
+   Вне скоупа: черновики, пререлизы, сам v1.18.6 и всё старше — линия
+   v1.18.1–v1.18.5 и эпоха v1.2.x осознанно остались «только теги»
+   (чистка пустых релизов 2026-09-16, теги сохранены).
+
+2. **Сверка версий.** Тег последнего опубликованного релиза
+   (`/releases/latest`) должен совпадать с `.version` на default-ветке.
+   Расхождение — симптом вставшего конвейера (бамп версии запушен, а
+   Release workflow упал) или релиза, выложенного мимо бампа (ручной тег).
+
+**Результаты прогона:**
+
+- Отчёт всегда попадает в **Step Summary** запуска: таблица по каждому
+  релизу (ZIP / SHA256 / VT), вердикт `Status: CLEAN` либо список
+  нарушений; сверка версий — в секции «Version consistency».
+- **Есть нарушения** → открывается или обновляется один идемпотентный
+  issue `[release-guard] Release audit: missing assets/VT verdicts or
+  version drift` (тело помечено маркером `<!-- release-guard-audit -->`,
+  повторные прогоны обновляют тот же issue), а сам запуск падает —
+  бейдж и почта уведомляют мейнтейнера.
+- **Прогон чист** → ранее открытый guard-issue закрывается автоматически
+  с комментарием; вручную закрывать не нужно.
+
+**Что делать, если issue появился:**
+
+- **Не хватает ZIP/SHA256 у релиза** — рецепт Пути 3 этого регламента:
+  удалить пустой релиз с сохранением тега (`gh release delete <тег> --yes`),
+  затем Actions → Release → Run workflow с этим тегом (идемпотентно;
+  force-push тега тоже запускает публикацию).
+- **Не хватает VT-вердиктов** — dispatch VirusTotal scan с тегом;
+  уже известные VT файлы переиспользуются, повторный скан быстрый.
+- **Version drift: `.version` опережает релизы** — конвейер сломался на
+  бампе: смотрите свежие запуски Release workflow на коммите бампа,
+  чините причину и перезапускайте (существующий релиз с ассетами →
+  успешный no-op), либо выпустите тег через Путь 1.
+- **Version drift: релизы опережают `.version`** — релиз выложен мимо
+  бампа (например, ручным тегом): подтяните `.version` + `$scriptVer` +
+  relnotes/README при следующем бампе или исправьте сразу, чтобы
+  автообновлятор `[U]` не застрял на старой версии.
+
+После исправления ускорить закрытие issue можно ручным запуском
+Release guard (Actions → Run workflow) — иначе следующий еженедельный
+прогон закроет его сам.
+
 ## Регрессионные тесты JSON-детектора
 
 `tests/test-bootstrap-update.ps1` защищает фикс v1.18.8: JSON-проверки в
@@ -251,3 +314,19 @@ the tag (never branch HEAD) - including `bootstrap-update.ps1` since v1.18.10,
 so every install ships with the current updater; tag/`$scriptVer` mismatches
 fail hard; re-runs are idempotent; users verify downloads with
 `sha256sum -c MuMuManager-CLI-Menu-vX.Y.Z.zip.sha256`.
+
+**Release guard (2026-09-16, `.github/workflows/release-guard.yml`):** a
+weekly watchtower (Mondays 06:30 UTC, plus manual dispatch) that audits the
+outcome, not the intent: every published release newer than v1.18.6 must
+ship the canonical asset set (ZIP named `MuMuManager-CLI-Menu-<tag>.zip`
+plus its `.sha256` sidecar) and the VirusTotal verdicts section in its
+body, and the latest published release tag must equal `.version` on the
+default branch (drift = the release pipeline stalled, or a release landed
+past the bump). The report always lands in the run's Step Summary;
+violations open/update one marker-scoped idempotent issue
+(`<!-- release-guard-audit -->`) and fail the run; a clean run closes a
+stale guard issue automatically. Remediation: empty release → Path 3
+(delete the empty release, keep the tag, re-dispatch Release); missing
+verdicts → dispatch the VT workflow with the tag; version drift → check
+the Release workflow runs for the bump commit and re-run. Checkout-free -
+everything goes through `gh api` with the built-in `--jq`.
