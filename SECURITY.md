@@ -6,13 +6,15 @@
 
 ## Русский
 
+> Актуально для **v1.22.12** (обновлено 2026-09-17).
+
 ### Поддерживаемые версии
 
 Обновления безопасности выпускаются только для актуального релиза.
 
 | Версия | Поддержка |
 | --- | --- |
-| v1.18.1+ (см. [Releases](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest)) | ✅ |
+| актуальный релиз ([Releases/latest](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest)) | ✅ |
 | предыдущие версии | ❌ |
 
 ### Как сообщить об уязвимости
@@ -61,7 +63,7 @@
 │                                                                │
 │  ┌────────────────────────────────────────────────────────┐    │
 │  │              GitHub API + VirusTotal API                │    │
-│  │  api.github.com · raw.githubusercontent.com           │    │
+│  │  api.github.com (contents API)                        │    │
 │  │  www.virustotal.com (file upload, scan results)        │    │
 │  └────────────────────────────────────────────────────────┘    │
 └────────────────────────────────────────────────────────────────┘
@@ -74,10 +76,13 @@
 | Токен GitHub в открытом виде | DPAPI-шифрование (CurrentUser), `.gitignore` для `.github-token` | 🔴 Критический |
 | Токен VT API в открытом виде | DPAPI-шифрование (CurrentUser) в `.vt-apikey.dpapi`, `.gitignore` для `.vt-apikey*` | 🔴 Критический |
 | Подмена скрипта | Authenticode-подпись через `[CRT]`, проверка SHA256 при обновлении | 🔴 Критический |
-| MITM при обновлении | HTTPS через `api.github.com` / `raw.githubusercontent.com`, проверка содержимого | 🟠 Высокий |
+| MITM при обновлении | HTTPS через `api.github.com` (contents API), проверка SHA-256 каждого файла | 🟠 Высокий |
 | Инъекция команд | Параметризованные вызовы `MuMuManager.exe`, escaping аргументов | 🔴 Критический |
 | ADB-инъекция | Параметризованные вызовы `adb push/pull/shell`, escaping аргументов | 🟠 Высокий |
 | Вредоносный ZIP | Валидация структуры ZIP, проверка наличия всех файлов | 🟠 Высокий |
+| Подмена через stale-CDN (тег отдаёт старый коммит) | Пин тега на commit SHA (bootstrap, [F]) + SHA-256 каждого файла против контента тега; несовпадение = update-fail | 🟠 Высокий |
+| Параллельные обновлятели (гонка файлов) | Single-flight lock с атомарным созданием, stale-брейк после 10 мин (issue #24) | 🟡 Средний |
+| Пустой/битый релиз в репозитории | Release guard: еженедельный CI-аудит (ZIP + SHA256 + VT + сверка `.version`) | 🟠 Высокий |
 | Replay-атака на токен | Токен одноразовый для API, не передаётся в URL-параметрах | 🟡 Средний |
 | LSASS injection | Нет — DPAPI через .NET `ProtectedData`, без DLL/EXE в LSASS | ✅ Нет риска |
 
@@ -87,11 +92,10 @@
 
 | Домен | Протокол | Использование | Аутентификация |
 |-------|----------|---------------|----------------|
-| `api.github.com` | HTTPS (TLS 1.2+) | Проверка версий, загрузка обновлений, валидация токена | Bearer token (опционально) |
-| `raw.githubusercontent.com` | HTTPS (TLS 1.2+) | Загрузка файлов обновления | Bearer token (опционально) |
+| `api.github.com` | HTTPS (TLS 1.2+) | Проверка версий, загрузка обновлений (contents API), валидация токена | Bearer token (опционально) |
 | `www.virustotal.com` | HTTPS (TLS 1.2+) | `[VF]` загрузка файлов, проверка результатов сканирования | `x-apikey` (VT API key) |
 
-**Не используются:** `Invoke-WebRequest`, `Invoke-RestMethod`, WebSocket, SMTP, FTP, DNS-over-HTTPS.
+**Не используются:** `raw.githubusercontent.com` (обновления идут только через contents API `api.github.com` — сырой домен не содержит механизма версионирования), `Invoke-WebRequest`, `Invoke-RestMethod`, WebSocket, SMTP, FTP, DNS-over-HTTPS.
 
 ### Токены безопасности
 
@@ -148,20 +152,31 @@
 ### Безопасность обновлений
 
 ```
-1. [U] → быстрая проверка версии (сравнение .version с тегом релиза)
-2. Если версии различаются — скачивание файлов из GitHub Releases
-3. curl.exe с retry (3 попытки, connect-timeout 30с)
-4. Бэкап текущей версии в backup/<дата>/
-5. Запись новых файлов (только .ps1 и .md)
-6. Проверка подписи
+1. Проверка версии — только против тегированных GitHub Releases (никогда main)
+2. Подтверждение пользователя (y/N) + single-flight lock: параллельные обновлятели
+   исключены (issue #24), lock старше 10 минут считается зависшим и ломается
+3. Скачивание через contents API api.github.com (curl.exe, retry 3, connect-timeout 30с)
+4. SHA-256 каждого скачанного файла сверяется с контентом тега ДО записи .version (issue #20)
+5. Бэкап заменяемых файлов в backup\<timestamp> (хранятся последние 5)
+6. Повторная подпись Authenticode (если настроена через [CRT])
 ```
 
 **Гарантии:**
-- Загрузка только текстовых файлов (`.ps1`, `.md`)
-- Никаких исполняемых файлов
-- Никаких скрытых загрузок
-- Пользователь подтверждает каждое действие
-- Бэкап перед перезаписью (авто-очистка старше 5)
+- Загрузка только текстовых файлов (`.ps1`, `.md`) — никаких исполняемых
+- Никаких скрытых загрузок; каждое действие подтверждается пользователем или журналируется
+- Несовпадение хеша = update-fail: `.version` не двигается, установка остаётся консистентной (issue #20)
+- `.version` — семантический маркер с защитой от клина: heal выполняется только при совпадении контента с тегом через fetch, запиненный на commit SHA, и при совпадении scriptVer (issue #22)
+- Все события пишутся в `update-journal.log` (update-ok / update-fail / self-apply / updater-refresh)
+- Dry-run везде: `[UP]` в меню и `-WhatIf` в bootstrap показывают план обновления без единой мутации
+- Bootstrap-обновлятор дополнительно пинит тег на commit SHA и умеет верифицировать релизный ZIP целиком (`-VerifyZip`)
+
+### Безопасность конвейера релизов
+
+- **Tag-driven Release workflow**: релиз собирается только из тега; ZIP + `.sha256`-сайдкар публикуются автоматически
+- **VirusTotal**: каждый релиз сканируется в CI (3 файла), вердикты публикуются в теле релиза
+- **Release guard**: еженедельный CI-аудит — каждый релиз новее v1.18.6 обязан иметь ZIP + SHA256 + VT-вердикты, latest release сверяется с `.version`; расхождения открывают идемпотентный issue
+- **Зависимости экшенов**: еженедельные групповые Dependabot-обновления
+- **CI-гейты**: PSScriptAnalyzer, Pester (133 теста), bootstrap-регрессия, changelog-sync
 
 ### Управление ADB
 
@@ -255,7 +270,7 @@ Set-ExecutionPolicy -Scope LocalMachine -ExecutionPolicy RemoteSigned
 **Sigma False Positives:**
 - **#1** (`DMP/HDMP File Creation`): скрипт **НЕ создаёт** .dmp/.hdmp файлы. DPAPI хранит зашифрованный текст — это не memory dump
 - **#2** (`Unsigned Image Loaded Into LSASS`): DPAPI через .NET ProtectedData CurrentUser, **без** загрузки DLL/EXE в LSASS и **без** инъекции; скрипт подписан через `[CRT]`
-- **#3** (`Web Request Commands`): `curl.exe` (нативный Windows) используется **только** для `api.github.com` и `raw.githubusercontent.com` — **без** `Invoke-WebRequest`, **без** exfiltration
+- **#3** (`Web Request Commands`): `curl.exe` (нативный Windows) используется **только** для `api.github.com` — **без** `Invoke-WebRequest`, **без** exfiltration
 - **#4** (`New Root/CA Certificate`): `[CRT]` добавляет self-signed CodeSigning сертификат в Trusted Root — **явное действие пользователя**, **не** тихая установка
 - **#5** (`ADB Shell Commands`): `adb shell` / `adb push` / `adb pull` для управления эмулятором — **явное действие пользователя**, **без** выполнения кода на хост-машине
 - **#6** (`Device Model Modification`): `MuMuManager.exe modify` изменяет модель устройства для **собственных** инстансов — функция приватности, **не** подмена чужих устройств
@@ -270,13 +285,15 @@ Set-ExecutionPolicy -Scope LocalMachine -ExecutionPolicy RemoteSigned
 
 ## English
 
+> Current for **v1.22.12** (updated 2026-09-17).
+
 ### Supported Versions
 
 Security fixes are released only for the latest release.
 
 | Version | Supported |
 | --- | --- |
-| v1.18.1+ ([Releases](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest)) | ✅ |
+| latest release ([Releases/latest](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest)) | ✅ |
 | older | ❌ |
 
 ### Reporting a Vulnerability
@@ -303,9 +320,11 @@ Please include: description and impact, reproduction steps (PoC welcome), script
 
 **Code signing:** Self-signed certificate via `[CRT]`, Code Signing EKU (1.3.6.1.5.5.7.3.3), added to Trusted Root (explicit user action), Authenticode signature on `mumu-menu.ps1`.
 
-**Update integrity:** HTTPS only (TLS 1.2+), retry with backoff (3 attempts), backup before overwrite, version comparison before download. Only `.ps1` and `.md` files are downloaded.
+**Update integrity:** HTTPS only (TLS 1.2+), `api.github.com` contents API only (never `raw.githubusercontent.com`, never `main`), tag pinned to its commit SHA in bootstrap and `[F]`, SHA-256 of every downloaded file verified against the tag content before `.version` is advanced (issue #20), single-flight lock (issue #24), retry with backoff (3 attempts), backup before overwrite (last 5 kept), dry-run plan modes (`[UP]`, bootstrap `-WhatIf`). Only `.ps1` and `.md` files are downloaded.
 
 **ADB management:** File transfer (`push/pull`), screen capture, interactive shell — all require explicit user consent. Commands are parameterized with argument escaping. Executes only inside the emulator VM.
+
+**Release pipeline security:** tag-driven Release workflow (ZIP + `.sha256` sidecar), CI VirusTotal scan with verdicts in the release body, weekly **Release guard** audit (every release newer than v1.18.6 must ship ZIP + SHA256 + VT verdicts; latest release must match `.version`; discrepancies open an idempotent issue), grouped weekly Dependabot action updates, CI gates: PSScriptAnalyzer + Pester (133 tests) + bootstrap regression + changelog-sync.
 
 ### Network Endpoints
 
@@ -313,11 +332,10 @@ The script connects **only** to:
 
 | Domain | Protocol | Purpose | Auth |
 |--------|----------|---------|------|
-| `api.github.com` | HTTPS (TLS 1.2+) | Version check, updates, token validation | Bearer token (optional) |
-| `raw.githubusercontent.com` | HTTPS (TLS 1.2+) | Update file download | Bearer token (optional) |
+| `api.github.com` | HTTPS (TLS 1.2+) | Version check, updates (contents API), token validation | Bearer token (optional) |
 | `www.virustotal.com` | HTTPS (TLS 1.2+) | `[VF]` file upload, scan result lookup | `x-apikey` (VT API key) |
 
-**Not used:** `Invoke-WebRequest`, `Invoke-RestMethod`, WebSocket, SMTP, FTP, DNS-over-HTTPS.
+**Not used:** `raw.githubusercontent.com` (updates come from the versioned contents API only), `Invoke-WebRequest`, `Invoke-RestMethod`, WebSocket, SMTP, FTP, DNS-over-HTTPS.
 
 ### Threat Model
 
@@ -329,7 +347,10 @@ The script connects **only** to:
 | MITM on update | HTTPS only, GitHub API only, content validation | 🟠 High |
 | Command injection | Parameterized MuMuManager calls with escaping | 🔴 Critical |
 | ADB injection | Parameterized adb calls with argument escaping | 🟠 High |
-| Malicious ZIP | Structure validation, file presence check | 🟠 High |
+| Malicious ZIP | Structure validation, file presence check, whole-ZIP verification (`-VerifyZip`) | 🟠 High |
+| Stale-CDN tag mapping (tag serves an old commit) | Tag pinned to commit SHA (bootstrap, `[F]`); per-file SHA-256 vs tag content; mismatch = update-fail | 🟠 High |
+| Concurrent updaters (file race) | Single-flight lock with atomic create, stale-break after 10 min (issue #24) | 🟡 Medium |
+| Empty/broken release in the repo | Release guard: weekly CI audit (ZIP + SHA256 + VT + `.version` sync) | 🟠 High |
 | Token replay | Token used for API only, never in URL parameters | 🟡 Medium |
 | LSASS injection | No — DPAPI via .NET ProtectedData only | ✅ No risk |
 
@@ -405,7 +426,7 @@ Documented features are not vulnerabilities (see "Note for AV analysts" in READM
 **Sigma False Positives:**
 - **#1** (`DMP/HDMP File Creation`): script does NOT create .dmp/.hdmp files — DPAPI stores encrypted text, not memory dumps
 - **#2** (`Unsigned Image Loaded Into LSASS`): DPAPI via .NET ProtectedData — no DLL/EXE in LSASS, no injection; script is Authenticode-signed
-- **#3** (`Web Request Commands`): `curl.exe` to `api.github.com` and `raw.githubusercontent.com` ONLY — no `Invoke-WebRequest`, no exfiltration
+- **#3** (`Web Request Commands`): `curl.exe` to `api.github.com` ONLY — no `Invoke-WebRequest`, no exfiltration
 - **#4** (`New Root/CA Certificate`): `[CRT]` adds self-signed CodeSigning cert to Trusted Root — explicit user action, not silent install
 - **#5** (`ADB Shell Commands`): `adb shell` / `adb push` / `adb pull` for MuMu emulator — explicit user action, no host code execution
 - **#6** (`Device Model Modification`): `MuMuManager.exe modify` for user's own instances — privacy feature, not impersonation
