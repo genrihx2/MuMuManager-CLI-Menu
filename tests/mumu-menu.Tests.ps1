@@ -25,7 +25,7 @@ BeforeAll {
                         'ConvertTo-JournalMarkdown', 'ConvertTo-JournalCsv', 'ConvertTo-JournalJson', 'Export-UpdateJournal',
                         'Get-ProblemFindings', 'Get-InstallStatus', 'Get-IntegrityVerdict', 'Invoke-MumuManagerProbe',
                         'Get-BackupFolders', 'Build-RollbackPlan', 'Invoke-Rollback', 'Test-CurlCapability',
-                        'Get-DiagSummary',
+                        'Get-DiagSummary', 'Show-UpdatePlan',
                         'Get-AutoDiagSummary', 'Invoke-StartupAutoDiag', 'Show-AutoDiagLine',
                         'Read-EtagCacheFile', 'Get-EtagCacheFileState', 'Save-EtagCacheFile', 'Invoke-EtagCacheMaintenance',
                         'Test-CurlRetrySupport', 'Get-CurlGitHubArgs', 'Invoke-GitHubApiGet')) {
@@ -981,6 +981,67 @@ Describe 'Startup auto-diag (issue #30)' {
         $src = [System.IO.File]::ReadAllText($script:menuPath)
         ($src -match 'Show-QuickStatus\r?\n\s*Show-AutoDiagLine') | Should -Be $true
         ($src -match 'MUMU_MENU_NO_AUTODIAG') | Should -Be $true
+    }
+}
+
+Describe 'Show-UpdatePlan ([UP] dry-run renderer)' {
+
+    BeforeAll {
+        $script:planDir = Join-Path $TestDrive 'plandir'
+        New-Item -ItemType Directory -Path $script:planDir -Force | Out-Null
+        $script:realScriptDir = $script:ScriptDir
+        $script:realToken = $script:GitHubToken
+        $script:ScriptDir = $script:planDir
+        $script:GitHubToken = $null
+    }
+    AfterAll {
+        $script:ScriptDir = $script:realScriptDir
+        $script:GitHubToken = $script:realToken
+    }
+
+    It 'renders a full plan with update action, file list and dry-run markers' {
+        'existing' | Set-Content (Join-Path $script:planDir 'mumu-menu.ps1')
+        $text = (Show-UpdatePlan -Tag 'v2.0.0' -LocalTag 'v1.0.0' 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        $text | Should -Match 'update v1\.0\.0 -> v2\.0\.0'
+        $text | Should -Match 'UPDATE PLAN \(dry-run'
+        $text | Should -Match 'mumu-menu\.ps1, SKILL\.md, README\.md, bootstrap-update\.ps1'
+        $text | Should -Match 'replaces 1 existing file\(s\)'
+        $text | Should -Match 'Preview only - select \[U\] Check for updates and confirm'
+    }
+
+    It 'reports a fresh install when no files exist yet' {
+        # Pester shares the BeforeAll dir across Its - start from a clean one.
+        foreach ($f in @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1')) {
+            Remove-Item (Join-Path $script:planDir $f) -Force -ErrorAction SilentlyContinue
+        }
+        $text = (Show-UpdatePlan -Tag 'v2.0.0' -LocalTag '' 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        $text | Should -Match 'no existing files \(fresh install\)'
+        $text | Should -Match 'update\s+->\s+v2\.0\.0'
+    }
+
+    It 'shows the authenticated API line when a token is set' {
+        $script:GitHubToken = 'stub'
+        try {
+            $text = (Show-UpdatePlan -Tag 'v2.0.0' -LocalTag 'v1.0.0' 6>&1 | ForEach-Object { "$_" }) -join "`n"
+            $text | Should -Match 'authenticated \(5000 req/hr\)'
+        } finally {
+            $script:GitHubToken = $null
+        }
+    }
+
+    It 'wiring: [UP] maps to Update-FromGitHub -Plan, plan renders before the mutation gate, menu lists it' {
+        $src = Get-Content -Raw $script:menuPath
+        ($src -match "'up' \{ Update-FromGitHub -Plan \}") | Should -Be $true
+        ($src -match '\[switch\]\$Plan') | Should -Be $true
+        ($src -match 'if \(\$Plan\) \{\r?\n            Show-UpdatePlan -Tag \$tag -LocalTag \$localTag') | Should -Be $true
+        # The plan gate must sit before the download confirmation prompt.
+        # IndexOf takes LITERAL strings - no regex escapes here.
+        ($src.IndexOf('Show-UpdatePlan -Tag $tag')) | Should -BeGreaterThan 0
+        ($src.IndexOf("Read-Host '  Download and verify these files? (y/N)'")) | Should -BeGreaterThan 0
+        ($src.IndexOf('Show-UpdatePlan -Tag $tag')) | Should -BeLessThan ($src.IndexOf("Read-Host '  Download and verify these files? (y/N)'"))
+        ($src -match '\[UP\] Update plan \(dry-run\)') | Should -Be $true
+        # Single-quoted: $Plan must stay literal, not interpolate.
+        ($src -match 'if \(\$Plan\) \{\r?\n            Write-Host ''Update plan \(dry-run\)\.\.\.''') | Should -Be $true
     }
 }
 

@@ -174,6 +174,7 @@ cd MuMuManager-CLI-Menu
   --- Info ---
   [V] Version info
   [U] Check for updates
+  [UP] Update plan (dry-run)
   [F] Verify installation (files vs release tag)
   [ST] Install status (read-only)
   [J] Update journal
@@ -349,7 +350,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.22.7
+Script version: 1.22.8
 MuMu version: 6.7.1
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -449,6 +450,10 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 **EN summary:** Recovering from a failed update: diagnose first (`[ST]` status, `[DIAG]` problems, `[F]` file-vs-tag verification, `[J] → 3` errors), then act. HASH MISMATCH → re-run `[F]` (stale-CDN false alarms vanish on the re-fetch; stable mismatches mean re-download the ZIP and verify with `-VerifyZip`). Wedged marker ("Up to date" but old content) → `bootstrap-update.ps1 -Force`. Broken files → restore from `backup\YYYYMMDD_HHMMSS`. Lock refusal → wait (locks older than 10 minutes break automatically). The table above maps each symptom to its cause and fix.
 
 ## Что нового
+
+### v1.22.8 (17.09.2026)
+
+- **`[UP] Update plan (dry-run)` в меню**: план того, что сделает [U] — действие, файлы, охват, место на диске, SHA-256-верификация, бэкап, условная запись `.version`, lock и журнал — без единой мутации. Внутри: параметр `-Plan` в `Update-FromGitHub` + чистый рендерер `Show-UpdatePlan` (4 Pester-теста)
 
 ### v1.22.7 (17.09.2026)
 
@@ -676,6 +681,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.8 | 17.09.2026 | `[UP] Update plan (dry-run)` в меню: план [U] без мутаций (`-Plan` в Update-FromGitHub + рендерер `Show-UpdatePlan`, 4 Pester-теста) |
 | v1.22.7 | 17.09.2026 | `bootstrap-update.ps1 -WhatIf`: dry-run план обновления без скачивания и мутаций; честный случай «remote-версия неизвестна»; T13 в bootstrap-наборе |
 | v1.22.6 | 16.09.2026 | Улучшен [DIAG]: info-only установки теперь «Status: healthy», а не ложное «Problems found: 1»; паритет в bootstrap `-Diagnose`; статус ADB-моста в info-строке эмулятора |
 | v1.22.5 | 16.09.2026 | Фикс: вечный «ADB bridge not ready» — явный `adb connect` + adb рядом с MuMuManager.exe; kill-on-timeout для всех внешних вызовов пробы (холодный adb больше не вешает меню) |

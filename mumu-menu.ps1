@@ -235,7 +235,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.22.7'
+$scriptVer = '1.22.8'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -1151,14 +1151,70 @@ function Show-InstallVerify {
     }
 }
 
+# ── [UP] Update plan (dry-run): what [U] would do, nothing replaced ───
+# Pure report renderer so tests can assert the facts without side effects.
+# Facts come from the caller's fetched release + local install state; the
+# only extra lookups are read-only (existing-file sizes, free disk space).
+function Show-UpdatePlan {
+    param(
+        [Parameter(Mandatory = $true)] [string]$Tag,
+        [AllowEmptyString()] [string]$LocalTag
+    )
+
+    $files = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1')
+    $present = 0
+    $updateSize = 0
+    foreach ($f in $files) {
+        $p = Join-Path $ScriptDir $f
+        if (Test-Path -LiteralPath $p -PathType Leaf) {
+            $present++
+            try { $updateSize += (Get-Item -LiteralPath $p).Length } catch { Write-Debug "plan size read failed: $f" }
+        }
+    }
+    $scopeNote = if ($present -eq 0) { 'no existing files (fresh install)' } else { "replaces $present existing file(s), ~$([Math]::Round($updateSize / 1KB)) KB touched" }
+
+    $diskNote = ''
+    try {
+        $drive = (Get-Item $ScriptDir).PSDrive
+        if ($drive -and $drive.Free) { $diskNote = "$([Math]::Round($drive.Free / 1MB)) MB free on $($drive.Name):" }
+    } catch { Write-Debug 'plan disk check failed' }
+
+    $authNote = if ($GitHubToken) { 'authenticated (5000 req/hr)' } else { 'unauthenticated - the check uses a few requests of the 60 req/hr budget' }
+
+    Write-Host ''
+    Write-Host '  ============================================' -ForegroundColor Cyan
+    Write-Host '    UPDATE PLAN (dry-run - nothing was replaced)' -ForegroundColor White
+    Write-Host '  ============================================' -ForegroundColor Cyan
+    Write-Host "  Action:    update $LocalTag -> $Tag" -ForegroundColor Green
+    Write-Host "  Target:    $ScriptDir"
+    Write-Host "  Files:     $($files -join ', ')"
+    Write-Host "  Scope:     $scopeNote"
+    if ($diskNote) { Write-Host "  Disk:      $diskNote" -ForegroundColor DarkGray }
+    Write-Host '  Sources:   GitHub contents API (release tag); SHA-256 of every downloaded file is verified against the tag content' -ForegroundColor DarkGray
+    Write-Host '  Backup:    existing files would be copied to backup\<timestamp> (last 5 kept)'
+    Write-Host "  .version:  would be set to $Tag (only if every file is replaced and verified)"
+    Write-Host '  Lock:      a single-flight lock guards the run - parallel updaters wait or refuse'
+    Write-Host '  Journal:   one update-ok / update-fail event is appended to update-journal.log'
+    Write-Host "  API:       $authNote" -ForegroundColor DarkGray
+    Write-Host '  ============================================' -ForegroundColor Cyan
+    Write-Host '  Preview only - select [U] Check for updates and confirm (y) to apply.' -ForegroundColor Green
+}
+
 function Update-FromGitHub {
     # Passive mode = read-only version check (used at startup).
     # Downloads happen only in interactive mode via menu option [U].
-    param([switch]$Passive)
+    # Plan mode (-Plan, menu [UP]) = full dry-run: the whole [U] flow runs
+    # read-only up to the confirmation gate, then the plan is rendered and
+    # the function returns before any mutation.
+    param([switch]$Passive, [switch]$Plan)
 
     if (-not $Passive) {
         Write-Host ''
-        Write-Host 'Checking for updates...' -ForegroundColor Cyan
+        if ($Plan) {
+            Write-Host 'Update plan (dry-run)...' -ForegroundColor Cyan
+        } else {
+            Write-Host 'Checking for updates...' -ForegroundColor Cyan
+        }
     } else {
         Write-Host 'Update check (read-only)...' -ForegroundColor DarkGray
     }
@@ -1233,7 +1289,12 @@ function Update-FromGitHub {
 
         if ($localTag -eq $tag) {
             if (-not $Passive) {
-                Write-Host "  Up to date ($tag)" -ForegroundColor DarkGray
+                if ($Plan) {
+                    Write-Host "  Up to date ($tag)." -ForegroundColor Green
+                    Write-Host '  Plan: nothing to do. [F] re-verifies the local files against the tag.' -ForegroundColor DarkGray
+                } else {
+                    Write-Host "  Up to date ($tag)" -ForegroundColor DarkGray
+                }
             }
             return
         }
@@ -1270,6 +1331,9 @@ function Update-FromGitHub {
                         Set-Content -Path $VersionFile -Value $tag -NoNewline -ErrorAction SilentlyContinue
                         if (-not $Passive) {
                             Write-Host "  Up to date ($tag)" -ForegroundColor DarkGray
+                            if ($Plan) {
+                                Write-Host '  (.version marker healed to match the already-present content; see [J])' -ForegroundColor DarkGray
+                            }
                         }
                         $healed = $true
                     } else {
@@ -1286,6 +1350,10 @@ function Update-FromGitHub {
         if ($Passive) {
             Write-Host '  Nothing was downloaded. Select [U] Check for updates' -ForegroundColor DarkGray
             Write-Host '  in the menu to review and install it manually.' -ForegroundColor DarkGray
+            return
+        }
+        if ($Plan) {
+            Show-UpdatePlan -Tag $tag -LocalTag $localTag
             return
         }
 
@@ -2819,6 +2887,7 @@ function Show-Menu {
     Write-Host '  --- Info ---' -ForegroundColor Green
     Write-Host '  [V] Version info' -ForegroundColor Yellow
     Write-Host '  [U] Check for updates' -ForegroundColor Yellow
+    Write-Host '  [UP] Update plan (dry-run)' -ForegroundColor Yellow
     Write-Host '  [F] Verify installation (files vs release tag)' -ForegroundColor Yellow
     Write-Host '  [ST] Install status (read-only)' -ForegroundColor Yellow
     Write-Host '  [J] Update journal' -ForegroundColor Yellow
@@ -8024,6 +8093,7 @@ do {
         's' { Save-Screenshot }
         'v' { Show-VersionInfo }
         'u' { Update-FromGitHub }
+        'up' { Update-FromGitHub -Plan }
         'f' { Show-InstallVerify }
         'j' { Show-UpdateJournal }
         'st' { Show-InstallStatus; $resp = Read-Host '  d = full drift check, Enter = back'; if ($resp -eq 'd') { Show-InstallStatus -Deep } }
