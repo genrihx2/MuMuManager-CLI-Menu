@@ -4,6 +4,12 @@
 
 ---
 
+## v1.22.16 (18.09.2026)
+
+### Fixed
+
+- **`.version` больше не пишется с BOM** — оба обновлятора ([U] и bootstrap) писали маркер версии через `Set-Content -Encoding UTF8`, что в PowerShell 5.1 означает UTF-8 **с BOM**; сканер [UW] после каждого обновления снова видел «UTF-8 BOM (OK — safe to strip)» и чинил его бесконечно. Теперь запись идёт через `WriteAllText` с `UTF8Encoding($false)` (BOM-less) — той же конвенцией, что уже применялась для heal-маркера. Регрессионные тесты: Pester wiring (оба писца) + bootstrap-harness T14 (запрет legacy-писца)
+
 ## v1.22.15 (18.09.2026)
 
 ### Security

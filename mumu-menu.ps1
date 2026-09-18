@@ -235,7 +235,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.22.15'
+$scriptVer = '1.22.16'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -1337,7 +1337,7 @@ function Update-FromGitHub {
                 if ((Get-ContentHash $localText) -eq (Get-ContentHash $healText)) {
                     if (Test-ScriptVerMatchesTag -Text $healText -Tag $tag) {
                         Write-UpdateJournal -EventType 'version-fix' -From $localTag -To $tag -Detail 'content matches tag; .version healed (commit-pinned fetch)'
-                        Set-Content -Path $VersionFile -Value $tag -NoNewline -ErrorAction SilentlyContinue
+                        [System.IO.File]::WriteAllText($VersionFile, $tag, (New-Object System.Text.UTF8Encoding($false)))
                         if (-not $Passive) {
                             Write-Host "  Up to date ($tag)" -ForegroundColor DarkGray
                             if ($Plan) {
@@ -1796,7 +1796,7 @@ function Update-FromGitHub {
             Write-Host "Update finished with $failed failed file(s). Restore from backup if needed." -ForegroundColor Red
         } else {
             Write-UpdateJournal -EventType 'update-ok' -From $localTag -To $tag -Detail ($fileResults -join ', ')
-            Set-Content -Path $VersionFile -Value $tag -NoNewline -ErrorAction SilentlyContinue
+            [System.IO.File]::WriteAllText($VersionFile, $tag, (New-Object System.Text.UTF8Encoding($false)))
             Write-Host ''
             Write-Host 'Update complete! Restart the menu to use the new version.' -ForegroundColor Green
         }
@@ -5701,7 +5701,7 @@ function Download-Repository {
                 }
                 Write-Host ''
                 if ($fail -eq 0) {
-                    Set-Content -Path $VersionFile -Value $remoteTag -NoNewline -ErrorAction SilentlyContinue
+                    [System.IO.File]::WriteAllText($VersionFile, $remoteTag, (New-Object System.Text.UTF8Encoding($false)))
                     Write-Host "  Updated $ok file(s) to $remoteTag" -ForegroundColor Green
                 } else {
                     Write-Host "  Updated $ok file(s), failed $fail" -ForegroundColor Yellow
@@ -5789,10 +5789,12 @@ function Download-Repository {
                 }
             }
 
-            # Update .version file
+            # Update .version file. WriteAllText with UTF8Encoding($false) -
+            # PS 5.1 'Set-Content -Encoding UTF8' emits a BOM, which would
+            # re-introduce the exact drift [UW] keeps repairing.
             if ($updated -gt 0 -and $failed -eq 0) {
                 try {
-                    Set-Content -Path $VersionFile -Value $remoteTag -NoNewline -Encoding UTF8 -Force
+                    [System.IO.File]::WriteAllText($VersionFile, $remoteTag, (New-Object System.Text.UTF8Encoding($false)))
                 } catch {
                     Write-Host "  Warning: Could not update .version ($($_.Exception.Message))" -ForegroundColor Yellow
                 }

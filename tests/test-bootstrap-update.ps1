@@ -35,6 +35,9 @@
 #   T13. Dry-run plan (-WhatIf): wiring sits between the remote check and
 #       every mutation, previews action/files/verification/backup without
 #       side effects, and handles the unknown-remote case honestly.
+#   T14. .version marker write: BOM-less via WriteAllText - PS 5.1
+#       'Set-Content -Encoding UTF8' emits a BOM that [UW] would keep
+#       repairing after every update.
 #
 # Run locally:
 #   powershell -ExecutionPolicy Bypass -File tests\test-bootstrap-update.ps1
@@ -623,6 +626,16 @@ try {
     } finally {
         Remove-Item -LiteralPath $drDir -Recurse -Force -ErrorAction SilentlyContinue
     }
+
+    # ── T14: .version marker write (BOM-less) ────────────────────────
+    Write-Host 'T14: .version marker written BOM-less (PS 5.1 Set-Content UTF8 emits a BOM)' -ForegroundColor Cyan
+    # The write must go through WriteAllText with UTF8Encoding($false),
+    # not Set-Content -Encoding UTF8 (BOM in PS 5.1). The byte check in
+    # T1-style live runs cannot assert this on rate-limited runners -
+    # wiring is deterministic, so assert the wiring.
+    $idxVerWrite = $bRaw.IndexOf('[System.IO.File]::WriteAllText($versionFile, $remoteTag, (New-Object System.Text.UTF8Encoding($false)))')
+    Assert-True -Name '.version is written via WriteAllText with UTF8Encoding($false)' -Condition ($idxVerWrite -gt 0) -Detail 'BOM-less writer not found'
+    Assert-True -Name 'no Set-Content/Out-File writes remain for the .version marker' -Condition (-not ($bRaw -match '(?m)^.*(Set-Content|Out-File)[^\r\n]*\$versionFile\b')) -Detail 'legacy BOM-emitting writer still present'
 
 
     $passCount = 0

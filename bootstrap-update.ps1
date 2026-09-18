@@ -951,9 +951,11 @@ foreach ($f in $files) {
 # ── Update .version file ─────────────────────────────────────────────
 # Only claim the new version when EVERY file was replaced successfully —
 # a partial failure must not leave .version ahead of the actual script.
+# WriteAllText with UTF8Encoding($false) - PS 5.1 'Set-Content -Encoding
+# UTF8' emits a BOM, which [UW] would then keep reporting and repairing.
 if ($remoteTag -and $fail -eq 0 -and $ok -gt 0) {
     try {
-        Set-Content -Path $versionFile -Value $remoteTag -NoNewline -Encoding UTF8 -Force
+        [System.IO.File]::WriteAllText($versionFile, $remoteTag, (New-Object System.Text.UTF8Encoding($false)))
     } catch {
         Write-Host "  Warning: Could not update .version ($($_.Exception.Message))" -ForegroundColor Yellow
     }

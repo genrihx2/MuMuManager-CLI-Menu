@@ -518,6 +518,21 @@ Describe 'Update-FromGitHub: jsDelivr CDN fallback (transport-only, hash-gated)'
     }
 }
 
+Describe '.version marker encoding (BOM-less writes)' {
+
+    It 'both updaters write .version via WriteAllText with UTF8Encoding($false), not Set-Content UTF8' {
+        # PS 5.1 'Set-Content -Encoding UTF8' emits a BOM; the [UW] scanner then
+        # keeps reporting and repairing it - the writers must be BOM-less.
+        foreach ($name in @('mumu-menu.ps1', 'bootstrap-update.ps1')) {
+            $src = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') $name) -Raw
+            # No Set-Content/Out-File writes to the .version marker anywhere.
+            ($src -match '(?m)^.*(Set-Content|Out-File).*\$(ver|Version)File\b') | Should -Be $false
+            # The BOM-less writer is present.
+            ($src -match 'WriteAllText\(\$(ver|Version)File,.*UTF8Encoding\(\$false\)\)') | Should -Be $true
+        }
+    }
+}
+
 Describe 'SKILL.md frontmatter (loader-safe YAML)' {
 
     It 'description value is double-quoted so embedded colons cannot break YAML parsers' {

@@ -458,6 +458,10 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Что нового
 
+### v1.22.16 (18.09.2026)
+
+- **Фикс**: `.version` больше не пишется с BOM — оба обновлятора переведены на `WriteAllText` + `UTF8Encoding($false)`; [UW] больше не будет чинить маркер после каждого обновления
+
 ### v1.22.15 (18.09.2026)
 
 - **CDN-фолбэк обновлений (jsDelivr)**: при отказе `api.github.com` скачивание повторяется один раз через `cdn.jsdelivr.net/gh/<repo>@<pinned-commit>/<file>` — тот же immutable коммит, без токена, без следования редиректам, каждый байт проходит SHA-256-гейт; тело зеркала сверено с API байт-в-байт. Bootstrap: флаг `-NoAuth` (анонимный запуск). Выбор зеркала задокументирован в SECURITY.md: `raw.githack.com` отвергнут (`.ps1` = 301 → raw-домен)
@@ -716,6 +720,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.16 | 18.09.2026 | Фикс: `.version` пишется BOM-less (WriteAllText + UTF8Encoding($false)) обоими обновляторами — [UW] больше не чинит маркер после каждого обновления |
 | v1.22.15 | 18.09.2026 | CDN-фолбэк обновлений: jsDelivr-зеркало того же pinned-коммита при отказе api.github.com (без токена, без редиректов, тот же SHA-256-гейт); bootstrap `-NoAuth` |
 | v1.22.14 | 17.09.2026 | SKILL.md: YAML-фронтматтер закавычен (strict-лоадеры падали на `Features:` в description); регрессионный тест |
 | v1.22.13 | 17.09.2026 | [U]: тег пинится на commit SHA (отпечатки + скачивания через immutable-коммит, fallback на тег); [UP]-план честнее |
