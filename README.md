@@ -131,6 +131,7 @@ curl.exe -sSL -o $env:TEMP\mumu-menu.ps1 https://cdn.jsdelivr.net/gh/genrihx2/Mu
   [6] List installed apps
   [7] Show settings
   [RT] Enable / disable root (instance)
+  [VE] Virtual environment (enable/disable/remove)
   [8] Install APK
   [9] Uninstall app
   [G] View logs
@@ -459,6 +460,10 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Что нового
 
+### v1.22.19 (18.09.2026)
+
+- **Новое**: меню `[VE]` — виртуальное окружение внутри инстанса: вторичный Android-пользователь как изолированное пространство приложений (enable/disable/remove через adb)
+
 ### v1.22.18 (18.09.2026)
 
 - **Фикс [RT]**: вердикт по свежему перечтению ключа после settle-паузы — работающий плеер может откатить только что записанный `root_permission` (гонка flush'а); при откате — честная подсказка
@@ -729,6 +734,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.19 | 18.09.2026 | Меню `[VE]`: виртуальное окружение (вторичный Android-пользователь) — enable/disable/remove |
 | v1.22.18 | 18.09.2026 | Фикс [RT]: вердикт по перечтению после settle-паузы (гонка с flush'ем работающего плеера) |
 | v1.22.17 | 18.09.2026 | Меню `[RT]`: enable/disable root для инстанса через root_permission (read-back verified) |
 | v1.22.16 | 18.09.2026 | Фикс: `.version` пишется BOM-less (WriteAllText + UTF8Encoding($false)) обоими обновляторами — [UW] больше не чинит маркер после каждого обновления |

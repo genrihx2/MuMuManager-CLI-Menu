@@ -235,7 +235,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.22.18'
+$scriptVer = '1.22.19'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -2902,6 +2902,7 @@ function Show-Menu {
     Write-Host '  [6] List installed apps' -ForegroundColor Yellow
     Write-Host '  [7] Show settings' -ForegroundColor Yellow
     Write-Host '  [RT] Enable / disable root (instance)' -ForegroundColor Yellow
+    Write-Host '  [VE] Virtual environment (enable/disable/remove)' -ForegroundColor Yellow
     Write-Host '  [8] Install APK' -ForegroundColor Yellow
     Write-Host '  [9] Uninstall app' -ForegroundColor Yellow
     Write-Host '  [G] View logs' -ForegroundColor Yellow
@@ -6906,6 +6907,99 @@ function Show-Settings {
     }
 }
 
+function Invoke-AdbShell {
+    # Thin wrapper: run one shell command inside the instance VM through
+    # the official MuMuManager adb transport (no direct adb.exe process
+    # management - the manager owns the bridge).
+    param([string]$Index, [string]$Command)
+    return (& $MumuPath adb -v $Index -c "shell $Command" 2>&1 | Out-String)
+}
+
+function Show-VirtualEnv {
+    # Android-side app isolation (Island/Shelter-style): a secondary Android
+    # user inside the instance acts as a separate virtual environment with
+    # its own app list and data. Enable = start the user, disable = stop it
+    # (apps and data are kept), remove = delete the user and ALL its data.
+    # Transport: adb pm/am user management; requires a running instance.
+    $index = Get-InstanceIndex 'Select instance'
+    if (-not $index) { return }
+    if (-not (Confirm-AdbConsent)) { return }
+    Write-Host ''
+
+    $info = & $MumuPath info -v $index 2>$null | ConvertFrom-Json
+    if (-not $info.is_android_started) {
+        Write-Host '  Android is not running - start the instance first ([2]).' -ForegroundColor Red
+        return
+    }
+
+    $usersRaw = Invoke-AdbShell -Index $index -Command 'pm list users'
+    $venvUser = $null
+    $venvRunning = $false
+    foreach ($line in ($usersRaw -split "`n")) {
+        if ($line -match 'UserInfo\{(\d+):([^:}]+)') {
+            $uid = $Matches[1]
+            if ($uid -ne '0') {
+                $venvUser = $uid
+                $venvRunning = ($line.Trim().EndsWith('running'))
+            }
+        }
+    }
+
+    if ($null -ne $venvUser) {
+        $state = if ($venvRunning) { 'ENABLED (running)' } else { 'disabled (stopped, data kept)' }
+        Write-Host "  Instance ${index}: virtual environment = user $venvUser, $state" -ForegroundColor Yellow
+        Write-Host '  [1] Enable (start user)   [2] Disable (stop user)' -ForegroundColor White
+        Write-Host '  [3] Remove (delete user and ALL its data)' -ForegroundColor White
+        Write-Host '  [0] Cancel' -ForegroundColor Yellow
+        $act = Read-Host 'Select (0/1/2/3)'
+        switch ($act) {
+            '1' {
+                if ($venvRunning) { Write-Host '  Already running.' -ForegroundColor DarkGray; return }
+                $r = Invoke-AdbShell -Index $index -Command "am start-user $venvUser"
+                if ($r -match 'Success') { Write-Host "  Virtual environment ENABLED (user $venvUser started)." -ForegroundColor Green }
+                else { Write-Host "  Failed: $($r.Trim())" -ForegroundColor Red }
+            }
+            '2' {
+                if (-not $venvRunning) { Write-Host '  Already stopped.' -ForegroundColor DarkGray; return }
+                $r = Invoke-AdbShell -Index $index -Command "am stop-user $venvUser"
+                if ($r -match 'Success|success') { Write-Host "  Virtual environment DISABLED (user $venvUser stopped, data kept)." -ForegroundColor Green }
+                else { Write-Host "  Failed: $($r.Trim())" -ForegroundColor Red }
+            }
+            '3' {
+                Write-Host "  This deletes Android user $venvUser and ALL apps/data inside it." -ForegroundColor Yellow
+                $c = Read-Host '  Type YES to confirm removal'
+                if ($c -cne 'YES') { Write-Host '  Cancelled.' -ForegroundColor Yellow; return }
+                $r = Invoke-AdbShell -Index $index -Command "pm remove-user $venvUser"
+                if ($r -match 'Success') { Write-Host '  Virtual environment removed.' -ForegroundColor Green }
+                else { Write-Host "  Failed: $($r.Trim())" -ForegroundColor Red }
+            }
+            default { return }
+        }
+        return
+    }
+
+    # No secondary user yet - create one on demand.
+    Write-Host "  Instance ${index}: no virtual environment (only the owner user)." -ForegroundColor DarkGray
+    $resp = Read-Host '  Create one now? (y/N)'
+    if ($resp -ne 'y' -and $resp -ne 'Y') { return }
+    $name = Read-Host '  Environment name (Enter = VirtualEnv)'
+    if (-not $name) { $name = 'VirtualEnv' }
+    $safeName = $name -replace '[^A-Za-z0-9_\-]', '_'
+    $r = Invoke-AdbShell -Index $index -Command "pm create-user $safeName"
+    if ($r -match 'Success: created user id (\d+)') {
+        $newId = $Matches[1]
+        Write-Host "  Virtual environment created (user $newId, stopped)." -ForegroundColor Green
+        $go = Read-Host '  Enable it now? (Y/n)'
+        if ($go -ne 'n' -and $go -ne 'N') {
+            $r2 = Invoke-AdbShell -Index $index -Command "am start-user $newId"
+            if ($r2 -match 'Success') { Write-Host "  Virtual environment ENABLED (user $newId running)." -ForegroundColor Green }
+            else { Write-Host "  Created but not started: $($r2.Trim())" -ForegroundColor Yellow }
+        }
+    } else {
+        Write-Host "  Creation failed: $($r.Trim())" -ForegroundColor Red
+    }
+}
+
 function Set-RootPermission {
     # Toggle root_permission for one instance via
     # 'MuMuManager.exe setting -v <index> --key root_permission --value <true|false>'.
@@ -8278,6 +8372,7 @@ do {
         '6' { Show-Apps }
         '7' { Show-Settings }
         'rt' { Set-RootPermission }
+        've' { Show-VirtualEnv }
         '8' { Install-APK }
         '9' { Uninstall-App }
         'g' { Show-Logs }

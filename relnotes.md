@@ -4,6 +4,12 @@
 
 ---
 
+## v1.22.19 (18.09.2026)
+
+### Features
+
+- **[VE] Virtual environment** — изолированное приложение-пространство внутри инстанса (стиль Island/Shelter): вторичный Android-пользователь со своим списком приложений и данными. Enable = запуск пользователя, disable = остановка (данные сохраняются), remove = удаление пользователя со ВСЕМИ данными (подтверждение YES). Транспорт — adb `pm list users / create-user / remove-user` + `am start-user / stop-user` через официальный adb-канал MuMuManager; создаётся по запросу с именем (по умолчанию VirtualEnv). Живой цикл проверен: create → id 10, start → running, stop → stopped, remove → чисто
+
 ## v1.22.18 (18.09.2026)
 
 ### Fixed

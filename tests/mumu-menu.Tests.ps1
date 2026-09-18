@@ -564,6 +564,35 @@ Describe '[RT] root permission toggle (wiring)' {
     }
 }
 
+Describe '[VE] virtual environment (wiring)' {
+
+    It 'Show-VirtualEnv manages the secondary Android user over the manager adb transport' {
+        $f = $script:ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Show-VirtualEnv'
+        }, $true) | Select-Object -First 1
+        $t = $f.Extent.Text
+        # All user management goes through the pm/am adb interface.
+        $t | Should -Match 'pm list users'
+        $t | Should -Match 'pm create-user'
+        $t | Should -Match 'pm remove-user'
+        $t | Should -Match 'am start-user'
+        $t | Should -Match 'am stop-user'
+        # Removal requires the explicit YES gate (destroys user data).
+        $t | Should -Match "'YES'"
+        # Instance must be running before any adb work.
+        $t | Should -Match 'is_android_started'
+        # Enable/disable/recreate branches verify the CLI answer.
+        ($t -match 'Success') | Should -Be $true
+    }
+
+    It 'the menu wires [VE] to Show-VirtualEnv and documents it' {
+        $src = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'mumu-menu.ps1') -Raw
+        ($src -match "'ve' \{ Show-VirtualEnv \}") | Should -Be $true
+        ($src -match '\[VE\] Virtual environment') | Should -Be $true
+    }
+}
+
 Describe 'SKILL.md frontmatter (loader-safe YAML)' {
 
     It 'description value is double-quoted so embedded colons cannot break YAML parsers' {
