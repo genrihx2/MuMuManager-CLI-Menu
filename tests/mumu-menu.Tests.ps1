@@ -545,10 +545,15 @@ Describe '[RT] root permission toggle (wiring)' {
         $t | Should -Match '--key root_permission'
         # Current state is read before any write (informed toggle).
         $t | Should -Match 'setting -v \$index --key root_permission(?!\s+--value)'
-        # Every write is verified by the CLI echo, not assumed.
+        # Write goes through the official CLI; a rejected echo fails fast.
         $t | Should -Match 'root_permission --value \$newValue'
-        $t | Should -Match '\$applied -eq \$newValue'
-        # Honest failure output when the write does not stick.
+        $t | Should -Match '\$applied -ne \$newValue'
+        # The echo alone is not a verdict: settle pause, then a fresh
+        # read-back decides (a running player can revert the key).
+        $t | Should -Match 'Start-Sleep -Seconds 3'
+        $t | Should -Match 'the player reverted it'
+        $t | Should -Match 'Re-apply while the instance is stopped'
+        # Honest failure output when the write does not stick at all.
         $t | Should -Match 'Setting failed'
     }
 

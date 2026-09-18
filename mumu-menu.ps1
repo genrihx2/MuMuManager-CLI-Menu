@@ -235,7 +235,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.22.17'
+$scriptVer = '1.22.18'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -6942,11 +6942,29 @@ function Set-RootPermission {
         $applied = ([string]($result | ConvertFrom-Json).root_permission)
     } catch { $applied = '' }
 
-    if ($applied -eq $newValue) {
-        $state = if ($newValue -eq 'true') { 'ENABLED' } else { 'disabled' }
-        Write-Host "  Root $state for instance $index (verified by read-back)." -ForegroundColor Green
-    } else {
+    if ($applied -ne $newValue) {
         Write-Host "  Setting failed: $($result.Trim())" -ForegroundColor Red
+        return
+    }
+
+    # A running player periodically flushes its own settings and can win a
+    # race against a just-written key (observed live: the write echo said
+    # 'false' while the player reverted to 'true'). The echo alone is not a
+    # verdict - re-read after a settle pause and report the stable state.
+    $final = $applied
+    Start-Sleep -Seconds 3
+    try {
+        $reJson = & $MumuPath setting -v $index --key root_permission 2>$null | Out-String
+        $reParsed = $reJson | ConvertFrom-Json
+        if ($null -ne $reParsed.root_permission) { $final = [string]$reParsed.root_permission }
+    } catch { Write-Debug "root_permission re-read failed: $($_.Exception.Message)" }
+
+    if ($final -eq $newValue) {
+        $state = if ($newValue -eq 'true') { 'ENABLED' } else { 'disabled' }
+        Write-Host "  Root $state for instance ${index} (verified by read-back)." -ForegroundColor Green
+    } else {
+        Write-Host "  The CLI accepted the write, but the player reverted it (now: $final)." -ForegroundColor Yellow
+        Write-Host '  Re-apply while the instance is stopped, or retry from the menu.' -ForegroundColor Yellow
     }
 }
 
