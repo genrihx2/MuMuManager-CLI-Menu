@@ -262,6 +262,7 @@ Set-ExecutionPolicy -Scope LocalMachine -ExecutionPolicy RemoteSigned
 2. **VirusTotal:** проверьте файлы на [virustotal.com](https://www.virustotal.com) (0/75 — чисто)
 
 3. **Подпись:** `[V] Version info` → статус подписи должен быть `Valid`
+   Условие: сертификат `[CRT]` создан. С v1.22.21 подпись выживает обновления автоматически: и bootstrap, и `[U]` после успешного применения ищут сертификат `MuMuManager-CLI-Menu-Token` (не истёкший) и переподписывают `mumu-menu.ps1` (SHA-256, timestamp digicert, гейт по `Valid`). Best-effort: без сертификата скрипт остаётся неподписанным — это не деградация безопасности, целостность обновлений гарантирована SHA-256-пином и VT-вердиктами
 
 4. **Сетевой трафик:** мониторьте с помощью Wireshark — трафик обновлений идёт к `api.github.com` (и, только при отказе API, к зеркалу `cdn.jsdelivr.net` того же коммита); остальные эндпоинты задокументированы в таблице выше (VT-интеграция, [DL] clone, [CRT] timestamp, [TN]-пробы)
 
@@ -444,6 +445,7 @@ To verify script security:
 2. **VirusTotal:** check files at [virustotal.com](https://www.virustotal.com) (0/75 — clean)
 
 3. **Signature:** `[V] Version info` → signature status should be `Valid`
+   Prerequisite: a `[CRT]` certificate exists. Since v1.22.21 the signature survives updates automatically: both bootstrap and `[U]` look for the unexpired `MuMuManager-CLI-Menu-Token` certificate after a successful apply and re-sign `mumu-menu.ps1` (SHA-256, digicert timestamp, Valid-status gate). Best-effort: without a certificate the script stays unsigned - that is not a security regression, update integrity is guaranteed by the SHA-256 pin and the release VT verdicts
 
 4. **Network traffic:** monitor with Wireshark — update traffic goes to `api.github.com` (and, only when the API is down, to the `cdn.jsdelivr.net` mirror of the same commit); other endpoints are documented in the table above (VT integration, `[DL]` clone, `[CRT]` timestamp, `[TN]` probes)
 
