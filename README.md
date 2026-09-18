@@ -820,6 +820,14 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 | `SKILL.md` | `1e60372d8fbe…8f2e7b` | 60 | [отчёт](https://www.virustotal.com/gui/file/1e60372d8fbea80854619fcbca10c0c39a3bea74f35999bfefc55dfb6a8f2e7b) |
 | релизный `MuMuManager-CLI-Menu-v1.13.5.zip` | `940264ef8e12…02cc` | 64 | [отчёт](https://www.virustotal.com/gui/file/940264ef8e1225f7111d73c8d806d0580a484129b1877dbf47e21f61f87f02cc) |
 
+### VT-сканы URL (репутация ссылок)
+
+| URL | Вердикт | Комментарий владельца | Отчёт |
+|------|---------|----------------------|-------|
+| `cdn.jsdelivr.net/…@v1.22.15/mumu-menu.ps1` (официальное зеркало, тег) | 0 malicious / 0 suspicious (61 harmless) | ✅ + harmless-голос (2026-09-18) | [отчёт](https://www.virustotal.com/gui/url/aHR0cHM6Ly9jZG4uanNkZWxpdnIubmV0L2doL2dlbnJpaHgyL011TXVNYW5hZ2VyLUNMSS1NZW51QHYxLjIyLjE1L211bXUtbWVudS5wczE/detection) |
+| `cdn.jsdelivr.net/…@4dbe83cb…/mumu-menu.ps1` (официальное зеркало, commit SHA) | 0 malicious / 0 suspicious (61 harmless) | ✅ + harmless-голос (2026-09-18) | [отчёт](https://www.virustotal.com/gui/url/aHR0cHM6Ly9jZG4uanNkZWxpdnIubmV0L2doL2dlbnJpaHgyL011TXVNYW5hZ2VyLUNMSS1NZW51QDRkYmU4M2NiNDQyMmE5NjVhNGJkNjdlMTFmOThhNTVmZDFmOTMzZmEvbXVtdS1tZW51LnBzMQ/detection) |
+| `raw.githubusercontent.com/…/main/mumu-menu.ps1` (историческая ссылка) | 2 flag'а по шаблону адреса, файл чист | ✅ FALSE POSITIVE (v1.13.x) | [отчёт](https://www.virustotal.com/gui/url/aHR0cHM6Ly9yYXcuZ2l0aHVidXNlcmNvbnRlbnQuY29tL2dlbnJpaHgyL011TXVNYW5hZ2VyLUNMSS1NZW51L21haW4vbXVtdS1tZW51LnBzMQ/detection) |
+
 ### URL-репутация
 
 URL-сканеры (SafeToOpen, Chong Lua Dao) помечают ссылки вида `raw.githubusercontent.com/.../*.ps1` как «malicious» **по шаблону адреса**, не анализируя содержимое — файл по ссылке чист (0/61). Браузеры (Chrome/Edge Safe Browsing) показывают «mumu-menu.ps1 может навредить вашему устройству» по той же причине — **тип файла** (`.ps1` = исполняемый скрипт), не вердикт по содержимому. В ответ:
