@@ -593,6 +593,29 @@ Describe '[VE] virtual environment (wiring)' {
     }
 }
 
+Describe 're-sign after update (Resture-ScriptSignature wiring)' {
+
+    It 'both updaters re-sign mumu-menu.ps1 when the [CRT] certificate exists' {
+        foreach ($name in @('mumu-menu.ps1', 'bootstrap-update.ps1')) {
+            $src = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') $name) -Raw
+            ($src -match 'function Restore-ScriptSignature') | Should -Be $true -Because "$name must carry the re-sign helper"
+            # Only the user's own [CRT] certificate, and only while valid.
+            $src | Should -Match "FriendlyName -eq 'MuMuManager-CLI-Menu-Token'"
+            $src | Should -Match 'NotAfter -gt \(Get-Date\)'
+            # Signature is applied SHA-256 + timestamped, status-gated.
+            $src | Should -Match 'Set-AuthenticodeSignature.*SHA256'
+            $src | Should -Match "result\.Status -eq 'Valid'"
+            # Best-effort: cleanup of the temp copy, silent without a cert.
+            $src | Should -Match 'mumu-menu_resign\.ps1'
+        }
+        # Both update paths actually call it after a successful apply.
+        $menu = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'mumu-menu.ps1') -Raw
+        $boot = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'bootstrap-update.ps1') -Raw
+        ($menu -match 'Restore-ScriptSignature\r?\n') | Should -Be $true
+        ($boot -match 'Restore-ScriptSignature -Path \(Join-Path \$TargetDir ''mumu-menu\.ps1''\)') | Should -Be $true
+    }
+}
+
 Describe 'SKILL.md frontmatter (loader-safe YAML)' {
 
     It 'description value is double-quoted so embedded colons cannot break YAML parsers' {

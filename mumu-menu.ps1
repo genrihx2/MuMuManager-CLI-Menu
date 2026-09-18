@@ -235,7 +235,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.22.20'
+$scriptVer = '1.22.21'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -5809,6 +5809,7 @@ function Download-Repository {
             Write-Host ''
             if ($updated -gt 0 -and $failed -eq 0) {
                 Write-Host "  Updated $updated file(s) to $remoteTag!" -ForegroundColor Green
+                $null = Restore-ScriptSignature
             } elseif ($updated -gt 0) {
                 Write-Host "  Updated $updated file(s), failed $failed" -ForegroundColor Yellow
             }
@@ -7007,6 +7008,37 @@ function Show-VirtualEnv {
         }
     } else {
         Write-Host "  Creation failed: $($r.Trim())" -ForegroundColor Red
+    }
+}
+
+function Restore-ScriptSignature {
+    # Updates ship the script unsigned (the [CRT] signature does not survive
+    # a download). If the user's own [CRT] certificate exists, re-sign the
+    # freshly applied mumu-menu.ps1 so Authenticode stays Valid. Best-effort
+    # and silent when there is nothing to do - never blocks an update.
+    param([string]$ScriptPath = '')
+    if (-not $ScriptPath) { $ScriptPath = Join-Path $ScriptDir 'mumu-menu.ps1' }
+    if (-not (Test-Path -LiteralPath $ScriptPath -PathType Leaf)) { return $false }
+    $cert = Get-ChildItem Cert:\CurrentUser\My -ErrorAction SilentlyContinue |
+        Where-Object { $_.FriendlyName -eq 'MuMuManager-CLI-Menu-Token' -and $_.NotAfter -gt (Get-Date) } |
+        Select-Object -First 1
+    if (-not $cert) { return $false }
+    try {
+        $tmpPath = Join-Path $env:TEMP "mumu-menu_resign.ps1"
+        Copy-Item -LiteralPath $ScriptPath -Destination $tmpPath -Force
+        $result = Set-AuthenticodeSignature -FilePath $tmpPath -Certificate $cert -HashAlgorithm SHA256 -TimestampServer 'http://timestamp.digicert.com' -ErrorAction Stop
+        if ($result.Status -eq 'Valid') {
+            Copy-Item -LiteralPath $tmpPath -Destination $ScriptPath -Force
+            Write-Host "  Script re-signed after update (status: Valid, cert $($cert.Thumbprint))." -ForegroundColor Green
+            return $true
+        }
+        Write-Debug "re-sign attempt returned $($result.Status)"
+        return $false
+    } catch {
+        Write-Debug "re-sign failed: $($_.Exception.Message)"
+        return $false
+    } finally {
+        Remove-Item -LiteralPath (Join-Path $env:TEMP 'mumu-menu_resign.ps1') -Force -ErrorAction SilentlyContinue
     }
 }
 

@@ -961,6 +961,37 @@ if ($remoteTag -and $fail -eq 0 -and $ok -gt 0) {
     }
 }
 
+# ── Optional re-sign after update ────────────────────────────────────
+# Updates ship the script unsigned (an Authenticode signature does not
+# survive a download). If the user created a [CRT] certificate, re-sign
+# the freshly applied mumu-menu.ps1 so Authenticode stays Valid.
+# Best-effort: silently skipped without a certificate, never blocks.
+function Restore-ScriptSignature {
+    param([string]$Path)
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
+    $cert = Get-ChildItem Cert:\CurrentUser\My -ErrorAction SilentlyContinue |
+        Where-Object { $_.FriendlyName -eq 'MuMuManager-CLI-Menu-Token' -and $_.NotAfter -gt (Get-Date) } |
+        Select-Object -First 1
+    if (-not $cert) { return $false }
+    try {
+        $tmpPath = Join-Path $env:TEMP 'mumu-menu_resign.ps1'
+        Copy-Item -LiteralPath $Path -Destination $tmpPath -Force
+        $result = Set-AuthenticodeSignature -FilePath $tmpPath -Certificate $cert -HashAlgorithm SHA256 -TimestampServer 'http://timestamp.digicert.com' -ErrorAction Stop
+        if ($result.Status -eq 'Valid') {
+            Copy-Item -LiteralPath $tmpPath -Destination $Path -Force
+            Write-Host "  Script re-signed after update (status: Valid, cert $($cert.Thumbprint))." -ForegroundColor Green
+            return $true
+        }
+        Write-Debug "re-sign attempt returned $($result.Status)"
+        return $false
+    } catch {
+        Write-Debug "re-sign failed: $($_.Exception.Message)"
+        return $false
+    } finally {
+        Remove-Item -LiteralPath (Join-Path $env:TEMP 'mumu-menu_resign.ps1') -Force -ErrorAction SilentlyContinue
+    }
+}
+
 # ── Summary ──────────────────────────────────────────────────────────
 Write-Host ''
 if ($fail -eq 0 -and $ok -gt 0) {
@@ -977,6 +1008,7 @@ if ($fail -eq 0 -and $ok -gt 0) {
     $doneMsg = "Done: $ok file(s) updated to $remoteTag"
     if ($unverified -gt 0) { $doneMsg += " ($unverified unverified - hashes unavailable)" }
     Write-Host $doneMsg -ForegroundColor Green
+    $null = Restore-ScriptSignature -Path (Join-Path $TargetDir 'mumu-menu.ps1')
     Write-Host "Restart the menu to use the new version." -ForegroundColor Green
 } elseif ($fail -gt 0) {
     Write-UpdateJournal -EventType 'update-fail' -From $localTag -To $remoteTag -Detail "$ok ok, $fail failed"
