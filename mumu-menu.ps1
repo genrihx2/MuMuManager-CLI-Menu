@@ -235,7 +235,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.22.19'
+$scriptVer = '1.22.20'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -6952,18 +6952,28 @@ function Show-VirtualEnv {
         Write-Host '  [3] Remove (delete user and ALL its data)' -ForegroundColor White
         Write-Host '  [0] Cancel' -ForegroundColor Yellow
         $act = Read-Host 'Select (0/1/2/3)'
+        # am start-user/stop-user print 'Success' or NOTHING on success -
+        # the verdict must come from a fresh pm list users, not the text.
+        $script:TestVenvRunning = {
+            param([string]$Idx, [string]$Uid)
+            $out = Invoke-AdbShell -Index $Idx -Command 'pm list users'
+            foreach ($ln in ($out -split "`n")) {
+                if ($ln -match "UserInfo\{$Uid\}" -and $ln.Trim().EndsWith('running')) { return $true }
+            }
+            return $false
+        }
         switch ($act) {
             '1' {
                 if ($venvRunning) { Write-Host '  Already running.' -ForegroundColor DarkGray; return }
-                $r = Invoke-AdbShell -Index $index -Command "am start-user $venvUser"
-                if ($r -match 'Success') { Write-Host "  Virtual environment ENABLED (user $venvUser started)." -ForegroundColor Green }
-                else { Write-Host "  Failed: $($r.Trim())" -ForegroundColor Red }
+                $null = Invoke-AdbShell -Index $index -Command "am start-user $venvUser"
+                if (& $script:TestVenvRunning $index $venvUser) { Write-Host "  Virtual environment ENABLED (user $venvUser running)." -ForegroundColor Green }
+                else { Write-Host "  Failed to start user $venvUser (state did not change)." -ForegroundColor Red }
             }
             '2' {
                 if (-not $venvRunning) { Write-Host '  Already stopped.' -ForegroundColor DarkGray; return }
-                $r = Invoke-AdbShell -Index $index -Command "am stop-user $venvUser"
-                if ($r -match 'Success|success') { Write-Host "  Virtual environment DISABLED (user $venvUser stopped, data kept)." -ForegroundColor Green }
-                else { Write-Host "  Failed: $($r.Trim())" -ForegroundColor Red }
+                $null = Invoke-AdbShell -Index $index -Command "am stop-user $venvUser"
+                if (& $script:TestVenvRunning $index $venvUser) { Write-Host "  Failed to stop user $venvUser (still running)." -ForegroundColor Red }
+                else { Write-Host "  Virtual environment DISABLED (user $venvUser stopped, data kept)." -ForegroundColor Green }
             }
             '3' {
                 Write-Host "  This deletes Android user $venvUser and ALL apps/data inside it." -ForegroundColor Yellow

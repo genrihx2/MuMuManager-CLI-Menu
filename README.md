@@ -460,6 +460,10 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Что нового
 
+### v1.22.20 (18.09.2026)
+
+- **Фикс [VE]**: enable/disable верифицируются свежим `pm list users` — `am stop-user` при успехе печатает пустоту, текстовый парсинг давал ложный «Failed»
+
 ### v1.22.19 (18.09.2026)
 
 - **Новое**: меню `[VE]` — виртуальное окружение внутри инстанса: вторичный Android-пользователь как изолированное пространство приложений (enable/disable/remove через adb)
@@ -734,6 +738,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.20 | 18.09.2026 | Фикс [VE]: вердикт по pm list users, не по тексту am-команды (stop-user печатает пустоту) |
 | v1.22.19 | 18.09.2026 | Меню `[VE]`: виртуальное окружение (вторичный Android-пользователь) — enable/disable/remove |
 | v1.22.18 | 18.09.2026 | Фикс [RT]: вердикт по перечтению после settle-паузы (гонка с flush'ем работающего плеера) |
 | v1.22.17 | 18.09.2026 | Меню `[RT]`: enable/disable root для инстанса через root_permission (read-back verified) |
