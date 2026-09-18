@@ -824,7 +824,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 URL-сканеры (SafeToOpen, Chong Lua Dao) помечают ссылки вида `raw.githubusercontent.com/.../*.ps1` как «malicious» **по шаблону адреса**, не анализируя содержимое — файл по ссылке чист (0/61). Браузеры (Chrome/Edge Safe Browsing) показывают «mumu-menu.ps1 может навредить вашему устройству» по той же причине — **тип файла** (`.ps1` = исполняемый скрипт), не вердикт по содержимому. В ответ:
 
-- оставлен комментарий владельца к URL-объекту на VirusTotal;
+- оставлен комментарий владельца к URL-объектам на VirusTotal: raw-ссылке (v1.13.x) и обеим jsDelivr-ссылкам v1.22.15 (тег + commit SHA; обе просканированы: 0 malicious / 0 suspicious, 61 harmless, категория «computers & software»);
 - начиная с v1.13.3 самообновление скачивает файлы только через официальный `api.github.com` и больше не обращается к `raw.githubusercontent.com`;
 - с v1.22.15 при отказе API скачивание уходит на зеркало `cdn.jsdelivr.net` того же pinned-коммита (без токена, без редиректов, тот же SHA-256-гейт) — см. «Безопасность обновлений» в [SECURITY.md](SECURITY.md);
 - кандидат `raw.githack.com` проверен и отвергнут: `.ps1` отдаётся только 301-редиректом на `raw.githubusercontent.com`, т.е. фактический источник — тот самый raw-домен;
