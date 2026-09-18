@@ -346,6 +346,7 @@ The script uses Invoke-WebRequest/curl only to access GitHub API for auto-update
 - **#10** (`Malicious PowerShell Commandlets - ScriptBlock`): аналогично #9 — generic detection exploitation frameworks. Скрипт **не содержит** ни одной эксплойт-функции
 - **#11** (`Suspicious Curl.EXE Download`): `curl.exe` используется для скачивания обновлений (contents API) и загрузки на VT. Все запросы — HTTPS к задокументированным эндпоинтам (`api.github.com`, `www.virustotal.com`, `cdn.jsdelivr.net`). Нет загрузки исполняемых файлов
 - **#12** (`Automated Collection Command PowerShell`): скрипт собирает информацию об инстансах MuMu (`MuMuManager.exe list`) и системной информации (`[V] Version info`) — **legitimate management operations**, не data exfiltration
+- **#13** (`Potential PowerShell Obfuscation Using Alias Cmdlets`): Sigma матчит строковые литералы `curl`/`wget` в коде (проверка наличия HTTP-клиента внутри эмулятора). Скрипт **не использует** `Set-Alias`/`New-Alias`; `curl.exe` вызывается напрямую как executable (`& $curlPath`), не через PowerShell alias
 
 ### Благодарности
 
@@ -569,6 +570,7 @@ Documented features are not vulnerabilities (see "Note for AV analysts" in READM
 - **#10** (`Malicious PowerShell Commandlets - ScriptBlock`): same as #9 — generic detection of exploitation frameworks. Script contains **zero** exploit functions
 - **#11** (`Suspicious Curl.EXE Download`): `curl.exe` used for downloading updates (contents API) and uploading to VT. All requests — HTTPS to documented endpoints (`api.github.com`, `www.virustotal.com`, `cdn.jsdelivr.net`). No executable downloads
 - **#12** (`Automated Collection Command PowerShell`): script collects MuMu instance info (`MuMuManager.exe list`) and system information (`[V] Version info`) — **legitimate management operations**, not data exfiltration
+- **#13** (`Potential PowerShell Obfuscation Using Alias Cmdlets`): Sigma matches string literals `curl`/`wget` in code (checking for HTTP client inside the emulator). Script does **NOT** use `Set-Alias`/`New-Alias`; `curl.exe` is called directly as executable (`& $curlPath`), not via PowerShell alias
 
 ### AI/LLM Scanner Response
 
