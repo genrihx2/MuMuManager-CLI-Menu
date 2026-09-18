@@ -130,6 +130,7 @@ curl.exe -sSL -o $env:TEMP\mumu-menu.ps1 https://cdn.jsdelivr.net/gh/genrihx2/Mu
   --- Apps and Settings ---
   [6] List installed apps
   [7] Show settings
+  [RT] Enable / disable root (instance)
   [8] Install APK
   [9] Uninstall app
   [G] View logs
@@ -458,6 +459,10 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Что нового
 
+### v1.22.17 (18.09.2026)
+
+- **Новое**: меню `[RT]` — включение/отключение root для инстанса (`root_permission` toggle, read-back verified)
+
 ### v1.22.16 (18.09.2026)
 
 - **Фикс**: `.version` больше не пишется с BOM — оба обновлятора переведены на `WriteAllText` + `UTF8Encoding($false)`; [UW] больше не будет чинить маркер после каждого обновления
@@ -720,6 +725,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.17 | 18.09.2026 | Меню `[RT]`: enable/disable root для инстанса через root_permission (read-back verified) |
 | v1.22.16 | 18.09.2026 | Фикс: `.version` пишется BOM-less (WriteAllText + UTF8Encoding($false)) обоими обновляторами — [UW] больше не чинит маркер после каждого обновления |
 | v1.22.15 | 18.09.2026 | CDN-фолбэк обновлений: jsDelivr-зеркало того же pinned-коммита при отказе api.github.com (без токена, без редиректов, тот же SHA-256-гейт); bootstrap `-NoAuth` |
 | v1.22.14 | 17.09.2026 | SKILL.md: YAML-фронтматтер закавычен (strict-лоадеры падали на `Features:` в description); регрессионный тест |

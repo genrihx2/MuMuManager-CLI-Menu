@@ -533,6 +533,32 @@ Describe '.version marker encoding (BOM-less writes)' {
     }
 }
 
+Describe '[RT] root permission toggle (wiring)' {
+
+    It 'Set-RootPermission reads, applies and verifies root_permission via the official CLI' {
+        $f = $script:ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Set-RootPermission'
+        }, $true) | Select-Object -First 1
+        $t = $f.Extent.Text
+        # Only the documented setting key is touched.
+        $t | Should -Match '--key root_permission'
+        # Current state is read before any write (informed toggle).
+        $t | Should -Match 'setting -v \$index --key root_permission(?!\s+--value)'
+        # Every write is verified by the CLI echo, not assumed.
+        $t | Should -Match 'root_permission --value \$newValue'
+        $t | Should -Match '\$applied -eq \$newValue'
+        # Honest failure output when the write does not stick.
+        $t | Should -Match 'Setting failed'
+    }
+
+    It 'the menu wires [RT] to Set-RootPermission and documents it' {
+        $src = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'mumu-menu.ps1') -Raw
+        ($src -match "'rt' \{ Set-RootPermission \}") | Should -Be $true
+        ($src -match '\[RT\] Enable / disable root') | Should -Be $true
+    }
+}
+
 Describe 'SKILL.md frontmatter (loader-safe YAML)' {
 
     It 'description value is double-quoted so embedded colons cannot break YAML parsers' {

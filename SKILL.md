@@ -50,6 +50,7 @@ cd MuMuManager-CLI-Menu
 - `[1]` Show instance info
 - `[2-5]` Launch/Shutdown/Restart/Create emulator
 - `[6-9]` Apps/Settings/Install APK/Uninstall
+- `[RT]` Enable / disable root per instance (root_permission toggle, read-back verified)
 - `[DI]` Random device IDs (IMEI/Android ID/MAC)
 - `[DM]` Spoof device model (brand/model/certification)
 - `[SIM]` Change SIM operator (MCC/MNC) — 38 presets + custom

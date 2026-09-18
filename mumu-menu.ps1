@@ -235,7 +235,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.22.16'
+$scriptVer = '1.22.17'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -2901,6 +2901,7 @@ function Show-Menu {
     Write-Host '  --- Apps and Settings ---' -ForegroundColor Green
     Write-Host '  [6] List installed apps' -ForegroundColor Yellow
     Write-Host '  [7] Show settings' -ForegroundColor Yellow
+    Write-Host '  [RT] Enable / disable root (instance)' -ForegroundColor Yellow
     Write-Host '  [8] Install APK' -ForegroundColor Yellow
     Write-Host '  [9] Uninstall app' -ForegroundColor Yellow
     Write-Host '  [G] View logs' -ForegroundColor Yellow
@@ -6905,6 +6906,50 @@ function Show-Settings {
     }
 }
 
+function Set-RootPermission {
+    # Toggle root_permission for one instance via
+    # 'MuMuManager.exe setting -v <index> --key root_permission --value <true|false>'.
+    # Every change is verified by reading the key back; the CLI always
+    # echoes the resulting value, so no silent failures.
+    $index = Get-InstanceIndex 'Select instance'
+    if (-not $index) { return }
+    Write-Host ''
+
+    $cur = $null
+    try {
+        $curJson = & $MumuPath setting -v $index --key root_permission 2>$null | Out-String
+        $parsed = $curJson | ConvertFrom-Json
+        if ($null -ne $parsed.root_permission) { $cur = [string]$parsed.root_permission }
+    } catch { Write-Debug "root_permission read failed: $($_.Exception.Message)" }
+
+    if ($cur -eq 'true') {
+        Write-Host "  Instance ${index}: root is ENABLED." -ForegroundColor Yellow
+        $resp = Read-Host '  Enter = disable root, r = refresh, q = cancel'
+        if ($resp -eq 'q') { return }
+        $newValue = 'false'
+    } elseif ($cur -eq 'false') {
+        Write-Host "  Instance ${index}: root is disabled." -ForegroundColor DarkGray
+        $resp = Read-Host '  Enter = enable root, r = refresh, q = cancel'
+        if ($resp -eq 'q') { return }
+        $newValue = 'true'
+    } else {
+        Write-Host '  Could not read current root_permission (emulator running?).' -ForegroundColor Red
+        return
+    }
+
+    $result = & $MumuPath setting -v $index --key root_permission --value $newValue 2>&1 | Out-String
+    try {
+        $applied = ([string]($result | ConvertFrom-Json).root_permission)
+    } catch { $applied = '' }
+
+    if ($applied -eq $newValue) {
+        $state = if ($newValue -eq 'true') { 'ENABLED' } else { 'disabled' }
+        Write-Host "  Root $state for instance $index (verified by read-back)." -ForegroundColor Green
+    } else {
+        Write-Host "  Setting failed: $($result.Trim())" -ForegroundColor Red
+    }
+}
+
 function Install-APK {
     $index = Get-InstanceIndex 'Select instance'
     if (-not $index) { return }
@@ -8214,6 +8259,7 @@ do {
         'n' { Rename-Emulator }
         '6' { Show-Apps }
         '7' { Show-Settings }
+        'rt' { Set-RootPermission }
         '8' { Install-APK }
         '9' { Uninstall-App }
         'g' { Show-Logs }
