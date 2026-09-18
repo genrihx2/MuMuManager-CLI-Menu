@@ -33,11 +33,18 @@ SKILL.md               # This file
 # Quick run (one command):
 irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-menu.ps1 -OutFile $env:TEMP\mumu-menu.ps1; & $env:TEMP\mumu-menu.ps1
 
+# Or via jsDelivr CDN (if raw links are blocked):
+curl.exe -sSL -o $env:TEMP\mumu-menu.ps1 https://cdn.jsdelivr.net/gh/genrihx2/MuMuManager-CLI-Menu@v1.22.15/mumu-menu.ps1; & $env:TEMP\mumu-menu.ps1
+
 # Or git clone:
 git clone https://github.com/genrihx2/MuMuManager-CLI-Menu.git
 cd MuMuManager-CLI-Menu
 .\mumu-menu.ps1
 ```
+
+> Browser warning "mumu-menu.ps1 may harm your device" is a file-type trigger
+> (`.ps1` = PowerShell script), not a content verdict. Releases are CI-scanned
+> on VirusTotal (verdicts in every release body); verify SHA-256 with `[F]`.
 
 ## Menu Commands
 - `[1]` Show instance info

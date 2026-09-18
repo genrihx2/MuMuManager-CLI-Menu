@@ -95,6 +95,13 @@ cd MuMuManager-CLI-Menu
 
 3. **Скачать ZIP** вручную со страницы [Releases](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest), распаковать и запустить `mumu-menu.ps1`.
 
+4. **CDN-зеркало jsDelivr** (если браузер или провайдер блокирует raw-ссылки):
+```powershell
+curl.exe -sSL -o $env:TEMP\mumu-menu.ps1 https://cdn.jsdelivr.net/gh/genrihx2/MuMuManager-CLI-Menu@v1.22.15/mumu-menu.ps1; & $env:TEMP\mumu-menu.ps1
+```
+
+> **Браузер предупреждает «mumu-menu.ps1 может навредить вашему устройству»?** Это срабатывание по **типу файла** (`.ps1` = исполняемый скрипт PowerShell), а не по содержимому: URL-сканеры и Safe Browsing не анализируют скрипты, но блокируют скачивание исполняемых типов по шаблону. Файл чист — все релизы проходят CI-скан VirusTotal (вердикты в теле каждого релиза, см. «URL-репутация» ниже). Скачивайте из официального релиза или через jsDelivr, сверяйте SHA-256 (`[F]` после установки), не берите скрипт из сторонних ссылок.
+
 ## Использование
 
 ### Запуск меню
