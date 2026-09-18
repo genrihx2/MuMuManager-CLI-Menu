@@ -235,7 +235,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.22.14'
+$scriptVer = '1.22.15'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -1194,7 +1194,7 @@ function Show-UpdatePlan {
     Write-Host "  Files:     $($files -join ', ')"
     Write-Host "  Scope:     $scopeNote"
     if ($diskNote) { Write-Host "  Disk:      $diskNote" -ForegroundColor DarkGray }
-    Write-Host '  Sources:   GitHub contents API, tag pinned to its commit SHA (immutable); SHA-256 of every downloaded file is verified against that commit content' -ForegroundColor DarkGray
+    Write-Host '  Sources:   GitHub contents API (fallback: cdn.jsdelivr.net mirror, same pinned SHA); SHA-256 of every downloaded file is verified against that commit content' -ForegroundColor DarkGray
     Write-Host '  Backup:    existing files would be copied to backup\<timestamp> (last 5 kept)'
     Write-Host "  .version:  would be set to $Tag (only if every file is replaced and verified)"
     Write-Host '  Lock:      a single-flight lock guards the run - parallel updaters wait or refuse'
@@ -1210,7 +1210,12 @@ function Update-FromGitHub {
     # Plan mode (-Plan, menu [UP]) = full dry-run: the whole [U] flow runs
     # read-only up to the confirmation gate, then the plan is rendered and
     # the function returns before any mutation.
-    param([switch]$Passive, [switch]$Plan)
+    # NoAuth mode = anonymous run: the stored GitHub token is never read,
+    # and downloads that api.github.com refuses without auth (rate limit)
+    # still succeed through the cdn.jsdelivr.net mirror of the same pinned
+    # release commit - the token never touches a third-party CDN because
+    # the mirror needs no auth at all.
+    param([switch]$Passive, [switch]$Plan, [switch]$NoAuth)
 
     if (-not $Passive) {
         Write-Host ''
@@ -1634,11 +1639,15 @@ function Update-FromGitHub {
         $okFiles = 0
         $fileResults = @()
         $downloadedOk = New-Object 'System.Collections.Generic.HashSet[string]'
-        # Helper: download a file via curl with token fallback and rate-limit retry
+        # Helper: download a file via curl with token fallback, rate-limit retry and
+        # a cdn.jsdelivr.net transport fallback. With -NoAuth the token is never
+        # sent anywhere: the mirror serves public repos anonymously, so the
+        # download can move to the CDN instead of authenticating to it.
         function _DlFile([string]$Url, [string]$Out) {
             $baseArgs = @('-s', '--retry', '3', '--retry-delay', '3', '--connect-timeout', '30', '--max-time', '120',
-                          '-L', '-H', 'Accept: application/vnd.github.v3.raw', '-o', $Out)
-            if ($GitHubToken -and $GitHubToken.Length -gt 0) {
+                          '-H', 'Accept: application/vnd.github.v3.raw', '-o', $Out)
+            if (-not $NoAuth) { $baseArgs += '-L' }
+            if ($GitHubToken -and $GitHubToken.Length -gt 0 -and -not $NoAuth) {
                 $allArgs = $baseArgs + @('-H', "Authorization: token $GitHubToken", $Url)
                 & curl.exe @allArgs 2>$null
                 if ($LASTEXITCODE -ne 0 -or -not (Test-Path $Out)) {
@@ -1650,6 +1659,28 @@ function Update-FromGitHub {
             } else {
                 $noAuthArgs = $baseArgs + @($Url)
                 & curl.exe @noAuthArgs 2>$null
+            }
+            # CDN fallback: one attempt through cdn.jsdelivr.net (same pinned commit
+            # SHA, byte-identical bodies verified live at v1.22.15). Transport only -
+            # the post-download SHA-256 gate (issue #20) still validates every byte.
+            # The mirror is public; no auth header is ever attached. -L is not set
+            # here: jsDelivr serves directly and we must not follow redirects to
+            # raw.githubusercontent.com (project-invariant, v1.13.3).
+            if ((-not (Test-Path $Out) -or (Get-Item $Out -ErrorAction SilentlyContinue).Length -eq 0) -and $Url -match '^https://api\.github\.com/repos/([^/]+)/contents/(.+)$') {
+                $ghRepo = $Matches[1]
+                $pathPart = $Matches[2]
+                $refPart = ''
+                if ($pathPart -match '^(.+)\?ref=([^&]+)$') {
+                    $pathPart = $Matches[1]
+                    $refPart = $Matches[2]
+                } else { return }
+                # $SkillPath is '.' so the API URL contains a /./ segment;
+                # strip it so the CDN path is canonical.
+                $pathPart = $pathPart -replace '(^|/)\./', '$1'
+                $cdnUrl = "https://cdn.jsdelivr.net/gh/$ghRepo@$refPart/$pathPart"
+                Write-Host '    api.github.com failed - retrying via cdn.jsdelivr.net mirror...' -ForegroundColor DarkGray
+                $cdnArgs = $baseArgs + @($cdnUrl)
+                & curl.exe @cdnArgs 2>$null
             }
         }
 

@@ -468,12 +468,53 @@ Describe 'Update-FromGitHub: tag pinning for downloads and fingerprints (stale-C
         $t | Should -Not -Match 'ref=\$Tag'
     }
 
-    It 'the [UP] plan honestly describes the pinned source' {
+    It 'the [UP] plan honestly describes the pinned source and the mirror fallback' {
         $f = $script:ast.FindAll({
             param($node)
             $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Show-UpdatePlan'
         }, $true) | Select-Object -First 1
-        $f.Extent.Text | Should -Match 'tag pinned to its commit SHA'
+        $f.Extent.Text | Should -Match 'same pinned SHA'
+        $f.Extent.Text | Should -Match 'cdn\.jsdelivr\.net mirror'
+    }
+}
+
+Describe 'Update-FromGitHub: jsDelivr CDN fallback (transport-only, hash-gated)' {
+
+    It 'wiring: _DlFile keeps a hash-verified CDN fallback without following redirects or leaking the token' {
+        $f = $script:ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Update-FromGitHub'
+        }, $true) | Select-Object -First 1
+        $t = $f.Extent.Text
+        # Fallback exists and is scoped to contents-API URLs (path + ?ref= split).
+        $t | Should -Match 'cdn\.jsdelivr\.net/gh/'
+        $t | Should -Match '\?ref=\(\[\^&\]\+\)' -Because 'the CDN URL needs path and ref split from the API URL'
+        # The fallback must never carry the auth header.
+        $t | Should -Not -Match 'Authorization: token \$GitHubToken.*jsdelivr'
+        # Transport-only: no -L on the CDN attempt (no redirect-following to
+        # raw.githubusercontent.com - project invariant since v1.13.3).
+        $cdnArgsLine = ($t -split "`n" | Where-Object { $_ -match '\$cdnArgs = ' })
+        $cdnArgsLine | Should -Not -Match '-L'
+        # Only reached when the primary attempt produced nothing.
+        $t | Should -Match 'api\.github\.com failed - retrying via cdn\.jsdelivr\.net mirror'
+    }
+
+    It '-NoAuth keeps the GitHub token away from every mirror request' {
+        $f = $script:ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Update-FromGitHub'
+        }, $true) | Select-Object -First 1
+        $t = $f.Extent.Text
+        # The primary attempt is skipped entirely in NoAuth mode.
+        $t | Should -Match '\$GitHubToken.*-not \$NoAuth'
+        # The NoAuth comment states the guarantee explicitly.
+        $t | Should -Match 'token never touches a third-party CDN'
+    }
+
+    It 'the [UP] plan and [V] hint describe the mirror honestly' {
+        $src = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'mumu-menu.ps1') -Raw
+        ($src -match 'fallback: cdn\.jsdelivr\.net mirror') | Should -Be $true
+        ($src -match 'cdn\.jsdelivr\.net/gh/') | Should -Be $true
     }
 }
 

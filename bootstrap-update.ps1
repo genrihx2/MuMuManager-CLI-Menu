@@ -37,6 +37,7 @@ param(
     [string]$VerifyZip = '',
     [string]$ZipTag = '',
     [switch]$NoVerify,
+    [switch]$NoAuth,
     [switch]$Diagnose,
     [switch]$WhatIf
 )
@@ -517,9 +518,13 @@ if (-not (Test-Path -LiteralPath $TargetDir -PathType Container)) {
 }
 
 # ── GitHub token (DPAPI-encrypted) ──────────────────────────────────
+# With -NoAuth the token stays unread: jsDelivr serves public repos
+# anonymously, so a token-free run is always possible.
 $token = $null
 $tokenFile = Join-Path $TargetDir '.github-token.dpapi'
-if (Test-Path -LiteralPath $tokenFile) {
+if ($NoAuth) {
+    Write-Host "  Token: not used (-NoAuth)" -ForegroundColor DarkGray
+} elseif (Test-Path -LiteralPath $tokenFile) {
     try {
         $raw = (Get-Content -LiteralPath $tokenFile -Raw).Trim()
         $sec = $raw | ConvertTo-SecureString -ErrorAction Stop
@@ -577,7 +582,30 @@ function Download-File {
         if ($token) { $dlArgs += @('-H', "Authorization: token $token") }
         $dlArgs += $Url
         & curl.exe @dlArgs 2>$null | Out-Null
-        if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $tmpFile) -and (Get-Item -LiteralPath $tmpFile).Length -gt 0) {
+        $haveBody = ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $tmpFile) -and (Get-Item -LiteralPath $tmpFile).Length -gt 0)
+        if (-not $haveBody) {
+            # Transport-only CDN fallback: one retry through the
+            # cdn.jsdelivr.net mirror of the SAME pinned commit - a stale
+            # GitHub edge cannot serve the wrong blob by construction, and
+            # the post-download SHA-256 gate below still validates every
+            # byte. jsDelivr serves public repos anonymously, so the GitHub
+            # token is NEVER attached to the mirror request. No -L: the
+            # mirror answers directly, and redirects must not lead to
+            # raw.githubusercontent.com (project invariant, v1.13.3).
+            if (Test-Path -LiteralPath $tmpFile) { Remove-Item -LiteralPath $tmpFile -Force -ErrorAction SilentlyContinue }
+            if ($Url -match '^https://api\.github\.com/repos/([^/]+)/contents/(.+)\?ref=([^&]+)$') {
+                $cdnUrl = "https://cdn.jsdelivr.net/gh/$($Matches[1])@$($Matches[3])/$($Matches[2])"
+                Write-Host "  api.github.com failed - retrying via cdn.jsdelivr.net mirror..." -ForegroundColor DarkGray
+                $cdnArgs = @('-sS', '--fail') + $script:CurlRetryArgs + @('--connect-timeout', '30', '--max-time', '120', '-H', 'Accept: application/vnd.github.v3.raw', '-o', $tmpFile, $cdnUrl)
+                & curl.exe @cdnArgs 2>$null | Out-Null
+                $haveBody = ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $tmpFile) -and (Get-Item -LiteralPath $tmpFile).Length -gt 0)
+            }
+            if (-not $haveBody -and $attempt -lt $maxRetries) {
+                Write-Host "  Attempt $attempt failed - retrying in ${retryDelay}s..." -ForegroundColor Yellow
+                Start-Sleep -Seconds $retryDelay
+            }
+        }
+        if ($haveBody) {
             $size = (Get-Item -LiteralPath $tmpFile).Length
             # Validate: detect JSON error or metadata instead of raw content.
             # JSON checks apply ONLY when the body actually starts with '{':
@@ -618,10 +646,6 @@ function Download-File {
             return $size
         }
         if (Test-Path -LiteralPath $tmpFile) { Remove-Item -LiteralPath $tmpFile -Force -ErrorAction SilentlyContinue }
-        if ($attempt -lt $maxRetries) {
-            Write-Host "  Attempt $attempt failed - retrying in ${retryDelay}s..." -ForegroundColor Yellow
-            Start-Sleep -Seconds $retryDelay
-        }
     }
     return 0
 }
@@ -798,7 +822,7 @@ if ($WhatIf) {
     Write-Host "  Action:    $action" -ForegroundColor White
     Write-Host "  Target:    $TargetDir"
     Write-Host "  Files:     $($files -join ', ')"
-    Write-Host '  Sources:   GitHub contents API, tag pinned to its commit SHA (immutable)' -ForegroundColor DarkGray
+    Write-Host '  Sources:   GitHub contents API, tag pinned to its commit SHA (immutable); on API failure one retry via the cdn.jsdelivr.net mirror of the same commit (token never sent to any mirror)' -ForegroundColor DarkGray
     if ($NoVerify) {
         Write-Host '  Verify:    SKIPPED (-NoVerify)' -ForegroundColor Yellow
     } else {

@@ -89,11 +89,12 @@
 | Токен GitHub в открытом виде | DPAPI-шифрование (CurrentUser), `.gitignore` для `.github-token` | 🔴 Критический |
 | Токен VT API в открытом виде | DPAPI-шифрование (CurrentUser) в `.vt-apikey.dpapi`, `.gitignore` для `.vt-apikey*` | 🔴 Критический |
 | Подмена скрипта | Authenticode-подпись через `[CRT]`, проверка SHA256 при обновлении | 🔴 Критический |
-| MITM при обновлении | HTTPS через `api.github.com` (contents API), проверка SHA-256 каждого файла | 🟠 Высокий |
+| MITM при обновлении | HTTPS через `api.github.com` (contents API; при отказе — зеркало `cdn.jsdelivr.net` того же pinned-коммита), проверка SHA-256 каждого файла | 🟠 Высокий |
 | Инъекция команд | Параметризованные вызовы `MuMuManager.exe`, escaping аргументов | 🔴 Критический |
 | ADB-инъекция | Параметризованные вызовы `adb push/pull/shell`, escaping аргументов | 🟠 Высокий |
 | Вредоносный ZIP | Валидация структуры ZIP, проверка наличия всех файлов | 🟠 Высокий |
 | Подмена через stale-CDN (тег отдаёт старый коммит) | Пин тега на commit SHA (bootstrap, [F]) + SHA-256 каждого файла против контента тега; несовпадение = update-fail | 🟠 Высокий |
+| Компрометация зеркала CDN (cdn.jsdelivr.net) | Зеркало — только транспорт: тот же immutable pinned-коммит, токен никогда не прикладывается, каждый байт проходит SHA-256-гейт — вредоносное зеркало может только сорвать обновление, но не подменить код | 🟠 Высокий |
 | Параллельные обновлятели (гонка файлов) | Single-flight lock с атомарным созданием, stale-брейк после 10 мин (issue #24) | 🟡 Средний |
 | Пустой/битый релиз в репозитории | Release guard: еженедельный CI-аудит (ZIP + SHA256 + VT + сверка `.version`) | 🟠 Высокий |
 | Replay-атака на токен | Токен одноразовый для API, не передаётся в URL-параметрах | 🟡 Средний |
@@ -106,6 +107,7 @@
 | Домен | Протокол | Использование | Аутентификация |
 |-------|----------|---------------|----------------|
 | `api.github.com` | HTTPS (TLS 1.2+) | Проверка версий, загрузка обновлений (contents API), валидация токена | Bearer token (опционально) |
+| `cdn.jsdelivr.net` | HTTPS (TLS 1.2+) | Транспортный фолбэк обновлений: одна повторная попытка того же pinned-коммита, если `api.github.com` недоступен; тело проходит тот же SHA-256-гейт (issue #20) | нет — никогда; токен не отправляется зеркалу |
 | `www.virustotal.com` | HTTPS (TLS 1.2+) | `[VF]` загрузка файлов, проверка результатов сканирования | `x-apikey` (VT API key) |
 | `github.com` | HTTPS | `[DL]` git clone репозитория, ссылки на страницы релизов, цель [TN] HTTP-теста | нет |
 | `timestamp.digicert.com` | HTTP (только метка времени) | `[CRT]` timestamp-сервер при подписании | нет |
@@ -114,7 +116,7 @@
 
 **Механизмы запросов:** обновления и GitHub API — только `curl.exe` (аргументные массивы, без shell-строк); VT-интеграция — `Invoke-RestMethod` (только к `www.virustotal.com`); проверка версии в `[V]` — одиночный `Invoke-WebRequest` к `api.github.com/releases/latest`.
 
-**Не используются:** `raw.githubusercontent.com` (обновления идут только через contents API `api.github.com` — сырой домен не содержит механизма версионирования), WebSocket, SMTP, FTP, DNS-over-HTTPS; `Invoke-WebRequest`/`Invoke-RestMethod` не участвуют в скачивании обновлений (только `curl.exe`).
+**Не используются:** `raw.githubusercontent.com` (обновления идут только через contents API `api.github.com` и его зеркало `cdn.jsdelivr.net` — сырой домен не содержит механизма версионирования), `raw.githack.com` (проверено 2026-09-18: отдаёт `.ps1` только 301-редиректом на `raw.githubusercontent.com`, т.е. фактический источник — тот самый raw-домен), WebSocket, SMTP, FTP, DNS-over-HTTPS; `Invoke-WebRequest`/`Invoke-RestMethod` не участвуют в скачивании обновлений (только `curl.exe`).
 
 ### Токены безопасности
 
@@ -174,14 +176,15 @@
 1. Проверка версии — только против тегированных GitHub Releases (никогда main)
 2. Подтверждение пользователя (y/N) + single-flight lock: параллельные обновлятели
    исключены (issue #24), lock старше 10 минут считается зависшим и ломается
-3. Скачивание через contents API api.github.com (curl.exe, retry 3, connect-timeout 30с)
-4. SHA-256 каждого скачанного файла сверяется с контентом тега ДО записи .version (issue #20)
+3. Скачивание через contents API api.github.com (curl.exe, retry 3, connect-timeout 30с); при отказе API — одна повторная попытка того же pinned-коммита через зеркало cdn.jsdelivr.net (без токена, без следования редиректам)
+4. SHA-256 каждого скачанного файла сверяется с контентом тега ДО записи .version (issue #20) — независимо от того, с какого транспорта пришли байты
 5. Бэкап заменяемых файлов в backup\<timestamp> (хранятся последние 5)
 6. Повторная подпись Authenticode (если настроена через [CRT])
 ```
 
 **Гарантии:**
 - Загрузка только текстовых файлов (`.ps1`, `.md`) — никаких исполняемых
+- Зеркало cdn.jsdelivr.net — только транспорт: тот же immutable pinned-коммит, без токена, без следования редиректам (301 невозможен), каждый байт проходит SHA-256-гейт
 - Никаких скрытых загрузок; каждое действие подтверждается пользователем или журналируется
 - Несовпадение хеша = update-fail: `.version` не двигается, установка остаётся консистентной (issue #20)
 - `.version` — семантический маркер с защитой от клина: heal выполняется только при совпадении контента с тегом через fetch, запиненный на commit SHA, и при совпадении scriptVer (issue #22)
@@ -260,7 +263,7 @@ Set-ExecutionPolicy -Scope LocalMachine -ExecutionPolicy RemoteSigned
 
 3. **Подпись:** `[V] Version info` → статус подписи должен быть `Valid`
 
-4. **Сетевой трафик:** мониторьте с помощью Wireshark — трафик обновлений идёт только к `api.github.com`; остальные эндпоинты задокументированы в таблице выше (VT-интеграция, [DL] clone, [CRT] timestamp, [TN]-пробы)
+4. **Сетевой трафик:** мониторьте с помощью Wireshark — трафик обновлений идёт к `api.github.com` (и, только при отказе API, к зеркалу `cdn.jsdelivr.net` того же коммита); остальные эндпоинты задокументированы в таблице выше (VT-интеграция, [DL] clone, [CRT] timestamp, [TN]-пробы)
 
 ### Что НЕ считается уязвимостью
 
@@ -293,7 +296,7 @@ Set-ExecutionPolicy -Scope LocalMachine -ExecutionPolicy RemoteSigned
 **Sigma False Positives:**
 - **#1** (`DMP/HDMP File Creation`): скрипт **НЕ создаёт** .dmp/.hdmp файлы. DPAPI хранит зашифрованный текст — это не memory dump
 - **#2** (`Unsigned Image Loaded Into LSASS`): DPAPI через .NET ProtectedData CurrentUser, **без** загрузки DLL/EXE в LSASS и **без** инъекции; скрипт подписан через `[CRT]`
-- **#3** (`Web Request Commands`): GitHub API — через `curl.exe` (аргументные массивы); `Invoke-WebRequest`/`Invoke-RestMethod` — только к `api.github.com` (проверка версии в `[V]`) и `www.virustotal.com` (VT-интеграция) — **без** exfiltration
+- **#3** (`Web Request Commands`): GitHub API — через `curl.exe` (аргументные массивы); при отказе API — одна транспортная попытка через зеркало `cdn.jsdelivr.net` того же pinned-коммита (без токена); `Invoke-WebRequest`/`Invoke-RestMethod` — только к `api.github.com` (проверка версии в `[V]`) и `www.virustotal.com` (VT-интеграция) — **без** exfiltration
 - **#4** (`New Root/CA Certificate`): `[CRT]` добавляет self-signed CodeSigning сертификат в Trusted Root — **явное действие пользователя**, **не** тихая установка
 - **#5** (`ADB Shell Commands`): `adb shell` / `adb push` / `adb pull` для управления эмулятором — **явное действие пользователя**, **без** выполнения кода на хост-машине
 - **#6** (`Device Model Modification`): `MuMuManager.exe modify` изменяет модель устройства для **собственных** инстансов — функция приватности, **не** подмена чужих устройств
@@ -355,7 +358,7 @@ Please include: description and impact, reproduction steps (PoC welcome), affect
 
 **Code signing:** Self-signed certificate via `[CRT]`, Code Signing EKU (1.3.6.1.5.5.7.3.3), added to Trusted Root (explicit user action), Authenticode signature on `mumu-menu.ps1`.
 
-**Update integrity:** HTTPS only (TLS 1.2+), `api.github.com` contents API only (never `raw.githubusercontent.com`, never `main`), tag pinned to its commit SHA in bootstrap and `[F]`, SHA-256 of every downloaded file verified against the tag content before `.version` is advanced (issue #20), single-flight lock (issue #24), retry with backoff (3 attempts), backup before overwrite (last 5 kept), dry-run plan modes (`[UP]`, bootstrap `-WhatIf`). Only `.ps1` and `.md` files are downloaded.
+**Update integrity:** HTTPS only (TLS 1.2+), `api.github.com` contents API primary (never `raw.githubusercontent.com`, never `main`), `cdn.jsdelivr.net` transport fallback of the same pinned commit (no token, no redirect-following), tag pinned to its commit SHA in bootstrap and `[F]`, SHA-256 of every downloaded file verified against the tag content before `.version` is advanced (issue #20), single-flight lock (issue #24), retry with backoff (3 attempts), backup before overwrite (last 5 kept), dry-run plan modes (`[UP]`, bootstrap `-WhatIf`). Only `.ps1` and `.md` files are downloaded.
 
 **ADB management:** File transfer (`push/pull`), screen capture, interactive shell — all require explicit user consent. Commands are parameterized with argument escaping. Executes only inside the emulator VM.
 
@@ -368,6 +371,7 @@ The script connects **only** to:
 | Domain | Protocol | Purpose | Auth |
 |--------|----------|---------|------|
 | `api.github.com` | HTTPS (TLS 1.2+) | Version check, updates (contents API), token validation | Bearer token (optional) |
+| `cdn.jsdelivr.net` | HTTPS (TLS 1.2+) | Transport fallback for updates: one retry of the same pinned commit when `api.github.com` is unreachable; the body still passes the SHA-256 gate (issue #20) | none — ever; the token is never sent to the mirror |
 | `www.virustotal.com` | HTTPS (TLS 1.2+) | `[VF]` file upload, scan result lookup | `x-apikey` (VT API key) |
 | `github.com` | HTTPS | `[DL]` git clone of the repo, release-page links, `[TN]` HTTP test target | none |
 | `timestamp.digicert.com` | HTTP (timestamps only) | `[CRT]` timestamp server during signing | none |
@@ -376,7 +380,7 @@ The script connects **only** to:
 
 **Request mechanisms:** updates and GitHub API — `curl.exe` only (argument arrays, no shell strings); VT integration — `Invoke-RestMethod` (to `www.virustotal.com` only); version check in `[V]` — a single `Invoke-WebRequest` to `api.github.com/releases/latest`.
 
-**Not used:** `raw.githubusercontent.com` (updates come from the versioned contents API only), WebSocket, SMTP, FTP, DNS-over-HTTPS; `Invoke-WebRequest`/`Invoke-RestMethod` never download updates (that is `curl.exe` only).
+**Not used:** `raw.githubusercontent.com` (updates come from the versioned contents API and its `cdn.jsdelivr.net` transport mirror only), `raw.githack.com` (verified 2026-09-18: serves `.ps1` only as a 301 redirect to `raw.githubusercontent.com`, i.e. the actual source is that raw domain), WebSocket, SMTP, FTP, DNS-over-HTTPS; `Invoke-WebRequest`/`Invoke-RestMethod` never download updates (that is `curl.exe` only).
 
 ### Threat Model
 
@@ -385,7 +389,7 @@ The script connects **only** to:
 | GitHub token leakage | DPAPI encryption, `.gitignore`, masked output, secure wipe | 🔴 Critical |
 | VT API key leakage | DPAPI encryption (CurrentUser), `.gitignore`, masked output | 🔴 Critical |
 | Script tampering | Authenticode signing, SHA256 verification | 🔴 Critical |
-| MITM on update | HTTPS only, GitHub API only, content validation | 🟠 High |
+| Compromised CDN mirror (cdn.jsdelivr.net) | Mirror is transport only: same immutable pinned commit, no token ever attached, every byte passes the SHA-256 gate - a malicious mirror can only fail the update, not substitute code | 🟠 High |
 | Command injection | Parameterized MuMuManager calls with escaping | 🔴 Critical |
 | ADB injection | Parameterized adb calls with argument escaping | 🟠 High |
 | Malicious ZIP | Structure validation, file presence check, whole-ZIP verification (`-VerifyZip`) | 🟠 High |
@@ -441,7 +445,7 @@ To verify script security:
 
 3. **Signature:** `[V] Version info` → signature status should be `Valid`
 
-4. **Network traffic:** monitor with Wireshark — update traffic goes only to `api.github.com`; other endpoints are documented in the table above (VT integration, `[DL]` clone, `[CRT]` timestamp, `[TN]` probes)
+4. **Network traffic:** monitor with Wireshark — update traffic goes to `api.github.com` (and, only when the API is down, to the `cdn.jsdelivr.net` mirror of the same commit); other endpoints are documented in the table above (VT integration, `[DL]` clone, `[CRT]` timestamp, `[TN]` probes)
 
 ### Out of Scope
 
@@ -471,7 +475,7 @@ Documented features are not vulnerabilities (see "Note for AV analysts" in READM
 **Sigma False Positives:**
 - **#1** (`DMP/HDMP File Creation`): script does NOT create .dmp/.hdmp files — DPAPI stores encrypted text, not memory dumps
 - **#2** (`Unsigned Image Loaded Into LSASS`): DPAPI via .NET ProtectedData — no DLL/EXE in LSASS, no injection; script is Authenticode-signed
-- **#3** (`Web Request Commands`): GitHub API via `curl.exe` (argument arrays); `Invoke-WebRequest`/`Invoke-RestMethod` go to `api.github.com` (`[V]` version check) and `www.virustotal.com` (VT integration) only — no exfiltration
+- **#3** (`Web Request Commands`): GitHub API via `curl.exe` (argument arrays); on API failure one transport retry through the `cdn.jsdelivr.net` mirror of the same pinned commit (no token); `Invoke-WebRequest`/`Invoke-RestMethod` go to `api.github.com` (`[V]` version check) and `www.virustotal.com` (VT integration) only — no exfiltration
 - **#4** (`New Root/CA Certificate`): `[CRT]` adds self-signed CodeSigning cert to Trusted Root — explicit user action, not silent install
 - **#5** (`ADB Shell Commands`): `adb shell` / `adb push` / `adb pull` for MuMu emulator — explicit user action, no host code execution
 - **#6** (`Device Model Modification`): `MuMuManager.exe modify` for user's own instances — privacy feature, not impersonation
