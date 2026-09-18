@@ -329,6 +329,10 @@ The script uses Invoke-WebRequest/curl only to access GitHub API for auto-update
 **ADB:**
 - ADB shell / push / pull — управление эмулятором, только по явному запросу пользователя
 
+**YARA False Positives:**
+- **Y1** (`Windows_API_Function`): сигнатура детектирует использование Windows API (CreateFile, ReadFile и т.д.) — PowerShell скрипты **легитимно** используют .NET-обёртки над WinAPI. Правило само указывает: «not an indication of malicious behavior on executables». Скрипт НЕ содержит embedded executables
+- **Y2** (`INDICATOR_SUSPICIOUS_PWSH_B64Encoded_Concatenated_FileEXEC`): матчит паттерны base64 + ejecution. В нашем случае это DPAPI-операции (`.NET [System.Security.Cryptography.ProtectedData]`) и VT-загрузка через `curl.exe --data-binary @file` — **legitimate operations**, не obfuscated payload
+
 **Sigma False Positives:**
 - **#1** (`DMP/HDMP File Creation`): скрипт **НЕ создаёт** .dmp/.hdmp файлы. DPAPI хранит зашифрованный текст — это не memory dump
 - **#2** (`Unsigned Image Loaded Into LSASS`): DPAPI через .NET ProtectedData CurrentUser, **без** загрузки DLL/EXE в LSASS и **без** инъекции; скрипт подписан через `[CRT]`
@@ -338,6 +342,10 @@ The script uses Invoke-WebRequest/curl only to access GitHub API for auto-update
 - **#6** (`Device Model Modification`): `MuMuManager.exe modify` изменяет модель устройства для **собственных** инстансов — функция приватности, **не** подмена чужих устройств
 - **#7** (`File Upload to External Service`): `[VF] VirusTotal Upload` — загрузка файла на VirusTotal для анализа, **явное действие пользователя**, файл上传 только на `www.virustotal.com`, лимит 32 MB
 - **#8** (`NTFS Alternate Data Stream`): до v1.18.8 MIME-литерал в коде загрузки VT давал подстроку «-stream», которая вместе с `Set-Content` в том же скриптблоке попадала под правило; **скрипт никогда не читает и не пишет ADS**. С v1.18.9 загрузка идёт через `curl.exe` multipart, литерал удалён
+- **#9** (`Malicious Nishang PowerShell Commandlets`): Nishang — фреймворк для пентеста. Матчит `Invoke-WebRequest`, `DownloadString`, `EncodedCommand` —通用 cmdlets. В нашем случае: `Invoke-WebRequest` только для проверки версии `[V]`, `curl.exe` для обновлений. Нет Nishang-специфичных функций (`Get-PSUTCM`, `Invoke-PowerShellTcp` и т.д.)
+- **#10** (`Malicious PowerShell Commandlets - ScriptBlock`): аналогично #9 — generic detection exploitation frameworks. Скрипт **не содержит** ни одной эксплойт-функции
+- **#11** (`Suspicious Curl.EXE Download`): `curl.exe` используется для скачивания обновлений (contents API) и загрузки на VT. Все запросы — HTTPS к задокументированным эндпоинтам (`api.github.com`, `www.virustotal.com`, `cdn.jsdelivr.net`). Нет загрузки исполняемых файлов
+- **#12** (`Automated Collection Command PowerShell`): скрипт собирает информацию об инстансах MuMu (`MuMuManager.exe list`) и системной информации (`[V] Version info`) — **legitimate management operations**, не data exfiltration
 
 ### Благодарности
 
@@ -544,6 +552,10 @@ Documented features are not vulnerabilities (see "Note for AV analysts" in READM
 **ADB:**
 - ADB shell / push / pull for emulator management (explicit user action)
 
+**YARA False Positives:**
+- **Y1** (`Windows_API_Function`): detects Windows API usage (CreateFile, ReadFile, etc.) — PowerShell scripts **legitimately** use .NET wrappers over WinAPI. The rule itself states: "not an indication of malicious behavior on executables". The script does NOT contain embedded executables
+- **Y2** (`INDICATOR_SUSPICIOUS_PWSH_B64Encoded_Concatenated_FileEXEC`): matches base64 + execution patterns. In our case these are DPAPI operations (`.NET [System.Security.Cryptography.ProtectedData]`) and VT upload via `curl.exe --data-binary @file` — **legitimate operations**, not obfuscated payload
+
 **Sigma False Positives:**
 - **#1** (`DMP/HDMP File Creation`): script does NOT create .dmp/.hdmp files — DPAPI stores encrypted text, not memory dumps
 - **#2** (`Unsigned Image Loaded Into LSASS`): DPAPI via .NET ProtectedData — no DLL/EXE in LSASS, no injection; script is Authenticode-signed
@@ -553,6 +565,10 @@ Documented features are not vulnerabilities (see "Note for AV analysts" in READM
 - **#6** (`Device Model Modification`): `MuMuManager.exe modify` for user's own instances — privacy feature, not impersonation
 - **#7** (`File Upload to External Service`): `[VF] VirusTotal Upload` — user-initiated file upload to VirusTotal for analysis, upload only to `www.virustotal.com`, 32 MB limit
 - **#8** (`NTFS Alternate Data Stream`): before v1.18.8 a MIME literal in the VT upload code provided the "-stream" substring that, combined with `Set-Content` in the same script block, matched the rule; **the script never reads or writes ADS**. Since v1.18.9 uploads go through `curl.exe` multipart and the literal is removed
+- **#9** (`Malicious Nishang PowerShell Commandlets`): Nishang is a pentesting framework. Matches `Invoke-WebRequest`, `DownloadString`, `EncodedCommand` — generic cmdlets. In our case: `Invoke-WebRequest` only for version check `[V]`, `curl.exe` for updates. No Nishang-specific functions (`Get-PSUTCM`, `Invoke-PowerShellTcp`, etc.)
+- **#10** (`Malicious PowerShell Commandlets - ScriptBlock`): same as #9 — generic detection of exploitation frameworks. Script contains **zero** exploit functions
+- **#11** (`Suspicious Curl.EXE Download`): `curl.exe` used for downloading updates (contents API) and uploading to VT. All requests — HTTPS to documented endpoints (`api.github.com`, `www.virustotal.com`, `cdn.jsdelivr.net`). No executable downloads
+- **#12** (`Automated Collection Command PowerShell`): script collects MuMu instance info (`MuMuManager.exe list`) and system information (`[V] Version info`) — **legitimate management operations**, not data exfiltration
 
 ### AI/LLM Scanner Response
 
