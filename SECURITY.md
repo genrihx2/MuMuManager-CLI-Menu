@@ -6,7 +6,7 @@
 
 ## Русский
 
-> Актуально для **v1.22.12** (обновлено 2026-09-17).
+> Актуально для **v1.22.21** (обновлено 2026-09-18).
 
 ### Поддерживаемые версии
 
@@ -266,6 +266,41 @@ Set-ExecutionPolicy -Scope LocalMachine -ExecutionPolicy RemoteSigned
 
 4. **Сетевой трафик:** мониторьте с помощью Wireshark — трафик обновлений идёт к `api.github.com` (и, только при отказе API, к зеркалу `cdn.jsdelivr.net` того же коммита); остальные эндпоинты задокументированы в таблице выше (VT-интеграция, [DL] clone, [CRT] timestamp, [TN]-пробы)
 
+### Обращение по ложному срабатыванию (False Positive)
+
+Если антивирус или Microsoft Defender классифицирует `mumu-menu.ps1` или `bootstrap-update.ps1` как PUA/вредоносный — это ложное срабатывание. Скрипт не содержит вредоносного кода, а все задокументированные возможности (спуфинг, ADB, токены) are legitimate tools для управления собственными эмуляторами.
+
+**Как подать appeal:**
+
+1. **Microsoft Defender:** Windows Security → Protection history → кликните на детект → «See details» → «Submit a false positive»
+2. **VirusTotal:** открите страницу скана файла → нажмите «False positive» (требуется аккаунт)
+3. **Автоматически:** сканер [VT] в меню загружает файл на VirusTotal — еслиVT ещё не сканировал, результат появится через несколько минут
+
+**Шаблон текста для appeal (English):**
+
+```
+Open-source PowerShell CLI menu for managing MuMu Emulator (Android emulator by NetEase). The script is signed with a self-signed certificate (CN=MuMu Manager CLI Menu).
+
+Repository: https://github.com/genrihx2/MuMuManager-CLI-Menu
+License: MIT
+
+Key features:
+- Start/stop Android emulator instances via MuMuManager.exe
+- Device spoofing for privacy/testing (IMEI, Android ID, manufacturer)
+- SIM operator change for carrier testing
+- Root permission toggle per instance
+- Virtual environment (Android user) management
+- Auto-update with SHA-256 pin verification and VirusTotal scan
+- Authenticode digital signature with timestamping
+
+The script uses Invoke-WebRequest/curl only to access GitHub API for auto-updates and VirusTotal for self-scanning. No data exfiltration. All network endpoints are documented in SECURITY.md.
+```
+
+**Важно:**
+- Подпись скрипта (Authenticode) выживает обновления с v1.22.21 — и bootstrap, и [U] переподписывают после применения
+- Целостность обновлений гарантирована SHA-256-пином и VT-вердиктами релизов
+- Все сетевые эндпоинты задокументированы в таблице выше — никаких скрытых соединений
+
 ### Что НЕ считается уязвимостью
 
 Это задокументированные возможности проекта (см. «Примечание для AV-аналитиков» в README):
@@ -312,7 +347,7 @@ Set-ExecutionPolicy -Scope LocalMachine -ExecutionPolicy RemoteSigned
 
 ## English
 
-> Current for **v1.22.12** (updated 2026-09-17).
+> Current for **v1.22.21** (updated 2026-09-18).
 
 ### Supported Versions
 
@@ -448,6 +483,41 @@ To verify script security:
    Prerequisite: a `[CRT]` certificate exists. Since v1.22.21 the signature survives updates automatically: both bootstrap and `[U]` look for the unexpired `MuMuManager-CLI-Menu-Token` certificate after a successful apply and re-sign `mumu-menu.ps1` (SHA-256, digicert timestamp, Valid-status gate). Best-effort: without a certificate the script stays unsigned - that is not a security regression, update integrity is guaranteed by the SHA-256 pin and the release VT verdicts
 
 4. **Network traffic:** monitor with Wireshark — update traffic goes to `api.github.com` (and, only when the API is down, to the `cdn.jsdelivr.net` mirror of the same commit); other endpoints are documented in the table above (VT integration, `[DL]` clone, `[CRT]` timestamp, `[TN]` probes)
+
+### False Positive Appeal
+
+If an antivirus or Microsoft Defender flags `mumu-menu.ps1` or `bootstrap-update.ps1` as PUA/malicious, this is a false positive. The script contains no malicious code, and all documented capabilities (spoofing, ADB, tokens) are legitimate tools for managing your own emulator instances.
+
+**How to submit an appeal:**
+
+1. **Microsoft Defender:** Windows Security → Protection history → click the detection → "See details" → "Submit a false positive"
+2. **VirusTotal:** open the file scan page → click "False positive" (account required)
+3. **Automatic:** the [VT] scanner in the menu uploads files to VirusTotal — if VT hasn't scanned yet, results appear within minutes
+
+**Text template for appeal:**
+
+```
+Open-source PowerShell CLI menu for managing MuMu Emulator (Android emulator by NetEase). The script is signed with a self-signed certificate (CN=MuMu Manager CLI Menu).
+
+Repository: https://github.com/genrihx2/MuMuManager-CLI-Menu
+License: MIT
+
+Key features:
+- Start/stop Android emulator instances via MuMuManager.exe
+- Device spoofing for privacy/testing (IMEI, Android ID, manufacturer)
+- SIM operator change for carrier testing
+- Root permission toggle per instance
+- Virtual environment (Android user) management
+- Auto-update with SHA-256 pin verification and VirusTotal scan
+- Authenticode digital signature with timestamping
+
+The script uses Invoke-WebRequest/curl only to access GitHub API for auto-updates and VirusTotal for self-scanning. No data exfiltration. All network endpoints are documented in SECURITY.md.
+```
+
+**Key facts:**
+- Script signature (Authenticode) survives updates since v1.22.21 — both bootstrap and [U] re-sign after applying
+- Update integrity is guaranteed by SHA-256 pin and release VT verdicts
+- All network endpoints are documented in the table above — no hidden connections
 
 ### Out of Scope
 
