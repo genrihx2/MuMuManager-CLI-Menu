@@ -822,10 +822,13 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ### URL-репутация
 
-URL-сканеры (SafeToOpen, Chong Lua Dao) помечают ссылки вида `raw.githubusercontent.com/.../*.ps1` как «malicious» **по шаблону адреса**, не анализируя содержимое — файл по ссылке чист (0/61). В ответ:
+URL-сканеры (SafeToOpen, Chong Lua Dao) помечают ссылки вида `raw.githubusercontent.com/.../*.ps1` как «malicious» **по шаблону адреса**, не анализируя содержимое — файл по ссылке чист (0/61). Браузеры (Chrome/Edge Safe Browsing) показывают «mumu-menu.ps1 может навредить вашему устройству» по той же причине — **тип файла** (`.ps1` = исполняемый скрипт), не вердикт по содержимому. В ответ:
 
 - оставлен комментарий владельца к URL-объекту на VirusTotal;
-- начиная с v1.13.3 самообновление скачивает файлы только через официальный `api.github.com` и больше не обращается к `raw.githubusercontent.com`.
+- начиная с v1.13.3 самообновление скачивает файлы только через официальный `api.github.com` и больше не обращается к `raw.githubusercontent.com`;
+- с v1.22.15 при отказе API скачивание уходит на зеркало `cdn.jsdelivr.net` того же pinned-коммита (без токена, без редиректов, тот же SHA-256-гейт) — см. «Безопасность обновлений» в [SECURITY.md](SECURITY.md);
+- кандидат `raw.githack.com` проверен и отвергнут: `.ps1` отдаётся только 301-редиректом на `raw.githubusercontent.com`, т.е. фактический источник — тот самый raw-домен;
+- для ручного скачивания добавлен способ №4 (jsDelivr CDN) и примечание о типовой природе браузерного предупреждения — см. раздел «Установка» выше.
 - Самообновление скачивает только текстовые файлы (.ps1/.md), никаких исполняемых файлов
 - GitHub-токен хранится только в шифрованном виде (Windows DPAPI, CurrentUser); плейнтекст не записывается на диск
 - Нет обфускации, автозагрузки, задач планировщика и модификаций сертификатов
@@ -841,12 +844,12 @@ URL-сканеры (SafeToOpen, Chong Lua Dao) помечают ссылки в�
 | «Handling sensitive information» | Токен GitHub зашифрован через Windows DPAPI (CurrentUser scope). Расшифровывается только тем же пользователем Windows. Плейнтекст не хранится. |
 | «Extensive access to emulator internals» | Все операции используют официальный CLI Netease (`MuMuManager.exe`) и стандартный `adb.exe`. Нет reverse engineering. |
 | «Risk of misuse» | Каждая чувствительная операция требует ввода «OK». Скрипт документирует намерения в комментариях и политике безопасности. |
-| «Self-update mechanism» | Обновления ТОЛЬКО из tagged GitHub Releases с проверкой SHA256. Нет выполнения кода из недоверенных источников. |
+| «Self-update mechanism» | Обновления ТОЛЬКО из tagged GitHub Releases с пином на commit SHA и проверкой SHA-256 каждого файла; фолбэк-транспорт — то же зеркало того же коммита без токена. Нет выполнения кода из недоверенных источников. |
 | «Certificate management» | Self-signed CodeSigning сертификат только для подписи скрипта. Явное действие через меню `[CRT]`. |
 
 **Ключевые факты:**
 
-- Все сетевые операции — только HTTPS к `api.github.com` (проверка версий, загрузка обновлений, валидация токена); стартовая проверка — read-only, загрузка только по явному выбору `[U]` с подтверждением
+- Сетевые операции — по минимально необходимому списку эндпоинтов (полная таблица с механизмами — в [SECURITY.md](SECURITY.md)): `api.github.com` (проверка версий, загрузка обновлений, токен), `cdn.jsdelivr.net` (только транспортный фолбэк того же pinned-коммита — без токена и без редиректов), `www.virustotal.com` (VT-интеграция), `github.com` (clone/ссылки), timestamp-сервер при подписании и [TN]-пробы по явному действию; стартовая проверка — read-only, загрузка только по явному выбору `[U]` с подтверждением
 - Токен хранится исключительно DPAPI-шифрованным; плейнтекст не пишется и при обнаружении мигрируется/удаляется
 - Нет инъекций, доступа к критическим системным процессам, дампов памяти, обфускации, encoded-команд, persistence
 - Эмулятор управляется официальным CLI Netease (`MuMuManager.exe`); ADB-команды выполняются только по явному запросу пользователя внутри виртуальных машин
@@ -902,6 +905,6 @@ MIT License
 irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-menu.ps1 -OutFile $env:TEMP\mumu-menu.ps1; & $env:TEMP\mumu-menu.ps1
 ```
 
-**Release integrity:** tag/`$scriptVer` mismatches fail the pipeline instead of publishing an empty release; every published release is automatically scanned on VirusTotal (the ZIP plus `mumu-menu.ps1`/`SKILL.md` extracted from it) and the per-file verdict table with report permalinks is posted into the release notes. The latest verdicts and hashes are in the security table above; threat model and Sigma false-positive analysis are in [SECURITY.md](SECURITY.md), the release pipeline runbook in [RELEASE-RUNBOOK.md](RELEASE-RUNBOOK.md).
+**Security:** updates come only from tagged GitHub Releases, pinned to their commit SHA, with SHA-256 verification of every downloaded byte; when the API is unreachable, one transport retry goes through the `cdn.jsdelivr.net` mirror of the same pinned commit (no token, no redirect-following). Browser warnings on `.ps1` downloads are file-type triggers, not content verdicts — every release carries CI VirusTotal verdicts in its body. The full policy («Reporting a Vulnerability», SLA, safe harbor), endpoint table, threat model and Sigma false-positive analysis are in [SECURITY.md](SECURITY.md); the release pipeline runbook in [RELEASE-RUNBOOK.md](RELEASE-RUNBOOK.md).
 
 **Updater:** `[U] Check for updates` compares the local `.version` against GitHub release tags and downloads only from tagged releases after explicit confirmation, with backups of the previous files in `backup\<timestamp>\`. `bootstrap-update.ps1` ships inside every release ZIP as a recovery path if the in-menu updater ever breaks. Docs are maintained in Russian with English summaries; the menu itself is in English.
