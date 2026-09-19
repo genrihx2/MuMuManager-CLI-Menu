@@ -908,6 +908,7 @@ URL-сканеры (SafeToOpen, Chong Lua Dao) помечают ссылки в�
 - Нет инъекций, доступа к критическим системным процессам, дампов памяти, обфускации, encoded-команд, persistence
 - Эмулятор управляется официальным CLI Netease (`MuMuManager.exe`); ADB-команды выполняются только по явному запросу пользователя внутри виртуальных машин
 - Мультидвижковый вердикт VirusTotal: **0 malicious / 0 suspicious** (актуальные счётчики — в таблице выше)
+- **Microsoft Defender**: false positive appeal подтверждён (Submission ID: `e7863737-b31e-4a0b-a4ae-6b8316ea00c8`). Microsoft: «Our scanners show no positive detection — submission closed with no further action pending». Definitions v1.459.282.0: файл чистый
 - Подробнее: [SECURITY.md](SECURITY.md)
 
 ## Компоненты
@@ -959,6 +960,6 @@ MIT License
 irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-menu.ps1 -OutFile $env:TEMP\mumu-menu.ps1; & $env:TEMP\mumu-menu.ps1
 ```
 
-**Security:** updates come only from tagged GitHub Releases, pinned to their commit SHA, with SHA-256 verification of every downloaded byte; when the API is unreachable, one transport retry goes through the `cdn.jsdelivr.net` mirror of the same pinned commit (no token, no redirect-following). Browser warnings on `.ps1` downloads are file-type triggers, not content verdicts — every release carries CI VirusTotal verdicts in its body. The full policy («Reporting a Vulnerability», SLA, safe harbor), endpoint table, threat model and Sigma false-positive analysis are in [SECURITY.md](SECURITY.md); the release pipeline runbook in [RELEASE-RUNBOOK.md](RELEASE-RUNBOOK.md).
+**Security:** updates come only from tagged GitHub Releases, pinned to their commit SHA, with SHA-256 verification of every downloaded byte; when the API is unreachable, one transport retry goes through the `cdn.jsdelivr.net` mirror of the same pinned commit (no token, no redirect-following). Browser warnings on `.ps1` downloads are file-type triggers, not content verdicts — every release carries CI VirusTotal verdicts in its body. **Microsoft Defender false positive appeal confirmed** (Submission ID: `e7863737-b31e-4a0b-a4ae-6b8316ea00c8`): Microsoft stated «Our scanners show no positive detection — submission closed with no further action pending». Definitions v1.459.282.0: file is clean. The full policy («Reporting a Vulnerability», SLA, safe harbor), endpoint table, threat model and Sigma false-positive analysis are in [SECURITY.md](SECURITY.md); the release pipeline runbook in [RELEASE-RUNBOOK.md](RELEASE-RUNBOOK.md).
 
 **Updater:** `[U] Check for updates` compares the local `.version` against GitHub release tags and downloads only from tagged releases after explicit confirmation, with backups of the previous files in `backup\<timestamp>\`. `bootstrap-update.ps1` ships inside every release ZIP as a recovery path if the in-menu updater ever breaks. Docs are maintained in Russian with English summaries; the menu itself is in English.
