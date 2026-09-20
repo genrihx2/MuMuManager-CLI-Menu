@@ -235,7 +235,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.22.21'
+$scriptVer = '1.22.22'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -1356,6 +1356,21 @@ function Update-FromGitHub {
         if ($healed) { return }
 
         Write-Host "  Update available!" -ForegroundColor $(if ($Passive) { 'DarkGray' } else { 'Yellow' })
+        
+        # Show version gap information
+        if ($localTag -and $tag) {
+            try {
+                $localVer = [version]($localTag -replace '^v', '')
+                $remoteVer = [version]($tag -replace '^v', '')
+                $gap = $remoteVer.Minor - $localVer.Minor
+                if ($gap -gt 0) {
+                    Write-Host "  Version gap: $gap release(s) behind ($localTag -> $tag)" -ForegroundColor Yellow
+                } elseif ($gap -lt 0) {
+                    Write-Host "  Local version is newer than remote" -ForegroundColor Yellow
+                }
+            } catch { Write-Debug "Version comparison failed: $($_.Exception.Message)" }
+        }
+        
         if ($Passive) {
             Write-Host '  Nothing was downloaded. Select [U] Check for updates' -ForegroundColor DarkGray
             Write-Host '  in the menu to review and install it manually.' -ForegroundColor DarkGray
@@ -1644,21 +1659,47 @@ function Update-FromGitHub {
         # sent anywhere: the mirror serves public repos anonymously, so the
         # download can move to the CDN instead of authenticating to it.
         function _DlFile([string]$Url, [string]$Out) {
-            $baseArgs = @('-s', '--retry', '3', '--retry-delay', '3', '--connect-timeout', '30', '--max-time', '120',
-                          '-H', 'Accept: application/vnd.github.v3.raw', '-o', $Out)
-            if (-not $NoAuth) { $baseArgs += '-L' }
-            if ($GitHubToken -and $GitHubToken.Length -gt 0 -and -not $NoAuth) {
-                $allArgs = $baseArgs + @('-H', "Authorization: token $GitHubToken", $Url)
-                & curl.exe @allArgs 2>$null
-                if ($LASTEXITCODE -ne 0 -or -not (Test-Path $Out)) {
-                    # curl failed — could be rate limit; try without token
-                    Remove-Item $Out -Force -ErrorAction SilentlyContinue
+            # Exponential backoff retry: try with token, then without, then CDN fallback
+            $maxRetries = 3
+            $baseDelay = 2
+            for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
+                $baseArgs = @('-s', '--retry', '2', '--retry-delay', '1', '--connect-timeout', '15', '--max-time', '60',
+                              '-H', 'Accept: application/vnd.github.v3.raw', '-o', $Out)
+                if (-not $NoAuth) { $baseArgs += '-L' }
+                
+                if ($GitHubToken -and $GitHubToken.Length -gt 0 -and -not $NoAuth) {
+                    $allArgs = $baseArgs + @('-H', "Authorization: token $GitHubToken", $Url)
+                    & curl.exe @allArgs 2>$null
+                } else {
                     $noAuthArgs = $baseArgs + @($Url)
                     & curl.exe @noAuthArgs 2>$null
                 }
-            } else {
-                $noAuthArgs = $baseArgs + @($Url)
-                & curl.exe @noAuthArgs 2>$null
+                
+                # Check if download succeeded
+                if ($LASTEXITCODE -eq 0 -and (Test-Path $Out) -and (Get-Item $Out -ErrorAction SilentlyContinue).Length -gt 0) {
+                    break
+                }
+                
+                # Clean up failed download
+                Remove-Item $Out -Force -ErrorAction SilentlyContinue
+                
+                # Rate limit detected - try without token on next attempt
+                if ($attempt -eq 1 -and $GitHubToken -and $GitHubToken.Length -gt 0 -and -not $NoAuth) {
+                    Write-Host "    Rate limit or auth failure - retrying without token..." -ForegroundColor Yellow
+                    $noAuthArgs = $baseArgs + @($Url)
+                    & curl.exe @noAuthArgs 2>$null
+                    if ($LASTEXITCODE -eq 0 -and (Test-Path $Out) -and (Get-Item $Out -ErrorAction SilentlyContinue).Length -gt 0) {
+                        break
+                    }
+                    Remove-Item $Out -Force -ErrorAction SilentlyContinue
+                }
+                
+                # Exponential backoff before next attempt
+                if ($attempt -lt $maxRetries) {
+                    $delay = $baseDelay * [math]::Pow(2, $attempt - 1)
+                    Write-Host "    Attempt $attempt failed, retrying in ${delay}s..." -ForegroundColor DarkGray
+                    Start-Sleep -Seconds $delay
+                }
             }
             # CDN fallback: one attempt through cdn.jsdelivr.net (same pinned commit
             # SHA, byte-identical bodies verified live at v1.22.15). Transport only -
@@ -2937,8 +2978,9 @@ function Show-Menu {
     Write-Host ''
     Write-Host '  --- Tests ---' -ForegroundColor Green
     Write-Host '  [TC] Connection test' -ForegroundColor Yellow
-    Write-Host '  [TN] Network test' -ForegroundColor Yellow
-    Write-Host '  [TD] Dependencies test' -ForegroundColor Yellow
+  Write-Host '  [TN] Network test' -ForegroundColor Yellow
+  Write-Host '  [TS] Network speed test' -ForegroundColor Yellow
+  Write-Host '  [TD] Dependencies test' -ForegroundColor Yellow
     Write-Host '  [VT] VirusTotal scan' -ForegroundColor Yellow
     Write-Host '  [VF] VirusTotal Upload file' -ForegroundColor Yellow
     Write-Host '  [UW] Fix Unicode / encoding' -ForegroundColor Yellow
@@ -4194,6 +4236,56 @@ function Test-Network {
 
     Write-Host ''
     Write-Host 'Test complete.' -ForegroundColor Green
+}
+
+function Test-NetworkSpeed {
+    # Host-side network speed test: measures download throughput to GitHub API
+    # and CDN endpoints. Helps diagnose slow updates and rate limit issues.
+    Write-Host ''
+    Write-Host '=== Network Speed Test ===' -ForegroundColor Cyan
+    Write-Host ''
+
+    # Test targets: API vs CDN
+    $targets = @(
+        @{ Name = 'GitHub API (api.github.com)'; Url = 'https://api.github.com/repos/genrihx2/MuMuManager-CLI-Menu/releases/latest'; Size = 'JSON ~2KB' },
+        @{ Name = 'CDN (cdn.jsdelivr.net)'; Url = 'https://cdn.jsdelivr.net/gh/genrihx2/MuMuManager-CLI-Menu@main/.version'; Size = 'Text ~10B' },
+        @{ Name = 'GitHub Raw (raw.githubusercontent.com)'; Url = 'https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/.version'; Size = 'Text ~10B' }
+    )
+
+    foreach ($t in $targets) {
+        Write-Host "  Testing $($t.Name)..." -ForegroundColor Yellow -NoNewline
+        try {
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+            $response = Invoke-WebRequest -Uri $t.Url -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop
+            $sw.Stop()
+            $bytes = $response.Content.Length
+            $ms = $sw.ElapsedMilliseconds
+            $speed = if ($ms -gt 0) { [math]::Round($bytes * 1000 / $ms, 0) } else { 0 }
+            $sizeStr = if ($bytes -gt 1MB) { "$([math]::Round($bytes/1MB, 1)) MB" } elseif ($bytes -gt 1KB) { "$([math]::Round($bytes/1KB, 1)) KB" } else { "$bytes B" }
+            Write-Host " OK ($sizeStr in ${ms}ms, ${speed} B/s)" -ForegroundColor Green
+        } catch {
+            $sw.Stop()
+            Write-Host " FAILED ($($_.Exception.Message))" -ForegroundColor Red
+        }
+    }
+
+    # Rate limit check
+    Write-Host ''
+    Write-Host '  Checking GitHub API rate limit...' -ForegroundColor Yellow
+    try {
+        $rateUrl = 'https://api.github.com/rate_limit'
+        $rateResponse = Invoke-WebRequest -Uri $rateUrl -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop
+        $rateData = $rateResponse.Content | ConvertFrom-Json
+        $remaining = $rateData.resources.core.remaining
+        $limit = $rateData.resources.core.limit
+        $reset = [datetime]::FromUnixTimeSeconds($rateData.resources.core.reset).ToString('HH:mm:ss')
+        Write-Host "    Remaining: $remaining / $limit (resets at $reset)" -ForegroundColor $(if ($remaining -gt 10) { 'Green' } elseif ($remaining -gt 0) { 'Yellow' } else { 'Red' })
+    } catch {
+        Write-Host "    Could not check rate limit: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+
+    Write-Host ''
+    Write-Host 'Speed test complete.' -ForegroundColor Green
 }
 
 function Set-VTApiKeyMenu {
@@ -8427,6 +8519,7 @@ do {
         'z' { Test-Security }
         'tc' { Test-EmulatorConnection }
         'tn' { Test-Network }
+        'ts' { Test-NetworkSpeed }
         'td' { Test-ScriptDependencies }
         'vt' { Scan-VirusTotal }
         'vf' { Upload-VirusTotal }
