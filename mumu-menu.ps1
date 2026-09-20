@@ -7204,7 +7204,37 @@ function Set-FrameRate {
     # A running player can win a write race, so we read-back after
     # a settle pause and offer a restart to make it stick.
 
-    $index = Get-InstanceIndex 'Select instance'
+    # --- quick overview: FPS for all instances ---
+    $nxDir     = Split-Path $MumuPath -Parent
+    $installRoot = Split-Path $nxDir -Parent
+    $vmsRoot   = Join-Path $installRoot 'vms'
+    if (Test-Path -LiteralPath $vmsRoot) {
+        Write-Host '  Instance FPS overview:' -ForegroundColor Cyan
+        foreach ($d in (Get-ChildItem -LiteralPath $vmsRoot -Directory)) {
+            $m = [regex]::Match($d.Name, '-(\d+)$')
+            if ($m.Success) {
+                $instIndex = $m.Groups[1].Value
+                $cfgFile = Join-Path $d.FullName 'configs\customer_config.json'
+                $fps = '?'
+                if (Test-Path -LiteralPath $cfgFile) {
+                    try {
+                        $c = Get-Content -LiteralPath $cfgFile -Raw | ConvertFrom-Json
+                        $fps = $c.setting.frame_setting.desired_framerate
+                    } catch { Write-Debug "fps read failed: $_" }
+                }
+                $state = 'stopped'
+                try {
+                    $info = & $MumuPath info -v $instIndex 2>$null | ConvertFrom-Json
+                    if ($info.$instIndex.player_state) { $state = $info.$instIndex.player_state }
+                } catch { Write-Debug "state read failed: $_" }
+                $color = if ($state -eq 'start_finished') { 'Green' } else { 'DarkGray' }
+                Write-Host ("    [{0}] {1,-30} FPS={2,-6} {3}" -f $instIndex, $d.Name, $fps, $state) -ForegroundColor $color
+            }
+        }
+        Write-Host ''
+    }
+
+    $index = Get-InstanceIndex 'Select instance to change'
     if (-not $index) { return }
     Write-Host ''
 
