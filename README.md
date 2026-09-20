@@ -167,6 +167,7 @@ curl.exe -sSL -o $env:TEMP\mumu-menu.ps1 https://cdn.jsdelivr.net/gh/genrihx2/Mu
   --- Tests ---
   [TC] Connection test
   [TN] Network test
+  [TS] Network speed test
   [TD] Dependencies test
   [VT] VirusTotal scan
   [VF] VirusTotal Upload file
@@ -359,7 +360,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.22.21
+Script version: 1.22.22
 MuMu version: 6.7.1
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
