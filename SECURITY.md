@@ -6,7 +6,7 @@
 
 ## Русский
 
-> Актуально для **v1.22.21** (обновлено 2026-09-18).
+> Актуально для **v1.22.23** (обновлено 2026-09-20).
 
 ### Поддерживаемые версии
 
@@ -310,6 +310,7 @@ The script uses Invoke-WebRequest/curl only to access GitHub API for auto-update
 - `[DM]` Spoof device model — изменение brand/model/code
 - `[DI]` Random device IDs — генерация случайных идентификаторов
 - `[SIM]` Change SIM operator — смена MCC/MNC для TikTok и др.
+- `[FPS]` Set frame rate — изменение FPS инстанса через `customer_config.json` (только local config, без network)
 
 **Хранение токенов:**
 - Windows DPAPI (CurrentUser) — расшифровка возможна только от имени того же пользователя Windows
@@ -347,6 +348,7 @@ The script uses Invoke-WebRequest/curl only to access GitHub API for auto-update
 - **#11** (`Suspicious Curl.EXE Download`): `curl.exe` используется для скачивания обновлений (contents API) и загрузки на VT. Все запросы — HTTPS к задокументированным эндпоинтам (`api.github.com`, `www.virustotal.com`, `cdn.jsdelivr.net`). Нет загрузки исполняемых файлов
 - **#12** (`Automated Collection Command PowerShell`): скрипт собирает информацию об инстансах MuMu (`MuMuManager.exe list`) и системной информации (`[V] Version info`) — **legitimate management operations**, не data exfiltration
 - **#13** (`Potential PowerShell Obfuscation Using Alias Cmdlets`): Sigma матчит строковые литералы `curl`/`wget` в коде (проверка наличия HTTP-клиента внутри эмулятора). Скрипт **не использует** `Set-Alias`/`New-Alias`; `curl.exe` вызывается напрямую как executable (`& $curlPath`), не через PowerShell alias
+- **#14** (`Suspicious Config File Modification`): `[FPS]` записывает `desired_framerate` в `customer_config.json` — **локальный файл конфигурации эмулятора**, без network, без execution. Аналогично параметрам `[7] Show settings` и `[RT] root_permission`
 
 ### Благодарности
 
@@ -356,7 +358,7 @@ The script uses Invoke-WebRequest/curl only to access GitHub API for auto-update
 
 ## English
 
-> Current for **v1.22.21** (updated 2026-09-18).
+> Current for **v1.22.23** (updated 2026-09-20).
 
 ### Supported Versions
 
@@ -535,6 +537,7 @@ Documented features are not vulnerabilities (see "Note for AV analysts" in READM
 **Privacy features (explicit user action):**
 - Device-model spoofing and random identifier generation (IMEI/Android ID/MAC) for user-owned instances
 - `[DM]` Spoof device model, `[DI]` Random device IDs, `[SIM]` Change SIM operator
+- `[FPS]` Set frame rate — changes FPS via `customer_config.json` (local config only, no network)
 
 **Token storage:**
 - DPAPI-protected GitHub token (CurrentUser scope) — decryption only by the same Windows user
@@ -571,6 +574,7 @@ Documented features are not vulnerabilities (see "Note for AV analysts" in READM
 - **#11** (`Suspicious Curl.EXE Download`): `curl.exe` used for downloading updates (contents API) and uploading to VT. All requests — HTTPS to documented endpoints (`api.github.com`, `www.virustotal.com`, `cdn.jsdelivr.net`). No executable downloads
 - **#12** (`Automated Collection Command PowerShell`): script collects MuMu instance info (`MuMuManager.exe list`) and system information (`[V] Version info`) — **legitimate management operations**, not data exfiltration
 - **#13** (`Potential PowerShell Obfuscation Using Alias Cmdlets`): Sigma matches string literals `curl`/`wget` in code (checking for HTTP client inside the emulator). Script does **NOT** use `Set-Alias`/`New-Alias`; `curl.exe` is called directly as executable (`& $curlPath`), not via PowerShell alias
+- **#14** (`Suspicious Config File Modification`): `[FPS]` writes `desired_framerate` to `customer_config.json` — **local emulator config file**, no network, no execution. Same category as `[7] Show settings` and `[RT] root_permission`
 
 ### AI/LLM Scanner Response
 
