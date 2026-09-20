@@ -132,6 +132,7 @@ curl.exe -sSL -o $env:TEMP\mumu-menu.ps1 https://cdn.jsdelivr.net/gh/genrihx2/Mu
   [7] Show settings
   [RT] Enable / disable root (instance)
   [VE] Virtual environment (enable/disable/remove)
+  [FPS] Set frame rate (30/60/90/120/144/240/uncapped)
   [8] Install APK
   [9] Uninstall app
   [G] View logs
@@ -360,7 +361,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.22.22
+Script version: 1.22.23
 MuMu version: 6.7.1
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
