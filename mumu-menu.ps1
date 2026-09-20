@@ -7104,7 +7104,7 @@ function Show-VirtualEnv {
             param([string]$Idx, [string]$Uid)
             $out = Invoke-AdbShell -Index $Idx -Command 'pm list users'
             foreach ($ln in ($out -split "`n")) {
-                if ($ln -match "UserInfo\{$Uid\}" -and $ln.Trim().EndsWith('running')) { return $true }
+                if ($ln -match "UserInfo\{$Uid[:\}]" -and $ln.Trim().EndsWith('running')) { return $true }
             }
             return $false
         }
