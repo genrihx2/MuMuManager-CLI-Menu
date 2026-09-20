@@ -7111,13 +7111,17 @@ function Show-VirtualEnv {
         switch ($act) {
             '1' {
                 if ($venvRunning) { Write-Host '  Already running.' -ForegroundColor DarkGray; return }
+                Write-Host "  Starting user $venvUser..." -ForegroundColor Cyan
                 $null = Invoke-AdbShell -Index $index -Command "am start-user $venvUser"
+                Start-Sleep -Seconds 2
                 if (& $script:TestVenvRunning $index $venvUser) { Write-Host "  Virtual environment ENABLED (user $venvUser running)." -ForegroundColor Green }
                 else { Write-Host "  Failed to start user $venvUser (state did not change)." -ForegroundColor Red }
             }
             '2' {
                 if (-not $venvRunning) { Write-Host '  Already stopped.' -ForegroundColor DarkGray; return }
+                Write-Host "  Stopping user $venvUser..." -ForegroundColor Cyan
                 $null = Invoke-AdbShell -Index $index -Command "am stop-user $venvUser"
+                Start-Sleep -Seconds 2
                 if (& $script:TestVenvRunning $index $venvUser) { Write-Host "  Failed to stop user $venvUser (still running)." -ForegroundColor Red }
                 else { Write-Host "  Virtual environment DISABLED (user $venvUser stopped, data kept)." -ForegroundColor Green }
             }
