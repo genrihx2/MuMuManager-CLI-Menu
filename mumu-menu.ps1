@@ -235,7 +235,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.22.22'
+$scriptVer = '1.22.23'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -2942,8 +2942,9 @@ function Show-Menu {
     Write-Host '  --- Apps and Settings ---' -ForegroundColor Green
     Write-Host '  [6] List installed apps' -ForegroundColor Yellow
     Write-Host '  [7] Show settings' -ForegroundColor Yellow
-    Write-Host '  [RT] Enable / disable root (instance)' -ForegroundColor Yellow
-    Write-Host '  [VE] Virtual environment (enable/disable/remove)' -ForegroundColor Yellow
+  Write-Host '  [RT] Enable / disable root (instance)' -ForegroundColor Yellow
+  Write-Host '  [VE] Virtual environment (enable/disable/remove)' -ForegroundColor Yellow
+  Write-Host '  [FPS] Set frame rate (30/60/90/120/144/240/uncapped)' -ForegroundColor Yellow
     Write-Host '  [8] Install APK' -ForegroundColor Yellow
     Write-Host '  [9] Uninstall app' -ForegroundColor Yellow
     Write-Host '  [G] View logs' -ForegroundColor Yellow
@@ -7196,6 +7197,138 @@ function Set-RootPermission {
     }
 }
 
+function Set-FrameRate {
+    # Change the desired FPS for an instance via customer_config.json.
+    # Config lives at <vms>/<instance>/configs/customer_config.json
+    # under setting.frame_setting.desired_framerate (string number).
+    # A running player can win a write race, so we read-back after
+    # a settle pause and offer a restart to make it stick.
+
+    $index = Get-InstanceIndex 'Select instance'
+    if (-not $index) { return }
+    Write-Host ''
+
+    # --- locate customer_config.json ---
+    $nxDir     = Split-Path $MumuPath -Parent
+    $installRoot = Split-Path $nxDir -Parent
+    $vmsRoot   = Join-Path $installRoot 'vms'
+    $instDir   = $null
+
+    if (Test-Path -LiteralPath $vmsRoot) {
+        foreach ($d in (Get-ChildItem -LiteralPath $vmsRoot -Directory)) {
+            $m = [regex]::Match($d.Name, '-(\d+)$')
+            if ($m.Success -and $m.Groups[1].Value -eq $index) {
+                $instDir = $d.FullName
+                break
+            }
+        }
+    }
+    if (-not $instDir) {
+        Write-Host "  Instance #$index directory not found under $vmsRoot" -ForegroundColor Red
+        return
+    }
+
+    $cfgPath = Join-Path $instDir 'configs\customer_config.json'
+    if (-not (Test-Path -LiteralPath $cfgPath)) {
+        Write-Host "  customer_config.json not found at $cfgPath" -ForegroundColor Red
+        return
+    }
+
+    # --- read current FPS ---
+    $curFps = 60
+    try {
+        $cfg = Get-Content -LiteralPath $cfgPath -Raw | ConvertFrom-Json
+        $curFps = [int]$cfg.setting.frame_setting.desired_framerate
+    } catch {
+        Write-Host "  Failed to read config: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+
+    Write-Host "  Current FPS: $curFps" -ForegroundColor Cyan
+    Write-Host ''
+    Write-Host '  Presets:' -ForegroundColor Green
+    Write-Host '    [1] 30    [2] 60    [3] 90    [4] 120   [5] 144   [6] 240' -ForegroundColor White
+    Write-Host '    [7] 12    [8] 20    [9] 15    [C] Custom value' -ForegroundColor White
+    Write-Host '    [U] Uncapped (999)    [0] Cancel' -ForegroundColor White
+    Write-Host ''
+
+    $pick = (Read-Host '  Select FPS').Trim().ToLower()
+
+    $newFps = $null
+    switch ($pick) {
+        '1' { $newFps = 30 }
+        '2' { $newFps = 60 }
+        '3' { $newFps = 90 }
+        '4' { $newFps = 120 }
+        '5' { $newFps = 144 }
+        '6' { $newFps = 240 }
+        '7' { $newFps = 12 }
+        '8' { $newFps = 20 }
+        '9' { $newFps = 15 }
+        'u' { $newFps = 999 }
+        'c' {
+            $raw = (Read-Host '  Enter custom FPS (1-999)').Trim()
+            if ($raw -match '^\d+$' -and [int]$raw -ge 1 -and [int]$raw -le 999) {
+                $newFps = [int]$raw
+            } else {
+                Write-Host '  Invalid value.' -ForegroundColor Red
+                return
+            }
+        }
+        default {
+            if ($pick -match '^\d+$' -and [int]$pick -ge 1 -and [int]$pick -le 999) {
+                $newFps = [int]$pick
+            } else {
+                Write-Host '  Cancelled.' -ForegroundColor DarkGray
+                return
+            }
+        }
+    }
+
+    if ($newFps -eq $curFps) {
+        Write-Host "  FPS is already $curFps — nothing to change." -ForegroundColor DarkGray
+        return
+    }
+
+    # --- write config ---
+    try {
+        $cfg.setting.frame_setting.desired_framerate = [string]$newFps
+        $cfg | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $cfgPath -Encoding UTF8
+        Write-Host "  Set desired_framerate = $newFps in customer_config.json" -ForegroundColor Green
+    } catch {
+        Write-Host "  Failed to write config: $($_.Exception.Message)" -ForegroundColor Red
+        return
+    }
+
+    # --- settle + re-read (running player can revert) ---
+    Start-Sleep -Seconds 2
+    try {
+        $verify = (Get-Content -LiteralPath $cfgPath -Raw | ConvertFrom-Json).setting.frame_setting.desired_framerate
+        if ([string]$verify -ne [string]$newFps) {
+            Write-Host "  WARNING: player reverted FPS to $verify (instance may be running)." -ForegroundColor Yellow
+            Write-Host '  Stop the instance, change FPS, then launch again.' -ForegroundColor Yellow
+            return
+        }
+    } catch { Write-Debug "re-read failed: $($_.Exception.Message)" }
+
+    Write-Host ''
+    Write-Host "  FPS changed: $curFps -> $newFps" -ForegroundColor Green
+    Write-Host '  Change takes effect on next emulator start.' -ForegroundColor Yellow
+
+    # --- offer restart ---
+    Write-Host ''
+    $restart = Read-Host '  [R] Restart instance now, [S] Skip'
+    if ($restart -eq 'r' -or $restart -eq 'R') {
+        Write-Host '  Stopping instance...' -ForegroundColor Cyan
+        try { & $MumuPath control -v $index stop 2>&1 | Out-Null } catch { Write-Debug "stop failed: $_" }
+        Start-Sleep -Seconds 3
+        Write-Host '  Starting instance...' -ForegroundColor Cyan
+        try { & $MumuPath control -v $index launch 2>&1 | Out-Null } catch { Write-Debug "launch failed: $_" }
+        Write-Host '  Instance restarted. FPS = $newFps will be active after boot.' -ForegroundColor Green
+    } else {
+        Write-Host '  Restart manually for FPS to take effect.' -ForegroundColor DarkGray
+    }
+}
+
 function Install-APK {
     $index = Get-InstanceIndex 'Select instance'
     if (-not $index) { return }
@@ -8507,6 +8640,7 @@ do {
         '7' { Show-Settings }
         'rt' { Set-RootPermission }
         've' { Show-VirtualEnv }
+        'fps' { Set-FrameRate }
         '8' { Install-APK }
         '9' { Uninstall-App }
         'g' { Show-Logs }

@@ -593,6 +593,36 @@ Describe '[VE] virtual environment (wiring)' {
     }
 }
 
+Describe '[FPS] frame rate setting (wiring)' {
+
+    It 'Set-FrameRate reads and writes customer_config.json frame_setting.desired_framerate' {
+        $f = $script:ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Set-FrameRate'
+        }, $true) | Select-Object -First 1
+        $t = $f.Extent.Text
+        # Reads the right config file.
+        $t | Should -Match 'customer_config\.json'
+        # Touches the correct JSON path.
+        $t | Should -Match 'frame_setting'
+        $t | Should -Match 'desired_framerate'
+        # Locates the instance directory via vms root.
+        $t | Should -Match "Join-Path.*vms'"
+        $t | Should -Match '\$index'
+        # Offers restart to apply the change.
+        $t | Should -Match 'Restart instance now'
+        # Reads back after a settle pause to detect player revert.
+        $t | Should -Match 'Start-Sleep -Seconds'
+        $t | Should -Match 'player reverted'
+    }
+
+    It 'the menu wires [FPS] to Set-FrameRate and documents it' {
+        $src = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'mumu-menu.ps1') -Raw
+        ($src -match "'fps' \{ Set-FrameRate \}") | Should -Be $true
+        ($src -match '\[FPS\] Set frame rate') | Should -Be $true
+    }
+}
+
 Describe 're-sign after update (Resture-ScriptSignature wiring)' {
 
     It 'both updaters re-sign mumu-menu.ps1 when the [CRT] certificate exists' {
