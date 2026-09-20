@@ -1356,7 +1356,7 @@ function Update-FromGitHub {
         if ($healed) { return }
 
         Write-Host "  Update available!" -ForegroundColor $(if ($Passive) { 'DarkGray' } else { 'Yellow' })
-        
+
         # Show version gap information
         if ($localTag -and $tag) {
             try {
@@ -1370,7 +1370,7 @@ function Update-FromGitHub {
                 }
             } catch { Write-Debug "Version comparison failed: $($_.Exception.Message)" }
         }
-        
+
         if ($Passive) {
             Write-Host '  Nothing was downloaded. Select [U] Check for updates' -ForegroundColor DarkGray
             Write-Host '  in the menu to review and install it manually.' -ForegroundColor DarkGray
@@ -1666,7 +1666,7 @@ function Update-FromGitHub {
                 $baseArgs = @('-s', '--retry', '2', '--retry-delay', '1', '--connect-timeout', '15', '--max-time', '60',
                               '-H', 'Accept: application/vnd.github.v3.raw', '-o', $Out)
                 if (-not $NoAuth) { $baseArgs += '-L' }
-                
+
                 if ($GitHubToken -and $GitHubToken.Length -gt 0 -and -not $NoAuth) {
                     $allArgs = $baseArgs + @('-H', "Authorization: token $GitHubToken", $Url)
                     & curl.exe @allArgs 2>$null
@@ -1674,15 +1674,15 @@ function Update-FromGitHub {
                     $noAuthArgs = $baseArgs + @($Url)
                     & curl.exe @noAuthArgs 2>$null
                 }
-                
+
                 # Check if download succeeded
                 if ($LASTEXITCODE -eq 0 -and (Test-Path $Out) -and (Get-Item $Out -ErrorAction SilentlyContinue).Length -gt 0) {
                     break
                 }
-                
+
                 # Clean up failed download
                 Remove-Item $Out -Force -ErrorAction SilentlyContinue
-                
+
                 # Rate limit detected - try without token on next attempt
                 if ($attempt -eq 1 -and $GitHubToken -and $GitHubToken.Length -gt 0 -and -not $NoAuth) {
                     Write-Host "    Rate limit or auth failure - retrying without token..." -ForegroundColor Yellow
@@ -1693,7 +1693,7 @@ function Update-FromGitHub {
                     }
                     Remove-Item $Out -Force -ErrorAction SilentlyContinue
                 }
-                
+
                 # Exponential backoff before next attempt
                 if ($attempt -lt $maxRetries) {
                     $delay = $baseDelay * [math]::Pow(2, $attempt - 1)
