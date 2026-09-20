@@ -7142,7 +7142,13 @@ function Set-RootPermission {
     # echoes the resulting value, so no silent failures.
     $index = Get-InstanceIndex 'Select instance'
     if (-not $index) { return }
-    Write-Host ''
+
+    # --- read instance name + root state ---
+    $instName = "Instance $index"
+    try {
+        $info = & $MumuPath info -v $index 2>$null | ConvertFrom-Json
+        if ($info.$index.name) { $instName = $info.$index.name }
+    } catch { Write-Debug "info read failed: $_" }
 
     $cur = $null
     try {
@@ -7151,49 +7157,83 @@ function Set-RootPermission {
         if ($null -ne $parsed.root_permission) { $cur = [string]$parsed.root_permission }
     } catch { Write-Debug "root_permission read failed: $($_.Exception.Message)" }
 
+    Write-Host ''
+    Write-Host '  ┌─────────────────────────────────────────────┐' -ForegroundColor Cyan
+    Write-Host ("  │  Root Permission: {0,-24}│" -f $instName) -ForegroundColor Cyan
+    Write-Host '  └─────────────────────────────────────────────┘' -ForegroundColor Cyan
+    Write-Host ''
+
     if ($cur -eq 'true') {
-        Write-Host "  Instance ${index}: root is ENABLED." -ForegroundColor Yellow
-        $resp = Read-Host '  Enter = disable root, r = refresh, q = cancel'
-        if ($resp -eq 'q') { return }
+        Write-Host '    ● Root: ' -NoNewline
+        Write-Host 'ENABLED' -ForegroundColor Green -NoNewline
+        Write-Host ' ✓' -ForegroundColor Green
+        Write-Host ''
+        Write-Host '    Actions:' -ForegroundColor DarkGray
+        Write-Host '      [Enter] Disable root' -ForegroundColor White
+        Write-Host '      [R]     Refresh status' -ForegroundColor White
+        Write-Host '      [Q]     Cancel' -ForegroundColor DarkGray
+        Write-Host ''
+        $resp = (Read-Host '    Your choice').Trim().ToLower()
+        if ($resp -eq 'q' -or $resp -eq '') { if ($resp -eq 'q') { return } }
+        if ($resp -eq 'r') { Set-RootPermission; return }
         $newValue = 'false'
     } elseif ($cur -eq 'false') {
-        Write-Host "  Instance ${index}: root is disabled." -ForegroundColor DarkGray
-        $resp = Read-Host '  Enter = enable root, r = refresh, q = cancel'
+        Write-Host '    ● Root: ' -NoNewline
+        Write-Host 'DISABLED' -ForegroundColor DarkGray -NoNewline
+        Write-Host ' ○' -ForegroundColor DarkGray
+        Write-Host ''
+        Write-Host '    Actions:' -ForegroundColor DarkGray
+        Write-Host '      [Enter] Enable root' -ForegroundColor White
+        Write-Host '      [R]     Refresh status' -ForegroundColor White
+        Write-Host '      [Q]     Cancel' -ForegroundColor DarkGray
+        Write-Host ''
+        $resp = (Read-Host '    Your choice').Trim().ToLower()
         if ($resp -eq 'q') { return }
+        if ($resp -eq 'r') { Set-RootPermission; return }
         $newValue = 'true'
     } else {
-        Write-Host '  Could not read current root_permission (emulator running?).' -ForegroundColor Red
+        Write-Host '    ⚠ Could not read root_permission (emulator running?)' -ForegroundColor Red
+        Write-Host ''
         return
     }
 
+    # --- apply ---
+    Write-Host ''
+    Write-Host '    Applying...' -NoNewline -ForegroundColor Cyan
     $result = & $MumuPath setting -v $index --key root_permission --value $newValue 2>&1 | Out-String
     try {
         $applied = ([string]($result | ConvertFrom-Json).root_permission)
     } catch { $applied = '' }
 
     if ($applied -ne $newValue) {
-        Write-Host "  Setting failed: $($result.Trim())" -ForegroundColor Red
+        Write-Host "`r    ✗ Setting failed: $($result.Trim())" -ForegroundColor Red
         return
     }
+    Write-Host "`r    ✓ CLI accepted the change              " -ForegroundColor Green
 
-    # A running player periodically flushes its own settings and can win a
-    # race against a just-written key (observed live: the write echo said
-    # 'false' while the player reverted to 'true'). The echo alone is not a
-    # verdict - re-read after a settle pause and report the stable state.
-    $final = $applied
+    # --- settle + re-read (running player can revert) ---
+    Write-Host '    Waiting for settle...' -NoNewline -ForegroundColor DarkGray
     Start-Sleep -Seconds 3
+    $final = $applied
     try {
         $reJson = & $MumuPath setting -v $index --key root_permission 2>$null | Out-String
         $reParsed = $reJson | ConvertFrom-Json
         if ($null -ne $reParsed.root_permission) { $final = [string]$reParsed.root_permission }
     } catch { Write-Debug "root_permission re-read failed: $($_.Exception.Message)" }
 
+    Write-Host "`r                                  " -NoNewline
+
     if ($final -eq $newValue) {
-        $state = if ($newValue -eq 'true') { 'ENABLED' } else { 'disabled' }
-        Write-Host "  Root $state for instance ${index} (verified by read-back)." -ForegroundColor Green
+        $icon = if ($newValue -eq 'true') { '●' } else { '○' }
+        $label = if ($newValue -eq 'true') { 'ENABLED' } else { 'DISABLED' }
+        $color = if ($newValue -eq 'true') { 'Green' } else { 'DarkGray' }
+        Write-Host "    ✓ Verified: root is now $label $icon" -ForegroundColor $color
+        Write-Host ''
     } else {
-        Write-Host "  The CLI accepted the write, but the player reverted it (now: $final)." -ForegroundColor Yellow
-        Write-Host '  Re-apply while the instance is stopped, or retry from the menu.' -ForegroundColor Yellow
+        Write-Host '    ⚠ Player reverted the change' -ForegroundColor Yellow
+        Write-Host "      CLI wrote '$newValue', but player kept '$final'" -ForegroundColor Yellow
+        Write-Host '      → Stop the instance first, then retry.' -ForegroundColor Yellow
+        Write-Host ''
     }
 }
 

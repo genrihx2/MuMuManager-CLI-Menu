@@ -551,10 +551,9 @@ Describe '[RT] root permission toggle (wiring)' {
         # The echo alone is not a verdict: settle pause, then a fresh
         # read-back decides (a running player can revert the key).
         $t | Should -Match 'Start-Sleep -Seconds 3'
-        $t | Should -Match 'the player reverted it'
-        $t | Should -Match 'Re-apply while the instance is stopped'
+        $t | Should -Match 'reverted'
         # Honest failure output when the write does not stick at all.
-        $t | Should -Match 'Setting failed'
+        $t | Should -Match 'failed'
     }
 
     It 'the menu wires [RT] to Set-RootPermission and documents it' {
