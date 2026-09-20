@@ -7049,8 +7049,16 @@ function Invoke-AdbShell {
     # Thin wrapper: run one shell command inside the instance VM through
     # the official MuMuManager adb transport (no direct adb.exe process
     # management - the manager owns the bridge).
+    # ADB outputs UTF-8; force PowerShell to read it as such (not the
+    # system default codepage which garbles Cyrillic in user names).
     param([string]$Index, [string]$Command)
-    return (& $MumuPath adb -v $Index -c "shell $Command" 2>&1 | Out-String)
+    $prevEnc = $OutputEncoding
+    try {
+        $OutputEncoding = [System.Text.Encoding]::UTF8
+        return (& $MumuPath adb -v $Index -c "shell $Command" 2>&1 | Out-String)
+    } finally {
+        $OutputEncoding = $prevEnc
+    }
 }
 
 function Show-VirtualEnv {
