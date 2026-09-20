@@ -1763,7 +1763,7 @@ Describe 'GitHub API fetch via argument arrays (v1.22.3, [K] Token invalid fix)'
     It '[K] wiring: validation goes through Invoke-GitHubApiGet and empty responses get an honest failure message' {
         $src = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\mumu-menu.ps1'))
         # both [K] paths validate through the argument-array helper (no raw fused curl call)
-        ([regex]::Matches($src, [regex]::Escape("Invoke-GitHubApiGet -Url 'https://api.github.com/user'"))).Count | Should -Be 4
+        ([regex]::Matches($src, [regex]::Escape("Invoke-GitHubApiGet -Url 'https://api.github.com/user'"))).Count | Should -Be 3
         # empty body must say "did not respond", not "Token invalid"
         $src | Should -Match 'did not respond \(network problem\)'
         # genuine rejection keeps a specific message

@@ -5145,6 +5145,33 @@ function Test-ScriptDependencies {
     Write-Host ''
 }
 
+function Set-EphemeralToken {
+    # Read a token via SecureString, validate it, and set it for
+    # the current session only — nothing written to disk.
+    Write-Host ''
+    Write-Host 'Enter token (session only, not saved):' -ForegroundColor DarkCyan
+    $sec = Read-Host -AsSecureString
+    if (ConvertFrom-SecureToken $sec) {
+        $plain = ConvertFrom-SecureToken $sec
+        Write-Host 'Testing...' -ForegroundColor Yellow
+        $rawStr = Invoke-GitHubApiGet -Url 'https://api.github.com/user' -Token $plain
+        $user = $rawStr | ConvertFrom-Json
+        if ($user.login) {
+            $script:GitHubToken = $plain
+            $masked = if ($plain.Length -gt 8) {
+                $plain.Substring(0, 4) + '****' + $plain.Substring($plain.Length - 4)
+            } else { '****' }
+            Write-Host "  Ephemeral token active: $masked" -ForegroundColor DarkCyan
+            Write-Host "  User: $($user.login)" -ForegroundColor DarkCyan
+            Write-Host '  Token will be lost when menu exits (not saved to disk).' -ForegroundColor DarkCyan
+        } else {
+            Write-Host 'Token rejected by GitHub.' -ForegroundColor Red
+        }
+    } else {
+        Write-Host 'Cancelled (empty input).' -ForegroundColor Yellow
+    }
+}
+
 function Update-Token {
     Write-Host ''
     Write-Host 'GitHub Token Manager' -ForegroundColor Cyan
@@ -5219,29 +5246,7 @@ function Update-Token {
             }
             return
         } elseif ($choice -eq 'e' -or $choice -eq 'E') {
-            # Ephemeral token: use for this session only, never write to disk
-            Write-Host ''
-            Write-Host 'Enter token (session only, not saved):' -ForegroundColor DarkCyan
-            $sec = Read-Host -AsSecureString
-            if (ConvertFrom-SecureToken $sec) {
-                $plain = ConvertFrom-SecureToken $sec
-                Write-Host 'Testing...' -ForegroundColor Yellow
-                $rawStr = Invoke-GitHubApiGet -Url 'https://api.github.com/user' -Token $plain
-                $user = $rawStr | ConvertFrom-Json
-                if ($user.login) {
-                    $script:GitHubToken = $plain
-                    $masked = if ($plain.Length -gt 8) {
-                        $plain.Substring(0, 4) + '****' + $plain.Substring($plain.Length - 4)
-                    } else { '****' }
-                    Write-Host "  Ephemeral token active: $masked" -ForegroundColor DarkCyan
-                    Write-Host "  User: $($user.login)" -ForegroundColor DarkCyan
-                    Write-Host '  Token will be lost when menu exits (not saved to disk).' -ForegroundColor DarkCyan
-                } else {
-                    Write-Host 'Token rejected by GitHub.' -ForegroundColor Red
-                }
-            } else {
-                Write-Host 'Cancelled (empty input).' -ForegroundColor Yellow
-            }
+            Set-EphemeralToken
             return
         } elseif ($choice -ne '1') {
             Write-Host 'Cancelled.' -ForegroundColor Yellow
@@ -5254,29 +5259,7 @@ function Update-Token {
         Write-Host '  [0] Cancel' -ForegroundColor Yellow
         $choice = Read-Host 'Select option'
         if ($choice -eq 'e' -or $choice -eq 'E') {
-            # Ephemeral token from the no-token branch
-            Write-Host ''
-            Write-Host 'Enter token (session only, not saved):' -ForegroundColor DarkCyan
-            $sec = Read-Host -AsSecureString
-            if (ConvertFrom-SecureToken $sec) {
-                $plain = ConvertFrom-SecureToken $sec
-                Write-Host 'Testing...' -ForegroundColor Yellow
-                $rawStr = Invoke-GitHubApiGet -Url 'https://api.github.com/user' -Token $plain
-                $user = $rawStr | ConvertFrom-Json
-                if ($user.login) {
-                    $script:GitHubToken = $plain
-                    $masked = if ($plain.Length -gt 8) {
-                        $plain.Substring(0, 4) + '****' + $plain.Substring($plain.Length - 4)
-                    } else { '****' }
-                    Write-Host "  Ephemeral token active: $masked" -ForegroundColor DarkCyan
-                    Write-Host "  User: $($user.login)" -ForegroundColor DarkCyan
-                    Write-Host '  Token will be lost when menu exits (not saved to disk).' -ForegroundColor DarkCyan
-                } else {
-                    Write-Host 'Token rejected by GitHub.' -ForegroundColor Red
-                }
-            } else {
-                Write-Host 'Cancelled (empty input).' -ForegroundColor Yellow
-            }
+            Set-EphemeralToken
             return
         } elseif ($choice -ne '1') {
             Write-Host 'Cancelled.' -ForegroundColor Yellow
