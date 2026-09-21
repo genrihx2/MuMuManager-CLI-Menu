@@ -940,10 +940,19 @@ URL-сканеры (SafeToOpen, Chong Lua Dao) помечают ссылки в�
 
 При скачивании `.ps1`-файлов через браузер Windows SmartScreen показывает предупреждение «mumu-menu.ps1 может нанести вред вашему устройству». Это **ложное срабатывание** — SmartScreen блокирует по репутации URL/расширения, а не по анализу содержимого.
 
-**Как обойти:**
-1. Нажмите **«Сохранить»** (или «Сохранить всё равно»)
-2. Если кнопка не видна — нажмите **«Сведения»** → **«Сохранить всё равно»**
-3. Если SmartScreen блокирует полностью — нажмите правой кнопкой → **«Свойства»** → снимите галочку **«Заблокировано»** внизу → OK
+**Как обойти — шаги по браузерам:**
+
+- **Chrome:** в карточке предупреждения нажмите **«Подробнее»** → **«Сохранить в любом случае»**. Если файл уже в списке загрузок — `⋯` справа от него → **«Сохранить»** → «Всё равно сохранить»
+- **Edge:** нажмите **«Сохранить»**, затем в тосте **«Показать ещё»** → **«Все равно сохранить»**. Если файл уже в списке загрузок — `⋯` → **«Сохранить»** → «Все равно сохранить»
+- **Общее:** если показана только кнопка «Удалить», раскройте **«Сведения»**/**«Подробнее»** — рядом появится кнопка сохранения
+
+**Разблокировка MOTW (Mark-of-the-Web):**
+
+Скачанный из интернета файл получает метку MOTW, и Windows может заблокировать его запуск (ExecutionPolicy RemoteSigned не выполняет файлы с меткой из интернета). Снимите метку одним из способов:
+
+- Проводник: правой кнопкой по файлу → **Свойства** → внизу отметьте **«Разблокировать»** → OK
+- PowerShell: `Unblock-File .\mumu-menu.ps1` (или разом для всех скриптов: `Get-ChildItem *.ps1 | Unblock-File`)
+- Проверить наличие метки: `Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue` — вывод означает, что метка ещё стоит
 
 **Альтернативы без SmartScreen:**
 - Скачайте ZIP-архив с [страницы релиза](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest) — ZIP SmartScreen обычно не блокирует
@@ -1009,7 +1018,7 @@ MIT License
 irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-menu.ps1 -OutFile $env:TEMP\mumu-menu.ps1; & $env:TEMP\mumu-menu.ps1
 ```
 
-**SmartScreen warning:** When downloading `.ps1` files, Windows SmartScreen may show "mumu-menu.ps1 can harm your device". This is a false positive — SmartScreen blocks by URL reputation and file extension, not by content analysis. Click "Save" → "Save anyway", or grab the ZIP from the [latest release](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest) instead.
+**SmartScreen warning:** When downloading `.ps1` files, Windows SmartScreen may show "mumu-menu.ps1 can harm your device". This is a false positive — SmartScreen blocks by URL reputation and file extension, not by content analysis. **Chrome:** in the warning card expand "Details" → "Save anyway" (or download tray `⋯` → "Keep" → "Keep anyway"). **Edge:** "Save" → "Show more" → "Keep anyway". The saved file carries Mark-of-the-Web; unblock it via file **Properties → Unblock** or `Unblock-File .\mumu-menu.ps1` before running. Alternatively grab the ZIP from the [latest release](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest) — ZIP downloads are not SmartScreen-blocked.
 
 **Security:** updates come only from tagged GitHub Releases, pinned to their commit SHA, with SHA-256 verification of every downloaded byte; when the API is unreachable, one transport retry goes through the `cdn.jsdelivr.net` mirror of the same pinned commit (no token, no redirect-following). Browser warnings on `.ps1` downloads are file-type triggers, not content verdicts — every release carries CI VirusTotal verdicts in its body. **Microsoft Defender false positive appeal confirmed** (Submission ID: `e7863737-b31e-4a0b-a4ae-6b8316ea00c8`): Microsoft stated «Our scanners show no positive detection — submission closed with no further action pending». Definitions v1.459.282.0: file is clean. The full policy («Reporting a Vulnerability», SLA, safe harbor), endpoint table, threat model and Sigma false-positive analysis are in [SECURITY.md](SECURITY.md); the release pipeline runbook in [RELEASE-RUNBOOK.md](RELEASE-RUNBOOK.md).
 
