@@ -462,6 +462,10 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Что нового
 
+### v1.22.32 (21.09.2026)
+
+- **Меню [G] View logs**: панельный редизайн — состояние инстанса, guard logcat на остановленном, раскраска logcat по уровню (E/W/D), открытие полного лога в notepad
+
 ### v1.22.31 (21.09.2026)
 
 - **Меню [2] Launch emulator**: новый экран в панельном стиле [RT]/[VE] — guard «ALREADY RUNNING», статус запуска, честный итог загрузки, вывод API с отступом
@@ -794,6 +798,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.32 | 21.09.2026 | Меню [G] View logs: панель, guard logcat, раскраска по уровню |
 | v1.22.31 | 21.09.2026 | Меню [2] Launch emulator: панельный редизайн, guard «ALREADY RUNNING», честный итог загрузки |
 | v1.22.30 | 21.09.2026 | CI: DevSkim linter (SARIF → Security tab) + SKILL.md refresh |
 | v1.22.29 | 21.09.2026 | Фикс [TN]: интерполяция .tag_name внутри $( ) — Partial-вердикт больше не ловит весь объект релиза |
