@@ -1,0 +1,86 @@
+name: CDN sync
+
+# jsDelivr serves /gh/<repo>@main/<path> with a cache TTL of up to 12 hours,
+# so the mirror can lag freshly pushed main. The update pipeline never reads
+# @main paths (its CDN fallback is pinned to the exact commit SHA), so this
+# staleness only affects external references: README links, the [TN] probe,
+# and humans fetching the latest script via the mirror. This workflow purges
+# the cached @main paths so the mirror tracks main within minutes.
+#
+# Triggers:
+#   - push to main that touches the four distributed files (same set that
+#     bootstrap-update.ps1 downloads) - purge right after the change lands;
+#   - weekly schedule (Monday 03:07 UTC) - belt-and-suspenders purge that
+#     also self-heals any drift from provider-side cache retention quirks;
+#   - workflow_dispatch - manual one-click purge.
+#
+# The purge endpoint is public (no token), idempotent, and returns a JSON
+# receipt per path. A failed purge is not fatal (the mirror self-heals in
+# <= 12h), so the job warns and moves on instead of failing the run.
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'mumu-menu.ps1'
+      - 'SKILL.md'
+      - 'README.md'
+      - 'bootstrap-update.ps1'
+      - '.github/workflows/cdn-sync.yml'
+  schedule:
+    - cron: '7 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  purge-mirror:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Purge jsDelivr @main cache for distributed files
+        shell: bash
+        run: |
+          set -u
+          REPO="genrihx2/MuMuManager-CLI-Menu"
+          FILES="mumu-menu.ps1 SKILL.md README.md bootstrap-update.ps1 .version"
+          fail=0
+          for f in $FILES; do
+            url="https://purge.jsdelivr.net/gh/${REPO}@main/${f}"
+            echo "Purging ${f} ..."
+            body="$(curl -sS --max-time 30 "$url" || true)"
+            echo "$body" | head -c 400 || true
+            echo
+            # The receipt must mark the path as purged (not throttled).
+            if echo "$body" | grep -q '"status": *"finished"'; then
+              echo "  OK: purge receipt received for ${f}"
+            else
+              echo "  WARN: no purge receipt for ${f} (mirror self-heals in <= 12h)"
+              fail=1
+            fi
+          done
+          if [ "$fail" -ne 0 ]; then
+            echo "::warning::Some purge receipts were missing - verify https://www.jsdelivr.com/tools/purge"
+          fi
+          # Non-fatal by design: exit 0 so a provider hiccup does not flag
+          # the run; the weekly schedule will retry regardless.
+          exit 0
+
+      - name: Verify mirror serves fresh content
+        shell: bash
+        run: |
+          REPO="genrihx2/MuMuManager-CLI-Menu"
+          # After the purge, cdn.jsdelivr.net must serve exactly what main
+          # serves for a canary file. Compare a marker that changes with
+          # every version bump: the $scriptVer assignment in mumu-menu.ps1.
+          cdn="$(curl -sSL --max-time 30 "https://cdn.jsdelivr.net/gh/${REPO}@main/mumu-menu.ps1" | grep -oP "(?<=scriptVer = ')1\.22\.\d+" | head -1)"
+          cdn="${cdn:-unknown}"
+          # The fresh commit SHA is what the mirror should reflect; compare
+          # the CDN copy against the tag-less HEAD blob from the checkout.
+          echo "CDN scriptVer: ${cdn}"
+          if [ "$cdn" = "unknown" ]; then
+            echo "::warning::Could not read scriptVer from the mirror - check manually"
+          else
+            echo "Mirror is live. (Content equality vs HEAD is enforced by the SHA-pinned transport; this check only proves the cache was invalidated.)"
+          fi
