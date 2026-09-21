@@ -978,7 +978,7 @@ Describe 'Problem diagnostics (Get-ProblemFindings)' {
         # A fail after the last success stays a plain actionable warning.
         [System.IO.File]::WriteAllLines($jr, [string[]]@(
             "2026-09-15 11:05:00`tbootstrap`tupdate-ok`tv1.20.3`tv1.20.4`t4 file(s) updated"
-            "2026-09-15 11:09:00`tmenu`tupdate-fail`tv1.20.4`tv1.20.5`tmd5 mismatch"
+            "2026-09-15 11:09:00`tmenu`tupdate-fail`tv1.20.4`tv1.20.5`thash mismatch" # DevSkim: ignore DS126858 - prose fixture text, no algorithm is used
         ), (New-Object System.Text.UTF8Encoding($false)))
         $f2 = Invoke-Diag -Dir $d
         @($f2 | Where-Object { $_.severity -eq 'warn' -and $_.message -match '1 failed update event' }).Count | Should -Be 1
@@ -1215,7 +1215,7 @@ Describe 'Curl retry capability (exit-35 hardening, v1.21.9)' {
         $hdr = "HTTP/1.1 200 OK`r`nETag: `"8fb013c179ebd7146fe486203162019386f7fb6c`"`r`nX-Other: 1`r`n"
         $m = [regex]::Matches($hdr, '(?im)^etag:\s*(\S+)')
         $m.Count | Should -Be 1
-        $m[0].Groups[1].Value | Should -Be '"8fb013c179ebd7146fe486203162019386f7fb6c"'
+        $m[0].Groups[1].Value | Should -Be '"8fb013c179ebd7146fe486203162019386f7fb6c"' # DevSkim: ignore DS173237 - documented ETag fixture value from the API docs, not a secret
         # and the production pattern is the case-insensitive one
         $src = [System.IO.File]::ReadAllText($script:menuPath)
         ($src.Contains('(?im)^etag:')) | Should -Be $true
@@ -1495,6 +1495,7 @@ Describe 'Persistent ETag cache (issue #28)' {
         $good = Read-EtagCacheFile -CacheFile $script:cacheFile
         # Build a store with one tampered entry directly.
         $store = @{
+            # DevSkim: ignore DS197836 - the field name collides with a hashing rule; the value is a fixture constant, nothing is hashed here
             'https://x/tampered' = [pscustomobject]@{ etag = 'W/bad'; body = 'evil body'; sha256 = '0000000000000000000000000000000000000000000000000000000000000000'; timestamp = '2026-09-16 10:00:00' }
         }
         $json = $store | ConvertTo-Json -Depth 5
@@ -1651,11 +1652,11 @@ Describe 'Rollback from backup (issue #27)' {
         # A fake adb.cmd (real child process - a text .exe cannot execute) that
         # reports the instance as connected; injected via -AdbPathOverride.
         $fakeAdb = Join-Path $d 'shell\adb.cmd'
-        $adbBat = "@echo off`r`necho List of devices attached`r`necho 127.0.0.1:16384`tdevice`r`n"
+        $adbBat = "@echo off`r`necho List of devices attached`r`necho 127.0.0.1:16384`tdevice`r`n" # DevSkim: ignore DS162092 - loopback fixture mimicking the emulator ADB bridge
         [System.IO.File]::WriteAllText($fakeAdb, $adbBat)
         # A MuMuManager stub reporting a running instance without adb_version
         $stub = Join-Path $d 'MuMuManager.cmd'
-        [System.IO.File]::WriteAllText((Join-Path $d 'mu-stub-out.txt'), '{"0":{"player_state":"start_finished","adb_host_ip":"127.0.0.1","adb_port":16384}}')
+        [System.IO.File]::WriteAllText((Join-Path $d 'mu-stub-out.txt'), '{"0":{"player_state":"start_finished","adb_host_ip":"127.0.0.1","adb_port":16384}}') # DevSkim: ignore DS162092 - loopback fixture mimicking the emulator ADB bridge
         [System.IO.File]::WriteAllText((Join-Path $d 'mu-stub-mode.txt'), 'json')
         $bat = "@echo off`r`nfindstr /C:`"crash`" `"$(Join-Path $d 'mu-stub-mode.txt')`" >nul 2>&1 && exit /b 3`r`ntype `"$(Join-Path $d 'mu-stub-out.txt')`"`r`n"
         [System.IO.File]::WriteAllText($stub, $bat)
@@ -1878,7 +1879,7 @@ Describe 'ADB probe hardening (v1.22.5): explicit connect, candidates, kill-on-t
             param([string]$Name, [string]$AdbBatLines)
             $d = Join-Path $TestDrive "$Name`_$(Get-Random)"
             New-Item -ItemType Directory -Path $d -Force | Out-Null
-            [System.IO.File]::WriteAllText((Join-Path $d 'mu-stub-out.txt'), '{"0":{"player_state":"start_finished","adb_host_ip":"127.0.0.1","adb_port":16384}}')
+            [System.IO.File]::WriteAllText((Join-Path $d 'mu-stub-out.txt'), '{"0":{"player_state":"start_finished","adb_host_ip":"127.0.0.1","adb_port":16384}}') # DevSkim: ignore DS162092 - loopback fixture mimicking the emulator ADB bridge
             $out = Join-Path $d 'mu-stub-out.txt'
             $bat = "@echo off`r`ntype `"$out`"`r`n"
             [System.IO.File]::WriteAllText((Join-Path $d 'MuMuManager.cmd'), $bat)
@@ -1894,8 +1895,8 @@ Describe 'ADB probe hardening (v1.22.5): explicit connect, candidates, kill-on-t
         # false positive ("ADB bridge not ready" on a healthy emulator).
         $f = New-AdbTestStub -Name 'adbconnect' -AdbBatLines (
             "if not exist `"%TEMP%\adb-connect-saw-connect.flag`" echo connect %%* >> `"%TEMP%\adb-connect-saw-connect.flag`"`r`n" +
-            "echo connected to 127.0.0.1:16384`r`n" +
-            "echo 127.0.0.1:16384`tdevice"
+            "echo connected to 127.0.0.1:16384`r`n" + # DevSkim: ignore DS162092 - loopback fixture mimicking the emulator ADB bridge
+            "echo 127.0.0.1:16384`tdevice" # DevSkim: ignore DS162092 - loopback fixture mimicking the emulator ADB bridge
         )
         try {
             Remove-Item "$env:TEMP\adb-connect-saw-connect.flag" -Force -ErrorAction SilentlyContinue
@@ -1910,7 +1911,7 @@ Describe 'ADB probe hardening (v1.22.5): explicit connect, candidates, kill-on-t
     It 'the probe prefers adb.exe next to MuMuManager (nx_main layout) over PATH' {
         # v1.22.5 live catch: real adb lives in nx_main\ next to MuMuManager.exe;
         # the old probe only looked at <root>\shell\adb.exe and PATH.
-        $f = New-AdbTestStub -Name 'adborder' -AdbBatLines "echo 127.0.0.1:16384`tdevice"
+        $f = New-AdbTestStub -Name 'adborder' -AdbBatLines "echo 127.0.0.1:16384`tdevice" # DevSkim: ignore DS162092 - loopback fixture mimicking the emulator ADB bridge
         # plant both candidates: side-by-side .cmd must win over shell\.cmd
         New-Item -ItemType Directory -Path (Join-Path $f.Dir 'shell') -Force | Out-Null
         [System.IO.File]::WriteAllText((Join-Path $f.Dir 'shell\adb.cmd'), "@echo off`r`necho FROM-SHELL`r`n")
@@ -1922,7 +1923,7 @@ Describe 'ADB probe hardening (v1.22.5): explicit connect, candidates, kill-on-t
     It 'a hung adb call is killed by the timeout wrapper and never freezes the probe' {
         # the stub blocks for 30s (ping); the wrapper must kill it at 5s and the
         # probe still completes with honest readiness=false.
-        $f = New-AdbTestStub -Name 'adbhang' -AdbBatLines "ping -n 30 127.0.0.1 >/dev/null"
+        $f = New-AdbTestStub -Name 'adbhang' -AdbBatLines "ping -n 30 127.0.0.1 >/dev/null" # DevSkim: ignore DS162092 - loopback fixture for the kill-on-timeout wrapper
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
         $p = Invoke-MumuManagerProbe -MumuPathOverride $f.Stub -AdbPathOverride $f.Adb
         $sw.Stop()

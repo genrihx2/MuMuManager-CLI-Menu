@@ -12,7 +12,7 @@ $pester = Get-Module -ListAvailable Pester | Where-Object { $_.Version.Major -ge
 if (-not $pester) {
     Write-Host 'Pester 5.x not found - installing to user scope (non-interactive)...'
     try {
-        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 # DevSkim: ignore DS440020, DS440001 - Windows PowerShell 5.1 test runner needs the explicit TLS 1.2 opt-in
     } catch {
         # Best-effort hardening only: pwsh 7 negotiates TLS 1.2+ by default
         # and may not expose ServicePointManager at all - never fatal here.

@@ -130,7 +130,7 @@ try {
 {
   "name": "mumu-menu.ps1",
   "path": "mumu-menu.ps1",
-  "sha": "e5f3b5b0f8f9d7c2a1b0e9d8c7b6a5f4e3d2c1b0",
+  "sha": "e5f3b5b0f8f9d7c2a1b0e9d8c7b6a5f4e3d2c1b0", # DevSkim: ignore DS173237 - fake blob SHA in a JSON fixture, not a credential
   "size": 272557,
   "encoding": "base64",
   "content": "I3JlcXVpcmVzIC0tIHZlcnNpb24gNS4x...",
