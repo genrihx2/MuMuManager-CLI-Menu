@@ -6980,14 +6980,21 @@ function Show-Logs {
         Write-Host '  [2] Errors only (E)' -ForegroundColor White
         Write-Host '  [3] Warnings + Errors (W)' -ForegroundColor White
         Write-Host '  [4] Custom tag (e.g. ActivityManager)' -ForegroundColor White
+        Write-Host '  [5] Quiet — hide known noise (Play Store, vsync, GC)' -ForegroundColor White
         $fmode = Read-Host 'Filter (Enter=1)'
         if ($fmode -eq '') { $fmode = '1' }
 
         $filter = '*:*'
         $filterDesc = 'all'
+        # Known-noise tags: Google Play background churn, vsync jitter, GC and
+        # loader chatter. Matched right after the -v time level letter
+        # ("...858 W/Choreographer(").
+        $noiseRx = '\s[VDIWEF]/(Choreographer|Finsky|android\.vending|HWUI|OomAdjuster|nativeloader|BoundBrokerSvc|Volley|DGInternalHandle|DynamiteModule|AbstractLogEventBuilder|JobInfo|NemuSysOpt|FileUtils)'
+        $quiet = $false
         switch ($fmode) {
             '2' { $filter = '*:E'; $filterDesc = 'errors only (E)' }
             '3' { $filter = '*:W'; $filterDesc = 'warnings + errors (W)' }
+            '5' { $filter = '*:*'; $filterDesc = 'quiet (known noise hidden)'; $quiet = $true }
             '4' {
                 $tag = Read-Host 'Enter tag or package name (regex supported)'
                 if ($tag) {
@@ -7010,7 +7017,16 @@ function Show-Logs {
                 $raw = Receive-Job $job
                 Remove-Job $job -Force
                 if ($raw) {
-                    $raw | ForEach-Object { Write-LogcatLine ([string]$_) }
+                    $hidden = 0
+                    foreach ($logLine in $raw) {
+                        $s = [string]$logLine
+                        if ($quiet -and $s -match $noiseRx) { $hidden++; continue }
+                        Write-LogcatLine $s
+                    }
+                    if ($quiet -and $hidden -gt 0) {
+                        Write-Host ''
+                        Write-Host "  [quiet] hidden $hidden noisy line(s)" -ForegroundColor DarkGray
+                    }
                 } else {
                     Write-Host 'Empty output — instance may be stopped, not authorized for adb, or no matching logs.' -ForegroundColor Yellow
                 }
@@ -7024,7 +7040,16 @@ function Show-Logs {
             Write-Host "=== adb logcat LIVE (Ctrl+C to stop, filter: $filterDesc) ===" -ForegroundColor Green
             Write-Host ''
             try {
-                & $MumuPath adb -v $index -c "logcat -v time $filter" 2>&1 | ForEach-Object { Write-LogcatLine ([string]$_) }
+                $counter = @{ hidden = 0 }
+                & $MumuPath adb -v $index -c "logcat -v time $filter" 2>&1 | ForEach-Object {
+                    $s = [string]$_
+                    if ($quiet -and $s -match $noiseRx) { $counter.hidden++; return }
+                    Write-LogcatLine $s
+                }
+                if ($quiet -and $counter.hidden -gt 0) {
+                    Write-Host ''
+                    Write-Host "  [quiet] hidden $($counter.hidden) noisy line(s)" -ForegroundColor DarkGray
+                }
             } catch {
                 Write-Host "logcat interrupted or failed: $($_.Exception.Message)" -ForegroundColor Red
             }

@@ -1095,6 +1095,11 @@ Describe 'View logs screen [G]' {
         ($body.Contains('([VDIWEF])/')) | Should -BeTrue
         # Static-file tail offers the full log in notepad.
         $body.Contains('Open full log in notepad? (y/N)') | Should -BeTrue
+        # Quiet filter [5]: known-noise tag list + hidden-lines counter for
+        # both snapshot and live modes.
+        $body.Contains('Quiet — hide known noise') | Should -BeTrue
+        $body.Contains('Choreographer|Finsky') | Should -BeTrue
+        $body.Contains('[quiet] hidden') | Should -BeTrue
     }
 }
 
