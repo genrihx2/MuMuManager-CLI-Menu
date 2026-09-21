@@ -26,7 +26,11 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: Run DevSkim scanner
-        uses: microsoft/DevSkim-Action@b41921d947434b27f90b8949f8bfbe056e706bf6  # v1.0.11
+        # v1.0.11 is broken upstream: its Dockerfile dotnet-installs the
+        # current DevSkim CLI (1.0.90 needs net8+), which no longer builds
+        # in the net7.0 image (NU1202). Fixed by "Update Dockerfile (#31)"
+        # in v1.0.16 - pin that instead.
+        uses: microsoft/DevSkim-Action@4b5047945a44163b94642a1cecc0d93a3f428cc6  # v1.0.16
 
       - name: Upload DevSkim scan results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63  # v4.38.0
