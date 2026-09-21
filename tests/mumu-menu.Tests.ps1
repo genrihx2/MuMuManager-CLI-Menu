@@ -1100,6 +1100,8 @@ Describe 'View logs screen [G]' {
         $body.Contains('Quiet — hide known noise') | Should -BeTrue
         $body.Contains('Choreographer|Finsky') | Should -BeTrue
         $body.Contains('[quiet] hidden') | Should -BeTrue
+        # Snapshot default filter is errors-only; live stays unfiltered.
+        $body.Contains("defaultFmode = if (`$mode -eq '2') { '2' } else { '1' }") | Should -BeTrue
     }
 }
 

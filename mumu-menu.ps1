@@ -6981,8 +6981,11 @@ function Show-Logs {
         Write-Host '  [3] Warnings + Errors (W)' -ForegroundColor White
         Write-Host '  [4] Custom tag (e.g. ActivityManager)' -ForegroundColor White
         Write-Host '  [5] Quiet — hide known noise (Play Store, vsync, GC)' -ForegroundColor White
-        $fmode = Read-Host 'Filter (Enter=1)'
-        if ($fmode -eq '') { $fmode = '1' }
+        # Snapshot default: errors-only (E) - the common debugging question is
+        # "what broke?"; live mode keeps the unfiltered view on plain Enter.
+        $defaultFmode = if ($mode -eq '2') { '2' } else { '1' }
+        $fmode = Read-Host "Filter (Enter = $(if ($mode -eq '2') { 'errors only (E)' } else { 'all' }))"
+        if ($fmode -eq '') { $fmode = $defaultFmode }
 
         $filter = '*:*'
         $filterDesc = 'all'
