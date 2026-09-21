@@ -4,6 +4,12 @@
 
 ---
 
+## v1.22.24 (21.09.2026)
+
+### Maintenance
+
+- **Tagged snapshot** — релиз закрепляет в теге все post-v1.22.23 исправления из main: [VE] regex/UTF-8/settle delay, [K] ephemeral token + дедупликация `Set-EphemeralToken`, trailing whitespace cleanup. Установки, обновляющиеся через [U]/bootstrap/[F], теперь верифицируются против полного снимка, а не против тега, отставшего от main
+
 ## v1.22.23 (20.09.2026)
 
 ### Features
