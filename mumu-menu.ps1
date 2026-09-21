@@ -235,7 +235,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.22.27'
+$scriptVer = '1.22.28'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -4256,6 +4256,37 @@ function Test-Network {
         if ($ipInfo -match 'inet (\d+[\.\d]+)') {
             Write-Host "  IP: $($Matches[1])" -ForegroundColor White
         }
+    }
+
+    # CDN mirror freshness (host-side): the jsDelivr @main mirror caches
+    # paths for up to 12h; the cdn-sync workflow purges it on every push.
+    # Compare the .version the mirror serves against the latest release tag:
+    #   equal            -> fresh;
+    #   mirror < release -> stale mirror (manual purge hint);
+    #   mirror > release -> main is ahead of the release (bump in flight),
+    #                       the mirror itself is current.
+    # Both endpoints unreachable -> honest N/A, not a failure.
+    Write-Host ''
+    Write-Host '[5] CDN mirror freshness (host-side)' -ForegroundColor Yellow
+    $cdnVer = ''
+    try { $cdnVer = ("$((Invoke-WebRequest -Uri 'https://cdn.jsdelivr.net/gh/genrihx2/MuMuManager-CLI-Menu@main/.version' -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop).Content)").Trim() } catch { Write-Debug "CDN .version fetch failed: $($_.Exception.Message)" }
+    $apiVer = ''
+    try { $apiVer = "$(Invoke-RestMethod -Uri 'https://api.github.com/repos/genrihx2/MuMuManager-CLI-Menu/releases/latest' -TimeoutSec 10 -ErrorAction Stop).tag_name".Trim() } catch { Write-Debug "latest release fetch failed: $($_.Exception.Message)" }
+    $cdnN = $null; $apiN = $null
+    try { if ($cdnVer) { $cdnN = [version]($cdnVer -replace '^v', '') } } catch { Write-Debug "CDN version unparseable: '$cdnVer'" }
+    try { if ($apiVer) { $apiN = [version]($apiVer -replace '^v', '') } } catch { Write-Debug "release version unparseable: '$apiVer'" }
+    if (-not $cdnVer -and -not $apiVer) {
+        Write-Host '  N/A: mirror and API are unreachable - freshness unknown' -ForegroundColor DarkGray
+    } elseif (-not $cdnN -and -not $apiN) {
+        Write-Host "  Mirror: '$cdnVer' / release: '$apiVer' - could not parse as versions" -ForegroundColor Yellow
+    } elseif ($cdnN -eq $apiN) {
+        Write-Host "  Fresh: mirror .version ($cdnVer) matches latest release ($apiVer)" -ForegroundColor Green
+    } elseif ($cdnN -and $apiN -and $cdnN -lt $apiN) {
+        Write-Host "  STALE: mirror serves $cdnVer, latest release is $apiVer - wait for the cdn-sync purge or purge manually (https://www.jsdelivr.com/tools/purge)" -ForegroundColor Yellow
+    } elseif ($cdnN -and $apiN -and $cdnN -gt $apiN) {
+        Write-Host "  Main is ahead of the release: mirror $cdnVer > release $apiVer (version bump in flight) - mirror itself is current" -ForegroundColor Green
+    } else {
+        Write-Host "  Partial: mirror '$cdnVer' / release '$apiVer' - one endpoint unreachable or unparseable" -ForegroundColor Yellow
     }
 
     Write-Host ''

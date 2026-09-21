@@ -1022,6 +1022,26 @@ Describe 'Problem diagnostics (Get-ProblemFindings)' {
         $raw | Should -Match "\[DIAG\] Problem diagnostics"
         $raw | Should -Match "'diag' \{ Show-ProblemDiagnostics \}"
     }
+
+    It 'network test reports CDN mirror freshness as step [5]' {
+        $raw = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'mumu-menu.ps1') -Raw -Encoding UTF8
+        # Step present inside Test-Network, after the WiFi section, before
+        # Test-NetworkSpeed, and it compares the mirror .version against the
+        # latest release tag with an explicit verdict per state.
+        $tnAt = $raw.IndexOf('function Test-Network {')
+        $tsAt = $raw.IndexOf('function Test-NetworkSpeed {')
+        ($tnAt -ge 0 -and $tsAt -gt $tnAt) | Should -BeTrue
+        $step = $raw.IndexOf("'[5] CDN mirror freshness (host-side)'")
+        ($step -gt $tnAt -and $step -lt $tsAt) | Should -BeTrue
+        foreach ($marker in @('cdn.jsdelivr.net/gh/genrihx2/MuMuManager-CLI-Menu@main/.version',
+                              'releases/latest',
+                              'Fresh: mirror .version',
+                              'STALE: mirror serves',
+                              'Main is ahead of the release',
+                              'N/A: mirror and API are unreachable')) {
+            $raw.Contains($marker) | Should -BeTrue
+        }
+    }
 }
 
 Describe 'Install status (issue #25)' {

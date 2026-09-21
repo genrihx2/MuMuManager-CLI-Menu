@@ -462,6 +462,11 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Что нового
 
+### v1.22.28 (21.09.2026)
+
+- **Улучшение [TN]**: новый шаг [5] «CDN mirror freshness» (host-side) — сравнивает `.version` с зеркала `cdn.jsdelivr.net/@main` с тегом последнего релиза и выводит вердикт: Fresh (совпадают), STALE (зеркало отстало — подсказка пуржа), Main ahead (основная ветка впереди релиза — бамп в полёте), N/A (обе стороны недоступны)
+- **CI**: новый воркфлоу `cdn-sync` — авто-пурж зеркала jsDelivr после каждого пуша в main, еженедельно и по запросу
+
 ### v1.22.27 (21.09.2026)
 
 - **Документация**: SmartScreen-инструкция по шагам для Chrome и Edge + раздел разблокировки MOTW (Свойства → «Разблокировать», `Unblock-File`, проверка `Zone.Identifier`)
@@ -776,6 +781,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.28 | 21.09.2026 | [TN] шаг [5] CDN mirror freshness + CI-воркфлоу cdn-sync (авто-пурж зеркала) |
 | v1.22.27 | 21.09.2026 | README: SmartScreen-шаги Chrome/Edge + разблокировка MOTW |
 | v1.22.26 | 21.09.2026 | [DIAG]: классификация stale fail-записей журнала — перекрытый успехом fail = historical info |
 | v1.22.25 | 21.09.2026 | Фикс [F]: strip signature block перед хешированием — ложный DRIFT на переподписанной установке |
