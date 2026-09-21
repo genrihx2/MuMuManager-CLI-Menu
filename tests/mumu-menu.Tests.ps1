@@ -954,10 +954,35 @@ Describe 'Problem diagnostics (Get-ProblemFindings)' {
         $f = Invoke-Diag -Dir $d
         @($f | Where-Object { $_.message -match '1 malformed' }).Count | Should -Be 1
         @($f | Where-Object { $_.message -match '1 failed update event' }).Count | Should -Be 1
+        @($f | Where-Object { $_.message -match 'stale' }).Count | Should -Be 0
         @($f | Where-Object { $_.message -match '1 update-skipped' }).Count | Should -Be 1
         [System.IO.File]::WriteAllBytes($jr, (New-Object byte[] 300000))
         $f2 = Invoke-Diag -Dir $d
         @($f2 | Where-Object { $_.message -match 'rotate to \.old' }).Count | Should -Be 1
+    }
+
+    It 'journal: a fail superseded by a later success is stale history (info, names the success)' {
+        $d = New-FixtureInstall
+        $jr = Join-Path $d 'update-journal.log'
+        $lines = @(
+            "2026-09-15 11:00:25`tmenu`tupdate-fail`tv1.20.3`tv1.20.4`tdownload failed"
+            "2026-09-15 11:05:00`tbootstrap`tupdate-ok`tv1.20.3`tv1.20.4`t4 file(s) updated"
+        )
+        [System.IO.File]::WriteAllLines($jr, [string[]]$lines, (New-Object System.Text.UTF8Encoding($false)))
+        $f = Invoke-Diag -Dir $d
+        @($f | Where-Object { $_.area -eq 'journal' -and $_.severity -eq 'warn' -and $_.message -match 'failed update event' }).Count | Should -Be 0
+        $stale = @($f | Where-Object { $_.message -match '1 failed update event\(s\) are stale' })
+        $stale.Count | Should -Be 1
+        $stale[0].severity | Should -Be 'info'
+        $stale[0].message | Should -Match 'superseded by a later success \(update-ok v1\.20\.3 -> v1\.20\.4\)'
+        # A fail after the last success stays a plain actionable warning.
+        [System.IO.File]::WriteAllLines($jr, [string[]]@(
+            "2026-09-15 11:05:00`tbootstrap`tupdate-ok`tv1.20.3`tv1.20.4`t4 file(s) updated"
+            "2026-09-15 11:09:00`tmenu`tupdate-fail`tv1.20.4`tv1.20.5`tmd5 mismatch"
+        ), (New-Object System.Text.UTF8Encoding($false)))
+        $f2 = Invoke-Diag -Dir $d
+        @($f2 | Where-Object { $_.severity -eq 'warn' -and $_.message -match '1 failed update event' }).Count | Should -Be 1
+        @($f2 | Where-Object { $_.message -match 'stale' }).Count | Should -Be 0
     }
 
     It 'old MuMu version warns; missing MuMuManager errors' {

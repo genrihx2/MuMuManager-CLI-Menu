@@ -2441,15 +2441,31 @@ function Get-ProblemFindings {
             & $add 'info' 'journal' "rotated journal present: update-journal.log.old"
         }
         $lines = @(Get-Content -LiteralPath $JournalFile -Encoding UTF8 -ErrorAction SilentlyContinue | Where-Object { $_.Trim() })
-        $bad = 0; $fails = 0; $skips = 0
+        # Fail classification: a fail event superseded by a later success
+        # (update-ok / self-apply / zip-verify-ok) is history, not an open
+        # problem - it gets an explanatory info instead of an actionable
+        # warning. Only fails with no later success stay warnings.
+        $bad = 0; $skips = 0
+        $failAt = @(); $successAt = @()
+        $idx = -1
         foreach ($raw in $lines) {
+            $idx++
             $p = $raw -split "`t", 6
             if (($p.Count -lt 6) -or ($p[0] -notmatch '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$')) { $bad++; continue }
-            if ($p[2] -match 'fail|error') { $fails++ }
-            if ($p[2] -eq 'update-skipped') { $skips++ }
+            if ($p[2] -match 'fail|error') { $failAt += $idx }
+            elseif ($p[2] -eq 'update-skipped') { $skips++ }
+            elseif ($p[2] -in @('update-ok', 'self-apply', 'zip-verify-ok')) { $successAt += $idx }
         }
         if ($bad -gt 0) { & $add 'warn' 'journal' "$bad malformed journal line(s) - written by an older version or corrupted" }
-        if ($fails -gt 0) { & $add 'warn' 'journal' "$fails failed update event(s) recorded - review with [J] -> 3" }
+        $lastSuccessAt = if ($successAt.Count) { $successAt[-1] } else { -1 }
+        $staleFails = @($failAt | Where-Object { $_ -lt $lastSuccessAt }).Count
+        $freshFails = $failAt.Count - $staleFails
+        if ($freshFails -gt 0) { & $add 'warn' 'journal' "$freshFails failed update event(s) recorded - review with [J] -> 3" }
+        if ($staleFails -gt 0) {
+            $sup = ($lines[$lastSuccessAt] -split "`t", 6)
+            $supDesc = ("{0} {1} -> {2}" -f $sup[2], $sup[3], $sup[4]).Trim()
+            & $add 'info' 'journal' "$staleFails failed update event(s) are stale - superseded by a later success ($supDesc) - historical only, see [J] -> 3"
+        }
         if ($skips -gt 0) { & $add 'info' 'journal' "$skips update-skipped event(s) - concurrent update attempts that were correctly refused" }
     }
 
