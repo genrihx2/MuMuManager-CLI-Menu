@@ -6900,6 +6900,22 @@ function Show-Logs {
         return
     }
 
+    # Prints one log line with every case-insensitive occurrence of $Needle
+    # highlighted (Cyan on Black); text between matches keeps its color.
+    function Write-SearchLine {
+        param([string]$Line, [string]$Needle)
+        $idx = $Line.IndexOf($Needle, [System.StringComparison]::OrdinalIgnoreCase)
+        $pos = 0
+        while ($idx -ge 0) {
+            if ($idx -gt $pos) { Write-Host ($Line.Substring($pos, $idx - $pos)) -NoNewline }
+            Write-Host $Line.Substring($idx, $Needle.Length) -NoNewline -ForegroundColor Cyan -BackgroundColor Black
+            $pos = $idx + $Needle.Length
+            $idx = $Line.IndexOf($Needle, $pos, [System.StringComparison]::OrdinalIgnoreCase)
+        }
+        if ($pos -lt $Line.Length) { Write-Host $Line.Substring($pos) -NoNewline }
+        Write-Host ''
+    }
+
     # Colors one logcat -v time line by its severity letter (E/F red,
     # W yellow, D/V dark gray); lines that do not match the format stay plain.
     # -v time format: "09-21 14:49:12.858 W/Tag( 3012): message" — the level
@@ -6981,6 +6997,7 @@ function Show-Logs {
         Write-Host '  [3] Warnings + Errors (W)' -ForegroundColor White
         Write-Host '  [4] Custom tag (e.g. ActivityManager)' -ForegroundColor White
         Write-Host '  [5] Quiet — hide known noise (Play Store, vsync, GC)' -ForegroundColor White
+        Write-Host '  [6] Search — substring in messages, matches highlighted' -ForegroundColor White
         # Snapshot default: errors-only (E) - the common debugging question is
         # "what broke?"; live mode keeps the unfiltered view on plain Enter.
         $defaultFmode = if ($mode -eq '2') { '2' } else { '1' }
@@ -6998,6 +7015,18 @@ function Show-Logs {
             '2' { $filter = '*:E'; $filterDesc = 'errors only (E)' }
             '3' { $filter = '*:W'; $filterDesc = 'warnings + errors (W)' }
             '5' { $filter = '*:*'; $filterDesc = 'quiet (known noise hidden)'; $quiet = $true }
+            '6' {
+                $needle = Read-Host 'Search substring (case-insensitive)'
+                if (-not $needle) {
+                    Write-Host 'Empty search - using no filter.' -ForegroundColor Yellow
+                    $filter = '*:*'; $filterDesc = 'all'
+                    break
+                }
+                $needle = $needle.Trim()
+                $filter = '*:*'
+                $filterDesc = "search: '$needle' (case-insensitive)"
+                $searchNeedle = $needle
+            }
             '4' {
                 $tag = Read-Host 'Enter tag or package name (regex supported)'
                 if ($tag) {
@@ -7021,10 +7050,23 @@ function Show-Logs {
                 Remove-Job $job -Force
                 if ($raw) {
                     $hidden = 0
+                    $matchCount = 0
                     foreach ($logLine in $raw) {
                         $s = [string]$logLine
                         if ($quiet -and $s -match $noiseRx) { $hidden++; continue }
-                        Write-LogcatLine $s
+                        if ($searchNeedle -and $s.IndexOf($searchNeedle, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+                            $matchCount++
+                            Write-SearchLine $s $searchNeedle
+                        } elseif ($searchNeedle) {
+                            # Non-matching lines stay visible, dimmed, for context.
+                            Write-Host $s -ForegroundColor DarkGray
+                        } else {
+                            Write-LogcatLine $s
+                        }
+                    }
+                    if ($searchNeedle) {
+                        Write-Host ''
+                        Write-Host "  [search] '$searchNeedle': $matchCount matching line(s); non-matching shown dimmed" -ForegroundColor Cyan
                     }
                     if ($quiet -and $hidden -gt 0) {
                         Write-Host ''
@@ -7043,11 +7085,24 @@ function Show-Logs {
             Write-Host "=== adb logcat LIVE (Ctrl+C to stop, filter: $filterDesc) ===" -ForegroundColor Green
             Write-Host ''
             try {
-                $counter = @{ hidden = 0 }
+                $counter = @{ hidden = 0; matchCount = 0 }
                 & $MumuPath adb -v $index -c "logcat -v time $filter" 2>&1 | ForEach-Object {
                     $s = [string]$_
                     if ($quiet -and $s -match $noiseRx) { $counter.hidden++; return }
-                    Write-LogcatLine $s
+                    if ($searchNeedle -and $s.IndexOf($searchNeedle, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+                        $counter.matchCount++
+                        Write-SearchLine $s $searchNeedle
+                        return
+                    }
+                    if ($searchNeedle) {
+                        Write-Host $s -ForegroundColor DarkGray
+                    } else {
+                        Write-LogcatLine $s
+                    }
+                }
+                if ($searchNeedle) {
+                    Write-Host ''
+                    Write-Host "  [search] '$searchNeedle': $($counter.matchCount) matching line(s); non-matching shown dimmed" -ForegroundColor Cyan
                 }
                 if ($quiet -and $counter.hidden -gt 0) {
                     Write-Host ''
