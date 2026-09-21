@@ -112,7 +112,7 @@
 | `github.com` | HTTPS | `[DL]` git clone репозитория, ссылки на страницы релизов, цель [TN] HTTP-теста | нет |
 | `timestamp.digicert.com` | HTTP (только метка времени) | `[CRT]` timestamp-сервер при подписании | нет |
 
-**Диагностические пробы [TN]** (явное действие пользователя, только проверка связности, без передачи данных): `connectivitycheck.gstatic.com/generate_204`, `www.baidu.com`, `github.com`.
+**Диагностические пробы [TN]** (явное действие пользователя, только проверка связности, без передачи данных): ICMP-ping до `8.8.8.8`, `1.1.1.1`, `223.5.5.5`, `google.com`, `github.com`; DNS-резолв `google.com`, `github.com`, `baidu.com`; HTTP GET до `http://connectivitycheck.gstatic.com/generate_204` (captive-portal-зонд), `http://www.baidu.com`, `https://github.com`; host-side проверка свежести CDN-зеркала — чтение `.version` с `cdn.jsdelivr.net` и тега релиза с `api.github.com/releases/latest`.
 
 **Механизмы запросов:** обновления и GitHub API — только `curl.exe` (аргументные массивы, без shell-строк); VT-интеграция — `Invoke-RestMethod` (только к `www.virustotal.com`); проверка версии в `[V]` — одиночный `Invoke-WebRequest` к `api.github.com/releases/latest`.
 
@@ -423,7 +423,7 @@ The script connects **only** to:
 | `github.com` | HTTPS | `[DL]` git clone of the repo, release-page links, `[TN]` HTTP test target | none |
 | `timestamp.digicert.com` | HTTP (timestamps only) | `[CRT]` timestamp server during signing | none |
 
-**[TN] diagnostic probes** (explicit user action, connectivity checks only, no data transfer): `connectivitycheck.gstatic.com/generate_204`, `www.baidu.com`, `github.com`.
+**[TN] diagnostic probes** (explicit user action, connectivity checks only, no data transfer): ICMP ping to `8.8.8.8`, `1.1.1.1`, `223.5.5.5`, `google.com`, `github.com`; DNS resolution of `google.com`, `github.com`, `baidu.com`; HTTP GET to `http://connectivitycheck.gstatic.com/generate_204` (captive-portal probe), `http://www.baidu.com`, `https://github.com`; host-side CDN mirror freshness check — reads `.version` from `cdn.jsdelivr.net` and the release tag from `api.github.com/releases/latest`.
 
 **Request mechanisms:** updates and GitHub API — `curl.exe` only (argument arrays, no shell strings); VT integration — `Invoke-RestMethod` (to `www.virustotal.com` only); version check in `[V]` — a single `Invoke-WebRequest` to `api.github.com/releases/latest`.
 
