@@ -462,6 +462,10 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Что нового
 
+### v1.22.25 (21.09.2026)
+
+- **Фикс [F]**: ложный DRIFT на переподписанной установке — trailing Authenticode signature block теперь срезается перед хешированием (v1.22.24 regression)
+
 ### v1.22.24 (21.09.2026)
 
 - **Обновление**: установка v1.22.23 получала [VE]-фиксы и ephemeral token только из main после тега — релиз v1.22.24 закрепляет их в тегированном ZIP для [U]/[F]/bootstrap
@@ -764,6 +768,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.25 | 21.09.2026 | Фикс [F]: strip signature block перед хешированием — ложный DRIFT на переподписанной установке |
 | v1.22.24 | 21.09.2026 | Тегированный снимок [VE]-фиксов, ephemeral token и дедупликации [K] после v1.22.23 |
 | v1.22.23 | 20.09.2026 | [FPS] смена FPS + обзор всех инстансов, [RT] redesign UI, [VE] regex fix + UTF-8, [K] ephemeral token, whitespace cleanup |
 | v1.22.22 | 20.09.2026 | [TS] сетевой тест скорости, экспоненциальная задержка retry при rate limit, отображение разницы версий |

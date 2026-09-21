@@ -235,7 +235,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.22.24'
+$scriptVer = '1.22.25'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -517,6 +517,13 @@ if (-not (Test-Path $MumuPath)) {
 function Get-ContentHash {
     param([string]$Text)
     $norm = $Text -replace "`r", ''
+    # Strip a trailing Authenticode signature block: [CRT]/bootstrap re-sign
+    # appends '# SIG # Begin signature block ...' to the local file, while the
+    # tag blob and every remote fetch are unsigned. Without this the re-signed
+    # install false-DRIFTs in [F] forever (regression caught live in v1.22.24).
+    # No-op for unsigned text - the marker line plus a newline only occurs
+    # in a real block, so a comment that merely mentions the phrase survives.
+    $norm = $norm -replace '(?ms)^# SIG # Begin signature block\r?\n.*\z', ''
     # Strip UTF-8 BOM (U+FEFF) so local ReadAllText (which strips BOM)
     # and raw remote bytes (which include BOM) produce the same hash.
     $norm = $norm.TrimStart([char]0xFEFF)

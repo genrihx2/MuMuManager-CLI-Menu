@@ -77,6 +77,22 @@ Describe 'Get-ContentHash (SHA-256 helper)' {
         Get-ContentHash "content`n" | Should -Be (Get-ContentHash 'content')
         Get-ContentHash "content`r`n  " | Should -Be (Get-ContentHash 'content')
     }
+
+    It 'strips a trailing Authenticode signature block (re-signed install must not drift)' {
+        # [CRT]/bootstrap re-signing appends a signature block to the local
+        # script while the tag blob stays unsigned. Without stripping, [F]
+        # reports a permanent false DRIFT on mumu-menu.ps1 (v1.22.24 regression).
+        $clean = "line1`nline2"
+        $sig = "`n# SIG # Begin signature block`n" + ('# filler' + "`n" * 1) * 50 + '# SIG # End signature block'
+        Get-ContentHash ($clean + $sig) | Should -Be (Get-ContentHash $clean)
+    }
+
+    It 'does not treat ordinary comment text as a signature block' {
+        # Only the exact marker line + newline opens a block; prose mentioning
+        # the phrase must hash untouched.
+        $text = "# SIG # Begin signature blocks are documented in the manual`nGet-Date"
+        Get-ContentHash $text | Should -Be (Get-ContentHash "# SIG # Begin signature blocks are documented in the manual`nGet-Date")
+    }
 }
 
 Describe 'Test-ScriptVerMatchesTag (version-fix heal guard)' {
