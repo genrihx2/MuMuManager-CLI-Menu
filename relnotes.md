@@ -4,6 +4,13 @@
 
 ---
 
+## v1.22.33 (21.09.2026)
+
+### Added
+
+- **[3] Shutdown — редизайн экрана**: панель в стиле [RT]/[VE]/[2]/[G]; guard «ALREADY STOPPED ○» (shutdown больше не отправляется в остановленный инстанс); после выключения состояние перечитывается и итог верифицируется (`✓ Instance is shut down` / `✗ still reports running`) вместо слепого «Emulator shut down!»; fallback `control → api` сохранён, вывод API с отступом
+- **[4] Restart — редизайн экрана**: панель со статус-линией по факту состояния (`RUNNING ✓ - restarting...` / `STOPPED ○ - starting...` — раньше всегда печаталось «Restarting...»); результат Wait-Boot теперь управляет итогом (`✓ Instance is running` / `✗ Boot did not complete`) вместо выброса через `Out-Null`;
+
 ## v1.22.32 (21.09.2026)
 
 ### Added

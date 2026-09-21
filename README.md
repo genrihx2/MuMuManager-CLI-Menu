@@ -462,6 +462,10 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Что нового
 
+### v1.22.33 (21.09.2026)
+
+- **Меню [3] Shutdown и [4] Restart**: панельный редизайн — guard «ALREADY STOPPED», верифицированный итог выключения, статус-линия по факту состояния, честный итог загрузки
+
 ### v1.22.32 (21.09.2026)
 
 - **Меню [G] View logs**: панельный редизайн — состояние инстанса, guard logcat на остановленном, раскраска logcat по уровню (E/W/D), открытие полного лога в notepad
@@ -798,6 +802,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.33 | 21.09.2026 | Меню [3]/[4]: панели с guard'ом и верифицированным итогом shutdown/restart |
 | v1.22.32 | 21.09.2026 | Меню [G] View logs: панель, guard logcat, раскраска по уровню |
 | v1.22.31 | 21.09.2026 | Меню [2] Launch emulator: панельный редизайн, guard «ALREADY RUNNING», честный итог загрузки |
 | v1.22.30 | 21.09.2026 | CI: DevSkim linter (SARIF → Security tab) + SKILL.md refresh |
