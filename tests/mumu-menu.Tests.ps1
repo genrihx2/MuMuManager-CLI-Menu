@@ -1050,6 +1050,29 @@ Describe 'Problem diagnostics (Get-ProblemFindings)' {
     }
 }
 
+Describe 'Launch emulator screen [2]' {
+
+    It 'Start-Emulator shows a header panel, an already-running guard and a boot outcome' {
+        $raw = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'mumu-menu.ps1') -Raw -Encoding UTF8
+        $fnAt = $raw.IndexOf('function Start-Emulator {')
+        $stopAt = $raw.IndexOf('function Stop-Emulator {')
+        ($fnAt -ge 0 -and $stopAt -gt $fnAt) | Should -BeTrue
+        $body = $raw.Substring($fnAt, $stopAt - $fnAt)
+        # Panel header in the [RT]/[VE] visual style.
+        $body.Contains('Launch emulator:') | Should -BeTrue
+        # Guard: reads live state and short-circuits with ALREADY RUNNING.
+        ($body -match 'is_android_started') | Should -BeTrue
+        $body.Contains('ALREADY RUNNING') | Should -BeTrue
+        # Honest boot outcome: success and failure branches, no swallowing.
+        $body.Contains('Instance is running') | Should -BeTrue
+        $body.Contains('Boot did not complete') | Should -BeTrue
+        # SIM auto-apply still runs after a successful boot.
+        ($body -match 'Apply-SavedSim -Index \$index') | Should -BeTrue
+        # Raw API noise is indented under the panel, not dumped at column 0.
+        ($body -match 'ForEach-Object \{ Write-Host "    \$_" \}') | Should -BeTrue
+    }
+}
+
 Describe 'Install status (issue #25)' {
 
     BeforeAll {

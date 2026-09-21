@@ -3131,13 +3131,50 @@ function Show-InstanceInfo {
 function Start-Emulator {
     $index = Get-InstanceIndex 'Select instance to launch'
     if (-not $index) { return }
+
+    # --- header + current state ---
+    $instName = "Instance $index"
+    $running = $false
+    try {
+        $info = & $MumuPath info -v $index 2>$null | ConvertFrom-Json
+        if ($info.$index) { $info = $info.$index }
+        if ($info.name) { $instName = $info.name }
+        if ($info.is_android_started -eq $true -or $info.is_process_started -eq $true) { $running = $true }
+    } catch { Write-Debug "pre-launch info read failed: $($_.Exception.Message)" }
+
     Write-Host ''
-    Write-Host "Launching instance $index..." -ForegroundColor Cyan
+    Write-Host '  ┌─────────────────────────────────────────────┐' -ForegroundColor Cyan
+    Write-Host ("  │  Launch emulator: {0,-25}│" -f $instName) -ForegroundColor Cyan
+    Write-Host '  └─────────────────────────────────────────────┘' -ForegroundColor Cyan
+    Write-Host ''
 
-    & $MumuPath api -v $index launch_player 2>&1 | ForEach-Object { Write-Host $_ }
+    if ($running) {
+        Write-Host '    ● Status: ' -NoNewline
+        Write-Host 'ALREADY RUNNING' -ForegroundColor Green -NoNewline
+        Write-Host ' ✓' -ForegroundColor Green
+        Write-Host ''
+        Write-Host '    Nothing to do - the instance is up.' -ForegroundColor White
+        Write-Host '    Reconnect helpers if needed: [A] adb connect, [F] verify.' -ForegroundColor DarkGray
+        return
+    }
 
-    Wait-Boot -Index $index | Out-Null
+    # --- launch ---
+    Write-Host '    ● Status: ' -NoNewline
+    Write-Host 'STOPPED' -ForegroundColor DarkGray -NoNewline
+    Write-Host ' ○ - launching...' -ForegroundColor White
+    Write-Host ''
+    & $MumuPath api -v $index launch_player 2>&1 | ForEach-Object { Write-Host "    $_" }
+
+    Write-Host '    Waiting for Android boot (up to 120 s)...' -ForegroundColor Cyan
+    $ok = Wait-Boot -Index $index
+    if (-not $ok) {
+        Write-Host '    ✗ Boot did not complete - check [1] instance info.' -ForegroundColor Red
+        return
+    }
+    Write-Host '    ✓ Instance is running' -ForegroundColor Green
     Apply-SavedSim -Index $index
+    Write-Host ''
+    Write-Host '    Next: [6] apps, [7] settings, [S] screenshot, [RT] root.' -ForegroundColor DarkGray
 }
 
 function Stop-Emulator {
