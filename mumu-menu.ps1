@@ -6785,15 +6785,67 @@ function Sign-Script {
 function Show-Logs {
     $index = Get-InstanceIndex 'Select instance'
     if (-not $index) { return }
-    Write-Host ''
 
-    Write-Host '  [1] Static log files (api.log, etc.)' -ForegroundColor White
-    Write-Host '  [2] adb logcat — snapshot (last 200 lines)' -ForegroundColor White
-    Write-Host '  [3] adb logcat — live (Ctrl+C to stop)' -ForegroundColor White
-    Write-Host '  [0] Cancel' -ForegroundColor Yellow
-    $mode = Read-Host 'Select'
+    # --- header + instance state ---
+    $instName = "Instance $index"
+    $running = $false
+    try {
+        $info = & $MumuPath info -v $index 2>$null | ConvertFrom-Json
+        if ($info.$index) { $info = $info.$index }
+        if ($info.name) { $instName = $info.name }
+        if ($info.is_android_started -eq $true -or $info.is_process_started -eq $true) { $running = $true }
+    } catch { Write-Debug "info read failed: $($_.Exception.Message)" }
+
+    Write-Host ''
+    Write-Host '  ┌─────────────────────────────────────────────┐' -ForegroundColor Cyan
+    Write-Host ("  │  View logs: {0,-32}│" -f $instName) -ForegroundColor Cyan
+    Write-Host '  └─────────────────────────────────────────────┘' -ForegroundColor Cyan
+    Write-Host ''
+    if ($running) {
+        Write-Host '    ● Instance: ' -NoNewline
+        Write-Host 'RUNNING ✓' -ForegroundColor Green
+    } else {
+        Write-Host '    ● Instance: ' -NoNewline
+        Write-Host 'STOPPED ○' -ForegroundColor DarkGray
+        Write-Host '      logcat unavailable; static files and [2] Launch still work.' -ForegroundColor DarkGray
+    }
+    Write-Host ''
+    Write-Host '    Actions:' -ForegroundColor DarkGray
+    Write-Host '      [1] Static log files (api.log, etc.)' -ForegroundColor White
+    Write-Host '      [2] adb logcat — snapshot (last 200 lines)' -ForegroundColor White
+    Write-Host '      [3] adb logcat — live (Ctrl+C to stop)' -ForegroundColor White
+    Write-Host '      [0] Cancel' -ForegroundColor DarkGray
+    $mode = Read-Host '    Select'
 
     if ($mode -eq '0' -or $mode -eq '') { return }
+
+    if (($mode -eq '2' -or $mode -eq '3') -and -not $running) {
+        Write-Host ''
+        Write-Host '    ✗ Instance is not running - logcat needs a running Android.' -ForegroundColor Red
+        Write-Host '      Static log files [1] still work, or launch via [2] first.' -ForegroundColor White
+        return
+    }
+
+    # Colors one logcat -v time line by its severity letter (E/F red,
+    # W yellow, D/V dark gray); lines that do not match the format stay plain.
+    # -v time format: "09-21 14:49:12.858 W/Tag( 3012): message" — the level
+    # letter sits right after the timestamp, before the "Tag(" part.
+    function Write-LogcatLine {
+        param([string]$Line)
+        if ($Line -match '^\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+\s+([VDIWEF])/') {
+            $color = switch ($Matches[1]) {
+                'E' { 'Red' }
+                'F' { 'Red' }
+                'W' { 'Yellow' }
+                'D' { 'DarkGray' }
+                'V' { 'DarkGray' }
+                default { 'White' }
+            }
+            Write-Host $Line -ForegroundColor $color
+        } else {
+            Write-Host $Line
+        }
+    }
 
     if ($mode -eq '1') {
         $nxDir = Split-Path $MumuPath -Parent
@@ -6838,6 +6890,12 @@ function Show-Logs {
         } catch {
             Write-Host "Cannot read log: $($_.Exception.Message)" -ForegroundColor Red
         }
+        Write-Host ''
+        $open = Read-Host '    Open full log in notepad? (y/N)'
+        if ($open -eq 'y' -or $open -eq 'Y') {
+            Start-Process notepad.exe -ArgumentList ('"{0}"' -f $pick)
+            Write-Host '    Opened in notepad.' -ForegroundColor DarkGray
+        }
         return
     }
 
@@ -6878,7 +6936,7 @@ function Show-Logs {
                 $raw = Receive-Job $job
                 Remove-Job $job -Force
                 if ($raw) {
-                    $raw | ForEach-Object { Write-Host $_ }
+                    $raw | ForEach-Object { Write-LogcatLine ([string]$_) }
                 } else {
                     Write-Host 'Empty output — instance may be stopped, not authorized for adb, or no matching logs.' -ForegroundColor Yellow
                 }
@@ -6892,7 +6950,7 @@ function Show-Logs {
             Write-Host "=== adb logcat LIVE (Ctrl+C to stop, filter: $filterDesc) ===" -ForegroundColor Green
             Write-Host ''
             try {
-                & $MumuPath adb -v $index -c "logcat -v time $filter"
+                & $MumuPath adb -v $index -c "logcat -v time $filter" 2>&1 | ForEach-Object { Write-LogcatLine ([string]$_) }
             } catch {
                 Write-Host "logcat interrupted or failed: $($_.Exception.Message)" -ForegroundColor Red
             }

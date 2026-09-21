@@ -1073,6 +1073,31 @@ Describe 'Launch emulator screen [2]' {
     }
 }
 
+Describe 'View logs screen [G]' {
+
+    It 'Show-Logs shows a header panel, a state line, a stopped-instance logcat guard and colored logcat output' {
+        $raw = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'mumu-menu.ps1') -Raw -Encoding UTF8
+        $fnAt = $raw.IndexOf('function Show-Logs {')
+        $nextAt = $raw.IndexOf('function Get-AllIndices {')
+        ($fnAt -ge 0 -and $nextAt -gt $fnAt) | Should -BeTrue
+        $body = $raw.Substring($fnAt, $nextAt - $fnAt)
+        # Panel header in the [RT]/[VE]/[2] visual style + live state line.
+        $body.Contains('View logs:') | Should -BeTrue
+        $body.Contains('RUNNING ✓') | Should -BeTrue
+        $body.Contains('STOPPED ○') | Should -BeTrue
+        ($body -match 'is_android_started') | Should -BeTrue
+        # Guard: logcat modes refused with an actionable message when stopped.
+        $body.Contains('Instance is not running - logcat needs a running Android') | Should -BeTrue
+        # Severity coloring for logcat -v time lines (E/F red, W yellow).
+        # Regression (caught live): -v time puts the level right after the
+        # timestamp ("...858 W/Tag( 3012):"), NOT after pid/tid like threadtime.
+        $body.Contains('function Write-LogcatLine') | Should -BeTrue
+        ($body.Contains('([VDIWEF])/')) | Should -BeTrue
+        # Static-file tail offers the full log in notepad.
+        $body.Contains('Open full log in notepad? (y/N)') | Should -BeTrue
+    }
+}
+
 Describe 'Install status (issue #25)' {
 
     BeforeAll {
