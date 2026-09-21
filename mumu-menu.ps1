@@ -235,7 +235,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.22.34'
+$scriptVer = '1.22.35'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken

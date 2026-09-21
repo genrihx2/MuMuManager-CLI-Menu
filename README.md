@@ -462,6 +462,10 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Что нового
 
+### v1.22.35 (21.09.2026)
+
+- **Меню [G] View logs**: snapshot-дефолт фильтра — errors-only (E) на пустой Enter; live сохраняет полный поток, дефолт показывается в промпте
+
 ### v1.22.34 (21.09.2026)
 
 - **Меню [G] View logs**: фильтр тишины [5] — скрывает известный шум (Play Store, vsync, GC, binder) в snapshot/live с счётчиком скрытых строк
@@ -806,6 +810,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.35 | 21.09.2026 | Меню [G]: snapshot-дефолт фильтра errors-only (E) |
 | v1.22.34 | 21.09.2026 | Меню [G]: фильтр тишины [5] для logcat |
 | v1.22.33 | 21.09.2026 | Меню [3]/[4]: панели с guard'ом и верифицированным итогом shutdown/restart |
 | v1.22.32 | 21.09.2026 | Меню [G] View logs: панель, guard logcat, раскраска по уровню |
