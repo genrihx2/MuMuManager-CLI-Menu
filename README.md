@@ -462,6 +462,11 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Что нового
 
+### v1.22.30 (21.09.2026)
+
+- **CI**: DevSkim security linter — SARIF-скан в Security tab (push/PR + еженедельно); DevSkim-Action пин v1.0.16
+- **Документация**: SKILL.md обновлён — реальное дерево проекта, полное меню, 10 воркфлоу
+
 ### v1.22.29 (21.09.2026)
 
 - **Фикс [TN]**: hotfix шага [5] — `.tag_name` извлекался вне `$( )`, в сравнение попадал весь объект релиза вместо тега (поймано живым прогоном); регрессионный тест на форму извлечения
@@ -785,6 +790,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.30 | 21.09.2026 | CI: DevSkim linter (SARIF → Security tab) + SKILL.md refresh |
 | v1.22.29 | 21.09.2026 | Фикс [TN]: интерполяция .tag_name внутри $( ) — Partial-вердикт больше не ловит весь объект релиза |
 | v1.22.28 | 21.09.2026 | [TN] шаг [5] CDN mirror freshness + CI-воркфлоу cdn-sync (авто-пурж зеркала) |
 | v1.22.27 | 21.09.2026 | README: SmartScreen-шаги Chrome/Edge + разблокировка MOTW |
