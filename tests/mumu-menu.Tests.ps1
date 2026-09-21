@@ -1041,6 +1041,12 @@ Describe 'Problem diagnostics (Get-ProblemFindings)' {
                               'N/A: mirror and API are unreachable')) {
             $raw.Contains($marker) | Should -BeTrue
         }
+        # Regression (caught live): .tag_name must be extracted INSIDE the
+        # $( ) subexpression. Outside it, Invoke-RestMethod's whole release
+        # object is stringified and $apiVer becomes the full JSON dump,
+        # which always parses as "unparseable" (Partial verdict forever).
+        ($raw -match '\"\$\(\(Invoke-RestMethod[^\)]*releases/latest[^\)]*\)\.tag_name\)') | Should -BeTrue
+        ($raw -match '\"\$\(Invoke-RestMethod[^\)]*releases/latest[^\)]*\)\.tag_name\"') | Should -BeFalse
     }
 }
 

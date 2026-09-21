@@ -235,7 +235,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.22.28'
+$scriptVer = '1.22.29'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -4271,7 +4271,10 @@ function Test-Network {
     $cdnVer = ''
     try { $cdnVer = ("$((Invoke-WebRequest -Uri 'https://cdn.jsdelivr.net/gh/genrihx2/MuMuManager-CLI-Menu@main/.version' -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop).Content)").Trim() } catch { Write-Debug "CDN .version fetch failed: $($_.Exception.Message)" }
     $apiVer = ''
-    try { $apiVer = "$(Invoke-RestMethod -Uri 'https://api.github.com/repos/genrihx2/MuMuManager-CLI-Menu/releases/latest' -TimeoutSec 10 -ErrorAction Stop).tag_name".Trim() } catch { Write-Debug "latest release fetch failed: $($_.Exception.Message)" }
+    # .tag_name must sit INSIDE the $( ) subexpression - outside it the
+    # object is stringified wholesale and $apiVer becomes the whole release
+    # dump (caught live in v1.22.28's first [TN] run).
+    try { $apiVer = "$((Invoke-RestMethod -Uri 'https://api.github.com/repos/genrihx2/MuMuManager-CLI-Menu/releases/latest' -TimeoutSec 10 -ErrorAction Stop).tag_name)".Trim() } catch { Write-Debug "latest release fetch failed: $($_.Exception.Message)" }
     $cdnN = $null; $apiN = $null
     try { if ($cdnVer) { $cdnN = [version]($cdnVer -replace '^v', '') } } catch { Write-Debug "CDN version unparseable: '$cdnVer'" }
     try { if ($apiVer) { $apiN = [version]($apiVer -replace '^v', '') } } catch { Write-Debug "release version unparseable: '$apiVer'" }
