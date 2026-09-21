@@ -462,6 +462,10 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Что нового
 
+### v1.22.31 (21.09.2026)
+
+- **Меню [2] Launch emulator**: новый экран в панельном стиле [RT]/[VE] — guard «ALREADY RUNNING», статус запуска, честный итог загрузки, вывод API с отступом
+
 ### v1.22.30 (21.09.2026)
 
 - **CI**: DevSkim security linter — SARIF-скан в Security tab (push/PR + еженедельно); DevSkim-Action пин v1.0.16
@@ -790,6 +794,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.31 | 21.09.2026 | Меню [2] Launch emulator: панельный редизайн, guard «ALREADY RUNNING», честный итог загрузки |
 | v1.22.30 | 21.09.2026 | CI: DevSkim linter (SARIF → Security tab) + SKILL.md refresh |
 | v1.22.29 | 21.09.2026 | Фикс [TN]: интерполяция .tag_name внутри $( ) — Partial-вердикт больше не ловит весь объект релиза |
 | v1.22.28 | 21.09.2026 | [TN] шаг [5] CDN mirror freshness + CI-воркфлоу cdn-sync (авто-пурж зеркала) |
