@@ -1098,6 +1098,40 @@ Describe 'View logs screen [G]' {
     }
 }
 
+Describe 'Shutdown and Restart screens [3]/[4]' {
+
+    It 'Stop-Emulator shows a panel, an ALREADY STOPPED guard and a verified outcome' {
+        $raw = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'mumu-menu.ps1') -Raw -Encoding UTF8
+        $fnAt = $raw.IndexOf('function Stop-Emulator {')
+        $nextAt = $raw.IndexOf('function Restart-Emulator {')
+        ($fnAt -ge 0 -and $nextAt -gt $fnAt) | Should -BeTrue
+        $body = $raw.Substring($fnAt, $nextAt - $fnAt)
+        $body.Contains('Shutdown emulator:') | Should -BeTrue
+        $body.Contains('ALREADY STOPPED') | Should -BeTrue
+        ($body -match 'is_android_started') | Should -BeTrue
+        # Honest verification after shutdown instead of a blind success line.
+        $body.Contains('Instance is shut down') | Should -BeTrue
+        $body.Contains('Instance still reports running') | Should -BeTrue
+        # Fallback path (control -> api) is preserved.
+        ($body -match 'shutdown_player') | Should -BeTrue
+    }
+
+    It 'Restart-Emulator shows a panel with a state-aware status line and an honest boot outcome' {
+        $raw = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'mumu-menu.ps1') -Raw -Encoding UTF8
+        $fnAt = $raw.IndexOf('function Restart-Emulator {')
+        $nextAt = $raw.IndexOf('function New-Emulator {')
+        ($fnAt -ge 0 -and $nextAt -gt $fnAt) | Should -BeTrue
+        $body = $raw.Substring($fnAt, $nextAt - $fnAt)
+        $body.Contains('Restart emulator:') | Should -BeTrue
+        $body.Contains('RUNNING ✓') | Should -BeTrue
+        $body.Contains('STOPPED ○') | Should -BeTrue
+        # Wait-Boot result must drive the outcome (was discarded with Out-Null).
+        $body.Contains('Instance is running') | Should -BeTrue
+        $body.Contains('Boot did not complete') | Should -BeTrue
+        ($body -match 'Apply-SavedSim -Index \$index') | Should -BeTrue
+    }
+}
+
 Describe 'Install status (issue #25)' {
 
     BeforeAll {

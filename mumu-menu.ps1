@@ -3180,38 +3180,112 @@ function Start-Emulator {
 function Stop-Emulator {
     $index = Get-InstanceIndex 'Select instance to shutdown'
     if (-not $index) { return }
+
+    # --- header + current state ---
+    $instName = "Instance $index"
+    $running = $false
+    try {
+        $info = & $MumuPath info -v $index 2>$null | ConvertFrom-Json
+        if ($info.$index) { $info = $info.$index }
+        if ($info.name) { $instName = $info.name }
+        if ($info.is_android_started -eq $true -or $info.is_process_started -eq $true) { $running = $true }
+    } catch { Write-Debug "pre-shutdown info read failed: $($_.Exception.Message)" }
+
     Write-Host ''
-    Write-Host "Shutting down instance $index..." -ForegroundColor Cyan
+    Write-Host '  ┌─────────────────────────────────────────────┐' -ForegroundColor Cyan
+    Write-Host ("  │  Shutdown emulator: {0,-24}│" -f $instName) -ForegroundColor Cyan
+    Write-Host '  └─────────────────────────────────────────────┘' -ForegroundColor Cyan
+    Write-Host ''
+
+    if (-not $running) {
+        Write-Host '    ● Status: ' -NoNewline
+        Write-Host 'ALREADY STOPPED' -ForegroundColor DarkGray -NoNewline
+        Write-Host ' ○' -ForegroundColor DarkGray
+        Write-Host ''
+        Write-Host '    Nothing to do - the instance is down.' -ForegroundColor White
+        return
+    }
+
+    Write-Host '    ● Status: ' -NoNewline
+    Write-Host 'RUNNING' -ForegroundColor Green -NoNewline
+    Write-Host ' ✓ - shutting down...' -ForegroundColor White
+    Write-Host ''
 
     $output = & $MumuPath control -v $index shutdown 2>&1
     $outputStr = $output | Out-String
     if ($outputStr -match 'errcode') {
-        Write-Host 'control shutdown failed, trying api...' -ForegroundColor Yellow
-        & $MumuPath api -v $index shutdown_player 2>&1 | ForEach-Object { Write-Host $_ }
+        Write-Host '    control shutdown failed, trying api...' -ForegroundColor Yellow
+        & $MumuPath api -v $index shutdown_player 2>&1 | ForEach-Object { Write-Host "    $_" }
     } else {
-        Write-Host $output
+        $output | ForEach-Object { Write-Host "    $_" }
     }
 
     Start-Sleep -Seconds 3
-    Write-Host 'Emulator shut down!' -ForegroundColor Green
+
+    # --- verify honestly (info read, not blind success) ---
+    $stopped = $true
+    try {
+        $after = & $MumuPath info -v $index 2>$null | ConvertFrom-Json
+        if ($after.$index) { $after = $after.$index }
+        if ($after.is_android_started -eq $true -or $after.is_process_started -eq $true) { $stopped = $false }
+    } catch { Write-Debug "post-shutdown info read failed: $($_.Exception.Message)" }
+
+    if ($stopped) {
+        Write-Host '    ✓ Instance is shut down' -ForegroundColor Green
+    } else {
+        Write-Host '    ✗ Instance still reports running - check [1] instance info.' -ForegroundColor Red
+    }
 }
 
 function Restart-Emulator {
     $index = Get-InstanceIndex 'Select instance to restart'
     if (-not $index) { return }
-    Write-Host ''
-    Write-Host "Restarting instance $index..." -ForegroundColor Cyan
 
-    Write-Host 'Shutting down...'
+    # --- header + current state ---
+    $instName = "Instance $index"
+    $running = $false
+    try {
+        $info = & $MumuPath info -v $index 2>$null | ConvertFrom-Json
+        if ($info.$index) { $info = $info.$index }
+        if ($info.name) { $instName = $info.name }
+        if ($info.is_android_started -eq $true -or $info.is_process_started -eq $true) { $running = $true }
+    } catch { Write-Debug "pre-restart info read failed: $($_.Exception.Message)" }
+
+    Write-Host ''
+    Write-Host '  ┌─────────────────────────────────────────────┐' -ForegroundColor Cyan
+    Write-Host ("  │  Restart emulator: {0,-25}│" -f $instName) -ForegroundColor Cyan
+    Write-Host '  └─────────────────────────────────────────────┘' -ForegroundColor Cyan
+    Write-Host ''
+
+    if ($running) {
+        Write-Host '    ● Status: ' -NoNewline
+        Write-Host 'RUNNING ✓' -ForegroundColor Green -NoNewline
+        Write-Host ' - restarting...' -ForegroundColor White
+    } else {
+        Write-Host '    ● Status: ' -NoNewline
+        Write-Host 'STOPPED ○' -ForegroundColor DarkGray -NoNewline
+        Write-Host ' - starting...' -ForegroundColor White
+    }
+    Write-Host ''
+
+    Write-Host '    Shutting down...' -ForegroundColor Cyan
     & $MumuPath api -v $index shutdown_player 2>&1 | Out-Null
-    Write-Host 'Waiting for main service...'
+    Write-Host '    Waiting for main service...' -ForegroundColor Cyan
     Start-Sleep -Seconds 5
 
-    Write-Host 'Launching...'
-    & $MumuPath api -v $index launch_player 2>&1 | ForEach-Object { Write-Host $_ }
+    Write-Host '    Launching...' -ForegroundColor Cyan
+    & $MumuPath api -v $index launch_player 2>&1 | ForEach-Object { Write-Host "    $_" }
 
-    Wait-Boot -Index $index | Out-Null
+    Write-Host '    Waiting for Android boot (up to 120 s)...' -ForegroundColor Cyan
+    $ok = Wait-Boot -Index $index
+    if (-not $ok) {
+        Write-Host '    ✗ Boot did not complete - check [1] instance info.' -ForegroundColor Red
+        return
+    }
+    Write-Host '    ✓ Instance is running' -ForegroundColor Green
     Apply-SavedSim -Index $index
+    Write-Host ''
+    Write-Host '    Next: [6] apps, [7] settings, [S] screenshot, [RT] root.' -ForegroundColor DarkGray
 }
 
 function New-Emulator {
