@@ -1495,8 +1495,7 @@ Describe 'Persistent ETag cache (issue #28)' {
         $good = Read-EtagCacheFile -CacheFile $script:cacheFile
         # Build a store with one tampered entry directly.
         $store = @{
-            # DevSkim: ignore DS197836 - the field name collides with a hashing rule; the value is a fixture constant, nothing is hashed here
-            'https://x/tampered' = [pscustomobject]@{ etag = 'W/bad'; body = 'evil body'; sha256 = '0000000000000000000000000000000000000000000000000000000000000000'; timestamp = '2026-09-16 10:00:00' }
+            'https://x/tampered' = [pscustomobject]@{ etag = 'W/bad'; body = 'evil body'; sha256 = '0000000000000000000000000000000000000000000000000000000000000000'; timestamp = '2026-09-16 10:00:00' } # DevSkim: ignore DS197836 - fixture constant named by the store schema, nothing is hashed
         }
         $json = $store | ConvertTo-Json -Depth 5
         [System.IO.File]::WriteAllText($script:cacheFile, $json, (New-Object System.Text.UTF8Encoding($false)))

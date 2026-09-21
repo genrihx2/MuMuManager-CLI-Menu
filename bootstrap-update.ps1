@@ -48,9 +48,9 @@ $ErrorActionPreference = 'Stop'
 
 # ── TLS ──────────────────────────────────────────────────────────────
 try {
-    [Net.ServicePointManager]::SecurityProtocol = ([Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12) # DevSkim: ignore DS440020, DS440001 - PS 5.1 requires an explicit TLS 1.2 opt-in; PS 7 negotiates it by OS default
+    [Net.ServicePointManager]::SecurityProtocol = ([Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12) # DevSkim: ignore DS440020,DS440001 - PS 5.1 requires an explicit TLS 1.2 opt-in; PS 7 negotiates it by OS default
 } catch {
-    Write-Host "  Warning: Could not force TLS 1.2 ($($_.Exception.Message))" -ForegroundColor Yellow
+    Write-Host "  Warning: Could not force TLS 1.2 ($($_.Exception.Message))" -ForegroundColor Yellow # DevSkim: ignore DS440001 - prose mention, not a protocol setting
 }
 
 # ── Config ───────────────────────────────────────────────────────────
@@ -976,7 +976,7 @@ function Restore-ScriptSignature {
     try {
         $tmpPath = Join-Path $env:TEMP 'mumu-menu_resign.ps1'
         Copy-Item -LiteralPath $Path -Destination $tmpPath -Force
-        $result = Set-AuthenticodeSignature -FilePath $tmpPath -Certificate $cert -HashAlgorithm SHA256 -TimestampServer 'http://timestamp.digicert.com' -ErrorAction Stop # DevSkim: ignore DS197836, DS137138 - SHA256 is the signature hash; RFC 3161 TSA URLs are http by convention
+        $result = Set-AuthenticodeSignature -FilePath $tmpPath -Certificate $cert -HashAlgorithm SHA256 -TimestampServer 'http://timestamp.digicert.com' -ErrorAction Stop # DevSkim: ignore DS197836,DS137138 - SHA256 is the signature hash; RFC 3161 TSA URLs are http by convention
         if ($result.Status -eq 'Valid') {
             Copy-Item -LiteralPath $tmpPath -Destination $Path -Force
             Write-Host "  Script re-signed after update (status: Valid, cert $($cert.Thumbprint))." -ForegroundColor Green

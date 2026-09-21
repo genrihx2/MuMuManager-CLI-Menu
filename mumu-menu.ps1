@@ -243,9 +243,9 @@ $GitHubToken = Get-GitHubToken
 # Force TLS 1.2+ (PowerShell 5.1 defaults fail against GitHub with
 # "The underlying connection was closed: An unexpected error occurred on a send.")
 try {
-    [Net.ServicePointManager]::SecurityProtocol = ([Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12) # DevSkim: ignore DS440020, DS440001 - PS 5.1 requires an explicit TLS 1.2 opt-in; PS 7 negotiates it by OS default
+    [Net.ServicePointManager]::SecurityProtocol = ([Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12) # DevSkim: ignore DS440020,DS440001 - PS 5.1 requires an explicit TLS 1.2 opt-in; PS 7 negotiates it by OS default
 } catch {
-    Write-Warning "TLS 1.2 enable failed: $($_.Exception.Message)" # DevSkim: ignore DS440001 - prose mention, not a protocol setting
+    Write-Warning "TLS 1.2 enable failed: $($_.Exception.Message)" # DevSkim: ignore DS440001 - prose mention, not a protocol setting (the setting line above carries the rule suppression)
 }
 
 # Resolve a tag (or any ref) to the commit SHA it names (issue #22).
@@ -6731,7 +6731,7 @@ function Sign-Script {
     try {
         Copy-Item -LiteralPath $scriptPath -Destination $tmpPath -Force
         Write-Host "Signing..." -ForegroundColor Cyan
-        $result = Set-AuthenticodeSignature -FilePath $tmpPath -Certificate $cert -HashAlgorithm SHA256 -TimestampServer 'http://timestamp.digicert.com' # DevSkim: ignore DS197836, DS137138 - SHA256 is the signature hash; RFC 3161 TSA URLs are http by convention
+        $result = Set-AuthenticodeSignature -FilePath $tmpPath -Certificate $cert -HashAlgorithm SHA256 -TimestampServer 'http://timestamp.digicert.com' # DevSkim: ignore DS197836,DS137138 - SHA256 is the signature hash; RFC 3161 TSA URLs are http by convention
         if ($result.Status -eq 'Valid') {
             Write-Host "Signature status: Valid" -ForegroundColor Green
             Write-Host 'Script signed successfully!' -ForegroundColor Green
@@ -7231,7 +7231,7 @@ function Restore-ScriptSignature {
     try {
         $tmpPath = Join-Path $env:TEMP "mumu-menu_resign.ps1"
         Copy-Item -LiteralPath $ScriptPath -Destination $tmpPath -Force
-        $result = Set-AuthenticodeSignature -FilePath $tmpPath -Certificate $cert -HashAlgorithm SHA256 -TimestampServer 'http://timestamp.digicert.com' -ErrorAction Stop # DevSkim: ignore DS197836, DS137138 - SHA256 is the signature hash; RFC 3161 TSA URLs are http by convention
+        $result = Set-AuthenticodeSignature -FilePath $tmpPath -Certificate $cert -HashAlgorithm SHA256 -TimestampServer 'http://timestamp.digicert.com' -ErrorAction Stop # DevSkim: ignore DS197836,DS137138 - SHA256 is the signature hash; RFC 3161 TSA URLs are http by convention
         if ($result.Status -eq 'Valid') {
             Copy-Item -LiteralPath $tmpPath -Destination $ScriptPath -Force
             Write-Host "  Script re-signed after update (status: Valid, cert $($cert.Thumbprint))." -ForegroundColor Green
