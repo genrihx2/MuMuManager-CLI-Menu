@@ -4,6 +4,12 @@
 
 ---
 
+## v1.22.26 (21.09.2026)
+
+### Improved
+
+- **[DIAG] классификация stale fail-записей журнала** — update-fail, перекрытый последующим успехом (update-ok / self-apply / zip-verify-ok), больше не поднимает actionable warning: [DIAG] помечает его как historical info и называет перекрывший успех. Fail без последующего успеха остаётся warning
+
 ## v1.22.25 (21.09.2026)
 
 ### Fixed
