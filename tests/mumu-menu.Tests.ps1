@@ -1143,6 +1143,25 @@ Describe 'Shutdown and Restart screens [3]/[4]' {
     }
 }
 
+Describe 'Create screen [5]' {
+
+    It 'New-Emulator shows a panel, detects the new index by diff and reports an honest outcome' {
+        $raw = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'mumu-menu.ps1') -Raw -Encoding UTF8
+        $fnAt = $raw.IndexOf('function New-Emulator {')
+        $nextAt = $raw.IndexOf('function Copy-Emulator {')
+        ($fnAt -ge 0 -and $nextAt -gt $fnAt) | Should -BeTrue
+        $body = $raw.Substring($fnAt, $nextAt - $fnAt)
+        # Panel in the [2]/[3]/[4] style.
+        $body.Contains('Create emulator:') | Should -BeTrue
+        # New instance is detected by before/after diff, not a blind success line.
+        ($body -match '-notcontains') | Should -BeTrue
+        $body.Contains('created') | Should -BeTrue
+        $body.Contains('No new instance appeared') | Should -BeTrue
+        # New row is marked in the instance list.
+        $body.Contains('<-- new') | Should -BeTrue
+    }
+}
+
 Describe 'Install status (issue #25)' {
 
     BeforeAll {

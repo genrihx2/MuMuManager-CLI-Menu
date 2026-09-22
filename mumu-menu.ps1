@@ -3290,8 +3290,6 @@ function Restart-Emulator {
 
 function New-Emulator {
     Write-Host ''
-    Write-Host 'Creating new emulator...' -ForegroundColor Cyan
-    Write-Host ''
     Write-Host 'Android version:' -ForegroundColor White
     Write-Host '  [1] Auto (recommended)' -ForegroundColor Yellow
     Write-Host '  [2] Android 12' -ForegroundColor Yellow
@@ -3302,24 +3300,50 @@ function New-Emulator {
         '3' { '15' }
         default { 'auto' }
     }
-    Write-Host ''
-    Write-Host "Creating instance (Android: $ver)..." -ForegroundColor DarkGray
+    $verLabel = if ($ver -eq 'auto') { 'Auto (recommended)' } else { "Android $ver" }
+
+    # --- instance snapshot before create: the new index is detected by diff, not by blind success ---
+    $before = @()
     try {
-        $output = Invoke-Mumu @('create', '-ver', $ver) 2>&1
-        Write-Host $output
-        Write-Host ''
-        Write-Host 'Done!' -ForegroundColor Green
-        Write-Host ''
-        Write-Host 'Current instances:' -ForegroundColor Yellow
+        $preInfo = & $MumuPath info -v all 2>$null | ConvertFrom-Json
+        $before = @($preInfo.PSObject.Properties.Name)
+    } catch { Write-Debug 'pre-create info read failed: '$($_.Exception.Message)'' }
+
+    Write-Host ''
+    Write-Host '  ┌─────────────────────────────────────────────┐' -ForegroundColor Cyan
+    Write-Host ("  │  Create emulator: {0,-25}│" -f $verLabel) -ForegroundColor Cyan
+    Write-Host '  └─────────────────────────────────────────────┘' -ForegroundColor Cyan
+    Write-Host ''
+
+    Write-Host '    ● Creating instance...' -ForegroundColor White
+    & $MumuPath create -ver $ver 2>&1 | ForEach-Object { Write-Host "      $_" }
+
+    # --- honest outcome: re-read and diff against the snapshot ---
+    $newIndexes = @()
+    try {
         $allInfo = & $MumuPath info -v all 2>$null | ConvertFrom-Json
-        foreach ($key in $allInfo.PSObject.Properties.Name) {
-            $inst = $allInfo.$key
-            $state = if ($inst.player_state) { $inst.player_state } else { 'stopped' }
-            Write-Host "  [$key] $($inst.name) - $state" -ForegroundColor White
-        }
-    } catch {
-        Write-Host "Create failed: $($_.Exception.Message)" -ForegroundColor Red
+        $afterKeys = @($allInfo.PSObject.Properties.Name)
+        $newIndexes = @($afterKeys | Where-Object { $before -notcontains $_ })
+    } catch { Write-Debug 'post-create info read failed: '$($_.Exception.Message)'' }
+
+    Write-Host ''
+    if ($newIndexes.Count -gt 0) {
+        Write-Host ("    ✓ Instance {0} created" -f ($newIndexes -join ', ')) -ForegroundColor Green
+    } else {
+        Write-Host '    ✗ No new instance appeared - check the output above.' -ForegroundColor Red
+        return
     }
+
+    Write-Host ''
+    Write-Host '    Current instances:' -ForegroundColor Yellow
+    foreach ($key in $allInfo.PSObject.Properties.Name) {
+        $inst = $allInfo.$key
+        $state = if ($inst.player_state) { $inst.player_state } else { 'stopped' }
+        $marker = if ($newIndexes -contains $key) { ' <-- new' } else { '' }
+        Write-Host "      [$key] $($inst.name) - $state$marker" -ForegroundColor White
+    }
+    Write-Host ''
+    Write-Host '    Next: [2] launch it, or [R] delete if unwanted.' -ForegroundColor DarkGray
 }
 
 function Copy-Emulator {
