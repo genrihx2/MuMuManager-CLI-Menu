@@ -1106,6 +1106,41 @@ Describe 'View logs screen [G]' {
         $body.Contains("matching line(s); non-matching shown dimmed") | Should -BeTrue
         # Snapshot default filter is errors-only; live stays unfiltered.
         $body.Contains("defaultFmode = if (`$mode -eq '2') { '2' } else { '1' }") | Should -BeTrue
+        # Stack collapse: bare Lua-logger frames and blank tails of the same
+        # tag collapse into one line per error, total counted at the end.
+        $body.Contains('[stack] collapsed') | Should -BeTrue
+        $body.Contains('$State.lastTag') | Should -BeTrue
+        $body.Contains('^[\w.]+:\w+\(') | Should -BeTrue
+    }
+
+    It 'Write-LogcatLine prints each Lua error as one line, collapsing stack frames and blank tails' {
+        $f = $script:ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Write-LogcatLine'
+        }, $true) | Select-Object -First 1
+        $f | Should -Not -BeNullOrEmpty
+        . ([scriptblock]::Create($f.Extent.Text))
+        $state = @{ collapsed = 0; lastTag = $null }
+        # Real shape from a live MuMu logcat dump (E/Unity Lua logger):
+        # message, two bare stack frames, blank tail - twice.
+        $lines = @(
+            '09-22 14:20:48.845 E/Unity   ( 2945): 14:20:48.843-270: EventSystem listener count 43'
+            '09-22 14:20:48.845 E/Unity   ( 2945): LuaInterface.Debugger:LogError(String)'
+            '09-22 14:20:48.845 E/Unity   ( 2945): LuaLog:PrintError(IntPtr)'
+            '09-22 14:20:48.845 E/Unity   ( 2945):'
+            '09-22 14:20:48.863 E/Unity   ( 2945): 14:20:48.861-270: EventSystem listener count 44'
+            '09-22 14:20:48.863 E/Unity   ( 2945): LuaInterface.Debugger:LogError(String)'
+            '09-22 14:20:48.863 E/Unity   ( 2945): LuaLog:PrintError(IntPtr)'
+            '09-22 14:20:48.863 E/Unity   ( 2945):'
+        )
+        $printed = 0
+        foreach ($l in $lines) {
+            $out = Write-LogcatLine $l $state 6>&1
+            if ($out) { $printed++ }
+        }
+        $printed | Should -Be 2          # only the two error messages survive
+        $state.collapsed | Should -Be 6  # 2 x (2 frames + 1 blank)
+        $state.lastTag | Should -Be 'Unity'
     }
 }
 

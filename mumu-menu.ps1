@@ -6945,9 +6945,22 @@ function Show-Logs {
     # -v time format: "09-21 14:49:12.858 W/Tag( 3012): message" — the level
     # letter sits right after the timestamp, before the "Tag(" part.
     function Write-LogcatLine {
-        param([string]$Line)
-        if ($Line -match '^\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+\s+([VDIWEF])/') {
-            $color = switch ($Matches[1]) {
+        param([string]$Line, $State)
+        if ($Line -match '^\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+\s+([VDIWEF])/([^\s:]+)\s*\(\s*\d+\):[ \t]*(.*)$') {
+            $level = $Matches[1]
+            $tag = $Matches[2]
+            $body = $Matches[3]
+            # Collapse logger stack spam: bare frames (Name:Method(Type)) and
+            # blank continuation lines that trail a message from the same tag
+            # are suppressed - every error then prints as a single line and
+            # the total is reported once at the end.
+            $isStack = ($body -eq '') -or ($body -match '^[\w.]+:\w+\([A-Za-z0-9_,\[\]]*\)$')
+            if ($isStack -and $State.lastTag -eq $tag) {
+                $State.collapsed++
+                return
+            }
+            $State.lastTag = $tag
+            $color = switch ($level) {
                 'E' { 'Red' }
                 'F' { 'Red' }
                 'W' { 'Yellow' }
@@ -6957,9 +6970,13 @@ function Show-Logs {
             }
             Write-Host $Line -ForegroundColor $color
         } else {
+            $State.lastTag = $null
             Write-Host $Line
         }
     }
+
+    # Per-run state for the stack collapse above (shared with call sites).
+    $gLogState = @{ collapsed = 0; lastTag = $null }
 
     if ($mode -eq '1') {
         $nxDir = Split-Path $MumuPath -Parent
@@ -7085,7 +7102,7 @@ function Show-Logs {
                             # Non-matching lines stay visible, dimmed, for context.
                             Write-Host $s -ForegroundColor DarkGray
                         } else {
-                            Write-LogcatLine $s
+                            Write-LogcatLine $s $gLogState
                         }
                     }
                     if ($searchNeedle) {
@@ -7095,6 +7112,10 @@ function Show-Logs {
                     if ($quiet -and $hidden -gt 0) {
                         Write-Host ''
                         Write-Host "  [quiet] hidden $hidden noisy line(s)" -ForegroundColor DarkGray
+                    }
+                    if ($gLogState.collapsed -gt 0) {
+                        Write-Host ''
+                        Write-Host "  [stack] collapsed $($gLogState.collapsed) stack line(s) - each error printed once" -ForegroundColor DarkGray
                     }
                 } else {
                     Write-Host 'Empty output — instance may be stopped, not authorized for adb, or no matching logs.' -ForegroundColor Yellow
@@ -7121,7 +7142,7 @@ function Show-Logs {
                     if ($searchNeedle) {
                         Write-Host $s -ForegroundColor DarkGray
                     } else {
-                        Write-LogcatLine $s
+                        Write-LogcatLine $s $gLogState
                     }
                 }
                 if ($searchNeedle) {
@@ -7131,6 +7152,10 @@ function Show-Logs {
                 if ($quiet -and $counter.hidden -gt 0) {
                     Write-Host ''
                     Write-Host "  [quiet] hidden $($counter.hidden) noisy line(s)" -ForegroundColor DarkGray
+                }
+                if ($gLogState.collapsed -gt 0) {
+                    Write-Host ''
+                    Write-Host "  [stack] collapsed $($gLogState.collapsed) stack line(s) - each error printed once" -ForegroundColor DarkGray
                 }
             } catch {
                 Write-Host "logcat interrupted or failed: $($_.Exception.Message)" -ForegroundColor Red
