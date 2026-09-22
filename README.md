@@ -361,7 +361,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.22.38
+Script version: 1.22.39
 MuMu version: 6.7.1
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -461,6 +461,13 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 **EN summary:** Recovering from a failed update: diagnose first (`[ST]` status, `[DIAG]` problems, `[F]` file-vs-tag verification, `[J] → 3` errors), then act. HASH MISMATCH → re-run `[F]` (stale-CDN false alarms vanish on the re-fetch; stable mismatches mean re-download the ZIP and verify with `-VerifyZip`). Wedged marker ("Up to date" but old content) → `bootstrap-update.ps1 -Force`. Broken files → restore from `backup\YYYYMMDD_HHMMSS`. Lock refusal → wait (locks older than 10 minutes break automatically). The table above maps each symptom to its cause and fix.
 
 ## Что нового
+
+### v1.22.39 (22.09.2026)
+
+- **Меню [G] View logs**: свёртка стек-логгера — голые фреймы `Name:Method(Type)` и пустые продолжения того же тега скрываются, каждая ошибка печатается одной строкой, итог `[stack] collapsed N stack line(s)` (проверено на реальном логе: 24 строки → 6 сообщений)
+
+- **Документация**: дата релиза v1.22.37 в README и relnotes приведена к фактическому `published_at` (22.09.2026 — релиз пересёк полночь UTC)
+
 
 ### v1.22.38 (22.09.2026)
 
@@ -822,6 +829,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.39 | 22.09.2026 | [G]: свёртка стек-логгера Lua (ошибка = одна строка); дата v1.22.37 = published_at |
 | v1.22.38 | 22.09.2026 | Меню [5]: чистка PSSA — `Write-Debug` без позиционных параметров |
 | v1.22.37 | 22.09.2026 | Меню [5]: панельный редизайн Create (дифф-детекция нового инстанса) |
 | v1.22.36 | 21.09.2026 | Меню [G]: поиск по подстроке [6] с подсветкой |
