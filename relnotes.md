@@ -4,6 +4,12 @@
 
 ---
 
+## v1.22.37 (21.09.2026)
+
+### Changed
+
+- **[5] Create instance — панельный редизайн**: экран создания в едином стиле [2]/[3]/[4] — рамка с выбранной версией Android, статус `● Creating instance...`, честный итог: новый индекс определяется диффом `info -v all` до/после create (не слепое «Done!») — `✓ Instance N created` либо `✗ No new instance appeared`. В списке инстансов новая строка помечена `<-- new`, в конце подсказка `[2] launch it, or [R] delete if unwanted`
+
 ## v1.22.36 (21.09.2026)
 
 ### Added
