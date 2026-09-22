@@ -3307,7 +3307,7 @@ function New-Emulator {
     try {
         $preInfo = & $MumuPath info -v all 2>$null | ConvertFrom-Json
         $before = @($preInfo.PSObject.Properties.Name)
-    } catch { Write-Debug 'pre-create info read failed: '$($_.Exception.Message)'' }
+    } catch { Write-Debug "pre-create info read failed: $($_.Exception.Message)" }
 
     Write-Host ''
     Write-Host '  ┌─────────────────────────────────────────────┐' -ForegroundColor Cyan
@@ -3324,7 +3324,7 @@ function New-Emulator {
         $allInfo = & $MumuPath info -v all 2>$null | ConvertFrom-Json
         $afterKeys = @($allInfo.PSObject.Properties.Name)
         $newIndexes = @($afterKeys | Where-Object { $before -notcontains $_ })
-    } catch { Write-Debug 'post-create info read failed: '$($_.Exception.Message)'' }
+    } catch { Write-Debug "post-create info read failed: $($_.Exception.Message)" }
 
     Write-Host ''
     if ($newIndexes.Count -gt 0) {
