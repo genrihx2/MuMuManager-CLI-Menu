@@ -4,6 +4,22 @@
 
 ---
 
+## v1.22.40 (24.09.2026)
+
+### Added
+
+- **Функция `Get-ReleaseInfo`** — структурированные данные последнего GitHub-релиза в одном вызове: тег, `$scriptVer` релизного блоба (regex-извлечение), дата публикации, автор, тело notes, список ассетов с размерами и URL скачивания (`DownloadUrl`, `AssetFilenames`). Устойчива к ошибкам сети — при сбое возвращает `$null`, ошибки уходят в `Write-Debug`
+
+### Changed
+
+- **`Update-FromGitHub` — рефакторинг получения релиза**: инлайн-логика fetch'а `releases/latest` (~34 строки) заменена вызовом `Get-ReleaseInfo`; обработка ошибок (rate limit / нет релизов / сетевой сбой) сохранена 1-в-1. Функция переиспользуема из UI меню и других вызовов
+
+### Infrastructure
+
+- **Dependabot**: убран несуществующий лейбл `dependencies` из `dependabot.yml` (ошибка «labels could not be found»); лейбл создан в настройках репозитория
+- **CI**: `github/codeql-action/upload-sarif` обновлён до v4.38.1 в `devskim.yml` и `security-scan.yml` (per-language CodeQL bundles — быстрее и меньше трафика на раннерах)
+
+
 ## v1.22.39 (22.09.2026)
 
 ### Added
