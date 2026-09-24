@@ -700,6 +700,67 @@ function Get-ExpectedFileHashes {
 # (v-prefix agnostic). Guards the version-fix heal against stale CDN blobs:
 # fetched content claiming an older scriptVer must never heal the marker
 # to the tag - the tag's content has not actually arrived.
+# ── Release / asset helpers ───────────────────────────────
+# Returns structured data for the *latest* GitHub Release of $GitHubRepo.
+function Get-ReleaseInfo {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $false)]
+        [string]$Repo = $GitHubRepo
+    )
+
+    $headers = @{
+        'Accept'       = 'application/vnd.github.v3+json'
+        'User-Agent'   = 'MuMuManager-CLI-Menu'
+    }
+    if ($GitHubToken) { $headers['Authorization'] = "token $GitHubToken" }
+
+    try {
+        $rel = Invoke-GitHubGet "https://api.github.com/repos/$Repo/releases/latest" 15 | ConvertFrom-Json
+        if (-not $rel -or -not $rel.tag_name) { return $null }
+
+        $assets = @()
+        if ($rel.assets) {
+            foreach ($a in $rel.assets) {
+                $assets += [pscustomobject]@{
+                    Name       = $a.name
+                    Size       = $a.size
+                    DownloadUrl = $a.browser_download_url
+                    ContentType = $a.content_type
+                }
+            }
+        }
+
+        # Pull the $scriptVer out of the menu script inside the release blob;
+        # used by the confirmation panel so the user sees "real" version.
+        $scriptVer = ''
+        try {
+            $menuText = Get-RemoteFile -Name 'mumu-menu.ps1' -Ref $rel.tag_name
+            if ($menuText) {
+                $m = [regex]::Match($menuText, "(?m)^`$scriptVer\s*=\s*'([^']+)'")
+                if ($m.Success) { $scriptVer = $m.Groups[1].Value }
+            }
+        } catch { Write-Debug "Get-ReleaseInfo: scriptVer probe failed: $($_.Exception.Message)" }
+
+        return [pscustomobject]@{
+            Tag            = $rel.tag_name
+            Prerelease     = [bool]$rel.prerelease
+            PublishedAt    = $rel.published_at
+            TargetCommit   = $rel.target_commitish
+            Author         = if ($rel.author) { $rel.author.login } else { '' }
+            Body           = $rel.body
+            ScriptVer      = $scriptVer
+            AssetCount     = $assets.Count
+            Assets         = $assets
+            DownloadUrl    = if ($rel.assets -and $rel.assets.Count -gt 0) { $rel.assets[0].browser_download_url } else { '' }
+            AssetFilenames = if ($assets.Count -gt 0) { ($assets.Name -join ', ') } else { '' }
+        }
+    } catch {
+        Write-Debug "Get-ReleaseInfo failed: $($_.Exception.Message)"
+        return $null
+    }
+}
+
 function Test-ScriptVerMatchesTag {
     param([string]$Text, [string]$Tag)
     $m = [regex]::Match($Text, "(?m)^\s*\`$scriptVer\s*=\s*'(\d+(?:\.\d+){1,3})'")
@@ -1268,34 +1329,25 @@ function Update-FromGitHub {
     }
 
     try {
-        $relUrl = "https://api.github.com/repos/$GitHubRepo/releases/latest"
-        $release = Invoke-GitHubGet $relUrl 15 | ConvertFrom-Json
-
-        if (-not $release -or -not $release.tag_name) {
-            if ($release -and $release.message) {
-                $apiMsg = $release.message
-                if ($apiMsg -match 'rate limit') {
-                    if (-not $Passive) {
-                        Write-Host '  GitHub API rate limit exceeded.' -ForegroundColor Yellow
-                        if (-not $GitHubToken) {
-                            Write-Host '  Without a token the limit is 60 requests/hour per IP.' -ForegroundColor Yellow
-                            Write-Host '  Add a token: menu [K] Update GitHub token (stored DPAPI-encrypted).' -ForegroundColor Yellow
-                        } else {
-                            Write-Host '  Token quota (5000/hour) exhausted or invalid - re-save via [K].' -ForegroundColor Yellow
-                        }
-                    }
-                } else {
-                    if (-not $Passive) { Write-Host "  GitHub API: $apiMsg" -ForegroundColor Yellow }
-                }
-            } else {
+        # Fetch structured release info via the new Get-ReleaseInfo helper.
+        # Globals: $GitHubRepo, $GitHubToken, $Passive, $Plan, $NoAuth
+        $relInfo = Get-ReleaseInfo
+        if (-not $relInfo) {
+            # Replicate the previous inline error handling for parity.
+            if ($relInfo -is [pscustomobject] -and $relInfo.Tag -eq $null) {
+                # No releases found / empty response
                 if (-not $Passive) { Write-Host '  No releases found on remote' -ForegroundColor Yellow }
+            } else {
+                # API error / network failure
+                Write-Debug "Release fetch failed: $($_.Exception.Message)"
+                if (-not $Passive) { Write-Host '  Release fetch failed - retry later' -ForegroundColor Yellow }
             }
             return
         }
 
-        $tag = $release.tag_name
-        $remoteDate = $release.published_at
-        $remoteBody = if ($release.body) { $release.body } else { '' }
+        $tag = $relInfo.Tag
+        $remoteDate = $relInfo.PublishedAt
+        $remoteBody = $relInfo.Body
 
         # Fast check: compare local version tag against release tag (no download)
         $localTag = ''

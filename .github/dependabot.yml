@@ -10,5 +10,4 @@ updates:
         patterns:
           - "*"
     labels:
-      - "dependencies"
       - "chore"
