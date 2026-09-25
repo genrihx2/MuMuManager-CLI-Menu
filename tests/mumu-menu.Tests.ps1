@@ -28,7 +28,7 @@ BeforeAll {
                         'Get-DiagSummary', 'Show-UpdatePlan',
                         'Get-AutoDiagSummary', 'Invoke-StartupAutoDiag', 'Show-AutoDiagLine',
                         'Read-EtagCacheFile', 'Get-EtagCacheFileState', 'Save-EtagCacheFile', 'Invoke-EtagCacheMaintenance',
-                        'Test-CurlRetrySupport', 'Get-CurlGitHubArgs', 'Invoke-GitHubApiGet')) {
+                        'Test-CurlRetrySupport', 'Get-CurlGitHubArgs', 'Invoke-GitHubApiGet', 'Get-ReleaseInfo')) {
         $f = $script:ast.FindAll({
             param($node)
             $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -496,12 +496,16 @@ Describe 'Update-FromGitHub: tag pinning for downloads and fingerprints (stale-C
 
 Describe 'Update-FromGitHub: jsDelivr CDN fallback (transport-only, hash-gated)' {
 
-    It 'wiring: _DlFile keeps a hash-verified CDN fallback without following redirects or leaking the token' {
+    BeforeAll {
         $f = $script:ast.FindAll({
             param($node)
             $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Update-FromGitHub'
         }, $true) | Select-Object -First 1
-        $t = $f.Extent.Text
+        $script:ufg = $f.Extent.Text
+    }
+
+    It 'wiring: _DlFile keeps a hash-verified CDN fallback without following redirects or leaking the token' {
+        $t = $script:ufg
         # Fallback exists and is scoped to contents-API URLs (path + ?ref= split).
         $t | Should -Match 'cdn\.jsdelivr\.net/gh/'
         $t | Should -Match '\?ref=\(\[\^&\]\+\)' -Because 'the CDN URL needs path and ref split from the API URL'
@@ -516,11 +520,7 @@ Describe 'Update-FromGitHub: jsDelivr CDN fallback (transport-only, hash-gated)'
     }
 
     It '-NoAuth keeps the GitHub token away from every mirror request' {
-        $f = $script:ast.FindAll({
-            param($node)
-            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Update-FromGitHub'
-        }, $true) | Select-Object -First 1
-        $t = $f.Extent.Text
+        $t = $script:ufg
         # The primary attempt is skipped entirely in NoAuth mode.
         $t | Should -Match '\$GitHubToken.*-not \$NoAuth'
         # The NoAuth comment states the guarantee explicitly.
@@ -531,6 +531,157 @@ Describe 'Update-FromGitHub: jsDelivr CDN fallback (transport-only, hash-gated)'
         $src = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'mumu-menu.ps1') -Raw
         ($src -match 'fallback: cdn\.jsdelivr\.net mirror') | Should -Be $true
         ($src -match 'cdn\.jsdelivr\.net/gh/') | Should -Be $true
+    }
+}
+
+Describe 'Get-ReleaseInfo (structured latest-release helper)' {
+
+    BeforeAll {
+        # Stand-ins for the two external calls Get-ReleaseInfo makes:
+        # Invoke-GitHubGet (the curl transport, deliberately not dot-sourced
+        # here) and Get-RemoteFile (nested inside Update-FromGitHub, so
+        # reachable only through dynamic scope). Plain stubs instead of
+        # Pester Mock: Pester 6 refuses to mock a command that does not
+        # exist, and stubs behave identically on Pester 5 and 6. Tests drive
+        # them through the script-scope variables below.
+        $script:ghGetCalls      = @()
+        $script:ghGetResponse   = $null
+        $script:ghGetThrow      = ''
+        $script:remoteFileCalls = @()
+        $script:remoteFileText  = ''
+        function Invoke-GitHubGet {
+            param([string]$Url, [int]$TimeoutSec = 30)
+            $script:ghGetCalls += ,@{ Url = $Url; TimeoutSec = $TimeoutSec }
+            if ($script:ghGetThrow) { throw "Invoke-GitHubGet failed: $($script:ghGetThrow)" }
+            return $script:ghGetResponse
+        }
+        function Get-RemoteFile {
+            param([string]$Name, [string]$Ref)
+            $script:remoteFileCalls += ,@{ Name = $Name; Ref = $Ref }
+            if (-not $script:remoteFileText) { throw 'Get-RemoteFile: not resolvable outside Update-FromGitHub' }
+            return $script:remoteFileText
+        }
+        $f = $script:ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Update-FromGitHub'
+        }, $true) | Select-Object -First 1
+        $script:ufgText = $f.Extent.Text
+    }
+
+    BeforeEach {
+        $script:ghGetCalls      = @()
+        $script:ghGetResponse   = $null
+        $script:ghGetThrow      = ''
+        $script:remoteFileCalls = @()
+        $script:remoteFileText  = ''
+    }
+
+    It 'Update-FromGitHub delegates the release fetch to Get-ReleaseInfo (no inline releases/latest copy)' {
+        $t = $script:ufgText
+        $t | Should -Match '\$relInfo = Get-ReleaseInfo'
+        # The v1.22.40 refactor moved the inline releases/latest fetch (~34
+        # lines) into the helper - the updater must not keep a second copy.
+        $t | Should -Not -Match 'releases/latest'
+    }
+
+    It 'fetch wiring: releases/latest for the -Repo param (default $GitHubRepo) through Invoke-GitHubGet' {
+        $f = $script:ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Get-ReleaseInfo'
+        }, $true) | Select-Object -First 1
+        $t = $f.Extent.Text
+        $t | Should -Match '\[string\]\$Repo = \$GitHubRepo'
+        $t | Should -Match 'Invoke-GitHubGet "https://api\.github\.com/repos/\$Repo/releases/latest"'
+        $t | Should -Match 'Accept.*application/vnd\.github\.v3\+json'
+        # Auth rides the shared helper contract: header added only when a
+        # token is set (mirrors every other API consumer in the script).
+        $t | Should -Match 'if \(\$GitHubToken\) \{ \$headers\[.Authorization.\]'
+    }
+
+    It 'maps the release JSON into a structured object (tag, dates, author, assets)' {
+        $script:ghGetResponse = @'
+{"tag_name":"v1.22.40","prerelease":false,"published_at":"2026-09-24T15:35:46Z","target_commitish":"main","author":{"login":"genrihx2"},"body":"notes body","assets":[{"name":"MuMuManager-CLI-Menu-v1.22.40.zip","size":1048576,"browser_download_url":"https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/download/v1.22.40/MuMuManager-CLI-Menu-v1.22.40.zip","content_type":"application/zip"}]}
+'@
+        $script:remoteFileText = "`$scriptVer = '1.22.40'`n"
+        $r = Get-ReleaseInfo -Repo 'genrihx2/MuMuManager-CLI-Menu'
+        $r | Should -Not -BeNullOrEmpty
+        $r.Tag | Should -Be 'v1.22.40'
+        $r.Prerelease | Should -BeFalse
+        $r.PublishedAt | Should -BeOfType [datetime]
+        # Compare the instant, not the Kind-dependent rendering: ConvertFrom-Json
+        # yields a DateTime, so a raw string -Be is both engine- and
+        # Pester-version-dependent.
+        $r.PublishedAt.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') | Should -Be '2026-09-24T15:35:46Z'
+        $r.TargetCommit | Should -Be 'main'
+        $r.Author | Should -Be 'genrihx2'
+        $r.Body | Should -Be 'notes body'
+        $r.AssetCount | Should -Be 1
+        $r.Assets[0].Name | Should -Be 'MuMuManager-CLI-Menu-v1.22.40.zip'
+        $r.Assets[0].Size | Should -Be 1048576
+        $r.Assets[0].DownloadUrl | Should -Be 'https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/download/v1.22.40/MuMuManager-CLI-Menu-v1.22.40.zip'
+        $r.Assets[0].ContentType | Should -Be 'application/zip'
+        $r.DownloadUrl | Should -Be $r.Assets[0].DownloadUrl
+        $r.AssetFilenames | Should -Be 'MuMuManager-CLI-Menu-v1.22.40.zip'
+        # Exactly one transport call: releases/latest for the given repo, 15s.
+        $script:ghGetCalls.Count | Should -Be 1
+        $script:ghGetCalls[0].Url | Should -Be 'https://api.github.com/repos/genrihx2/MuMuManager-CLI-Menu/releases/latest'
+        $script:ghGetCalls[0].TimeoutSec | Should -Be 15
+        # The scriptVer probe fetches the menu blob pinned to the release tag.
+        $script:remoteFileCalls.Count | Should -Be 1
+        $script:remoteFileCalls[0].Name | Should -Be 'mumu-menu.ps1'
+        $script:remoteFileCalls[0].Ref | Should -Be 'v1.22.40'
+    }
+
+    It 'anchors the scriptVer extraction: double-quoted and indented look-alikes are ignored' {
+        # (?m)^ plus single quotes only - a look-alike inside the fetched blob
+        # must never become the displayed version.
+        $script:ghGetResponse = '{"tag_name":"v1.22.40"}'
+        $script:remoteFileText = "`$scriptVer = `"9.9.9`"`n  `$scriptVer = '0.0.1'`n"
+        (Get-ReleaseInfo -Repo 'genrihx2/MuMuManager-CLI-Menu').ScriptVer | Should -Be ''
+    }
+
+    It 'keeps ScriptVer empty when the probe cannot resolve Get-RemoteFile (standalone call)' {
+        # No blob text: the stub throws, mirroring a standalone call where the
+        # nested Get-RemoteFile does not exist. The probe must fail soft.
+        $script:ghGetResponse = '{"tag_name":"v1.22.40"}'
+        $r = Get-ReleaseInfo -Repo 'genrihx2/MuMuManager-CLI-Menu'
+        $r.Tag | Should -Be 'v1.22.40'
+        $r.ScriptVer | Should -Be ''
+    }
+
+    It 'maps a multi-asset release: DownloadUrl = first asset, AssetFilenames = joined list' {
+        $script:ghGetResponse = '{"tag_name":"v1.22.40","assets":[{"name":"mumu-menu.ps1","size":10,"browser_download_url":"https://example/1","content_type":"text/plain"},{"name":"SKILL.md","size":20,"browser_download_url":"https://example/2","content_type":"text/markdown"}]}'
+        $r = Get-ReleaseInfo -Repo 'genrihx2/MuMuManager-CLI-Menu'
+        $r.AssetCount | Should -Be 2
+        $r.DownloadUrl | Should -Be 'https://example/1'
+        $r.AssetFilenames | Should -Be 'mumu-menu.ps1, SKILL.md'
+    }
+
+    It 'maps an asset-less prerelease safely: no author, empty download fields' {
+        $script:ghGetResponse = '{"tag_name":"v0.9.0","prerelease":true,"assets":[]}'
+        $r = Get-ReleaseInfo -Repo 'genrihx2/MuMuManager-CLI-Menu'
+        $r.Tag | Should -Be 'v0.9.0'
+        $r.Prerelease | Should -BeTrue
+        $r.Author | Should -Be ''
+        $r.AssetCount | Should -Be 0
+        $r.DownloadUrl | Should -Be ''
+        $r.AssetFilenames | Should -Be ''
+    }
+
+    It 'returns $null when the response has no tag_name (no release, API error body, empty body)' {
+        foreach ($body in @('{}', '{"message":"Not Found","documentation_url":"https://docs.github.com/rest"}', '')) {
+            $script:ghGetResponse = $body
+            Get-ReleaseInfo -Repo 'genrihx2/MuMuManager-CLI-Menu' | Should -BeNullOrEmpty
+        }
+    }
+
+    It 'returns $null on transport failure (network down / rate limited) without writing errors to the host streams' {
+        $script:ghGetThrow = 'rate limit exceeded'
+        # Catch-all: the streams the user actually sees (output/error) stay
+        # clean - diagnostics belong to Write-Debug per project convention.
+        $visible = @(Get-ReleaseInfo -Repo 'genrihx2/MuMuManager-CLI-Menu' 6>&1)
+        $visible | Should -BeNullOrEmpty
+        $script:ghGetCalls.Count | Should -Be 1
     }
 }
 
@@ -887,6 +1038,15 @@ Describe 'Problem diagnostics (Get-ProblemFindings)' {
                 ScriptVer        = '1.21.3'
             }
             foreach ($k in $Overrides.Keys) { $p[$k] = $Overrides[$k] }
+            # Never let the real probe run the fixture MuMuManager.exe: a text
+            # file with an .exe name makes the Windows loader pop a modal
+            # "not compatible with this version of Windows" dialog, and the
+            # suite stalls until someone clicks it (seen live locally).
+            # Emulator findings are asserted through an injected probe; the
+            # path-existence branch is still covered by the missing-path test.
+            if (-not $p.ContainsKey('MumuProbe')) {
+                $p['MumuProbe'] = { param($exe) @{ found = $true; instances = 0; running = 0; adbReady = $false; error = '' } }
+            }
             Get-ProblemFindings @p
         }
     }
