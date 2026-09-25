@@ -464,7 +464,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ### v1.22.40 (24.09.2026)
 
-- **Меню [U]/[UP] — функция `Get-ReleaseInfo`**: структурированные данные последнего GitHub-релиза (тег, `$scriptVer` блоба, дата, автор, ассеты с URL) в одном переиспользуемом вызове
+- **Меню [U]/[UP] — функция `Get-ReleaseInfo`**: структурированные данные последнего GitHub-релиза (тег, `$scriptVer` блоба, дата, автор, ассеты с URL) в одном переиспользуемом вызове; причина сбоя отдаётся вызывающему через `-Failure` (`no-release` / `rate-limit` / `api` / `transport`), поэтому `[U]`/`[UP]` рендерят прежние сообщения — подсказки по rate limit, текст ошибки API и сетевой сбой
 - **`Update-FromGitHub` — рефакторинг**: инлайн-fetch `releases/latest` заменён на `Get-ReleaseInfo`, поведение обработки ошибок сохранено 1-в-1
 - **CI/Dependabot**: лейбл `dependencies` создан и указан корректно; `upload-sarif` → v4.38.1 (per-language CodeQL bundles)
 

@@ -702,22 +702,38 @@ function Get-ExpectedFileHashes {
 # to the tag - the tag's content has not actually arrived.
 # ── Release / asset helpers ───────────────────────────────
 # Returns structured data for the *latest* GitHub Release of $GitHubRepo.
+# Failure contract: $null plus Write-Debug detail, and - when the caller
+# passes -Failure - a { Kind; Message } record saying why:
+#   no-release  the API answered with no usable release
+#   rate-limit  API error body reporting a rate limit
+#   api         any other API error body
+#   transport   the fetch itself threw (network/TLS/retries exhausted)
+# Auth, Accept and retries live in Invoke-GitHubGet (the only transport),
+# so this helper builds no headers of its own.
 function Get-ReleaseInfo {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $false)]
-        [string]$Repo = $GitHubRepo
+        [string]$Repo = $GitHubRepo,
+        # Out: the failure detail, for callers that render their own message.
+        # Update-FromGitHub keeps the pre-refactor rate-limit hints and the
+        # raw API text this way. Callers that only need $null omit it.
+        [Parameter(Mandatory = $false)]
+        [ref]$Failure
     )
-
-    $headers = @{
-        'Accept'       = 'application/vnd.github.v3+json'
-        'User-Agent'   = 'MuMuManager-CLI-Menu'
-    }
-    if ($GitHubToken) { $headers['Authorization'] = "token $GitHubToken" }
 
     try {
         $rel = Invoke-GitHubGet "https://api.github.com/repos/$Repo/releases/latest" 15 | ConvertFrom-Json
-        if (-not $rel -or -not $rel.tag_name) { return $null }
+        if (-not $rel -or -not $rel.tag_name) {
+            if ($Failure) {
+                $apiMsg = if ($rel -and $rel.message) { [string]$rel.message } else { '' }
+                $Failure.Value = [pscustomobject]@{
+                    Kind    = if (-not $apiMsg) { 'no-release' } elseif ($apiMsg -match 'rate limit') { 'rate-limit' } else { 'api' }
+                    Message = $apiMsg
+                }
+            }
+            return $null
+        }
 
         $assets = @()
         if ($rel.assets) {
@@ -757,6 +773,7 @@ function Get-ReleaseInfo {
         }
     } catch {
         Write-Debug "Get-ReleaseInfo failed: $($_.Exception.Message)"
+        if ($Failure) { $Failure.Value = [pscustomobject]@{ Kind = 'transport'; Message = $_.Exception.Message } }
         return $null
     }
 }
@@ -1328,20 +1345,41 @@ function Update-FromGitHub {
         }
     }
 
-    try {
-        # Fetch structured release info via the new Get-ReleaseInfo helper.
-        # Globals: $GitHubRepo, $GitHubToken, $Passive, $Plan, $NoAuth
-        $relInfo = Get-ReleaseInfo
-        if (-not $relInfo) {
-            # Replicate the previous inline error handling for parity.
-            if ($relInfo -is [pscustomobject] -and $relInfo.Tag -eq $null) {
-                # No releases found / empty response
-                if (-not $Passive) { Write-Host '  No releases found on remote' -ForegroundColor Yellow }
+    # Renders why the release fetch came back empty. The pre-refactor flow
+    # told a rate limit (with token/no-token guidance) apart from any other
+    # API error body and from a plain failed fetch - keep that detail
+    # instead of collapsing every case into one line.
+    function Show-ReleaseFetchFailure {
+        param($Reason)
+        if ($Reason.Kind -eq 'no-release') {
+            Write-Host '  No releases found on remote' -ForegroundColor Yellow
+        } elseif ($Reason.Kind -eq 'rate-limit' -or $Reason.Message -match '403|rate limit') {
+            Write-Host '  GitHub API rate limit exceeded.' -ForegroundColor Yellow
+            if (-not $GitHubToken) {
+                Write-Host '  Without a token the limit is 60 requests/hour per IP.' -ForegroundColor Yellow
+                Write-Host '  Add a token: menu [K] Update GitHub token (stored DPAPI-encrypted).' -ForegroundColor Yellow
             } else {
-                # API error / network failure
-                Write-Debug "Release fetch failed: $($_.Exception.Message)"
-                if (-not $Passive) { Write-Host '  Release fetch failed - retry later' -ForegroundColor Yellow }
+                Write-Host '  Token quota (5000/hour) exhausted or invalid - re-save via [K].' -ForegroundColor Yellow
             }
+        } elseif ($Reason.Kind -eq 'api') {
+            Write-Host "  GitHub API: $($Reason.Message)" -ForegroundColor Yellow
+        } else {
+            Write-Host "  Update check failed: $($Reason.Message)" -ForegroundColor Yellow
+        }
+    }
+
+    try {
+        # Fetch structured release info via the Get-ReleaseInfo helper (the
+        # single transport - token, Accept, ETag cache and retries all live
+        # inside Invoke-GitHubGet). -Failure reports why an empty result came
+        # back, so the messaging below keeps the pre-refactor detail: the old
+        # inline code read the API body itself, and the refactor lost it.
+        # Globals: $GitHubRepo, $GitHubToken, $Passive, $Plan, $NoAuth
+        $failReason = $null
+        $relInfo = Get-ReleaseInfo -Failure ([ref]$failReason)
+        if (-not $relInfo) {
+            if ($failReason) { Write-Debug "Release fetch failed ($($failReason.Kind)): $($failReason.Message)" }
+            if (-not $Passive) { Show-ReleaseFetchFailure -Reason $failReason }
             return
         }
 

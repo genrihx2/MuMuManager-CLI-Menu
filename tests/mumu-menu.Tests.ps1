@@ -578,10 +578,25 @@ Describe 'Get-ReleaseInfo (structured latest-release helper)' {
 
     It 'Update-FromGitHub delegates the release fetch to Get-ReleaseInfo (no inline releases/latest copy)' {
         $t = $script:ufgText
-        $t | Should -Match '\$relInfo = Get-ReleaseInfo'
+        $t | Should -Match '\$relInfo = Get-ReleaseInfo -Failure \(\[ref\]\$failReason\)'
         # The v1.22.40 refactor moved the inline releases/latest fetch (~34
         # lines) into the helper - the updater must not keep a second copy.
         $t | Should -Not -Match 'releases/latest'
+        # Regression guard: the first refactor re-checked the already-null
+        # result ($relInfo -is [pscustomobject]) - a condition that can never
+        # be true - and lost the per-case messages. Both are pinned here.
+        $t | Should -Not -Match '\$relInfo -is \[pscustomobject\]'
+    }
+
+    It 'Update-FromGitHub keeps the pre-refactor failure messaging (rate limit / API / no releases)' {
+        $t = $script:ufgText
+        $t | Should -Match 'No releases found on remote'
+        $t | Should -Match 'GitHub API rate limit exceeded\.'
+        $t | Should -Match 'menu \[K\] Update GitHub token'
+        $t | Should -Match 'GitHub API: \$\(\$Reason\.Message\)'
+        $t | Should -Match '\$Reason\.Message -match ''403\|rate limit'''
+        # A plain transport failure keeps the wording the outer catch used.
+        $t | Should -Match 'Update check failed: \$\(\$Reason\.Message\)'
     }
 
     It 'fetch wiring: releases/latest for the -Repo param (default $GitHubRepo) through Invoke-GitHubGet' {
@@ -592,10 +607,17 @@ Describe 'Get-ReleaseInfo (structured latest-release helper)' {
         $t = $f.Extent.Text
         $t | Should -Match '\[string\]\$Repo = \$GitHubRepo'
         $t | Should -Match 'Invoke-GitHubGet "https://api\.github\.com/repos/\$Repo/releases/latest"'
-        $t | Should -Match 'Accept.*application/vnd\.github\.v3\+json'
-        # Auth rides the shared helper contract: header added only when a
-        # token is set (mirrors every other API consumer in the script).
-        $t | Should -Match 'if \(\$GitHubToken\) \{ \$headers\[.Authorization.\]'
+        # No transport internals here: Accept, the token and retries all live
+        # in Invoke-GitHubGet. Local headers/auth would be dead code - the
+        # transport takes no header arguments, so they were built and ignored.
+        $t | Should -Not -Match '\$headers'
+        $t | Should -Not -Match 'Authorization'
+        # The failure reason is reported structurally so callers can keep
+        # their own (pre-refactor) messaging.
+        $t | Should -Match '\[ref\]\$Failure'
+        $t | Should -Match "'no-release'"
+        $t | Should -Match "'rate-limit'"
+        $t | Should -Match "'transport'"
     }
 
     It 'maps the release JSON into a structured object (tag, dates, author, assets)' {
@@ -682,6 +704,35 @@ Describe 'Get-ReleaseInfo (structured latest-release helper)' {
         $visible = @(Get-ReleaseInfo -Repo 'genrihx2/MuMuManager-CLI-Menu' 6>&1)
         $visible | Should -BeNullOrEmpty
         $script:ghGetCalls.Count | Should -Be 1
+    }
+
+    It 'reports the failure reason via -Failure so the caller keeps its own messaging' {
+        # The four shapes Update-FromGitHub renders differently - the reason a
+        # caller must not be left with a single generic line.
+        $fail = $null
+        $script:ghGetResponse = '{}'
+        Get-ReleaseInfo -Repo 'x' -Failure ([ref]$fail) | Should -BeNullOrEmpty
+        $fail.Kind | Should -Be 'no-release'
+        $fail.Message | Should -Be ''
+
+        $script:ghGetResponse = '{"message":"Not Found"}'
+        Get-ReleaseInfo -Repo 'x' -Failure ([ref]$fail) | Should -BeNullOrEmpty
+        $fail.Kind | Should -Be 'api'
+        $fail.Message | Should -Be 'Not Found'
+
+        $script:ghGetResponse = '{"message":"API rate limit exceeded for 1.2.3.4"}'
+        Get-ReleaseInfo -Repo 'x' -Failure ([ref]$fail) | Should -BeNullOrEmpty
+        $fail.Kind | Should -Be 'rate-limit'
+        $fail.Message | Should -Match 'rate limit'
+
+        $script:ghGetResponse = $null
+        $script:ghGetThrow = 'Request failed after 4 attempt(s) (curl exit 35)'
+        Get-ReleaseInfo -Repo 'x' -Failure ([ref]$fail) | Should -BeNullOrEmpty
+        $fail.Kind | Should -Be 'transport'
+        $fail.Message | Should -Match 'curl exit 35'
+
+        # Omitting -Failure stays valid: the $null contract is unchanged.
+        Get-ReleaseInfo -Repo 'x' | Should -BeNullOrEmpty
     }
 }
 
