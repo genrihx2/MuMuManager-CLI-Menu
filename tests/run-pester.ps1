@@ -53,9 +53,28 @@ if (-not $pester) {
         if (-not (Test-Path -LiteralPath $storeFile -PathType Leaf)) {
             Set-Content -LiteralPath $storeFile -Value '<?xml version="1.0" encoding="utf-8"?><configuration><RepositoryStore /></configuration>' -Encoding UTF8
         }
-        Register-PSResourceRepository -PSGallery -Trusted -ErrorAction SilentlyContinue
+        # PSGallery may already be registered (most pwsh installs pre-register
+        # it); 'already exists' is the desired end state, not a failure. A
+        # terminating register error surfaces only when the store file the
+        # cmdlets would use is genuinely unusable.
+        $already = Get-PSResourceRepository -Name PSGallery -ErrorAction SilentlyContinue
+        if ($already) {
+            Write-Debug "PSGallery already registered: $($already.Uri)"
+        } else {
+            Register-PSResourceRepository -PSGallery -Trusted -ErrorAction Stop
+        }
+        # Save-PSResource -Path refuses a nonexistent directory.
+        New-Item -ItemType Directory -Path $ModuleDir -Force | Out-Null
         if ($PesterVersion) {
-            Save-PSResource -Name Pester -Version $PesterVersion -Path $ModuleDir -TrustRepository -SkipModuleManifestValidate
+            # -SkipModuleManifestValidate exists in PSResourceGet 1.x but was
+            # removed in 2.x - probe the cmdlet instead of guessing (a pinned
+            # 5.7.1 manifest validates fine either way).
+            $skipValidate = if ((Get-Command Save-PSResource).Parameters.ContainsKey('SkipModuleManifestValidate')) { '-SkipModuleManifestValidate' } else { $null }
+            if ($skipValidate) {
+                Save-PSResource -Name Pester -Version $PesterVersion -Path $ModuleDir -TrustRepository -SkipModuleManifestValidate
+            } else {
+                Save-PSResource -Name Pester -Version $PesterVersion -Path $ModuleDir -TrustRepository
+            }
         } else {
             Install-Module Pester -MinimumVersion 5.0 -Scope CurrentUser -Force -SkipPublisherCheck -AllowClobber
         }

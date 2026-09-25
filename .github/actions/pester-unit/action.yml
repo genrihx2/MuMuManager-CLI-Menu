@@ -60,10 +60,21 @@ runs:
         if (-not (Test-Path -LiteralPath $storeFile -PathType Leaf)) {
           Set-Content -LiteralPath $storeFile -Value '<?xml version="1.0" encoding="utf-8"?><configuration><RepositoryStore /></configuration>' -Encoding UTF8
         }
-        Register-PSResourceRepository -PSGallery -Trusted -ErrorAction SilentlyContinue
-        # No -SkipModuleManifestValidate: PSResourceGet 1.x (CI image) has
-        # it, 2.x (local dev boxes) does not - keep the call portable.
-        Save-PSResource -Name Pester -Version $env:PESTER_VERSION -Path $env:PESTER_DIR -TrustRepository
+        # PSGallery is pre-registered on the CI image - 'already exists'
+        # would be a terminating error under Stop, so check first.
+        if (-not (Get-PSResourceRepository -Name PSGallery -ErrorAction SilentlyContinue)) {
+          Register-PSResourceRepository -PSGallery -Trusted -ErrorAction Stop
+        }
+        # Save-PSResource -Path refuses a nonexistent directory (CI catch) -
+        # the runner's copy of this logic creates it only when IT installs.
+        New-Item -ItemType Directory -Path $env:PESTER_DIR -Force | Out-Null
+        # -SkipModuleManifestValidate: probe first - PSResourceGet 1.x has
+        # it, 2.x removed it (the pin's manifest validates fine either way).
+        if ((Get-Command Save-PSResource).Parameters.ContainsKey('SkipModuleManifestValidate')) {
+          Save-PSResource -Name Pester -Version $env:PESTER_VERSION -Path $env:PESTER_DIR -TrustRepository -SkipModuleManifestValidate
+        } else {
+          Save-PSResource -Name Pester -Version $env:PESTER_VERSION -Path $env:PESTER_DIR -TrustRepository
+        }
         Write-Host "saved Pester $env:PESTER_VERSION -> $env:PESTER_DIR"
         Get-ChildItem -LiteralPath $env:PESTER_DIR | ForEach-Object { Write-Host "  $($_.Name)" }
 
