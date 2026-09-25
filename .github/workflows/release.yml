@@ -178,7 +178,7 @@ jobs:
           # Every required run must exist and be green.
           MISSING=0; RED=0
           : > gate-report.md
-          while IFS=$'\t' read -r name status conclusion; do
+          while IFS=$'\t' read -r name _status conclusion; do
             conclusion=${conclusion%$'\r'}
             echo "- \`$name\`: $conclusion" >> gate-report.md
             if [ "$conclusion" != "success" ]; then RED=$((RED + 1)); fi
