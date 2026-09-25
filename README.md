@@ -361,7 +361,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.22.41
+Script version: 1.22.42
 MuMu version: 6.7.1
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -461,6 +461,12 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 **EN summary:** Recovering from a failed update: diagnose first (`[ST]` status, `[DIAG]` problems, `[F]` file-vs-tag verification, `[J] → 3` errors), then act. HASH MISMATCH → re-run `[F]` (stale-CDN false alarms vanish on the re-fetch; stable mismatches mean re-download the ZIP and verify with `-VerifyZip`). Wedged marker ("Up to date" but old content) → `bootstrap-update.ps1 -Force`. Broken files → restore from `backup\YYYYMMDD_HHMMSS`. Lock refusal → wait (locks older than 10 minutes break automatically). The table above maps each symptom to its cause and fix.
 
 ## Что нового
+
+### v1.22.42 (25.09.2026)
+
+- **CI-матрица Pester**: `pester-unit` в `tests.yml` теперь гоняет сьют на ОБОИХ движках — Windows PowerShell 5.1 и pwsh 7 — на закреплённом Pester 5.7.1 через композитный экшен `.github/actions/pester-unit`, плюс «канареечная» нога на предустановленном в раннере Pester (сегодня 6.x), которая ловит дрейф движка/Pester заранее, а не по репорту пользователя
+- **Фикс из матрицы — `Get-ReleaseInfo.PublishedAt`**: PS 5.1 `ConvertFrom-Json` оставляет ISO-даты строками, pwsh 7 конвертирует в `[datetime]` — свойство было движко-зависимым; явный каст `[datetime]` закрепил контракт для обоих движков (на 5.1 это был бы сырой string). Матрица поймала это на первом же прогоне: 1 тест из 170 красный на 5.1, зелёный на 7
+- **Раннер `tests/run-pester.ps1`**: новые параметры `-PesterVersion` / `-ModuleDir` (приватная копия Pester поверх PSModulePath) — CI и локальный прогон используют один и тот же скрипт; установка Pester движко-осведомлённая (PSResourceGet на Core, PowerShellGet + NuGet-провайдер на 5.1)
 
 ### v1.22.41 (25.09.2026)
 
@@ -841,6 +847,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.42 | 25.09.2026 | CI: матрица Pester (PS 5.1 + pwsh, пин 5.7.1, канарейка); фикс `PublishedAt` под PS 5.1 |
 | v1.22.41 | 25.09.2026 | Восстановлены сообщения о сбоях получения релиза в [U]/[UP]; удалены мёртвые заголовки `Get-ReleaseInfo` |
 | v1.22.40 | 24.09.2026 | Функция `Get-ReleaseInfo` + рефакторинг fetch'а релиза в [U]/[UP]; Dependabot-лейблы; upload-sarif v4.38.1 |
 | v1.22.39 | 22.09.2026 | [G]: свёртка стек-логгера Lua (ошибка = одна строка); дата v1.22.37 = published_at |

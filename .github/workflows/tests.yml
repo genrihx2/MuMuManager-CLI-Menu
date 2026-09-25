@@ -2,7 +2,8 @@ name: Tests
 
 # Regression tests for bootstrap-update.ps1 (JSON-metadata detector).
 # Runs on any change to the updater, the menu script it downloads,
-# the tests themselves, or this workflow.
+# the tests themselves, the pester-unit composite action, or this
+# workflow.
 
 on:
   push:
@@ -12,12 +13,14 @@ on:
       - 'mumu-menu.ps1'
       - 'tests/**'
       - '.github/workflows/tests.yml'
+      - '.github/actions/**'
   pull_request:
     paths:
       - 'bootstrap-update.ps1'
       - 'mumu-menu.ps1'
       - 'tests/**'
       - '.github/workflows/tests.yml'
+      - '.github/actions/**'
   workflow_dispatch:
 
 permissions:
@@ -41,13 +44,41 @@ jobs:
     # Pester 5 unit tests for mumu-menu.ps1 pure helpers (issue #20):
     # hashing, version compare, shell escaping, journal formatting, ZIP
     # self-test. Offline - AST-extracted production functions.
+    #
+    # CI ran only the runner's preinstalled Pester (6.x today, 5.x at some
+    # point in the past) on pwsh, while developers run Pester 5 on Windows
+    # PowerShell 5.1 (tests/run-pester.ps1) - a suite can be green in one
+    # place and red in the other (v1.22.41: Mock of a not-dot-sourced
+    # command passed on 5, failed on 6). The matrix runs BOTH engines on a
+    # PINNED Pester, plus one unpinned "canary" that keeps tracking
+    # whatever the runner ships next.
+    name: pester-unit (${{ matrix.pester }} / ${{ matrix.shell }})
     runs-on: windows-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The documented local combination: Windows PowerShell 5.1 with
+          # the Pester 5 line (5.7.1 pins the major that run-pester.ps1
+          # installs).
+          - shell: powershell
+            pester: '5.7.1'
+          # PowerShell 7 on the same pinned Pester 5 - the engine modern
+          # developers use, still the version the suite was written for.
+          - shell: pwsh
+            pester: '5.7.1'
+          # Unpinned canary: whatever Pester the windows-latest image
+          # ships (6.x today). Keeps the suite honest about future Pester
+          # behavior instead of discovering it from a user report.
+          - shell: pwsh
+            pester: 'preinstalled'
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: Run Pester unit tests (mumu-menu helpers)
-        shell: pwsh
-        run: |
-          Invoke-Pester -Path tests/mumu-menu.Tests.ps1 -CI
+        uses: ./.github/actions/pester-unit
+        with:
+          pester: ${{ matrix.pester }}
+          shell: ${{ matrix.shell }}

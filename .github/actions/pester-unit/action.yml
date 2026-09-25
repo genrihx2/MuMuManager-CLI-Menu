@@ -1,0 +1,94 @@
+name: 'Pester unit tests (mumu-menu helpers)'
+description: >
+  Runs tests/run-pester.ps1 (which runs tests/mumu-menu.Tests.ps1) on the
+  requested PowerShell engine with the requested Pester version. Installs a
+  private Pester copy unless `pester: preinstalled`, which uses whatever the
+  runner image ships - the canary leg of the tests.yml matrix. The shell is
+  resolved at runtime in exec form because a composite action's `shell:`
+  keyword cannot be an expression: TESTS_SHELL=powershell -> powershell.exe
+  (real Windows PowerShell 5.1), anything else -> pwsh.exe. The runner
+  script installs the pinned Pester engine-aware (PSResourceGet on Core,
+  PowerShellGet + NuGet provider on 5.1), so both toolchains stay exercised.
+
+inputs:
+  pester:
+    description: 'Exact Pester version to install (e.g. 5.7.1), or `preinstalled`.'
+    required: true
+  shell:
+    description: '`powershell` for Windows PowerShell 5.1, anything else for pwsh.'
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # Resolve the engine-independent facts once: which binary runs the suite
+    # (TESTS_SHELL comes from the matrix) and where the private Pester copy
+    # lives. `shell:` cannot be an expression, so the final step is exec-form
+    # via GITHUB_ENV: pwsh and powershell.exe both accept -File.
+    - shell: pwsh
+      id: params
+      env:
+        PESTER_VERSION: ${{ inputs.pester }}
+        TESTS_SHELL: ${{ inputs.shell }}
+      run: |
+        $exe = if ($env:TESTS_SHELL -eq 'powershell') { 'powershell.exe' } else { 'pwsh.exe' }
+        $dir = Join-Path ([IO.Path]::GetTempPath()) "pester-$env:PESTER_VERSION"
+        "SHELL_EXE=$exe"                                                 >> $env:GITHUB_ENV
+        "PESTER_DIR=$dir"                                                >> $env:GITHUB_ENV
+        "PESTER_PIN=$([string]($env:PESTER_VERSION -ne 'preinstalled'))" >> $env:GITHUB_ENV
+        Write-Host "engine=$exe pester=$env:PESTER_VERSION dir=$dir"
+
+    # Prepare the private Pester copy once, with pwsh: PSResourceGet works
+    # here regardless of which engine later imports the module - a saved
+    # module directory is engine-independent. PESTER_VERSION comes from
+    # the input context; PESTER_DIR flows through GITHUB_ENV from step 1.
+    - shell: pwsh
+      if: ${{ inputs.pester != 'preinstalled' }}
+      env:
+        PESTER_VERSION: ${{ inputs.pester }}
+      run: |
+        $ErrorActionPreference = 'Stop'
+        if (Test-Path -LiteralPath (Join-Path $env:PESTER_DIR 'Pester')) { Write-Host 'Pester already saved'; return }
+        try {
+          [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 # DevSkim: ignore DS440020,DS440001 - gallery download needs the explicit TLS 1.2 opt-in on Windows PowerShell
+        } catch {
+          Write-Debug "TLS 1.2 hardening not applied: $($_.Exception.Message)" # DevSkim: ignore DS440001 - prose mention, not a protocol setting
+        }
+        $storeDir = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'PSResourceGet'
+        New-Item -ItemType Directory -Path $storeDir -Force | Out-Null
+        $storeFile = Join-Path $storeDir 'PSResourceRepository.xml'
+        if (-not (Test-Path -LiteralPath $storeFile -PathType Leaf)) {
+          Set-Content -LiteralPath $storeFile -Value '<?xml version="1.0" encoding="utf-8"?><configuration><RepositoryStore /></configuration>' -Encoding UTF8
+        }
+        # PSGallery is pre-registered on the CI image - 'already exists'
+        # would be a terminating error under Stop, so check first.
+        if (-not (Get-PSResourceRepository -Name PSGallery -ErrorAction SilentlyContinue)) {
+          Register-PSResourceRepository -PSGallery -Trusted -ErrorAction Stop
+        }
+        # Save-PSResource -Path refuses a nonexistent directory (CI catch) -
+        # the runner's copy of this logic creates it only when IT installs.
+        New-Item -ItemType Directory -Path $env:PESTER_DIR -Force | Out-Null
+        # -SkipModuleManifestValidate: probe first - PSResourceGet 1.x has
+        # it, 2.x removed it (the pin's manifest validates fine either way).
+        if ((Get-Command Save-PSResource).Parameters.ContainsKey('SkipModuleManifestValidate')) {
+          Save-PSResource -Name Pester -Version $env:PESTER_VERSION -Path $env:PESTER_DIR -TrustRepository -SkipModuleManifestValidate
+        } else {
+          Save-PSResource -Name Pester -Version $env:PESTER_VERSION -Path $env:PESTER_DIR -TrustRepository
+        }
+        Write-Host "saved Pester $env:PESTER_VERSION -> $env:PESTER_DIR"
+        Get-ChildItem -LiteralPath $env:PESTER_DIR | ForEach-Object { Write-Host "  $($_.Name)" }
+
+    # The suite run itself, on the matrix engine. Pinned legs point the
+    # runner at the private copy; the canary leg uses the image's Pester.
+    # exit $LASTEXITCODE is load-bearing: Pester's -Exit sets it on a red
+    # suite, and a plain `&` call would hide it from the step.
+    - shell: pwsh
+      env:
+        PESTER_VERSION: ${{ inputs.pester }}
+      run: |
+        if ($env:PESTER_VERSION -ne 'preinstalled') {
+          & "$env:SHELL_EXE" -NoProfile -ExecutionPolicy Bypass -File tests/run-pester.ps1 -PesterVersion "$env:PESTER_VERSION" -ModuleDir "$env:PESTER_DIR"
+        } else {
+          & "$env:SHELL_EXE" -NoProfile -ExecutionPolicy Bypass -File tests/run-pester.ps1
+        }
+        exit $LASTEXITCODE
