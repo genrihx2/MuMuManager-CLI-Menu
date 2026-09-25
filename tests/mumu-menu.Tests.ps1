@@ -566,6 +566,15 @@ Describe 'Get-ReleaseInfo (structured latest-release helper)' {
             $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Update-FromGitHub'
         }, $true) | Select-Object -First 1
         $script:ufgText = $f.Extent.Text
+        # Show-ReleaseFetchFailure is nested inside Update-FromGitHub - extract
+        # it too, so the per-kind rendering is tested by running it rather
+        # than by matching its text.
+        $sf = $script:ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Show-ReleaseFetchFailure'
+        }, $true) | Select-Object -First 1
+        if (-not $sf) { throw 'Show-ReleaseFetchFailure function not found in mumu-menu.ps1' }
+        . ([scriptblock]::Create($sf.Extent.Text))
     }
 
     BeforeEach {
@@ -733,6 +742,36 @@ Describe 'Get-ReleaseInfo (structured latest-release helper)' {
 
         # Omitting -Failure stays valid: the $null contract is unchanged.
         Get-ReleaseInfo -Repo 'x' | Should -BeNullOrEmpty
+    }
+
+    It 'renders one message per failure kind, with token-aware rate-limit guidance' {
+        $savedToken = $script:GitHubToken
+        try {
+            $script:GitHubToken = $null
+
+            $out = Show-ReleaseFetchFailure -Reason ([pscustomobject]@{ Kind = 'no-release'; Message = '' }) 6>&1 | Out-String
+            $out | Should -Match 'No releases found on remote'
+
+            $out = Show-ReleaseFetchFailure -Reason ([pscustomobject]@{ Kind = 'rate-limit'; Message = 'API rate limit exceeded' }) 6>&1 | Out-String
+            $out | Should -Match 'rate limit exceeded'
+            $out | Should -Match '60 requests/hour'
+            $out | Should -Not -Match 'Token quota'
+
+            $out = Show-ReleaseFetchFailure -Reason ([pscustomobject]@{ Kind = 'api'; Message = 'Not Found' }) 6>&1 | Out-String
+            $out | Should -Match 'GitHub API: Not Found'
+
+            $out = Show-ReleaseFetchFailure -Reason ([pscustomobject]@{ Kind = 'transport'; Message = 'curl exit 35' }) 6>&1 | Out-String
+            $out | Should -Match 'Update check failed: curl exit 35'
+
+            # A 403 surfaced by the transport keeps the rate-limit guidance -
+            # the outer catch matched 403|rate limit the same way.
+            $out = Show-ReleaseFetchFailure -Reason ([pscustomobject]@{ Kind = 'transport'; Message = 'exit 403' }) 6>&1 | Out-String
+            $out | Should -Match 'rate limit exceeded'
+
+            $script:GitHubToken = 'stub'
+            $out = Show-ReleaseFetchFailure -Reason ([pscustomobject]@{ Kind = 'rate-limit'; Message = 'x' }) 6>&1 | Out-String
+            $out | Should -Match 'Token quota'
+        } finally { $script:GitHubToken = $savedToken }
     }
 }
 
