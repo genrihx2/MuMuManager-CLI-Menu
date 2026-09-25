@@ -361,7 +361,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.22.43
+Script version: 1.22.44
 MuMu version: 6.7.1
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -461,6 +461,10 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 **EN summary:** Recovering from a failed update: diagnose first (`[ST]` status, `[DIAG]` problems, `[F]` file-vs-tag verification, `[J] → 3` errors), then act. HASH MISMATCH → re-run `[F]` (stale-CDN false alarms vanish on the re-fetch; stable mismatches mean re-download the ZIP and verify with `-VerifyZip`). Wedged marker ("Up to date" but old content) → `bootstrap-update.ps1 -Force`. Broken files → restore from `backup\YYYYMMDD_HHMMSS`. Lock refusal → wait (locks older than 10 minutes break automatically). The table above maps each symptom to its cause and fix.
 
 ## Что нового
+
+### v1.22.44 (25.09.2026)
+
+- **«Token rejected — retrying without auth...» на каждый запрос**: отклонённый GitHub'ом сохранённый токен оставался активным до конца сессии — каждый запрос заново проходил цикл «с токеном → 401 → повтор без авторизации». Теперь токен отключается один раз на уровне script-scope с подсказкой «re-save via menu [K]», дальше всё анонимно (репозиторий публичный); централизованный guard добавлен и в `Invoke-GitHubApiGet` (releases/branches/tags/compare раньше не различали Bad credentials вовсе), и в bootstrap — где прежний сброс был переменной-тенью и не работал
 
 ### v1.22.43 (25.09.2026)
 
@@ -854,6 +858,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.44 | 25.09.2026 | Фикс: отклонённый токен отключается один раз (script-scope) вместо повтора на каждый запрос; guard в Invoke-GitHubApiGet; bootstrap-тень переменной |
 | v1.22.43 | 25.09.2026 | CI: самодостаточный release-гейт (диспетчеризация Tests на теге), ZIP-проверка в release-guard, фикс якорного regex'а и дедупликации чек-ранов |
 | v1.22.42 | 25.09.2026 | CI: матрица Pester (PS 5.1 + pwsh, пин 5.7.1, канарейка); фикс `PublishedAt` под PS 5.1 |
 | v1.22.41 | 25.09.2026 | Восстановлены сообщения о сбоях получения релиза в [U]/[UP]; удалены мёртвые заголовки `Get-ReleaseInfo` |

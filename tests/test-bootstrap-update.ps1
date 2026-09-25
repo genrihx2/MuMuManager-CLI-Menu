@@ -637,6 +637,18 @@ try {
     Assert-True -Name '.version is written via WriteAllText with UTF8Encoding($false)' -Condition ($idxVerWrite -gt 0) -Detail 'BOM-less writer not found'
     Assert-True -Name 'no Set-Content/Out-File writes remain for the .version marker' -Condition (-not ($bRaw -match '(?m)^.*(Set-Content|Out-File)[^\r\n]*\$versionFile\b')) -Detail 'legacy BOM-emitting writer still present'
 
+    # ── T15: saved-token rejection clears the token ONCE (v1.22.43) ──
+    Write-Host 'T15: Bad-credentials fallback disables the saved token at script scope' -ForegroundColor Cyan
+    # The shadowing bug: a function-local "$token = $null" left the script
+    # variable untouched, so every next request re-attached the rejected
+    # token and repeated the attach-reject-retry round-trip per file.
+    # Assert both fallbacks write $script:token and no bare assignment
+    # remains anywhere in the script.
+    Assert-True -Name 'Invoke-CurlGet fallback writes $script:token' -Condition ($bRaw -match '(?s)function Invoke-CurlGet.*?\$script:token\s*=\s*\$null') -Detail 'script-scope clear missing in Invoke-CurlGet'
+    Assert-True -Name 'Download-File fallback writes $script:token' -Condition ($bRaw -match '(?s)function Download-File.*?\$script:token\s*=\s*\$null') -Detail 'script-scope clear missing in Download-File'
+    Assert-True -Name 'no bare \$token = $null in code (shadowing regression)' -Condition (((($bRaw -split "\r?\n") | Where-Object { $_ -notmatch '^\s*#' -and $_ -notmatch '^\$token\s*=\s*\$null\s*$' }) -join "`n") -notmatch '(?<!script:)\$token\s*=\s*\$null') -Detail 'a function-local assignment still shadows the script variable (comments and top-level init excluded)'
+    Assert-True -Name 'fallback explains how to restore the token' -Condition ($bRaw -match 're-save via mumu-menu \[K\] \(DPAPI\) or use -NoAuth') -Detail 'restore hint missing'
+
 
     $passCount = 0
     if ($script:failures -eq 0) { $passCount = 1 }

@@ -556,6 +556,12 @@ function Invoke-CurlGet {
             # Bad credentials fallback — retry without token
             if ($token -and $resultStr -match '"message"\s*:\s*"Bad credentials"') {
                 Write-Host "  Token rejected — retrying without auth..." -ForegroundColor Yellow
+                # One-time disable at SCRIPT scope: a plain assignment inside
+                # a function only shadows the script variable, so the next
+                # request re-attached the rejected token and repeated the
+                # round-trip (v1.22.43 field report: one line per request).
+                $script:token = $null
+                Write-Host "  Saved token disabled for this run - re-save via mumu-menu [K] (DPAPI) or use -NoAuth." -ForegroundColor DarkGray
                 $noAuthArgs = @('-sS', '--fail') + $script:CurlRetryArgs + @('--connect-timeout', '30', '--max-time', '30', '-H', 'Accept: application/vnd.github.v3+json', $Url)
                 $result2 = & curl.exe @noAuthArgs 2>$null
                 if ($LASTEXITCODE -eq 0 -and $result2) {
@@ -618,7 +624,11 @@ function Download-File {
                     Remove-Item -LiteralPath $tmpFile -Force
                     if ($token) {
                         Write-Host "  Token rejected — retrying without auth..." -ForegroundColor Yellow
-                        $token = $null
+                        # SCRIPT scope: the old function-local "$token = $null"
+                        # only shadowed the variable and never disabled the
+                        # token - every next file repeated the message.
+                        $script:token = $null
+                        Write-Host "  Saved token disabled for this run - re-save via mumu-menu [K] (DPAPI) or use -NoAuth." -ForegroundColor DarkGray
                         continue
                     }
                     return 0
