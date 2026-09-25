@@ -217,8 +217,11 @@ jobs:
           # "pester-unit (5.7.1 / powershell)" etc. - an anchored regex
           # would filter them out and block every release on "missing".
           REQUIRED='^(bootstrap-detector|pester-unit)'
+          # Double quotes around $REQUIRED are MANDATORY: without them the
+          # value reaches jq as a bare token (test(^(...))) and the jq parse
+          # error is fatal for gh - the release would block on "missing".
           gh api "repos/$REPO/commits/$TAG_SHA/check-runs?per_page=100" \
-            --jq ".check_runs[] | select(.name | test($REQUIRED)) | [.name, .status, (.conclusion // \"-\")] | @tsv" > runs.tsv || true
+            --jq ".check_runs[] | select(.name | test(\"$REQUIRED\")) | [.name, .status, (.conclusion // \"-\")] | @tsv" > runs.tsv
           # Keep the LATEST row per name (a re-run appends new rows; sort -u
           # alone would keep the alphabetically first, e.g. "failure", and
           # block a tag that went red then green on re-run).
