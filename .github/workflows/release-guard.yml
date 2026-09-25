@@ -12,11 +12,19 @@ name: Release guard
 #     (the "Status: CLEAN" marker) in its body;
 #   - the latest published release must match the .version file on the
 #     default branch - drift means the release pipeline stalled;
+#   - the latest release ZIP must match its tag content byte-for-byte
+#     (per-file hashes), so a tampered, truncated, or half-uploaded asset
+#     is caught even after a successful publish;
 #   - the audit report always lands in the run summary; any violation also
 #     opens a dedicated issue (one, marker-scoped, idempotent) and the run
 #     fails so the badge/mail notifies the maintainer;
 #   - when a later run finds no violations, a previously opened guard issue
 #     is closed automatically.
+#
+# The audit step itself is API-only; the ZIP check needs a checkout to read
+# the tag content (git show). On PR-branch pushes (this file's own paths
+# filter) the ZIP check is skipped, so CI stays cheap and an unmerged
+# branch can neither fail the check nor open guard issues from it.
 
 on:
   schedule:
@@ -35,6 +43,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Checkout
+        # The ZIP integrity check reads the tag content (git show <tag>:<file>).
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+
       - name: Audit releases and version consistency
         id: audit
         env:
@@ -49,7 +63,8 @@ jobs:
           echo "Baseline $BASELINE id=$BASE_ID - auditing newer releases"
 
           # Source of truth for the current version lives on the default
-          # branch; fetched via the contents API (the workflow stays checkout-free).
+          # branch; fetched via the contents API (the audit step itself
+          # stays checkout-free).
           REPO_VER=$(gh api "repos/$REPO/contents/.version" --jq '.content' | base64 -d | tr -d '[:space:]')
           case "$REPO_VER" in
             v[0-9]* | [0-9]*) : ;;
@@ -120,31 +135,158 @@ jobs:
               cat violations.txt
             fi
           } >> report.md
-          cat report.md >> "$GITHUB_STEP_SUMMARY"
 
           {
             echo "count=$COUNT"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Verify the latest release ZIP against its tag content
+        # The published ZIP is rebuilt-by-comparison: every file it must
+        # contain is hashed against the exact tag blob (git show). Catches
+        # tampered, truncated, or half-uploaded assets after publish.
+        # .version and .ps1 files are committed with LF endings
+        # (.gitattributes), and git show and the CI-built ZIP both emit LF,
+        # so direct hash comparison is valid.
+        id: zipcheck
+        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Same file set release.yml ships (git archive list).
+          EXPECTED_COUNT=5
+
+          VIOL=0
+          rm -f zip-violations.txt zip-section.md
+          if ! (
+            set -e
+            LATEST=$(gh api "repos/$REPO/releases/latest" --jq '.tag_name' 2>/dev/null || true)
+            {
+              echo "### ZIP integrity: latest release vs tag content"
+              echo ""
+              echo "| Check | Result |"
+              echo "|---|---|"
+              echo "| Latest release | \`${LATEST:-none}\` |"
+            } > zip-section.md
+            if [ -z "$LATEST" ]; then
+              echo "- no published release found" >> zip-violations.txt
+              exit 1
+            fi
+            ZIPNAME="MuMuManager-CLI-Menu-${LATEST}.zip"
+            rm -rf zipdl extracted
+            mkdir -p zipdl extracted
+            echo "| Asset | \`$ZIPNAME\` |" >> zip-section.md
+            if ! gh release download "$LATEST" --repo "$REPO" \
+                 --pattern "MuMuManager-CLI-Menu-${LATEST}.zip*" --dir zipdl --clobber; then
+              echo "- could not download assets for $LATEST" >> zip-violations.txt
+              exit 1
+            fi
+            if [ ! -f "zipdl/$ZIPNAME" ]; then
+              echo "- $ZIPNAME is missing from the release assets" >> zip-violations.txt
+              exit 1
+            fi
+            if [ -f "zipdl/$ZIPNAME.sha256" ]; then
+              echo "| SHA256 sidecar | present |" >> zip-section.md
+              if ! (cd zipdl && sha256sum --status -c "$ZIPNAME.sha256"); then
+                echo "- $ZIPNAME.sha256 does not match the ZIP" >> zip-violations.txt
+              fi
+            else
+              echo "| SHA256 sidecar | **missing** |" >> zip-section.md
+              echo "- $ZIPNAME.sha256 is missing from the release assets" >> zip-violations.txt
+            fi
+            unzip -q "zipdl/$ZIPNAME" -d extracted \
+              || { echo "- could not extract $ZIPNAME" >> zip-violations.txt; exit 1; }
+            ENTRY_COUNT=$(unzip -l "zipdl/$ZIPNAME" | tail -1 | awk '{print $2}')
+            echo "| Entries | $ENTRY_COUNT (expected $EXPECTED_COUNT) |" >> zip-section.md
+            if [ "$ENTRY_COUNT" != "$EXPECTED_COUNT" ]; then
+              echo "- ZIP has $ENTRY_COUNT entries, expected $EXPECTED_COUNT" >> zip-violations.txt
+            fi
+            for f in mumu-menu.ps1 bootstrap-update.ps1 README.md SKILL.md .version; do
+              EXPECTED_HASH=$(git show "$LATEST:$f" | sha256sum | cut -d' ' -f1)
+              if [ ! -f "extracted/$f" ]; then
+                echo "- \`$f\`: missing from the ZIP" >> zip-violations.txt
+                continue
+              fi
+              ACTUAL_HASH=$(sha256sum "extracted/$f" | cut -d' ' -f1)
+              if [ "$ACTUAL_HASH" != "$EXPECTED_HASH" ]; then
+                echo "- \`$f\`: hash differs from the tag content" >> zip-violations.txt
+              fi
+            done
+            if [ -s zip-violations.txt ]; then exit 1; fi
+            exit 0
+          ); then
+            VIOL=1
+          fi
+
+          if [ "$VIOL" -eq 1 ]; then
+            if [ -s zip-violations.txt ]; then
+              VIOL_COUNT=$(wc -l < zip-violations.txt | tr -d ' ')
+            else
+              echo "- zipcheck failed unexpectedly (see the run log)" >> zip-violations.txt
+              VIOL_COUNT=1
+            fi
+            {
+              echo ""
+              echo "**ZIP integrity: MISMATCH** ($VIOL_COUNT):"
+              echo ""
+              cat zip-violations.txt
+            } >> zip-section.md
+          else
+            VIOL_COUNT=0
+            {
+              echo ""
+              echo "**ZIP integrity: VERIFIED** - the published asset matches the tag content byte-for-byte."
+            } >> zip-section.md
+          fi
+
+          # The count must be emitted on EVERY exit path (a skipped or
+          # failed step yields an empty output downstream; conditions use
+          # (outputs.count || '0') to treat that as zero).
+          {
+            echo "count=$VIOL_COUNT"
+          } >> "$GITHUB_OUTPUT"
+
+          if [ "$VIOL_COUNT" -gt 0 ]; then
+            cat zip-section.md >&2
+            exit 1
+          fi
+          cat zip-section.md
+
+      - name: Publish summary
+        # always(): the summary must appear even when the audit or the ZIP
+        # check failed.
+        if: always()
+        run: |
+          set -euo pipefail
+          {
+            if [ -f report.md ]; then cat report.md; else echo "(audit report unavailable)"; fi
+            if [ -f zip-section.md ]; then printf '\n'; cat zip-section.md; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Open or update the guard issue
         id: issue
-        if: steps.audit.outputs.count != '0'
+        # Skipped steps yield empty outputs; (x || '0') treats them as zero.
+        if: (steps.audit.outputs.count || '0') != '0' || (steps.zipcheck.outputs.count || '0') != '0'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          TITLE='[release-guard] Release audit: missing assets/VT verdicts or version drift'
+          TITLE='[release-guard] Release audit: missing assets/VT verdicts, version drift, or ZIP mismatch'
           MARKER='<!-- release-guard-audit -->'
           {
             echo "$MARKER"
             echo ""
             echo "The weekly release-guard audit found violations: releases newer"
-            echo "than v1.18.6 missing ZIP/.sha256/VT verdicts, or the latest release"
-            echo "tag drifting from .version on the default branch."
+            echo "than v1.18.6 missing ZIP/.sha256/VT verdicts, the latest release"
+            echo "tag drifting from .version on the default branch, or the latest"
+            echo "release ZIP not matching its tag content."
             echo ""
             cat report.md
+            if [ -f zip-section.md ]; then cat zip-section.md; fi
             echo "---"
             echo "Latest audit run: $RUN_URL"
             echo "Procedures: [RELEASE-RUNBOOK.md](https://github.com/$REPO/blob/main/RELEASE-RUNBOOK.md), Path 3 (backfill)."
@@ -161,7 +303,10 @@ jobs:
           fi
 
       - name: Close a stale guard issue
-        if: steps.audit.outputs.count == '0'
+        # Only a full audit (with the ZIP check, i.e. main or dispatch) may
+        # auto-close the issue - a PR-branch run skips the ZIP check and
+        # must not judge the main-branch state.
+        if: (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') && (steps.audit.outputs.count || '0') == '0' && (steps.zipcheck.outputs.count || '0') == '0'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
@@ -171,14 +316,14 @@ jobs:
           NUMBER=$(gh issue list --repo "$REPO" --search "$MARKER in:body" --state open --json number --jq '.[0].number // ""')
           if [ -n "$NUMBER" ]; then
             gh issue close "$NUMBER" --repo "$REPO" \
-              --comment "The latest weekly audit is clean - all releases newer than v1.18.6 ship ZIP + SHA256 + VirusTotal verdicts, and the latest release matches .version. Closing."
+              --comment "The latest weekly audit is clean - all releases newer than v1.18.6 ship ZIP + SHA256 + VirusTotal verdicts, the latest release matches .version, and its ZIP matches the tag content. Closing."
             echo "Closed stale guard issue #$NUMBER"
           else
             echo "No open guard issue - nothing to close"
           fi
 
       - name: Fail on violations
-        if: steps.audit.outputs.count != '0'
+        if: (steps.audit.outputs.count || '0') != '0' || (steps.zipcheck.outputs.count || '0') != '0'
         run: |
           echo "Release guard found violations - see the step summary and the guard issue."
           exit 1
