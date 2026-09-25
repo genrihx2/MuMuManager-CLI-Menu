@@ -3,10 +3,14 @@
 # Pester unit tests for mumu-menu.ps1 pure helpers (issue #20).
 # The functions are extracted from the script via AST - exactly the
 # production code, no copies - and tested offline (no network, no
-# emulator). Wired into CI as a separate step in tests.yml.
+# emulator). Wired into CI as the pester-unit matrix in tests.yml:
+# BOTH engines (Windows PowerShell 5.1 + pwsh 7) on a pinned Pester
+# 5.7.1, plus one unpinned canary leg tracking whatever the runner
+# image ships next (.github/actions/pester-unit).
 #
 # Run locally:
-#   pwsh:  Invoke-Pester -Path tests/mumu-menu.Tests.ps1 -CI
+#   pwsh:  tests/run-pester.ps1            (any Pester 5.x+)
+#   pwsh:  tests/run-pester.ps1 -PesterVersion 5.7.1 -ModuleDir <dir>
 #   PS5.1: powershell -ExecutionPolicy Bypass -File tests/run-pester.ps1
 
 BeforeAll {
@@ -639,9 +643,10 @@ Describe 'Get-ReleaseInfo (structured latest-release helper)' {
         $r.Tag | Should -Be 'v1.22.40'
         $r.Prerelease | Should -BeFalse
         $r.PublishedAt | Should -BeOfType [datetime]
-        # Compare the instant, not the Kind-dependent rendering: ConvertFrom-Json
-        # yields a DateTime, so a raw string -Be is both engine- and
-        # Pester-version-dependent.
+        # Compare the instant, not the rendering: the production [datetime]
+        # cast (PS 5.1 ConvertFrom-Json keeps ISO dates as strings - the
+        # cast pins the shape on both engines) round-trips through the
+        # JSON fixture, so assert the UTC instant it encodes.
         $r.PublishedAt.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') | Should -Be '2026-09-24T15:35:46Z'
         $r.TargetCommit | Should -Be 'main'
         $r.Author | Should -Be 'genrihx2'

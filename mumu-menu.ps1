@@ -235,7 +235,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.22.41'
+$scriptVer = '1.22.42'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -761,7 +761,10 @@ function Get-ReleaseInfo {
         return [pscustomobject]@{
             Tag            = $rel.tag_name
             Prerelease     = [bool]$rel.prerelease
-            PublishedAt    = $rel.published_at
+            # Explicit [datetime]: PS 5.1 ConvertFrom-Json keeps ISO dates as
+            # strings, pwsh 7 auto-converts - the cast pins the shape so both
+            # engines (and the CI matrix) see the same [datetime] property.
+            PublishedAt    = if ($rel.published_at) { [datetime]$rel.published_at } else { $null }
             TargetCommit   = $rel.target_commitish
             Author         = if ($rel.author) { $rel.author.login } else { '' }
             Body           = $rel.body
