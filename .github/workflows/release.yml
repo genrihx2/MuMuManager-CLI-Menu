@@ -13,6 +13,10 @@ name: Release
 # and the workflow fails hard if $scriptVer in mumu-menu.ps1 at the tag does not
 # match the tag version. Re-runs are idempotent: if the release already exists,
 # the run succeeds without doing anything.
+# Before publishing, the workflow runs and requires the Tests matrix
+# (bootstrap-detector + all pester-unit legs) green on the exact tag
+# commit: it reuses an existing Tests run on that commit or dispatches
+# one itself, then fails closed on red/missing/timeout.
 
 on:
   push:
@@ -27,11 +31,13 @@ on:
 
 permissions:
   contents: write
+  checks: read
+  actions: write
 
 jobs:
   release:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 35
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -129,10 +135,13 @@ jobs:
           echo "prev_tag=$PREV" >> "$GITHUB_OUTPUT"
           echo "commit_count=$COMMITS" >> "$GITHUB_OUTPUT"
 
-      - name: Require green Tests on the tag commit
-        # Release gate: a tag whose commit has a failing (or missing/pending)
-        # Tests run must not be published. Fails CLOSED - a missing or
-        # incomplete run blocks the release the same way a red one does.
+      - name: Run and require green Tests on the tag commit
+        # Release gate: the release must not publish before the Tests
+        # matrix is green on the tag commit. The gate OWNS the wait - it
+        # reuses an existing Tests run on the exact commit, otherwise
+        # dispatches tests.yml at the tag ref, polls the run to completion,
+        # then audits its check-runs. Fails CLOSED: red, missing, or
+        # timed-out Tests block the release the same way.
         if: steps.tag.outputs.skip != 'true' && steps.ver.outputs.skip != 'true'
         id: tests-gate
         env:
@@ -147,33 +156,72 @@ jobs:
           TAG_SHA=$(git rev-parse "${SHA}^{commit}")
           echo "Tag $SHA -> commit $TAG_SHA"
 
-          # The gate needs the pester-unit matrix legs + the bootstrap
-          # detector from tests.yml. Each leg is checked individually so a
-          # matrix that grew or shrank cannot silently drop coverage.
-          REQUIRED='bootstrap-detector|pester-unit'
+          # Per-commit matching: the gate audits Tests on THIS commit only,
+          # so a later main push can neither satisfy nor break this tag.
+          # The gate owns the wait: it reuses an existing Tests run on the
+          # exact commit (the version-bump push starts one immediately),
+          # otherwise dispatches tests.yml at the tag ref, then polls the
+          # run to completion before auditing its check-runs. Requires
+          # actions: write (dispatch) and checks: read (check-runs audit).
+          RUN_ID=$(gh api "repos/$REPO/actions/runs?head_sha=$TAG_SHA&per_page=100" \
+            --jq '[(.workflow_runs[]? | select(.name == "Tests"))] | sort_by(.created_at) | reverse | .[0].id // ""' || true)
+          if [ -z "$RUN_ID" ]; then
+            echo "No Tests run on $TAG_SHA - dispatching tests.yml at ref $SHA..."
+            gh workflow run tests.yml --repo "$REPO" --ref "$SHA"
+            for _ in 1 2 3 4 5 6; do
+              sleep 10
+              RUN_ID=$(gh api "repos/$REPO/actions/runs?head_sha=$TAG_SHA&per_page=100" \
+                --jq '[(.workflow_runs[]? | select(.name == "Tests"))] | sort_by(.created_at) | reverse | .[0].id // ""' || true)
+              if [ -n "$RUN_ID" ]; then break; fi
+            done
+          else
+            echo "Reusing an existing Tests run on $TAG_SHA"
+          fi
+          case "$RUN_ID" in '' | *[!0-9]*) echo "No Tests run could be found or started on $TAG_SHA" >&2; exit 1 ;; esac
+          echo "Tests run: ${GITHUB_SERVER_URL:-https://github.com}/$REPO/actions/runs/$RUN_ID"
 
-          # Poll up to 15 minutes for every required check to appear and
-          # complete (a tag-push Release can start while Tests is running).
-          DEADLINE=$(( $(date +%s) + 900 ))
+          # Poll up to 25 minutes for the Tests run to complete - matrix
+          # legs take ~6-8 minutes each; 25 also covers a queued-runner
+          # window. Fail-closed on timeout.
+          DEADLINE=$(( $(date +%s) + 1500 ))
           while :; do
-            gh api "repos/$REPO/commits/$TAG_SHA/check-runs?per_page=100" \
-              --jq ".check_runs[] | select(.name | test(\"^($REQUIRED)$\")) | [.name, .status, (.conclusion // \"-\")] | @tsv" > runs.tsv || true
-            # Strip CR, drop duplicates (a re-run keeps the latest row last).
-            sort -u -t$'\t' -k1,1 runs.tsv 2>/dev/null | tail -n +1 > runs.dedup.tsv || cp runs.tsv runs.dedup.tsv
-            PENDING=$(awk -F'\t' '$2 != "completed"' runs.dedup.tsv | wc -l)
-            FOUND=$(wc -l < runs.dedup.tsv)
-            echo "Required check-runs found: $FOUND (pending: $PENDING)"
-            if [ "$PENDING" -eq 0 ]; then
+            STATUS_TSV=$(gh api "repos/$REPO/actions/runs/$RUN_ID" --jq '[.status, (.conclusion // "-")] | @tsv' 2>/dev/null || printf 'unknown\t-')
+            RUN_STATUS=$(printf '%s' "$STATUS_TSV" | cut -f1)
+            RUN_CONCLUSION=$(printf '%s' "$STATUS_TSV" | cut -f2)
+            if [ "$RUN_STATUS" = "completed" ]; then
+              echo "Tests run $RUN_ID completed: $RUN_CONCLUSION"
               break
             fi
             if [ "$(date +%s)" -ge "$DEADLINE" ]; then
-              echo "Tests did not finish within 15 minutes - blocking the release (fail-closed)." >&2
+              echo "Tests run $RUN_ID did not finish within 25 minutes - blocking the release (fail-closed)." >&2
               echo "Re-run this workflow once the Tests run completes." >&2
-              cat runs.dedup.tsv >&2 || true
               exit 1
             fi
             sleep 30
           done
+          if [ "$RUN_CONCLUSION" != "success" ]; then
+            {
+              echo "### Tests gate: release blocked for \`$SHA\` (commit \`$TAG_SHA\`)"
+              echo ""
+              echo "- Tests run [$RUN_ID](${GITHUB_SERVER_URL:-https://github.com}/$REPO/actions/runs/$RUN_ID): **$RUN_CONCLUSION**"
+            } | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "Tests run $RUN_ID concluded '$RUN_CONCLUSION' - refusing to publish $SHA." >&2
+            exit 1
+          fi
+
+          # The run as a whole is green; now the per-leg audit - the
+          # pester-unit matrix legs and the bootstrap detector must each be
+          # present and successful on the tag commit, so a matrix that grew
+          # or shrank cannot silently drop coverage.
+          REQUIRED='bootstrap-detector|pester-unit'
+          gh api "repos/$REPO/commits/$TAG_SHA/check-runs?per_page=100" \
+            --jq ".check_runs[] | select(.name | test(\"^($REQUIRED)$\")) | [.name, .status, (.conclusion // \"-\")] | @tsv" > runs.tsv || true
+          # Keep the LATEST row per name (a re-run appends new rows; sort -u
+          # alone would keep the alphabetically first, e.g. "failure", and
+          # block a tag that went red then green on re-run).
+          awk -F'\t' '{a[$1]=$0} END{for (k in a) print a[k]}' runs.tsv | sort > runs.dedup.tsv
+          FOUND=$(wc -l < runs.dedup.tsv)
+          echo "Required check-runs found: $FOUND"
 
           # Every required run must exist and be green.
           MISSING=0; RED=0
@@ -204,6 +252,7 @@ jobs:
           {
             echo "### Tests gate: release allowed for \`$SHA\`"
             echo ""
+            echo "- Tests run: ${GITHUB_SERVER_URL:-https://github.com}/$REPO/actions/runs/$RUN_ID"
             cat gate-report.md
           } | tee -a "$GITHUB_STEP_SUMMARY"
           echo "Tests gate passed - all required checks green on $TAG_SHA."
