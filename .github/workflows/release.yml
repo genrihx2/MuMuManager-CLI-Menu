@@ -129,6 +129,85 @@ jobs:
           echo "prev_tag=$PREV" >> "$GITHUB_OUTPUT"
           echo "commit_count=$COMMITS" >> "$GITHUB_OUTPUT"
 
+      - name: Require green Tests on the tag commit
+        # Release gate: a tag whose commit has a failing (or missing/pending)
+        # Tests run must not be published. Fails CLOSED - a missing or
+        # incomplete run blocks the release the same way a red one does.
+        if: steps.tag.outputs.skip != 'true' && steps.ver.outputs.skip != 'true'
+        id: tests-gate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          # Resolve the commit SHA the tag points at (the gate is per-commit,
+          # not per-ref: a later main push must not satisfy this tag's gate).
+          TAG_SHA=$(git rev-parse "${SHA}^{commit}")
+          echo "Tag $SHA -> commit $TAG_SHA"
+
+          # The gate needs the pester-unit matrix legs + the bootstrap
+          # detector from tests.yml. Each leg is checked individually so a
+          # matrix that grew or shrank cannot silently drop coverage.
+          REQUIRED='bootstrap-detector|pester-unit'
+
+          # Poll up to 15 minutes for every required check to appear and
+          # complete (a tag-push Release can start while Tests is running).
+          DEADLINE=$(( $(date +%s) + 900 ))
+          while :; do
+            gh api "repos/$REPO/commits/$TAG_SHA/check-runs?per_page=100" \
+              --jq ".check_runs[] | select(.name | test(\"^($REQUIRED)$\")) | [.name, .status, (.conclusion // \"-\")] | @tsv" > runs.tsv || true
+            # Strip CR, drop duplicates (a re-run keeps the latest row last).
+            sort -u -t$'\t' -k1,1 runs.tsv 2>/dev/null | tail -n +1 > runs.dedup.tsv || cp runs.tsv runs.dedup.tsv
+            PENDING=$(awk -F'\t' '$2 != "completed"' runs.dedup.tsv | wc -l)
+            FOUND=$(wc -l < runs.dedup.tsv)
+            echo "Required check-runs found: $FOUND (pending: $PENDING)"
+            if [ "$PENDING" -eq 0 ]; then
+              break
+            fi
+            if [ "$(date +%s)" -ge "$DEADLINE" ]; then
+              echo "Tests did not finish within 15 minutes - blocking the release (fail-closed)." >&2
+              echo "Re-run this workflow once the Tests run completes." >&2
+              cat runs.dedup.tsv >&2 || true
+              exit 1
+            fi
+            sleep 30
+          done
+
+          # Every required run must exist and be green.
+          MISSING=0; RED=0
+          : > gate-report.md
+          while IFS=$'\t' read -r name status conclusion; do
+            conclusion=${conclusion%$'\r'}
+            echo "- \`$name\`: $conclusion" >> gate-report.md
+            if [ "$conclusion" != "success" ]; then RED=$((RED + 1)); fi
+          done < runs.dedup.tsv
+          for pattern in bootstrap-detector pester-unit; do
+            if ! grep -q "$pattern" runs.dedup.tsv; then
+              echo "- \`$pattern\`: **missing** (no check-run on this commit)" >> gate-report.md
+              MISSING=$((MISSING + 1))
+            fi
+          done
+
+          if [ "$RED" -gt 0 ] || [ "$MISSING" -gt 0 ]; then
+            {
+              echo "### Tests gate: release blocked for \`$SHA\` (commit \`$TAG_SHA\`)"
+              echo ""
+              cat gate-report.md
+            } | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "Tests gate FAILED (red: $RED, missing: $MISSING) - refusing to publish $SHA." >&2
+            echo "Fix the failing checks, then re-run this workflow." >&2
+            exit 1
+          fi
+
+          {
+            echo "### Tests gate: release allowed for \`$SHA\`"
+            echo ""
+            cat gate-report.md
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "Tests gate passed - all required checks green on $TAG_SHA."
+
       - name: Build ZIP from tag content
         if: steps.tag.outputs.skip != 'true' && steps.ver.outputs.skip != 'true'
         id: zip
