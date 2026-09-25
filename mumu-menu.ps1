@@ -235,7 +235,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.22.43'
+$scriptVer = '1.22.44'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -338,7 +338,20 @@ function Get-CurlGitHubArgs {
 function Invoke-GitHubApiGet {
     param([string]$Url, [string[]]$ExtraArgs = @(), [string]$Token)
     $curlArgs = Get-CurlGitHubArgs -ExtraArgs $ExtraArgs -Token $Token
-    return (& curl.exe @curlArgs $Url 2>$null | Out-String)
+    $resp = (& curl.exe @curlArgs $Url 2>$null | Out-String)
+    # Saved-token rejection: disable once at script scope and retry
+    # anonymously (public repo) instead of handing 401 JSON to callers.
+    # Explicit -Token callers ([K] validation) are exempt - their rejection
+    # IS the answer, and the session token must stay untouched.
+    if (-not $PSBoundParameters.ContainsKey('Token') -and $script:GitHubToken -and
+        $resp -match '"message"\s*:\s*"Bad credentials"') {
+        Write-Host '  Token rejected — retrying without auth...' -ForegroundColor Yellow
+        $script:GitHubToken = ''
+        Write-Host '  Saved token disabled for this session - re-save via menu [K].' -ForegroundColor DarkGray
+        $curlArgs = Get-CurlGitHubArgs -ExtraArgs $ExtraArgs -Token $Token
+        $resp = (& curl.exe @curlArgs $Url 2>$null | Out-String)
+    }
+    return $resp
 }
 
 function Invoke-GitHubGet {
@@ -454,6 +467,14 @@ function Invoke-GitHubGet {
     if ($null -ne $resp) {
         if ($GitHubToken -and $resp -match '"message"\s*:\s*"Bad credentials"') {
             Write-Host '  Token rejected — retrying without auth...' -ForegroundColor Yellow
+            # One-time session-wide disable: without it EVERY later request
+            # repeats the attach-reject-fallback round-trip (v1.22.43 field
+            # report: a line of "Token rejected" per fetched file). A plain
+            # assignment here would only shadow the script variable - write
+            # the script scope explicitly. Public repo: anonymous access is
+            # always enough; re-save via [K] to restore.
+            $script:GitHubToken = ''
+            Write-Host '  Saved token disabled for this session - re-save via menu [K].' -ForegroundColor DarkGray
             $r2 = _Fetch -UseToken $false -UrlToUse $pinnedUrl -Etag $etag
             if ($r2.NotModified) { return $script:EtagCache[$pinnedUrl] }
             $resp = $r2.Body
@@ -1842,6 +1863,12 @@ function Update-FromGitHub {
                 # Bad credentials fallback — retry without token
                 if ($GitHubToken -and $text -match '"message"\s*:\s*"Bad credentials"') {
                     Write-Host '    Token rejected — retrying without auth...' -ForegroundColor Yellow
+                    # Same session-wide disable as Invoke-GitHubGet: the
+                    # retry below (and every later fetch) runs anonymously
+                    # instead of repeating the reject-retry round-trip per
+                    # file. Script scope, not a function-local shadow.
+                    $script:GitHubToken = ''
+                    Write-Host '    Saved token disabled for this session - re-save via menu [K].' -ForegroundColor DarkGray
                     $tmpDl2 = Join-Path $env:TEMP ('mumu_dl_' + [Guid]::NewGuid().ToString('N') + '.tmp')
                     _DlFile $rawUrl $tmpDl2
                     if (Test-Path $tmpDl2) {

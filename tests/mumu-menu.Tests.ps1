@@ -32,7 +32,7 @@ BeforeAll {
                         'Get-DiagSummary', 'Show-UpdatePlan',
                         'Get-AutoDiagSummary', 'Invoke-StartupAutoDiag', 'Show-AutoDiagLine',
                         'Read-EtagCacheFile', 'Get-EtagCacheFileState', 'Save-EtagCacheFile', 'Invoke-EtagCacheMaintenance',
-                        'Test-CurlRetrySupport', 'Get-CurlGitHubArgs', 'Invoke-GitHubApiGet', 'Get-ReleaseInfo')) {
+                        'Test-CurlRetrySupport', 'Get-CurlGitHubArgs', 'Invoke-GitHubApiGet', 'Get-ReleaseInfo', 'Invoke-GitHubGet')) {
         $f = $script:ast.FindAll({
             param($node)
             $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -435,6 +435,71 @@ Describe 'Invoke-GitHubGet: ETag cache, 304 replay, ref pinning (issue #22)' {
         }
         $script:EtagCache = @{}; $script:EtagTags = @{}; $script:RefShaCache = @{}
         Resolve-GitRefSha -RepoPart 'o/r' -Ref 'vGhost' | Should -BeNullOrEmpty
+    }
+}
+
+Describe 'Invoke-GitHubGet: saved-token rejection disables the token once (v1.22.43)' {
+
+    BeforeAll {
+        $f = $script:ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Invoke-GitHubGet'
+        }, $true) | Select-Object -First 1
+        if (-not $f) { throw 'Invoke-GitHubGet function not found in mumu-menu.ps1' }
+        . ([scriptblock]::Create($f.Extent.Text))
+        $script:CurlRetryArgs = @()
+    }
+
+    It 'retries anonymously, clears the session token exactly once, and never repeats the round-trip' {
+        $calls = [System.Collections.Generic.List[string]]::new()
+        function curl.exe {
+            param([Parameter(ValueFromRemainingArguments = $true)]$curlArgs)
+            $calls.Add(($curlArgs -join ' ')) | Out-Null
+            $h = [array]::IndexOf($curlArgs, '-D'); $o = [array]::IndexOf($curlArgs, '-o')
+            if ($h -ge 0) { Set-Content -LiteralPath $curlArgs[$h + 1] -Value 'HTTP/1.1 200 OK' -Encoding ASCII }
+            if ($o -ge 0) {
+                # Call 1 (with the rejected token): Bad-credentials JSON.
+                # Every later call (anonymous): real content.
+                if ($calls.Count -eq 1) {
+                    [System.IO.File]::WriteAllText($curlArgs[$o + 1], '{"message":"Bad credentials"}')
+                } else {
+                    [System.IO.File]::WriteAllText($curlArgs[$o + 1], "content`n")
+                }
+            }
+            $global:LASTEXITCODE = 0
+        }
+        $script:EtagCache = @{}; $script:EtagTags = @{}; $script:RefShaCache = @{}
+        $script:GitHubToken = 'ghp_rejected'
+        # 40-hex ref: the tag->SHA pin branch is skipped deterministically.
+        $url = 'https://api.github.com/repos/o/r/contents/README.md?ref=78859129d6aa76b7523541e11f2b4deed54484c5'
+        Invoke-GitHubGet $url | Should -Be 'content'
+        $script:GitHubToken | Should -Be ''
+        $calls.Count | Should -Be 2  # rejected attempt + anonymous retry
+        # A second request must run anonymously - no attach/reject again.
+        Invoke-GitHubGet $url | Should -Be 'content'
+        $calls.Count | Should -Be 3
+        $script:GitHubToken | Should -Be ''
+    }
+}
+
+Describe 'Saved-token rejection wiring (v1.22.43 regression guard)' {
+
+    It 'bootstrap Download-File clears the token at SCRIPT scope (no function-local shadow)' {
+        $src = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\bootstrap-update.ps1'))
+        $src | Should -Match '\$script:token\s*=\s*\$null'
+        # the old shadowing assignment must be gone; comment lines and the
+        # top-level "$token = $null" initialization (pre-DPAPI-read) are
+        # excluded from the check
+        $code = (($src -split "\r?\n") | Where-Object { $_ -notmatch '^\s*#' -and $_ -notmatch '^\$token\s*=\s*\$null\s*$' }) -join "`n"
+        $code | Should -Not -Match '(?<!script:)\$token\s*=\s*\$null'
+    }
+
+    It 'the menu disables the rejected token in all three fetch paths and says how to restore it' {
+        $src = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\mumu-menu.ps1'))
+        # Invoke-GitHubGet fallback + [U]/[UP] download fallback + Invoke-GitHubApiGet guard
+        ([regex]::Matches($src, [regex]::Escape('$script:GitHubToken = '''''))).Count | Should -Be 3
+        ([regex]::Matches($src, [regex]::Escape('Token rejected — retrying without auth'))).Count | Should -Be 3
+        ([regex]::Matches($src, [regex]::Escape('re-save via menu [K]'))).Count | Should -Be 3
     }
 }
 
