@@ -5,6 +5,10 @@
 .github-token
 .github-token.dpapi
 
+# VirusTotal API key
+.vt-apikey
+.vt-apikey.dpapi
+
 # Screenshots (large files)
 screenshots/*.png
 

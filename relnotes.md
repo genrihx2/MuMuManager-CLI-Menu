@@ -4,6 +4,34 @@
 
 ---
 
+## v1.22.41 (25.09.2026)
+
+### Fixed
+
+- **`Get-ReleaseInfo` — мёртвые заголовки**: функция собирала `$headers` (`Accept` / `User-Agent` / `Authorization`), но транспорт `Invoke-GitHubGet` принимает только URL и таймаут — `Accept` он выбирает сам по форме URL, токен подставляет сам. Таблица создавалась и молча игнорировалась: удалена, тест закрепляет, что хелпер не строит заголовков и не трогает токен
+- **`Update-FromGitHub` — сбои получения релиза снова различимы**: проверка `$relInfo -is [pscustomobject] -and $relInfo.Tag -eq $null` стояла внутри `if (-not $relInfo)` и не могла сработать — ветка «No releases found on remote» была недостижима, а rate limit, тело ошибки API и сетевой сбой схлопывались в одну строку. Причину сбоя `Get-ReleaseInfo` отдаёт через опциональный `[ref]$Failure` (`no-release` / `rate-limit` / `api` / `transport`), а `Show-ReleaseFetchFailure` рендерит прежние сообщения: подсказки по rate limit (отдельно для случая с токеном и без), `GitHub API: <текст>`, «No releases found on remote» и «Update check failed: <текст>»; 403 из транспорта, как и раньше, ведёт к подсказкам по лимиту
+
+### Tests
+
+- **Pester**: контракт `-Failure` (все четыре вида сбоя), функциональная проверка рендера каждого вида (запуск, а не сопоставление текста) и AST-пины делегирования fetch'а из `Update-FromGitHub` с закреплением отсутствия мёртвой проверки
+- **Локальный прогон**: фикстура раздела Problem diagnostics больше не запускает текстовый `MuMuManager.exe` — загрузчик Windows отвечал модальным диалогом «несовместимо с 64-разрядной версией Windows», и прогон стоял до нажатия OK (один тест — 250+ с; теперь весь набор ~30 с)
+
+## v1.22.40 (24.09.2026)
+
+### Added
+
+- **Функция `Get-ReleaseInfo`** — структурированные данные последнего GitHub-релиза в одном вызове: тег, `$scriptVer` релизного блоба (regex-извлечение), дата публикации, автор, тело notes, список ассетов с размерами и URL скачивания (`DownloadUrl`, `AssetFilenames`). Устойчива к ошибкам сети — при сбое возвращает `$null`, ошибки уходят в `Write-Debug`, а причина сбоя доступна вызывающему через `-Failure` (`no-release` / `rate-limit` / `api` / `transport`)
+
+### Changed
+
+- **`Update-FromGitHub` — рефакторинг получения релиза**: инлайн-логика fetch'а `releases/latest` (~34 строки) заменена вызовом `Get-ReleaseInfo`; обработка ошибок (rate limit / нет релизов / сетевой сбой) сохранена 1-в-1. Функция переиспользуема из UI меню и других вызовов
+
+### Infrastructure
+
+- **Dependabot**: убран несуществующий лейбл `dependencies` из `dependabot.yml` (ошибка «labels could not be found»); лейбл создан в настройках репозитория
+- **CI**: `github/codeql-action/upload-sarif` обновлён до v4.38.1 в `devskim.yml` и `security-scan.yml` (per-language CodeQL bundles — быстрее и меньше трафика на раннерах)
+
+
 ## v1.22.39 (22.09.2026)
 
 ### Added

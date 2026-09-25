@@ -235,7 +235,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.22.39'
+$scriptVer = '1.22.41'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -700,6 +700,84 @@ function Get-ExpectedFileHashes {
 # (v-prefix agnostic). Guards the version-fix heal against stale CDN blobs:
 # fetched content claiming an older scriptVer must never heal the marker
 # to the tag - the tag's content has not actually arrived.
+# ── Release / asset helpers ───────────────────────────────
+# Returns structured data for the *latest* GitHub Release of $GitHubRepo.
+# Failure contract: $null plus Write-Debug detail, and - when the caller
+# passes -Failure - a { Kind; Message } record saying why:
+#   no-release  the API answered with no usable release
+#   rate-limit  API error body reporting a rate limit
+#   api         any other API error body
+#   transport   the fetch itself threw (network/TLS/retries exhausted)
+# Auth, Accept and retries live in Invoke-GitHubGet (the only transport),
+# so this helper builds no headers of its own.
+function Get-ReleaseInfo {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $false)]
+        [string]$Repo = $GitHubRepo,
+        # Out: the failure detail, for callers that render their own message.
+        # Update-FromGitHub keeps the pre-refactor rate-limit hints and the
+        # raw API text this way. Callers that only need $null omit it.
+        [Parameter(Mandatory = $false)]
+        [ref]$Failure
+    )
+
+    try {
+        $rel = Invoke-GitHubGet "https://api.github.com/repos/$Repo/releases/latest" 15 | ConvertFrom-Json
+        if (-not $rel -or -not $rel.tag_name) {
+            if ($Failure) {
+                $apiMsg = if ($rel -and $rel.message) { [string]$rel.message } else { '' }
+                $Failure.Value = [pscustomobject]@{
+                    Kind    = if (-not $apiMsg) { 'no-release' } elseif ($apiMsg -match 'rate limit') { 'rate-limit' } else { 'api' }
+                    Message = $apiMsg
+                }
+            }
+            return $null
+        }
+
+        $assets = @()
+        if ($rel.assets) {
+            foreach ($a in $rel.assets) {
+                $assets += [pscustomobject]@{
+                    Name       = $a.name
+                    Size       = $a.size
+                    DownloadUrl = $a.browser_download_url
+                    ContentType = $a.content_type
+                }
+            }
+        }
+
+        # Pull the $scriptVer out of the menu script inside the release blob;
+        # used by the confirmation panel so the user sees "real" version.
+        $scriptVer = ''
+        try {
+            $menuText = Get-RemoteFile -Name 'mumu-menu.ps1' -Ref $rel.tag_name
+            if ($menuText) {
+                $m = [regex]::Match($menuText, "(?m)^`$scriptVer\s*=\s*'([^']+)'")
+                if ($m.Success) { $scriptVer = $m.Groups[1].Value }
+            }
+        } catch { Write-Debug "Get-ReleaseInfo: scriptVer probe failed: $($_.Exception.Message)" }
+
+        return [pscustomobject]@{
+            Tag            = $rel.tag_name
+            Prerelease     = [bool]$rel.prerelease
+            PublishedAt    = $rel.published_at
+            TargetCommit   = $rel.target_commitish
+            Author         = if ($rel.author) { $rel.author.login } else { '' }
+            Body           = $rel.body
+            ScriptVer      = $scriptVer
+            AssetCount     = $assets.Count
+            Assets         = $assets
+            DownloadUrl    = if ($rel.assets -and $rel.assets.Count -gt 0) { $rel.assets[0].browser_download_url } else { '' }
+            AssetFilenames = if ($assets.Count -gt 0) { ($assets.Name -join ', ') } else { '' }
+        }
+    } catch {
+        Write-Debug "Get-ReleaseInfo failed: $($_.Exception.Message)"
+        if ($Failure) { $Failure.Value = [pscustomobject]@{ Kind = 'transport'; Message = $_.Exception.Message } }
+        return $null
+    }
+}
+
 function Test-ScriptVerMatchesTag {
     param([string]$Text, [string]$Tag)
     $m = [regex]::Match($Text, "(?m)^\s*\`$scriptVer\s*=\s*'(\d+(?:\.\d+){1,3})'")
@@ -1267,35 +1345,47 @@ function Update-FromGitHub {
         }
     }
 
-    try {
-        $relUrl = "https://api.github.com/repos/$GitHubRepo/releases/latest"
-        $release = Invoke-GitHubGet $relUrl 15 | ConvertFrom-Json
-
-        if (-not $release -or -not $release.tag_name) {
-            if ($release -and $release.message) {
-                $apiMsg = $release.message
-                if ($apiMsg -match 'rate limit') {
-                    if (-not $Passive) {
-                        Write-Host '  GitHub API rate limit exceeded.' -ForegroundColor Yellow
-                        if (-not $GitHubToken) {
-                            Write-Host '  Without a token the limit is 60 requests/hour per IP.' -ForegroundColor Yellow
-                            Write-Host '  Add a token: menu [K] Update GitHub token (stored DPAPI-encrypted).' -ForegroundColor Yellow
-                        } else {
-                            Write-Host '  Token quota (5000/hour) exhausted or invalid - re-save via [K].' -ForegroundColor Yellow
-                        }
-                    }
-                } else {
-                    if (-not $Passive) { Write-Host "  GitHub API: $apiMsg" -ForegroundColor Yellow }
-                }
+    # Renders why the release fetch came back empty. The pre-refactor flow
+    # told a rate limit (with token/no-token guidance) apart from any other
+    # API error body and from a plain failed fetch - keep that detail
+    # instead of collapsing every case into one line.
+    function Show-ReleaseFetchFailure {
+        param($Reason)
+        if ($Reason.Kind -eq 'no-release') {
+            Write-Host '  No releases found on remote' -ForegroundColor Yellow
+        } elseif ($Reason.Kind -eq 'rate-limit' -or $Reason.Message -match '403|rate limit') {
+            Write-Host '  GitHub API rate limit exceeded.' -ForegroundColor Yellow
+            if (-not $GitHubToken) {
+                Write-Host '  Without a token the limit is 60 requests/hour per IP.' -ForegroundColor Yellow
+                Write-Host '  Add a token: menu [K] Update GitHub token (stored DPAPI-encrypted).' -ForegroundColor Yellow
             } else {
-                if (-not $Passive) { Write-Host '  No releases found on remote' -ForegroundColor Yellow }
+                Write-Host '  Token quota (5000/hour) exhausted or invalid - re-save via [K].' -ForegroundColor Yellow
             }
+        } elseif ($Reason.Kind -eq 'api') {
+            Write-Host "  GitHub API: $($Reason.Message)" -ForegroundColor Yellow
+        } else {
+            Write-Host "  Update check failed: $($Reason.Message)" -ForegroundColor Yellow
+        }
+    }
+
+    try {
+        # Fetch structured release info via the Get-ReleaseInfo helper (the
+        # single transport - token, Accept, ETag cache and retries all live
+        # inside Invoke-GitHubGet). -Failure reports why an empty result came
+        # back, so the messaging below keeps the pre-refactor detail: the old
+        # inline code read the API body itself, and the refactor lost it.
+        # Globals: $GitHubRepo, $GitHubToken, $Passive, $Plan, $NoAuth
+        $failReason = $null
+        $relInfo = Get-ReleaseInfo -Failure ([ref]$failReason)
+        if (-not $relInfo) {
+            if ($failReason) { Write-Debug "Release fetch failed ($($failReason.Kind)): $($failReason.Message)" }
+            if (-not $Passive) { Show-ReleaseFetchFailure -Reason $failReason }
             return
         }
 
-        $tag = $release.tag_name
-        $remoteDate = $release.published_at
-        $remoteBody = if ($release.body) { $release.body } else { '' }
+        $tag = $relInfo.Tag
+        $remoteDate = $relInfo.PublishedAt
+        $remoteBody = $relInfo.Body
 
         # Fast check: compare local version tag against release tag (no download)
         $localTag = ''
