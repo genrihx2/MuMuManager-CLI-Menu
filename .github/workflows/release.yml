@@ -213,9 +213,12 @@ jobs:
           # pester-unit matrix legs and the bootstrap detector must each be
           # present and successful on the tag commit, so a matrix that grew
           # or shrank cannot silently drop coverage.
-          REQUIRED='bootstrap-detector|pester-unit'
+          # Prefix match (no trailing $): pester-unit legs are named
+          # "pester-unit (5.7.1 / powershell)" etc. - an anchored regex
+          # would filter them out and block every release on "missing".
+          REQUIRED='^(bootstrap-detector|pester-unit)'
           gh api "repos/$REPO/commits/$TAG_SHA/check-runs?per_page=100" \
-            --jq ".check_runs[] | select(.name | test(\"^($REQUIRED)$\")) | [.name, .status, (.conclusion // \"-\")] | @tsv" > runs.tsv || true
+            --jq ".check_runs[] | select(.name | test($REQUIRED)) | [.name, .status, (.conclusion // \"-\")] | @tsv" > runs.tsv || true
           # Keep the LATEST row per name (a re-run appends new rows; sort -u
           # alone would keep the alphabetically first, e.g. "failure", and
           # block a tag that went red then green on re-run).
