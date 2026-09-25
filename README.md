@@ -361,7 +361,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.22.42
+Script version: 1.22.43
 MuMu version: 6.7.1
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -461,6 +461,13 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 **EN summary:** Recovering from a failed update: diagnose first (`[ST]` status, `[DIAG]` problems, `[F]` file-vs-tag verification, `[J] → 3` errors), then act. HASH MISMATCH → re-run `[F]` (stale-CDN false alarms vanish on the re-fetch; stable mismatches mean re-download the ZIP and verify with `-VerifyZip`). Wedged marker ("Up to date" but old content) → `bootstrap-update.ps1 -Force`. Broken files → restore from `backup\YYYYMMDD_HHMMSS`. Lock refusal → wait (locks older than 10 minutes break automatically). The table above maps each symptom to its cause and fix.
 
 ## Что нового
+
+### v1.22.43 (25.09.2026)
+
+- **Release-гейт стал самодостаточным**: перед публикацией релиза workflow сам запускает Tests-матрицу на SHA тега — переиспользует уже идущий run, иначе диспетчеризует `tests.yml` по `--ref <тег>` и ждёт до 25 минут; после зелёного рана — аудит ног (`bootstrap-detector` + все `pester-unit`), fail-closed на red/missing/timeout
+- **Еженедельная ZIP-проверка в release-guard**: ZIP последнего релиза скачивается, `.sha256`-sidecar проверяется, SHA256 каждого из 5 файлов сверяется с `git show <tag>:<file>` — ловит подмену/обрезку/недозагрузку ассета даже после публикации; violations — в тот же marker-scoped issue
+- **Фикс гейта — якорный regex отсекал ноги матрицы** (найдено репетицией на живом теге): фильтр `^(bootstrap-detector|pester-unit)$` не совпадал с именами вида `pester-unit (5.7.1 / powershell)` — гейт блокировал бы каждый релиз; заменено на префиксное совпадение
+- **Фикс дедупликации чек-ранов**: прежний `sort -u` оставлял алфавитно-первую строку (`failure`) — тег после зелёного re-run блокировался бы ложно; теперь берётся последняя строка на имя
 
 ### v1.22.42 (25.09.2026)
 
@@ -847,6 +854,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.43 | 25.09.2026 | CI: самодостаточный release-гейт (диспетчеризация Tests на теге), ZIP-проверка в release-guard, фикс якорного regex'а и дедупликации чек-ранов |
 | v1.22.42 | 25.09.2026 | CI: матрица Pester (PS 5.1 + pwsh, пин 5.7.1, канарейка); фикс `PublishedAt` под PS 5.1 |
 | v1.22.41 | 25.09.2026 | Восстановлены сообщения о сбоях получения релиза в [U]/[UP]; удалены мёртвые заголовки `Get-ReleaseInfo` |
 | v1.22.40 | 24.09.2026 | Функция `Get-ReleaseInfo` + рефакторинг fetch'а релиза в [U]/[UP]; Dependabot-лейблы; upload-sarif v4.38.1 |
