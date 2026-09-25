@@ -1,0 +1,180 @@
+name: Pester watcher
+
+# Weekly watchdog over the Tests workflow's Pester matrix (tests.yml).
+#
+# The matrix (PS 5.1 + pwsh on pinned Pester 5.7.1, plus the preinstalled
+# canary) already runs on push/PR and weekly - but a scheduled run only
+# turns the workflow's own badge red. Nothing watched the watcher: during
+# quiet weeks a red canary (the runner image's Pester changed under us)
+# would surface as a red dot nobody looks at. This workflow does, every
+# Monday right after the scheduled Tests run and on demand:
+#   - dispatches the Tests workflow on the default branch;
+#   - polls every matrix leg's conclusion to completion;
+#   - the report always lands in the run summary; any red leg also opens
+#     a dedicated issue (one, marker-scoped, idempotent) and the run
+#     fails so mail/notifications reach the maintainer;
+#   - when a later run finds all legs green, a previously opened watcher
+#     issue is closed automatically (same pattern as release-guard.yml).
+#
+# The self-push trigger re-runs the watcher (not Tests) whenever this
+# file changes - the same pattern lint.yml uses, so the watchdog gets
+# validated immediately.
+
+on:
+  schedule:
+    - cron: '30 8 * * 1' # Mondays 08:30 UTC - right after the Tests matrix (08:00)
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/pester-watcher.yml'
+
+permissions:
+  actions: write # dispatch the Tests workflow
+  contents: read
+  issues: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Dispatch Tests and poll the matrix legs
+        id: watch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          gh workflow run tests.yml --repo "$REPO" --ref "$BRANCH"
+          sleep 15 # the dispatch is async; give the run a moment to appear
+          RUN_ID=$(gh run list --repo "$REPO" --workflow tests.yml --branch "$BRANCH" \
+            --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId')
+          case "$RUN_ID" in '' | *[!0-9]*) echo "Cannot find the dispatched Tests run: '$RUN_ID'" >&2; exit 1 ;; esac
+          echo "Dispatched Tests run: https://github.com/$REPO/actions/runs/$RUN_ID"
+          echo "run-url=https://github.com/$REPO/actions/runs/$RUN_ID" >> "$GITHUB_OUTPUT"
+
+          # Poll up to 20 minutes: the full matrix historically takes ~8-10.
+          DEADLINE=$(( $(date +%s) + 1200 ))
+          while :; do
+            STATUS=$(gh run view "$RUN_ID" --repo "$REPO" --json status --jq '.status')
+            [ "$STATUS" = "completed" ] && break
+            if [ "$(date +%s)" -ge "$DEADLINE" ]; then
+              echo "Tests run did not complete within 20 minutes (status: $STATUS)" >&2
+              echo "timed_out=true" >> "$GITHUB_OUTPUT"
+              exit 0 # the report/issue step below renders the timeout
+            fi
+            sleep 30
+          done
+
+          # One row per matrix leg (name: "pester-unit (<pester> / <shell>)").
+          gh run view "$RUN_ID" --repo "$REPO" --json jobs \
+            --jq '.jobs[] | select(.name | startswith("pester-unit")) | [.name, .conclusion] | @tsv' \
+            > legs.tsv
+          if [ ! -s legs.tsv ]; then
+            echo "No pester-unit jobs found in the Tests run - did the matrix change?" >&2
+            echo "no_jobs=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          cat legs.tsv
+
+          # The overall conclusion decides the issue flow; leg details go to the report.
+          gh run view "$RUN_ID" --repo "$REPO" --json conclusion --jq '.conclusion' > conclusion.txt
+
+      - name: Build the report
+        id: report
+        if: steps.watch.outcome == 'success'
+        env:
+          RUN_URL: ${{ steps.watch.outputs.run-url }}
+        run: |
+          set -euo pipefail
+          TIMED_OUT=${{ steps.watch.outputs.timed_out == 'true' && 'true' || 'false' }}
+          NO_JOBS=${{ steps.watch.outputs.no_jobs == 'true' && 'true' || 'false' }}
+
+          {
+            echo "### Pester matrix report"
+            echo ""
+            echo "Tests run: $RUN_URL"
+            echo ""
+            if [ "$TIMED_OUT" = "true" ]; then
+              echo "**Status: POLL TIMEOUT** - the Tests run did not complete within 20 minutes."
+            elif [ "$NO_JOBS" = "true" ]; then
+              echo "**Status: BROKEN** - no pester-unit jobs found in the Tests run."
+            else
+              echo "| Leg | Conclusion |"
+              echo "|---|---|"
+              RED=0
+              while IFS=$'\t' read -r name conclusion; do
+                conclusion=${conclusion%$'\r'} # tolerate CRLF
+                echo "| $name | \`$conclusion\` |"
+                if [ "$conclusion" != "success" ]; then RED=$((RED + 1)); fi
+              done < legs.tsv
+              echo ""
+              if [ "$RED" -eq 0 ]; then
+                echo "**Status: CLEAN** - all matrix legs green."
+              else
+                echo "**Status: $RED RED LEG(S)** - see the run above for logs."
+              fi
+              echo "red=$RED" >> "$GITHUB_OUTPUT"
+            fi
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Open or update the watcher issue
+        if: steps.report.outputs.red != '0' || steps.watch.outputs.timed_out == 'true' || steps.watch.outputs.no_jobs == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ steps.watch.outputs.run-url }}
+        run: |
+          set -euo pipefail
+          TITLE='[pester-watcher] Pester matrix red: a leg failed, timed out, or went missing'
+          MARKER='<!-- pester-watcher-matrix -->'
+          {
+            echo "$MARKER"
+            echo ""
+            echo "The weekly Pester matrix watch found a problem - the Tests"
+            echo "workflow's pester-unit matrix has a red leg (or the run timed"
+            echo "out / lost its matrix jobs). The pinned legs (PS 5.1 + pwsh on"
+            echo "Pester 5.7.1) cover regressions in the repo; the canary leg"
+            echo "(preinstalled Pester) mostly breaks when the runner image"
+            echo "updates Pester under us - then the pin is the fix to relax or"
+            echo "the canary is the signal to update the suite."
+            echo ""
+            cat report.md 2>/dev/null || echo "Report unavailable - check the run: $RUN_URL"
+            echo "---"
+            echo "Latest watch run: $RUN_URL"
+          } > issue-body.md
+
+          # Idempotent: one marker-scoped issue, updated on every failing run.
+          NUMBER=$(gh issue list --repo "$REPO" --search "$MARKER in:body" --state open --json number --jq '.[0].number // ""')
+          if [ -n "$NUMBER" ]; then
+            gh issue edit "$NUMBER" --repo "$REPO" --body-file issue-body.md
+            echo "Updated existing watcher issue #$NUMBER"
+          else
+            gh issue create --repo "$REPO" --title "$TITLE" --body-file issue-body.md
+            echo "Opened new watcher issue"
+          fi
+
+      - name: Close a stale watcher issue
+        if: steps.watch.outputs.timed_out != 'true' && steps.watch.outputs.no_jobs != 'true' && steps.report.outputs.red == '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          MARKER='<!-- pester-watcher-matrix -->'
+          NUMBER=$(gh issue list --repo "$REPO" --search "$MARKER in:body" --state open --json number --jq '.[0].number // ""')
+          if [ -n "$NUMBER" ]; then
+            gh issue close "$NUMBER" --repo "$REPO" \
+              --comment "The latest weekly Pester matrix watch is clean - all legs green. Closing."
+            echo "Closed stale watcher issue #$NUMBER"
+          else
+            echo "No open watcher issue - nothing to close"
+          fi
+
+      - name: Fail on red legs
+        if: steps.report.outputs.red != '0' || steps.watch.outputs.timed_out == 'true' || steps.watch.outputs.no_jobs == 'true'
+        run: |
+          echo "Pester watcher found a problem - see the step summary and the watcher issue."
+          exit 1
