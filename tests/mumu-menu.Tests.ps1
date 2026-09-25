@@ -9,9 +9,9 @@
 # image ships next (.github/actions/pester-unit).
 #
 # Run locally:
-#   pwsh:  tests/run-pester.ps1            (any Pester 5.x+)
-#   pwsh:  tests/run-pester.ps1 -PesterVersion 5.7.1 -ModuleDir <dir>
-#   PS5.1: powershell -ExecutionPolicy Bypass -File tests/run-pester.ps1
+#   all CI legs:  tests/run-matrix.ps1        (-Quick skips the canary leg)
+#   single leg:   tests/run-pester.ps1 -PesterVersion 5.7.1 -ModuleDir <dir>
+#   PS5.1:        powershell -ExecutionPolicy Bypass -File tests/run-pester.ps1
 
 BeforeAll {
     $script:menuPath = Join-Path (Join-Path $PSScriptRoot '..') 'mumu-menu.ps1'

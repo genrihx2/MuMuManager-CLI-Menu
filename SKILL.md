@@ -114,8 +114,11 @@ cd MuMuManager-CLI-Menu
 - Both auto-commit if changed
 
 ### Tests / lint / changelog
-- `tests.yml`: Pester suite; `lint.yml`: actionlint; `changelog-check.yml`: gates on
+- `tests.yml`: Pester matrix (PS 5.1 + pwsh on pinned Pester 5.7.1, plus a preinstalled-Pester
+  canary) on push/PR and weekly (Monday 08:00 UTC - the canary tracks the runner image, which
+  changes independently of this repo); `lint.yml`: actionlint; `changelog-check.yml`: gates on
   `relnotes.md` top section = `.version` = `$scriptVer` and README what's-new/table consistency
+- Local replay of the full CI matrix: `tests/run-matrix.ps1` (`-Quick` skips the canary leg)
 
 ### Security scan
 - PSScriptAnalyzer with custom settings, SARIF output for GitHub code scanning

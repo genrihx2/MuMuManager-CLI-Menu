@@ -22,6 +22,12 @@ on:
       - '.github/workflows/tests.yml'
       - '.github/actions/**'
   workflow_dispatch:
+  # The canary leg tracks the runner image's preinstalled Pester, which
+  # changes when GitHub updates the image - not when this repo changes.
+  # A weekly run keeps that leg (and the whole suite) honest even during
+  # quiet weeks; push/PR paths-filters above cover active development.
+  schedule:
+    - cron: '0 8 * * 1'
 
 permissions:
   contents: read
