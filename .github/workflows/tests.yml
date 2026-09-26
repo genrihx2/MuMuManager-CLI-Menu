@@ -97,8 +97,8 @@ jobs:
     # BOM-hygiene test (tagged RepoFiles) failed exactly that way on a real
     # install, healthy otherwise. Both engines against the SAME fixture copy;
     # tests tagged RepoFiles are excluded (172 tests). Job name is prefixed
-    # with pester-unit so the release gate's check-run audit covers it
-    # unchanged: REQUIRED='^(bootstrap-detector|pester-unit)'.
+    # with pester-unit: the release gate audits Tests legs by EXACT NAME
+    # (REQUIRED_LEGS in release.yml), which lists this job verbatim.
     name: pester-unit (deployed layout / both engines)
     runs-on: windows-latest
     timeout-minutes: 15
