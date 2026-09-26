@@ -10,6 +10,9 @@
 #   3. pwsh 7                  + whatever this machine has preinstalled
 #     (-Quick skips leg 3: the canary only makes sense where the module set
 #      mirrors the CI image; locally it just re-tests your own Pester)
+#   4. pester-unit-deployed: the suite inside a temp fixture holding only
+#     the deployed file set (RepoFiles-tagged tests excluded), both engines
+#     against the same copy (tests/test-deployed-layout.ps1)
 #
 # The pinned Pester is fetched once into a private directory (same layout
 # the CI action uses) and reused across runs; the engine-aware install
@@ -47,6 +50,19 @@ foreach ($leg in $legs) {
     if ($LASTEXITCODE -ne 0) {
         Write-Host "leg FAILED: $($leg.Name) (exit $LASTEXITCODE)" -ForegroundColor Red
         $failed += $leg.Name
+    }
+}
+
+# Leg 4 mirrors the tests.yml pester-unit-deployed job: the fixture runner
+# builds the installed-layout copy itself and drives both engines against
+# it. Skipped with -Quick, like the canary.
+if (-not $Quick) {
+    Write-Host ''
+    Write-Host '=== pester-unit (deployed layout / both engines) ===' -ForegroundColor Cyan
+    & pwsh.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'test-deployed-layout.ps1') -ModuleDir $moduleDir
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host 'leg FAILED: deployed layout / both engines' -ForegroundColor Red
+        $failed += 'deployed layout / both engines'
     }
 }
 

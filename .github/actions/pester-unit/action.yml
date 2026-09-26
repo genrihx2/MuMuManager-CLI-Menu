@@ -17,6 +17,15 @@ inputs:
   shell:
     description: '`powershell` for Windows PowerShell 5.1, anything else for pwsh.'
     required: true
+  layout:
+    description: >-
+      `repo` (default) runs the suite in the checkout as-is. `deployed` builds a
+      temp fixture holding only the deployed file set and runs the suite there on
+      both engines (5.1 + pwsh) with the RepoFiles-tagged tests excluded - the
+      repo-vs-install drift guard (tests/test-deployed-layout.ps1). `shell` and
+      the single-engine run are ignored in this mode.
+    required: false
+    default: repo
 
 runs:
   using: composite
@@ -83,6 +92,7 @@ runs:
     # exit $LASTEXITCODE is load-bearing: Pester's -Exit sets it on a red
     # suite, and a plain `&` call would hide it from the step.
     - shell: pwsh
+      if: ${{ inputs.layout == 'repo' }}
       env:
         PESTER_VERSION: ${{ inputs.pester }}
       run: |
@@ -91,4 +101,20 @@ runs:
         } else {
           & "$env:SHELL_EXE" -NoProfile -ExecutionPolicy Bypass -File tests/run-pester.ps1
         }
+        exit $LASTEXITCODE
+
+    # Deployed-layout leg (tests.yml job pester-unit-deployed): the fixture
+    # runner builds the installed-layout copy itself and drives BOTH engines
+    # against that one copy (test-deployed-layout.ps1 -Engine Both, the
+    # default). The Pester copy prepared above is reused; PESTER_VERSION=
+    # preinstalled must never reach it - the fixture suite runs pinned,
+    # like the matrix legs.
+    - shell: pwsh
+      if: ${{ inputs.layout == 'deployed' }}
+      env:
+        PESTER_VERSION: ${{ inputs.pester }}
+      run: |
+        $ErrorActionPreference = 'Stop'
+        if ($env:PESTER_VERSION -eq 'preinstalled') { throw 'deployed layout requires a pinned Pester version' }
+        & pwsh.exe -NoProfile -ExecutionPolicy Bypass -File tests/test-deployed-layout.ps1 -ModuleDir "$env:PESTER_DIR"
         exit $LASTEXITCODE

@@ -5,6 +5,8 @@
 #
 #   powershell -ExecutionPolicy Bypass -File tests/run-pester.ps1
 #   pwsh -NoProfile -ExecutionPolicy Bypass -File tests/run-pester.ps1
+#   deployed layout (CI): tests/test-deployed-layout.ps1 - wraps this runner
+#   with -ExcludeTag RepoFiles inside a copy holding only deployed files
 #
 # The CI matrix (.github/workflows/tests.yml + .github/actions/pester-unit)
 # calls this same runner with -PesterVersion / -ModuleDir so the suite is
@@ -18,7 +20,11 @@ param(
     # Private module directory that already holds the pinned Pester
     # (prepared by the CI action or a local Save-Module). Prepended to
     # PSModulePath so the preinstalled Pester can never win resolution.
-    [string]$ModuleDir = ''
+    [string]$ModuleDir = '',
+    # Pester -ExcludeTag value (string array). The deployed-layout runner
+    # (tests/test-deployed-layout.ps1) passes 'RepoFiles' so the suite can
+    # run inside an installed fixture that carries no repo-only docs.
+    [string[]]$ExcludeTag = @()
 )
 
 $ErrorActionPreference = 'Stop'
@@ -102,5 +108,6 @@ $config = New-PesterConfiguration
 $config.Run.Path = Join-Path $PSScriptRoot 'mumu-menu.Tests.ps1'
 $config.Run.Exit = $true
 $config.Output.Verbosity = 'Detailed'
+if ($ExcludeTag.Count -gt 0) { $config.Filter.ExcludeTag = $ExcludeTag }
 
 Invoke-Pester -Configuration $config

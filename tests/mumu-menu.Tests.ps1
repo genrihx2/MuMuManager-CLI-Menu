@@ -6,12 +6,16 @@
 # emulator). Wired into CI as the pester-unit matrix in tests.yml:
 # BOTH engines (Windows PowerShell 5.1 + pwsh 7) on a pinned Pester
 # 5.7.1, plus one unpinned canary leg tracking whatever the runner
-# image ships next (.github/actions/pester-unit).
+# image ships next (.github/actions/pester-unit). The pester-unit-
+# deployed job (tests/test-deployed-layout.ps1) additionally runs the
+# suite INSIDE an installed-layout fixture: only the deployed files,
+# no repo-only docs - tests tagged 'RepoFiles' are excluded there.
 #
 # Run locally:
 #   all CI legs:  tests/run-matrix.ps1        (-Quick skips the canary leg)
 #   single leg:   tests/run-pester.ps1 -PesterVersion 5.7.1 -ModuleDir <dir>
 #   PS5.1:        powershell -ExecutionPolicy Bypass -File tests/run-pester.ps1
+#   deployed:     pwsh -File tests/test-deployed-layout.ps1   (runs both engines)
 
 BeforeAll {
     $script:menuPath = Join-Path (Join-Path $PSScriptRoot '..') 'mumu-menu.ps1'
@@ -1864,7 +1868,10 @@ Describe 'Fix-Unicode mode 5 ([UW] BOM repair, v1.22.10)' {
 
 Describe 'BOM hygiene (v1.22.11)' {
 
-    It 'non-script release and docs files are UTF-8 without BOM; PowerShell scripts keep theirs' {
+    # Tagged RepoFiles: reads repo-only docs (relnotes.md, RELEASE-RUNBOOK.md,
+    # update-readme.ps1) that deployed installs never carry - this test runs
+    # only in repo-checkout layouts (skipped by the deployed-layout fixture).
+    It 'non-script release and docs files are UTF-8 without BOM; PowerShell scripts keep theirs' -Tag 'RepoFiles' {
         $root = Join-Path $PSScriptRoot '..'
         # Release/docs payload: BOM must be absent ([UW] 'safe to strip' class).
         foreach ($name in @('README.md', 'SKILL.md', 'relnotes.md', 'RELEASE-RUNBOOK.md')) {
