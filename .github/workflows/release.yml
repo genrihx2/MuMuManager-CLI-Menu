@@ -13,10 +13,14 @@ name: Release
 # and the workflow fails hard if $scriptVer in mumu-menu.ps1 at the tag does not
 # match the tag version. Re-runs are idempotent: if the release already exists,
 # the run succeeds without doing anything.
-# Before publishing, the workflow runs and requires the Tests matrix
-# (bootstrap-detector + all pester-unit legs) green on the exact tag
-# commit: it reuses an existing Tests run on that commit or dispatches
-# one itself, then fails closed on red/missing/timeout.
+# Before publishing, the workflow runs and requires the named Tests legs
+# (bootstrap-detector, the three pester-unit matrix legs, the deployed-
+# layout leg - see REQUIRED_LEGS in the gate step) green on the exact
+# tag commit: it reuses an existing Tests run on that commit or
+# dispatches one itself, then fails closed on red/missing/timeout.
+# Legs are matched by exact name, so a leg removed from tests.yml or
+# renamed out from under the gate blocks the release instead of
+# silently shrinking the audited coverage.
 
 on:
   push:
@@ -209,40 +213,60 @@ jobs:
             exit 1
           fi
 
-          # The run as a whole is green; now the per-leg audit - the
-          # pester-unit matrix legs and the bootstrap detector must each be
-          # present and successful on the tag commit, so a matrix that grew
-          # or shrank cannot silently drop coverage.
-          # Prefix match (no trailing $): pester-unit legs are named
-          # "pester-unit (5.7.1 / powershell)" etc. - an anchored regex
-          # would filter them out and block every release on "missing".
-          REQUIRED='^(bootstrap-detector|pester-unit)'
-          # Double quotes around $REQUIRED are MANDATORY: without them the
-          # value reaches jq as a bare token (test(^(...))) and the jq parse
-          # error is fatal for gh - the release would block on "missing".
+          # The run as a whole is green; now the per-leg audit - every
+          # required Tests leg must be present and successful on the tag
+          # commit. Legs are matched by EXACT NAME, not by a common prefix:
+          # a prefix filter accepts any pester-unit* check-run, so removing
+          # a leg from the tests.yml matrix (or renaming it) would satisfy
+          # the gate silently and shrink audited coverage. REQUIRED_LEGS is
+          # the source of truth and must mirror the job names in tests.yml;
+          # a renamed or dropped leg surfaces as "missing" on the next
+          # release instead of passing unnoticed.
+          REQUIRED_LEGS='bootstrap-detector
+          pester-unit (5.7.1 / powershell)
+          pester-unit (5.7.1 / pwsh)
+          pester-unit (preinstalled / pwsh)
+          pester-unit (deployed layout / both engines)'
+          # One fetch of the tag commit's check-runs, loosely filtered to
+          # the Tests legs; exactness comes from the awk match below. A leg
+          # renamed outside this prefix fails the gate as "missing" - the
+          # desired outcome for a gate the tests.yml names drifted away
+          # from. Double quotes around the jq regex are MANDATORY: without
+          # them the value reaches jq as a bare token (test(^(...))) and
+          # the jq parse error is fatal for gh - the release would block
+          # on "missing" (v1.22.43 lesson).
           gh api "repos/$REPO/commits/$TAG_SHA/check-runs?per_page=100" \
-            --jq ".check_runs[] | select(.name | test(\"$REQUIRED\")) | [.name, .status, (.conclusion // \"-\")] | @tsv" > runs.tsv
-          # Keep the LATEST row per name (a re-run appends new rows; sort -u
-          # alone would keep the alphabetically first, e.g. "failure", and
-          # block a tag that went red then green on re-run).
-          awk -F'\t' '{a[$1]=$0} END{for (k in a) print a[k]}' runs.tsv | sort > runs.dedup.tsv
+            --jq ".check_runs[] | select(.name | test(\"^(bootstrap-detector|pester-unit)\")) | [.name, .status, (.conclusion // \"-\")] | @tsv" > runs.tsv
+          # Exact-name match per required leg; the LAST matching row wins
+          # (a re-run appends new rows; keeping the first could see a red
+          # row that later went green). A leg with no check-run yields an
+          # empty status cell - the "missing" signal in the loop below.
+          : > runs.dedup.tsv
+          while IFS= read -r leg; do
+            [ -n "$leg" ] || continue
+            # Strip a trailing CR: a CRLF checkout of this file would glue
+            # it to every leg name and turn the whole matrix into "missing".
+            leg=${leg%$'\r'}
+            awk -F'\t' -v leg="$leg" '$1 == leg { row = $2 "\t" $3 } END { print leg "\t" row }' runs.tsv >> runs.dedup.tsv
+          done <<< "$REQUIRED_LEGS"
           FOUND=$(wc -l < runs.dedup.tsv)
-          echo "Required check-runs found: $FOUND"
+          echo "Required legs: $FOUND"
 
-          # Every required run must exist and be green.
+          # Every required run must exist (empty status = no check-run on
+          # the tag commit) and be green.
           MISSING=0; RED=0
           : > gate-report.md
-          while IFS=$'\t' read -r name _status conclusion; do
+          while IFS=$'\t' read -r name status conclusion; do
+            status=${status%$'\r'}
             conclusion=${conclusion%$'\r'}
-            echo "- \`$name\`: $conclusion" >> gate-report.md
-            if [ "$conclusion" != "success" ]; then RED=$((RED + 1)); fi
-          done < runs.dedup.tsv
-          for pattern in bootstrap-detector pester-unit; do
-            if ! grep -q "$pattern" runs.dedup.tsv; then
-              echo "- \`$pattern\`: **missing** (no check-run on this commit)" >> gate-report.md
+            if [ -z "$status" ]; then
+              echo "- \`$name\`: **missing** (no check-run on this commit)" >> gate-report.md
               MISSING=$((MISSING + 1))
+            else
+              echo "- \`$name\`: $conclusion" >> gate-report.md
+              if [ "$conclusion" != "success" ]; then RED=$((RED + 1)); fi
             fi
-          done
+          done < runs.dedup.tsv
 
           if [ "$RED" -gt 0 ] || [ "$MISSING" -gt 0 ]; then
             {

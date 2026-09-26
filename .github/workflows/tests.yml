@@ -88,3 +88,27 @@ jobs:
         with:
           pester: ${{ matrix.pester }}
           shell: ${{ matrix.shell }}
+
+  pester-unit-deployed:
+    # Repo-vs-install drift guard: the suite, run INSIDE an installed-layout
+    # fixture (only the deployed file set; no relnotes.md, RELEASE-RUNBOOK.md,
+    # update-readme.ps1, tests/...). A test that silently needs a repo-only
+    # file must never be discovered from a live machine's red run - the
+    # BOM-hygiene test (tagged RepoFiles) failed exactly that way on a real
+    # install, healthy otherwise. Both engines against the SAME fixture copy;
+    # tests tagged RepoFiles are excluded (172 tests). Job name is prefixed
+    # with pester-unit: the release gate audits Tests legs by EXACT NAME
+    # (REQUIRED_LEGS in release.yml), which lists this job verbatim.
+    name: pester-unit (deployed layout / both engines)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Run deployed-layout Pester suite (fixture install, both engines)
+        uses: ./.github/actions/pester-unit
+        with:
+          pester: 5.7.1
+          shell: pwsh
+          layout: deployed
