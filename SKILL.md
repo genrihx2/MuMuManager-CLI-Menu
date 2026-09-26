@@ -21,14 +21,15 @@ RELEASE-RUNBOOK.md      # Release pipeline runbook + Release guard + CDN sync do
 ISSUE-DRAFT.md          # Historical roadmap / issue draft
 .version                # Version marker synced by CI (BOM-less, e.g. v1.22.29)
 tests/
-  mumu-menu.Tests.ps1   # Pester suite (150+ tests)
+  mumu-menu.Tests.ps1   # Pester suite (150+ tests; the repo-file-dependent test is tagged RepoFiles)
   run-pester.ps1        # Test runner
   test-bootstrap-update.ps1
   test-changelog-sync.ps1  # relnotes = .version = scriptVer + README table sync
+  test-deployed-layout.ps1 # Repo-vs-install drift guard: suite inside a fixture with ONLY the deployed files, both engines, RepoFiles excluded
 PSScriptAnalyzerSettings.psd1
 .github/workflows/
   release.yml           # Tag-driven release; on main push derives tag from $scriptVer
-  tests.yml             # Pester matrix: PS 5.1 + pwsh on pinned Pester 5.7.1, plus a preinstalled-Pester canary (.github/actions/pester-unit)
+  tests.yml             # Pester matrix: PS 5.1 + pwsh on pinned Pester 5.7.1, plus a preinstalled-Pester canary, plus a deployed-layout fixture leg (.github/actions/pester-unit)
   lint.yml              # actionlint for workflow files
   changelog-check.yml   # README/relnotes/.version consistency gate
   sync-readme.yml       # Auto-sync README menu block after script changes
@@ -115,10 +116,14 @@ cd MuMuManager-CLI-Menu
 
 ### Tests / lint / changelog
 - `tests.yml`: Pester matrix (PS 5.1 + pwsh on pinned Pester 5.7.1, plus a preinstalled-Pester
-  canary) on push/PR and weekly (Monday 08:00 UTC - the canary tracks the runner image, which
-  changes independently of this repo); `lint.yml`: actionlint; `changelog-check.yml`: gates on
-  `relnotes.md` top section = `.version` = `$scriptVer` and README what's-new/table consistency
-- Local replay of the full CI matrix: `tests/run-matrix.ps1` (`-Quick` skips the canary leg)
+  canary, plus a deployed-layout leg that runs the suite inside a fixture holding only the
+  deployed file set - catches tests that silently need repo-only files, which would otherwise
+  surface as a red run on a healthy live install) on push/PR and weekly (Monday 08:00 UTC - the
+  canary tracks the runner image, which changes independently of this repo); `lint.yml`:
+  actionlint; `changelog-check.yml`: gates on `relnotes.md` top section = `.version` =
+  `$scriptVer` and README what's-new/table consistency
+- Local replay of the full CI matrix: `tests/run-matrix.ps1` (`-Quick` skips the canary leg;
+  the deployed-layout leg runs via `tests/test-deployed-layout.ps1`)
 
 ### Security scan
 - PSScriptAnalyzer with custom settings, SARIF output for GitHub code scanning

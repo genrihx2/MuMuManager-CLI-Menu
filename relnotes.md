@@ -4,6 +4,13 @@
 
 ---
 
+## v1.22.45 (26.09.2026)
+
+- **Deployed-layout CI leg**: Pester suite runs inside a temp fixture holding ONLY the deployed file set (mumu-menu.ps1, bootstrap-update.ps1, README.md, SKILL.md, .version); repo-only files excluded (relnotes.md, RELEASE-RUNBOOK.md, update-readme.ps1, tests/). Tests tagged RepoFiles are excluded (172 of 173). Both engines — Windows PowerShell 5.1 and pwsh 7 — against the SAME copy (tests/test-deployed-layout.ps1).
+- **Release gate audits every Tests leg by exact name**: the check-run audit walks an explicit REQUIRED_LEGS list (all 5 job names, incl. the deployed-layout leg) instead of a prefix filter — a removed or renamed leg now closes the release (fail-closed "missing"). Last-row-wins re-run semantics kept (red→green unblocks, green→red blocks). Verified by replaying the extracted audit block over the d73ea76 check-runs: absent/renamed/red leg → blocked; all-green → allowed.
+- **PSSA**: присваивание сплат-переменной `$args` в `tests/test-deployed-layout.ps1` переименовано в `$exeArgs` (PSAvoidAssignmentToAutomaticVariable, code-scanning #590/#591) — поведение идентично
+- **SKILL.md**: задокументирована deployed-layout нога — дерево `tests/` (`test-deployed-layout.ps1`, тег `RepoFiles` в сьюте), состав матрицы `tests.yml` (включая fixture-ногу) и локальный прогон через `tests/run-matrix.ps1` / `tests/test-deployed-layout.ps1`
+
 ## v1.22.44 (25.09.2026)
 
 ### Fixed
