@@ -81,10 +81,10 @@ try {
     foreach ($exe in $engines) {
         Write-Host ""
         Write-Host "=== deployed-layout suite on $exe ===" -ForegroundColor Cyan
-        $args = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+        $exeArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
             (Join-Path $testsDir 'run-pester.ps1'), '-ExcludeTag', 'RepoFiles')
-        if ($ModuleDir) { $args += @('-ModuleDir', $ModuleDir) }
-        & $exe @args
+        if ($ModuleDir) { $exeArgs += @('-ModuleDir', $ModuleDir) }
+        & $exe @exeArgs
         if ($LASTEXITCODE -ne 0) { $failed += $exe }
     }
 
