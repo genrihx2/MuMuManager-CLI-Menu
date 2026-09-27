@@ -125,6 +125,39 @@ cd MuMuManager-CLI-Menu
 - Local replay of the full CI matrix: `tests/run-matrix.ps1` (`-Quick` skips the canary leg;
   the deployed-layout leg runs via `tests/test-deployed-layout.ps1`)
 
+### Sanity run on a live install (repo-vs-install drift check)
+- Reproduces the CI deployed-layout leg against a REAL release ZIP; expected result on both
+  engines: **172 Passed / 0 Failed / NotRun 1** (the RepoFiles-tagged BOM test is excluded -
+  an install never carries relnotes.md/RELEASE-RUNBOOK.md/update-readme.ps1). A red run on a
+  healthy install means a test silently needs a repo-only file: tag it `RepoFiles`.
+
+```powershell
+# 1. Download the release ZIP + sidecar and verify the hash
+$tag = 'v1.22.45'   # <- the tag to sanity-check
+$dir = "$env:TEMP\menu-sanity"; New-Item -ItemType Directory -Path $dir -Force | Out-Null
+curl.exe -sL -o "$dir\release.zip" "https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/download/$tag/MuMuManager-CLI-Menu-$tag.zip"
+curl.exe -sL -o "$dir\release.zip.sha256" "https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/download/$tag/MuMuManager-CLI-Menu-$tag.zip.sha256"
+$expect = (Get-Content "$dir\release.zip.sha256").Split(' ')[0]
+$actual = (Get-FileHash "$dir\release.zip" -Algorithm SHA256).Hash.ToLower()
+if ($actual -ne $expect) { throw "SHA mismatch: $actual" }
+
+# 2. Unpack = a genuine deployed layout (exactly 5 files, no repo-only docs)
+Expand-Archive -LiteralPath "$dir\release.zip" -DestinationPath "$dir\install" -Force
+
+# 3. Drop in ONLY the suite + runner (same as the CI fixture; nothing else from tests/)
+Copy-Item tests\run-pester.ps1, tests\mumu-menu.Tests.ps1 "$dir\install\tests\"
+
+# 4. Run the suite on both engines against the same install copy
+$pester = "$env:TEMP\pester-5.7.1"   # private pinned copy (see tests/run-pester.ps1)
+pushd "$dir\install"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\run-pester.ps1 -PesterVersion 5.7.1 -ModuleDir $pester -ExcludeTag RepoFiles
+pwsh.exe        -NoProfile -ExecutionPolicy Bypass -File tests\run-pester.ps1 -PesterVersion 5.7.1 -ModuleDir $pester -ExcludeTag RepoFiles
+popd
+```
+
+- CI equivalent: `tests/test-deployed-layout.ps1` (builds the fixture itself; used by the
+  `pester-unit (deployed layout / both engines)` job)
+
 ### Security scan
 - PSScriptAnalyzer with custom settings, SARIF output for GitHub code scanning
 
