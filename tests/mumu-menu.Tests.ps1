@@ -273,6 +273,9 @@ Describe 'Test-ReleaseZip (ZIP self-test)' {
                     'SKILL.md'             = "# skill`n"
                     'README.md'            = "# readme`n"
                     'bootstrap-update.ps1' = "# updater`n"
+                    'Watch-MumuConnections.ps1' = "# watcher`n"
+                    'Test-MumuTunnelAB.ps1'     = "# ab`n"
+                    'Diag-MumuNx.ps1'           = "# diag`n"
                     '.version'             = "v$Ver"
                 }
                 foreach ($name in $bodies.Keys) {
@@ -300,7 +303,7 @@ Describe 'Test-ReleaseZip (ZIP self-test)' {
         $r.Ok | Should -BeTrue
         $r.ZipHash | Should -Be $r.SidecarHash
         $r.ZipVersion | Should -Be '1.20.0'
-        @($r.Checks) | Should -Contain 'file set: OK (5 files)'
+        @($r.Checks) | Should -Contain 'file set: OK (8 files)'
     }
 
     It 'fails a tampered ZIP on the sha256 check' {

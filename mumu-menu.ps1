@@ -235,7 +235,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.22.45'
+$scriptVer = '1.22.46'
 $InstalledVersion = $null
 
 $GitHubToken = Get-GitHubToken
@@ -999,7 +999,7 @@ function Test-InstallationIntegrity {
             }
         }
 
-        $files = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1')
+        $files = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1')
         $verFile = Join-Path $ScriptDir '.version'
         $localTag = ''
         if (Test-Path -LiteralPath $verFile) {
@@ -1134,7 +1134,7 @@ function Test-ReleaseZip {
         [Parameter(Mandatory = $true)] [string]$ExpectedTag,
         [string]$SidecarPath = "$ZipPath.sha256"
     )
-    $expectedFiles = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', '.version')
+    $expectedFiles = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', '.version', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1')
     $checks = @()
     $ok = $true
     $zipVer = ''
@@ -1274,7 +1274,7 @@ function Show-UpdatePlan {
         [AllowEmptyString()] [string]$LocalTag
     )
 
-    $files = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1')
+    $files = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1')
     $present = 0
     $updateSize = 0
     foreach ($f in $files) {

@@ -361,7 +361,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.22.45
+Script version: 1.22.46
 MuMu version: 6.7.1
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -461,6 +461,14 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 **EN summary:** Recovering from a failed update: diagnose first (`[ST]` status, `[DIAG]` problems, `[F]` file-vs-tag verification, `[J] → 3` errors), then act. HASH MISMATCH → re-run `[F]` (stale-CDN false alarms vanish on the re-fetch; stable mismatches mean re-download the ZIP and verify with `-VerifyZip`). Wedged marker ("Up to date" but old content) → `bootstrap-update.ps1 -Force`. Broken files → restore from `backup\YYYYMMDD_HHMMSS`. Lock refusal → wait (locks older than 10 minutes break automatically). The table above maps each symptom to its cause and fix.
 
 ## Что нового
+
+### v1.22.46 (27.09.2026)
+
+- **Диагностическая троица в комплекте** — release ZIP теперь несёт 8 файлов: добавлены read-only инструменты сетевой диагностики MuMu. `Watch-MumuConnections.ps1` — опрос TCP-таблицы раз в 5 с, в лог только НОВЫЕ установленные подключения MuMu*-процессов (дедуп по 5-tuple+PID — кто, куда и когда, без дублей по долгоживущим сессиям). `Test-MumuTunnelAB.ps1` — снимки сети A/B с diff: подключения, source-адреса, default/fake-IP маршруты, route-lookup по каждому адресату, адаптеры, прокси; режим `-Watch` сам ловит исчезновение/появление `198.18.*` (переключение туннеля) и снимает B + отчёт без ручного вызова. `Diag-MumuNx.ps1` — запуск от администратора: сервисы и процессы MuMu с командными строками, слушатели, TCP/UDP с DNS-резолвингом адресатов, firewall-правила MuMu → лог `MuMuNx-*.txt`. Ни один скрипт не меняет VPN, маршрутизацию или прокси.
+- **Контракт файла-сета: 5 → 8 файлов** — синхронно обновлены: `Test-ReleaseZip` в обоих апдейтерах (строгая проверка missing/extras), списки самобновления `[U]` и bootstrap-update (новые файлы доставляются на существующие инсталляции), fixture deployed-layout ноги CI (`tests/test-deployed-layout.ps1`), недельный zipcheck в release-guard (`EXPECTED_COUNT=8`), T7/T8 тесты (stub-фикстуры и «file set: OK (8 files)»). Старые инсталляции (список из 5) по-прежнему обновляются без ошибок: их списки — подмножество.
+- **Проверено на живой системе**: вотчер поймал «Network error»-фон MuMuPlayer 6.8.0 — циклический рестарт MuMuNxUpdater (новый PID каждые 30–60 с), fake-IP туннель (198.18.0.1, Wintun, default route) и периодические 10-секундные ступоры HTTPS до `api.mumuglobal.com` при полностью живом хосте; elevated-снимок выявил две параллельные инсталляции MuMu (`Netease\MuMuPlayer` + `Netease1\MuMu`) и отсутствие `MuMuNxService.exe` (реальные сервисы: `MuMuPlayerRemoteService`, `MuMuRemoteService`).
+
+**EN summary:** Diagnostics trio ships in the ZIP: `Watch-MumuConnections.ps1` (dedup log of NEW MuMu TCP connections), `Test-MumuTunnelAB.ps1` (A/B network snapshots with diff + `-Watch` auto-trigger on fake-IP route change), `Diag-MumuNx.ps1` (elevated read-only services/processes/connections/firewall snapshot). Release file-set contract widened 5 → 8 files; `Test-ReleaseZip`, `[U]`/bootstrap file lists, CI deployed fixture, release-guard zipcheck and T7/T8 tests updated in lockstep.
 
 ### v1.22.45 (26.09.2026)
 
@@ -865,6 +873,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.46 | 27.09.2026 | Диагностическая троица в ZIP (8 файлов): вотчер MuMu-подключений, A/B-тест туннеля с `-Watch`, elevated-снимок MuMuNx; контракт файла-сета 5→8 |
 | v1.22.45 | 26.09.2026 | CI: deployed-layout Pester-нога (фикстура установленной копии); гейт релиза требует каждую Tests-ногу по имени |
 | v1.22.44 | 25.09.2026 | Фикс: отклонённый токен отключается один раз (script-scope) вместо повтора на каждый запрос; guard в Invoke-GitHubApiGet; bootstrap-тень переменной |
 | v1.22.43 | 25.09.2026 | CI: самодостаточный release-гейт (диспетчеризация Tests на теге), ZIP-проверка в release-guard, фикс якорного regex'а и дедупликации чек-ранов |

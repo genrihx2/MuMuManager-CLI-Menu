@@ -45,7 +45,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 # --- 1. Build the installed-layout fixture ---------------------------------
 # Deployed file set - keep in sync with the updaters' $files list in
 # mumu-menu.ps1 (Update-FromGitHub) and bootstrap-update.ps1.
-$deployedFiles = @('mumu-menu.ps1', 'bootstrap-update.ps1', 'README.md', 'SKILL.md', '.version')
+$deployedFiles = @('mumu-menu.ps1', 'bootstrap-update.ps1', 'README.md', 'SKILL.md', '.version', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1')
 
 $fixture = Join-Path ([IO.Path]::GetTempPath()) ("mumu-deployed-fixture_" + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $fixture -Force | Out-Null
