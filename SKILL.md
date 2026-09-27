@@ -141,7 +141,7 @@ $expect = (Get-Content "$dir\release.zip.sha256").Split(' ')[0]
 $actual = (Get-FileHash "$dir\release.zip" -Algorithm SHA256).Hash.ToLower()
 if ($actual -ne $expect) { throw "SHA mismatch: $actual" }
 
-# 2. Unpack = a genuine deployed layout (exactly 5 files, no repo-only docs)
+# 2. Unpack = a genuine deployed layout (exactly 8 files, no repo-only docs)
 Expand-Archive -LiteralPath "$dir\release.zip" -DestinationPath "$dir\install" -Force
 
 # 3. Drop in ONLY the suite + runner (same as the CI fixture; nothing else from tests/)

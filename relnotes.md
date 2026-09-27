@@ -4,6 +4,12 @@
 
 ---
 
+## v1.22.46 (27.09.2026)
+
+- **Диагностическая троица в комплекте**: release ZIP теперь несёт 8 файлов — добавлены read-only инструменты сетевой диагностики MuMu. `Watch-MumuConnections.ps1` — опрос TCP-таблицы раз в 5 с, в лог только НОВЫЕ установленные подключения MuMu*-процессов (дедуп по 5-tuple+PID). `Test-MumuTunnelAB.ps1` — снимки сети A/B с diff (подключения, source-адреса, default/fake-IP маршруты, route-lookup, адаптеры, прокси) и режим `-Watch`: сам ловит переключение туннеля (исчезновение/появление маршрутов `198.18.*`, дебаунс 2 опроса) и снимает B + отчёт без ручного вызова. `Diag-MumuNx.ps1` — от администратора: сервисы и процессы MuMu с командными строками, слушатели, TCP/UDP с DNS-резолвингом адресатов, firewall-правила MuMu → лог `MuMuNx-*.txt`. Ни один скрипт не меняет VPN, маршрутизацию или прокси.
+- **Контракт файла-сета: 5 → 8 файлов** — синхронно обновлены `Test-ReleaseZip` в обоих апдейтерах (строгая missing/extras-проверка), списки самобновления `[U]`/bootstrap-update (новые файлы доставляются на существующие инсталляции; старые инсталляции со списком из 5 обновляются как раньше — их список является подмножеством), fixture deployed-layout ноги CI, недельный zipcheck в release-guard (`EXPECTED_COUNT=8`), T7/T8 тесты.
+- **Проверено на живой системе**: вотчер задокументировал фон MuMuPlayer 6.8.0 «Network error» — циклический рестарт MuMuNxUpdater, fake-IP туннель (198.18.0.1, Wintun) и периодические 10-секундные ступоры HTTPS до `api.mumuglobal.com` при живом хосте; elevated-снимок выявил две параллельные инсталляции MuMu (`Netease\MuMuPlayer` + `Netease1\MuMu`) и отсутствие `MuMuNxService.exe`.
+
 ## v1.22.45 (26.09.2026)
 
 - **Deployed-layout CI leg**: Pester suite runs inside a temp fixture holding ONLY the deployed file set (mumu-menu.ps1, bootstrap-update.ps1, README.md, SKILL.md, .version); repo-only files excluded (relnotes.md, RELEASE-RUNBOOK.md, update-readme.ps1, tests/). Tests tagged RepoFiles are excluded (172 of 173). Both engines — Windows PowerShell 5.1 and pwsh 7 — against the SAME copy (tests/test-deployed-layout.ps1).

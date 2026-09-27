@@ -56,7 +56,7 @@ try {
 # ── Config ───────────────────────────────────────────────────────────
 $repo       = 'genrihx2/MuMuManager-CLI-Menu'
 $apiBase    = "https://api.github.com/repos/$repo"
-$files      = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1')
+$files      = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1')
 $maxRetries = 3
 $retryDelay = 3   # seconds between retries
 
@@ -391,7 +391,7 @@ if ($Diagnose) {
 # ── Release ZIP self-test (issue #19) ────────────────────────────────
 # Mirrors the CI checks (release.yml) on the client, before any install:
 #   1. the ZIP's SHA-256 equals the .sha256 sidecar
-#   2. the archive contains exactly the release file set (5 files, no extras)
+#   2. the archive contains exactly the release file set (8 files, no extras)
 #   3. mumu-menu.ps1's $scriptVer matches the release tag
 # Release ZIPs are flat (files at the archive root, git archive output).
 # Returns a report object so tests can assert the logic without IO side
@@ -402,7 +402,7 @@ function Test-ReleaseZip {
         [Parameter(Mandatory = $true)] [string]$ExpectedTag,
         [string]$SidecarPath = "$ZipPath.sha256"
     )
-    $expectedFiles = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', '.version')
+    $expectedFiles = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', '.version', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1')
     $checks = @()
     $ok = $true
     $zipVer = ''

@@ -156,7 +156,7 @@ jobs:
           set -euo pipefail
 
           # Same file set release.yml ships (git archive list).
-          EXPECTED_COUNT=5
+          EXPECTED_COUNT=8
 
           VIOL=0
           rm -f zip-violations.txt zip-section.md
@@ -203,7 +203,7 @@ jobs:
             if [ "$ENTRY_COUNT" != "$EXPECTED_COUNT" ]; then
               echo "- ZIP has $ENTRY_COUNT entries, expected $EXPECTED_COUNT" >> zip-violations.txt
             fi
-            for f in mumu-menu.ps1 bootstrap-update.ps1 README.md SKILL.md .version; do
+            for f in mumu-menu.ps1 bootstrap-update.ps1 README.md SKILL.md .version Watch-MumuConnections.ps1 Test-MumuTunnelAB.ps1 Diag-MumuNx.ps1; do
               EXPECTED_HASH=$(git show "$LATEST:$f" | sha256sum | cut -d' ' -f1)
               if [ ! -f "extracted/$f" ]; then
                 echo "- \`$f\`: missing from the ZIP" >> zip-violations.txt
