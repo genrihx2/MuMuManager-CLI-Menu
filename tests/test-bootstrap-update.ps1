@@ -284,6 +284,11 @@ try {
     [System.IO.File]::WriteAllText((Join-Path $vDir 'README.md'), "# readme`n", $utf8NoBom)
     # SKILL.md: present but different content (DRIFT case).
     [System.IO.File]::WriteAllText((Join-Path $vDir 'SKILL.md'), "# skill DRIFTED`n", $utf8NoBom)
+    # The three diagnostic scripts (deployed set since v1.22.46) match the
+    # stub content byte-for-byte so they report OK, not drift/missing.
+    [System.IO.File]::WriteAllText((Join-Path $vDir 'Watch-MumuConnections.ps1'), "# watcher`n", $utf8NoBom)
+    [System.IO.File]::WriteAllText((Join-Path $vDir 'Test-MumuTunnelAB.ps1'), "# ab`n", $utf8NoBom)
+    [System.IO.File]::WriteAllText((Join-Path $vDir 'Diag-MumuNx.ps1'), "# diag`n", $utf8NoBom)
     Set-Content -LiteralPath (Join-Path $vDir '.version') -Value 'v9.9.9' -NoNewline -Encoding UTF8
     # bootstrap-update.ps1 deliberately absent (MISSING case)
     $ScriptDir = $vDir
@@ -348,6 +353,11 @@ try {
     [System.IO.File]::WriteAllText((Join-Path $vDir2 'SKILL.md'), "# skill`n", $utf8NoBom)
     [System.IO.File]::WriteAllText((Join-Path $vDir2 'README.md'), "# readme`n", $utf8NoBom)
     [System.IO.File]::WriteAllText((Join-Path $vDir2 'bootstrap-update.ps1'), "# updater`n", $utf8NoBom)
+    # Diagnostic trio present on disk: with the rate-limit stub every fetch
+    # fails, so these must end DOWNLOAD-FAIL (partial), never MISSING-drift.
+    [System.IO.File]::WriteAllText((Join-Path $vDir2 'Watch-MumuConnections.ps1'), "# watcher`n", $utf8NoBom)
+    [System.IO.File]::WriteAllText((Join-Path $vDir2 'Test-MumuTunnelAB.ps1'), "# ab`n", $utf8NoBom)
+    [System.IO.File]::WriteAllText((Join-Path $vDir2 'Diag-MumuNx.ps1'), "# diag`n", $utf8NoBom)
     $ScriptDir = $vDir2
     $rlReport = Test-InstallationIntegrity -Tag 'vTest'
     Assert-True -Name 'rate-limit body reported as DOWNLOAD-FAIL, not drift' -Condition (@($rlReport | Where-Object { $_ -like 'DOWNLOAD-FAIL|mumu-menu.ps1|API error*' }).Count -eq 1) -Detail ($rlReport -join ' // ')
