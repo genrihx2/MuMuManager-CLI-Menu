@@ -6,7 +6,7 @@
 
 ## Русский
 
-> Актуально для **v1.22.23** (обновлено 2026-09-20).
+> Актуально для **v1.22.47** (обновлено 2026-09-28).
 
 ### Поддерживаемые версии
 
@@ -54,7 +54,7 @@
 | Критичные уязвимости | патч вне очереди, emergency-релиз |
 | Подтверждение получения | **до 24 часов** |
 
-**Постоянный автоматизированный контроль:** еженедельный PSScriptAnalyzer с загрузкой SARIF в Security-таб (пн 06:00 UTC), CI VirusTotal-скан каждого релиза, еженедельный Release guard по комплектности релизов, групповые Dependabot-обновления экшенов, actionlint + shellcheck на все workflows.
+**Постоянный автоматизированный контроль:** еженедельный PSScriptAnalyzer с загрузкой SARIF в Security-таб (пн 06:00 UTC), CI VirusTotal-скан каждого релиза, еженедельный Release guard по комплектности релизов **и побайтовой сверке ZIP последнего релиза с содержимым тега**, групповые Dependabot-обновления экшенов, actionlint + shellcheck на все workflows.
 
 ### Архитектура безопасности
 
@@ -106,7 +106,7 @@
 
 | Домен | Протокол | Использование | Аутентификация |
 |-------|----------|---------------|----------------|
-| `api.github.com` | HTTPS (TLS 1.2+) | Проверка версий, загрузка обновлений (contents API), валидация токена | Bearer token (опционально) |
+| `api.github.com` | HTTPS (TLS 1.2+) | Проверка версий, загрузка обновлений (contents API), валидация токена (`/user`), проверка связности (`/zen`), лимиты запросов (`/rate_limit`) | Bearer token (опционально; на `/zen` и `/rate_limit` — анонимно) |
 | `cdn.jsdelivr.net` | HTTPS (TLS 1.2+) | Транспортный фолбэк обновлений: одна повторная попытка того же pinned-коммита, если `api.github.com` недоступен; тело проходит тот же SHA-256-гейт (issue #20) | нет — никогда; токен не отправляется зеркалу |
 | `www.virustotal.com` | HTTPS (TLS 1.2+) | `[VF]` загрузка файлов, проверка результатов сканирования | `x-apikey` (VT API key) |
 | `github.com` | HTTPS | `[DL]` git clone репозитория, ссылки на страницы релизов, цель [TN] HTTP-теста | нет |
@@ -114,9 +114,11 @@
 
 **Диагностические пробы [TN]** (явное действие пользователя, только проверка связности, без передачи данных): ICMP-ping до `8.8.8.8`, `1.1.1.1`, `223.5.5.5`, `google.com`, `github.com`; DNS-резолв `google.com`, `github.com`, `baidu.com`; HTTP GET до `http://connectivitycheck.gstatic.com/generate_204` (captive-portal-зонд), `http://www.baidu.com`, `https://github.com`; host-side проверка свежести CDN-зеркала — чтение `.version` с `cdn.jsdelivr.net` и тега релиза с `api.github.com/releases/latest`.
 
-**Механизмы запросов:** обновления и GitHub API — только `curl.exe` (аргументные массивы, без shell-строк); VT-интеграция — `Invoke-RestMethod` (только к `www.virustotal.com`); проверка версии в `[V]` — одиночный `Invoke-WebRequest` к `api.github.com/releases/latest`.
+**Механизмы запросов:** обновления и GitHub API — только `curl.exe` (аргументные массивы, без shell-строк); VT-интеграция — `Invoke-RestMethod` (только к `www.virustotal.com`); проверка версии в `[V]` — одиночный `Invoke-WebRequest` к `api.github.com/releases/latest`; проверка сетевой доступности перед обновлением — анонимный `curl` GET `api.github.com/zen`; просмотр лимитов — `api.github.com/rate_limit`.
 
-**Не используются:** `raw.githubusercontent.com` (обновления идут только через contents API `api.github.com` и его зеркало `cdn.jsdelivr.net` — сырой домен не содержит механизма версионирования), `raw.githack.com` (проверено 2026-09-18: отдаёт `.ps1` только 301-редиректом на `raw.githubusercontent.com`, т.е. фактический источник — тот самый raw-домен), WebSocket, SMTP, FTP, DNS-over-HTTPS; `Invoke-WebRequest`/`Invoke-RestMethod` не участвуют в скачивании обновлений (только `curl.exe`).
+**Диагностическая троица (v1.22.46+, `Watch-MumuConnections.ps1`, `Test-MumuTunnelAB.ps1`, `Diag-MumuNx.ps1`):** сетевых запросов к удалённым сервисам **нет** — только чтение локальных TCP/UDP-таблиц, маршрутов, адаптеров и firewall-правил; `Diag-MumuNx.ps1` дополнительно выполняет локальные DNS PTR-резолвы адресов, уже присутствующих в наблюдаемых соединениях (`Resolve-DnsName`), без обращений к каким-либо серверам проекта.
+
+**Не используются:** `raw.githubusercontent.com` (обновления идут только через contents API `api.github.com` и его зеркало `cdn.jsdelivr.net` — сырой домен не содержит механизма версионирования; исключение — опциональный замер скорости `[TS]`, который читает один ~10-байтный файл `.version` с `main` для сравнения задержек, только по явному действию пользователя), `raw.githack.com` (проверено 2026-09-18: отдаёт `.ps1` только 301-редиректом на `raw.githubusercontent.com`, т.е. фактический источник — тот самый raw-домен), WebSocket, SMTP, FTP, DNS-over-HTTPS; `Invoke-WebRequest`/`Invoke-RestMethod` не участвуют в скачивании обновлений (только `curl.exe`).
 
 ### Токены безопасности
 
@@ -198,7 +200,7 @@
 - **VirusTotal**: каждый релиз сканируется в CI (3 файла), вердикты публикуются в теле релиза
 - **Release guard**: еженедельный CI-аудит — каждый релиз новее v1.18.6 обязан иметь ZIP + SHA256 + VT-вердикты, latest release сверяется с `.version`; расхождения открывают идемпотентный issue
 - **Зависимости экшенов**: еженедельные групповые Dependabot-обновления
-- **CI-гейты**: PSScriptAnalyzer, Pester (133 теста), bootstrap-регрессия, changelog-sync
+- **CI-гейты**: PSScriptAnalyzer, Pester (173 теста), bootstrap-регрессия, changelog-sync
 
 ### Управление ADB
 
@@ -358,7 +360,7 @@ The script uses Invoke-WebRequest/curl only to access GitHub API for auto-update
 
 ## English
 
-> Current for **v1.22.23** (updated 2026-09-20).
+> Current for **v1.22.47** (updated 2026-09-28).
 
 ### Supported Versions
 
@@ -397,7 +399,7 @@ Please include: description and impact, reproduction steps (PoC welcome), affect
 | Critical vulnerabilities | emergency patch, out-of-band release |
 | Receipt confirmation | **within 24 hours** |
 
-**Continuous automated monitoring:** weekly PSScriptAnalyzer with SARIF upload to the Security tab (Mon 06:00 UTC), CI VirusTotal scan of every release, weekly Release guard audit, grouped Dependabot action updates, actionlint + shellcheck on all workflows.
+**Continuous automated monitoring:** weekly PSScriptAnalyzer with SARIF upload to the Security tab (Mon 06:00 UTC), CI VirusTotal scan of every release, weekly Release guard audit (release completeness **plus a byte-for-byte comparison of the latest release ZIP against its tag content**), grouped Dependabot action updates, actionlint + shellcheck on all workflows.
 
 ### Security Architecture
 
@@ -409,7 +411,7 @@ Please include: description and impact, reproduction steps (PoC welcome), affect
 
 **ADB management:** File transfer (`push/pull`), screen capture, interactive shell — all require explicit user consent. Commands are parameterized with argument escaping. Executes only inside the emulator VM.
 
-**Release pipeline security:** tag-driven Release workflow (ZIP + `.sha256` sidecar), CI VirusTotal scan with verdicts in the release body, weekly **Release guard** audit (every release newer than v1.18.6 must ship ZIP + SHA256 + VT verdicts; latest release must match `.version`; discrepancies open an idempotent issue), grouped weekly Dependabot action updates, CI gates: PSScriptAnalyzer + Pester (133 tests) + bootstrap regression + changelog-sync.
+**Release pipeline security:** tag-driven Release workflow (ZIP + `.sha256` sidecar), CI VirusTotal scan with verdicts in the release body, weekly **Release guard** audit (every release newer than v1.18.6 must ship ZIP + SHA256 + VT verdicts; latest release must match `.version`; the latest release ZIP is compared byte-for-byte against its tag content; discrepancies open an idempotent issue), grouped weekly Dependabot action updates, CI gates: PSScriptAnalyzer + Pester (173 tests) + bootstrap regression + changelog-sync.
 
 ### Network Endpoints
 
@@ -417,7 +419,7 @@ The script connects **only** to:
 
 | Domain | Protocol | Purpose | Auth |
 |--------|----------|---------|------|
-| `api.github.com` | HTTPS (TLS 1.2+) | Version check, updates (contents API), token validation | Bearer token (optional) |
+| `api.github.com` | HTTPS (TLS 1.2+) | Version check, updates (contents API), token validation (`/user`), connectivity probe (`/zen`), rate-limit lookup (`/rate_limit`) | Bearer token (optional; `/zen` and `/rate_limit` are anonymous) |
 | `cdn.jsdelivr.net` | HTTPS (TLS 1.2+) | Transport fallback for updates: one retry of the same pinned commit when `api.github.com` is unreachable; the body still passes the SHA-256 gate (issue #20) | none — ever; the token is never sent to the mirror |
 | `www.virustotal.com` | HTTPS (TLS 1.2+) | `[VF]` file upload, scan result lookup | `x-apikey` (VT API key) |
 | `github.com` | HTTPS | `[DL]` git clone of the repo, release-page links, `[TN]` HTTP test target | none |
@@ -427,7 +429,11 @@ The script connects **only** to:
 
 **Request mechanisms:** updates and GitHub API — `curl.exe` only (argument arrays, no shell strings); VT integration — `Invoke-RestMethod` (to `www.virustotal.com` only); version check in `[V]` — a single `Invoke-WebRequest` to `api.github.com/releases/latest`.
 
-**Not used:** `raw.githubusercontent.com` (updates come from the versioned contents API and its `cdn.jsdelivr.net` transport mirror only), `raw.githack.com` (verified 2026-09-18: serves `.ps1` only as a 301 redirect to `raw.githubusercontent.com`, i.e. the actual source is that raw domain), WebSocket, SMTP, FTP, DNS-over-HTTPS; `Invoke-WebRequest`/`Invoke-RestMethod` never download updates (that is `curl.exe` only).
+**Request mechanisms:** updates and GitHub API — `curl.exe` only (argument arrays, no shell strings); VT integration — `Invoke-RestMethod` (to `www.virustotal.com` only); version check in `[V]` — a single `Invoke-WebRequest` to `api.github.com/releases/latest`; pre-update reachability probe — anonymous `curl` GET of `api.github.com/zen`; rate-limit view — `api.github.com/rate_limit`.
+
+**Diagnostics trio (v1.22.46+, `Watch-MumuConnections.ps1`, `Test-MumuTunnelAB.ps1`, `Diag-MumuNx.ps1`):** **no** requests to remote services — they only read the local TCP/UDP tables, routes, adapters and firewall rules; `Diag-MumuNx.ps1` additionally performs local DNS PTR resolutions of addresses already present in observed connections (`Resolve-DnsName`), without contacting any project servers.
+
+**Not used:** `raw.githubusercontent.com` (updates come from the versioned contents API and its `cdn.jsdelivr.net` transport mirror only; the one exception is the optional `[TS]` speed test, which reads a single ~10-byte `.version` file from `main` to compare latencies, explicit user action only), `raw.githack.com` (verified 2026-09-18: serves `.ps1` only as a 301 redirect to `raw.githubusercontent.com`, i.e. the actual source is that raw domain), WebSocket, SMTP, FTP, DNS-over-HTTPS; `Invoke-WebRequest`/`Invoke-RestMethod` never download updates (that is `curl.exe` only).
 
 ### Threat Model
 
