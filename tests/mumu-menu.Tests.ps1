@@ -548,6 +548,19 @@ Describe 'Update-FromGitHub: tag pinning for downloads and fingerprints (stale-C
         $t | Should -Not -Match 'ref=\$tag\b'
     }
 
+    It 'self-update downloads the full deployed file set (v1.22.48 contract)' {
+        # The [U] file list must match the release ZIP contract: 7 files + .version
+        # (the marker is written by the updater itself after a verified run).
+        # Regression guard: v1.22.46 widened the ZIP to 8 files but the [U]
+        # downloader stayed on the pre-trio 4-file list, so new files never
+        # reached existing installs via [U].
+        $src = Get-Content -Raw $script:menuPath
+        $expected = "`$files = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1')"
+        ($src -match [regex]::Escape($expected)) | Should -Be $true
+        # Rollback defaults cover the same set (no stale 4-file defaults left).
+        ($src -match [regex]::Escape("`$FileSet = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1')")) | Should -Be $false
+    }
+
     It 'Get-ExpectedFileHashes fetches through FetchRef and falls back to the tag' {
         $f = $script:ast.FindAll({
             param($node)
@@ -2032,6 +2045,9 @@ Describe 'Rollback from backup (issue #27)' {
             Set-Content -LiteralPath (Join-Path $d 'SKILL.md') -Value 'x'
             Set-Content -LiteralPath (Join-Path $d 'README.md') -Value 'x'
             Set-Content -LiteralPath (Join-Path $d 'bootstrap-update.ps1') -Value 'x'
+            Set-Content -LiteralPath (Join-Path $d 'Watch-MumuConnections.ps1') -Value 'x'
+            Set-Content -LiteralPath (Join-Path $d 'Test-MumuTunnelAB.ps1') -Value 'x'
+            Set-Content -LiteralPath (Join-Path $d 'Diag-MumuNx.ps1') -Value 'x'
             Set-Content -LiteralPath (Join-Path $d '.version') -Value 'v1.21.7' -NoNewline
             return $d
         }
@@ -2044,6 +2060,9 @@ Describe 'Rollback from backup (issue #27)' {
                 Set-Content -LiteralPath (Join-Path $b 'SKILL.md') -Value 'x'
                 Set-Content -LiteralPath (Join-Path $b 'README.md') -Value 'x'
                 Set-Content -LiteralPath (Join-Path $b 'bootstrap-update.ps1') -Value 'x'
+                Set-Content -LiteralPath (Join-Path $b 'Watch-MumuConnections.ps1') -Value 'x'
+                Set-Content -LiteralPath (Join-Path $b 'Test-MumuTunnelAB.ps1') -Value 'x'
+                Set-Content -LiteralPath (Join-Path $b 'Diag-MumuNx.ps1') -Value 'x'
             } else {
                 Set-Content -LiteralPath (Join-Path $b 'SKILL.md') -Value 'x'
             }
@@ -2071,7 +2090,7 @@ Describe 'Rollback from backup (issue #27)' {
         $b = New-RbBackup -InstallDir $d -Ver '1.20.9'
         $plan = Build-RollbackPlan -BackupDir $b -InstallDir $d
         $plan.Ok | Should -BeTrue
-        $plan.Files.Count | Should -Be 4
+        $plan.Files.Count | Should -Be 7   # deployed set minus .version (written from content)
         $plan.MarkerWrite | Should -BeTrue
         $plan.MarkerTo | Should -Be 'v1.20.9'
         $bad = Build-RollbackPlan -BackupDir (Join-Path $d 'backup\nope') -InstallDir $d

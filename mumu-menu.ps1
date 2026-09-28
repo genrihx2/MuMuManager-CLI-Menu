@@ -235,7 +235,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.22.47'
+$scriptVer = '1.22.48'
 $InstalledVersion = $null
 
 # --- [WN] MuMu network + updater watcher (read-only, opt-in) -----------------
@@ -1351,7 +1351,11 @@ function Update-FromGitHub {
         $headers['Authorization'] = "token $GitHubToken"
     }
 
-    $files = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1')
+    # v1.22.48: the self-update downloads the full deployed file set (the same
+    # 8-file contract as the release ZIP and bootstrap-update.ps1), so [U] can
+    # deliver files introduced after v1.22.45 (diagnostics trio) to existing
+    # installs. .version is written by the updater itself after a verified run.
+    $files = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1')
 
     # Updates are sourced ONLY from tagged GitHub Releases, never from the
     # mutable main branch. Get-RemoteFile closes over the resolved tag.
@@ -2678,7 +2682,7 @@ function Build-RollbackPlan {
     param(
         [Parameter(Mandatory = $true)] [string]$BackupDir,
         [Parameter(Mandatory = $true)] [string]$InstallDir,
-        [string[]]$FileSet = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1')
+        [string[]]$FileSet = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1')
     )
     $r = @{ Ok = $false; Reason = ''; Files = @(); MarkerTo = ''; MarkerWrite = $false }
     if (-not ($BackupDir -and (Test-Path -LiteralPath $BackupDir -PathType Container))) { $r.Reason = "backup folder not found: $BackupDir"; return $r }
@@ -2705,7 +2709,7 @@ function Invoke-Rollback {
         [Parameter(Mandatory = $true)] [string]$BackupDir,
         [Parameter(Mandatory = $true)] [string]$InstallDir,
         [string]$VersionFile = '',
-        [string[]]$FileSet = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1')
+        [string[]]$FileSet = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1')
     )
     if (-not $VersionFile) { $VersionFile = Join-Path $InstallDir '.version' }
     $markerBefore = ''

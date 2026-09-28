@@ -362,7 +362,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.22.47
+Script version: 1.22.48
 MuMu version: 6.7.1
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -462,6 +462,15 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 **EN summary:** Recovering from a failed update: diagnose first (`[ST]` status, `[DIAG]` problems, `[F]` file-vs-tag verification, `[J] → 3` errors), then act. HASH MISMATCH → re-run `[F]` (stale-CDN false alarms vanish on the re-fetch; stable mismatches mean re-download the ZIP and verify with `-VerifyZip`). Wedged marker ("Up to date" but old content) → `bootstrap-update.ps1 -Force`. Broken files → restore from `backup\YYYYMMDD_HHMMSS`. Lock refusal → wait (locks older than 10 minutes break automatically). The table above maps each symptom to its cause and fix.
 
 ## Что нового
+
+### v1.22.48 (28.09.2026)
+
+- **Фикс self-update: [U] снова доставляет полный комплект** — список загрузки в `Update-FromGitHub` остался на до-троичном составе из 4 файлов (v1.22.46 расширила ZIP до 8, но `[U]` — нет), поэтому файлы, добавленные после v1.22.45, не доходили до существующих инсталляций через `[U]`. Список приведён к контракту 8 файлов; дефолты rollback-функций (`Build-RollbackPlan`/`Invoke-Rollback`) расширены до того же сета — валидация бэкапов честно перечисляет недостающие файлы старых бэкапов. Новый Pester-тест фиксирует список `[U]` на контракте.
+- **[WN] Watch MuMu network + updater** — новый read-only пункт меню (секция Info): каждые 5 с логирует НОВЫЕ внешние TCP :443 подключения MuMu*-процессов, запуски MuMuNxUpdater (время, PID, имя), смену EXE-идентичности апдейтера (FileVersion / ProductVersion / LastWriteTime / полный путь) и его удалённые IP во время обновления; дедуп по PID+локальный порт+удалённый кортеж; лог `C:\test\mumu-network-update.txt`; выход по Q/Ctrl+C. Ничего не меняет: ни firewall, ни прокси, ни DNS, ни маршруты.
+- **Фикс Diag-MumuNx (uint32)** — разделы «Listening endpoints / TCP connections / UDP endpoints» были пустыми при работающем MuMu: ключи `$procRows` — `[int]` PID, `OwningProcess` — `[uint32]`, хэш-таблица молча не совпадала по типу ключа. Подтверждено живым elevated-снимком (11 слушателей, ADB — только loopback).
+- **Дружелюбный pre-flight в Diag-MumuNx** — вместо жёсткого `#requires -RunAsAdministrator` (не поймать) — runtime-проверка с готовой командой запуска от администратора.
+
+**EN summary:** [U] self-update downloads the full 8-file deployed set again (the list was stuck on the pre-trio 4 files), rollback defaults widened to match, new contract test pins the list. New read-only menu entry [WN]: MuMu network + updater watcher (new external :443 connections, updater launches/EXE versions/remote IPs, PID+port dedup, Q/Ctrl+C to stop). Diag-MumuNx uint32 key-type fix (socket sections were silently empty while MuMu ran) and a friendly elevation pre-flight.
 
 ### v1.22.47 (27.09.2026)
 
@@ -879,6 +888,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.48 | 28.09.2026 | Фикс [U]: полный 8-файловый комплект самобновления; [WN] Watch MuMu network + updater (read-only); фикс uint32 и pre-flight в Diag-MumuNx |
 | v1.22.47 | 27.09.2026 | Диагностическая троица в ZIP (8 файлов): вотчер MuMu-подключений, A/B-тест туннеля с `-Watch`, elevated-снимок MuMuNx; контракт файла-сета 5→8 |
 | v1.22.46 | 27.09.2026 | Диагностическая троица в ZIP (8 файлов): вотчер MuMu-подключений, A/B-тест туннеля с `-Watch`, elevated-снимок MuMuNx; контракт файла-сета 5→8 |
 | v1.22.45 | 26.09.2026 | CI: deployed-layout Pester-нога (фикстура установленной копии); гейт релиза требует каждую Tests-ногу по имени |
