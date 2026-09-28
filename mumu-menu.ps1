@@ -9256,7 +9256,7 @@ function Watcher-KeyRelevantTcp {
     # External TCP :443 connections only - loopback/unspecified targets are noise.
     @(Get-NetTCPConnection -ErrorAction SilentlyContinue |
         Where-Object { $_.RemotePort -eq 443 -and
-                       $_.RemoteAddress -notin '127.0.0.1','::1','0.0.0.0','::' })
+                       $_.RemoteAddress -notin '127.0.0.1','::1','0.0.0.0','::' }) # DevSkim: ignore DS162092 - loopback literals are the EXCLUSION filter (connections to localhost are skipped, none are made)
 }
 
 function Watcher-ResolveUpdaters {
@@ -9312,7 +9312,7 @@ function Watcher-ProcessUpdateTick {
 
         # IPs the updater talks to while it runs (any remote port is relevant here).
         $conns = @(Get-NetTCPConnection -OwningProcess $procId -ErrorAction SilentlyContinue |
-            Where-Object { $_.RemoteAddress -notin '127.0.0.1','::1','0.0.0.0','::' })
+            Where-Object { $_.RemoteAddress -notin '127.0.0.1','::1','0.0.0.0','::' }) # DevSkim: ignore DS162092 - loopback literals are the EXCLUSION filter (updater connections to localhost are skipped, none are made)
         foreach ($c in $conns) {
             $ipKey = 'updater-ip|{0}|{1}|{2}|{3}' -f $procId, $c.LocalPort, $c.RemoteAddress, $c.RemotePort
             if (-not $Seen.ContainsKey($ipKey)) {
