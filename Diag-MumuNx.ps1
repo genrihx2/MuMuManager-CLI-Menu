@@ -1,5 +1,4 @@
 ﻿#requires -Version 5.1
-#requires -RunAsAdministrator
 <#
 .SYNOPSIS
     Read-only diagnostic snapshot of MuMuNxService.exe: process state, hosted
@@ -14,6 +13,14 @@
 .NOTES
     Must run elevated (the service runs as SYSTEM; per-PID connection mapping
     and service details are unreliable without elevation).
+
+    Elevation is enforced by the runtime pre-flight below, not by a
+    '#requires -RunAsAdministrator' directive: the directive is evaluated by
+    PowerShell BEFORE any script code runs, so it could only ever produce the
+    terse "cannot be run because it contains a #requires statement" error.
+    The pre-flight keeps the same guarantee (the check executes before any
+    privileged cmdlet) while printing the exact elevated re-run one-liner and
+    exiting 2 when started without elevation.
 #>
 [CmdletBinding()]
 param(
@@ -22,6 +29,30 @@ param(
 )
 
 Set-StrictMode -Version Latest
+
+# --- Elevation pre-flight ---------------------------------------------------
+# Replaces the former '#requires -RunAsAdministrator' directive: the directive
+# is engine-evaluated before any code executes and fails with an unhelpful
+# parse error. This check runs inside the script, before any privileged
+# cmdlet, and tells the user exactly how to re-run elevated. The MuMuNxService
+# runs as SYSTEM, so per-PID connection mapping and service details are
+# unreliable without elevation.
+$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$principal = New-Object Security.Principal.WindowsPrincipal($identity)
+if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    $scriptPath = if ($MyInvocation.MyCommand.Path) { $MyInvocation.MyCommand.Path } else { $PSCommandPath }
+    $elevatedLine = "Start-Process powershell -Verb RunAs -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','{0}'" -f $scriptPath.Replace("'", "''")
+    Write-Host ''
+    Write-Host 'Diag-MumuNx.ps1 needs an elevated (Run as Administrator) PowerShell session:' -ForegroundColor Yellow
+    Write-Host '  - the MuMuNxService runs as SYSTEM; per-PID connection mapping and service details are unreliable without elevation'
+    Write-Host '  - the script is read-only: it never changes VPN, routing, proxy or firewall state'
+    Write-Host ''
+    Write-Host 'Re-run it elevated with this one-liner (accept the UAC prompt):' -ForegroundColor Cyan
+    Write-Host ("  " + $elevatedLine) -ForegroundColor White
+    Write-Host ''
+    Write-Host ('Report output: ' + (Join-Path -Path $OutDir -ChildPath 'MuMuNx-<timestamp>.txt')) -ForegroundColor DarkGray
+    exit 2
+}
 
 $ErrorActionPreference = 'Continue'
 
