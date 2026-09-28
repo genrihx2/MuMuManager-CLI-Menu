@@ -406,7 +406,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 Проверка релизного ZIP **до распаковки** (`[F]` предложит после проверки, или `bootstrap-update.ps1 -VerifyZip <файл.zip>`):
 
-- SHA-256 ZIP против `.sha256`-сайдкара, точный набор из 5 файлов, `$scriptVer` из архива против тега
+- SHA-256 ZIP против `.sha256`-сайдкара, точный набор из 8 файлов, `$scriptVer` из архива против тега (набор файла-сета расширен 5 → 8 в v1.22.46 — см. «Что нового»)
 - Вердикт: `OK - safe to install` или `FAILED - do not install from this archive`; отсутствующий архив — это «nothing to verify», а не FAILED
 - Все события пишутся в журнал `[J]` (`zip-verify-ok` / `zip-verify-fail`)
 
@@ -972,10 +972,23 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Безопасность
 
-- **VirusTotal (v1.19.0): 0 malicious / 0 suspicious** — релизный ZIP (65 движков), `mumu-menu.ps1` (61), SKILL.md — первый релиз, прошедший всю цепочку без единого ручного действия: бамп версии → тег → релиз → автоскан → вердикты в notes (run #218, event: release)
+- **VirusTotal (v1.22.47, 28.09.2026): 0 malicious / 0 suspicious — Status: CLEAN** — релизный ZIP, `mumu-menu.ps1` и SKILL.md из его состава просканированы CI автоматически после публикации; отчёты — в таблице ниже и в [описании релиза](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/tag/v1.22.47)
 - Скан запускается **автоматически** после публикации релиза: Release workflow публикует релиз с `RELEASE_PAT` (секрет), чтобы сработал триггер `on: release published` — GitHub подавляет триггеры для релизов, созданных `GITHUB_TOKEN`
 - CI автоматически сканирует релизный ZIP, а также `mumu-menu.ps1` и `SKILL.md` из его состава (`virustotal.yml`, секрет `VT_API_KEY`); известные VT объекты переиспользуются по SHA-256; вердикты и пермалинки автоматически публикуются в описании релиза (маркерная секция «VirusTotal verdicts», идемпотентно)
 - Встроенное сканирование: `[VT] VirusTotal scan` — проверяет файлы через VT API
+- **Автоматизированный контроль** (полный список — в [SECURITY.md](SECURITY.md)): еженедельный PSScriptAnalyzer с SARIF в Security-таб (пн 06:00 UTC), CI VirusTotal-скан каждого релиза, еженедельный Release guard (комплектность релизов + побайтовая сверка ZIP последнего релиза с тегом), групповые Dependabot-обновления экшенов, actionlint + shellcheck на все workflows
+
+### VirusTotal: файлы релиза v1.22.47
+
+| Файл | SHA-256 | Malicious | Suspicious | Отчёт |
+|------|---------|-----------|------------|-------|
+| релизный `MuMuManager-CLI-Menu-v1.22.47.zip` | `ce1dae8aaca8…2baa` | 0 | 0 | [отчёт](https://www.virustotal.com/gui/file/ce1dae8aaca8cf28281c40a50946ebacf749b28cba08c05fd713c6ba5c4a2baa/detection) |
+| `mumu-menu.ps1` (v1.22.47) | `9ebaaf8acda0…a47c` | 0 | 0 | [отчёт](https://www.virustotal.com/gui/file/9ebaaf8acda04698ae67467b6e33ad286161da66b7e1839d30d7e8056d03a47c/detection) |
+| `SKILL.md` (v1.22.47) | `b3e23bb1aa0c…bac9` | 0 | 0 | [отчёт](https://www.virustotal.com/gui/file/b3e23bb1aa0c8206f47a046d46606347d6e63be63cf5ea06f7b2160a1a98bac9/detection) |
+
+> Актуальные вердикты каждого релиза — в секции «VirusTotal verdicts» на странице релиза; ссылка на свежий релиз: [Releases/latest](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest).
+
+### Исторические VT-сканы (архив)
 
 | Файл | SHA-256 | Движков | Отчёт |
 |------|---------|---------|-------|
@@ -1139,7 +1152,7 @@ MIT License
 
 **Features:** emulator start/stop/restart, instance cloning/renaming/deletion, APK install/uninstall (including batch to all instances), ADB commands with file transfer, screenshots and screen recording, interactive ADB shell, data export and backup with ZIP compression, device-model spoofing, SIM operator/country presets (38 + custom), random IMEI/Android ID/MAC generation, window management, log viewing (files + live logcat), a DPAPI-encrypted GitHub token manager, Authenticode self-signing (`[CRT]`), and a VirusTotal integration (`[VT]` scan / `[VF]` upload).
 
-**Installation:** run the one-liner below, or grab a release ZIP — every release is CI-built strictly from its tag (`git archive`) and contains exactly five files: `mumu-menu.ps1`, `bootstrap-update.ps1`, `README.md`, `SKILL.md`, `.version`.
+**Installation:** run the one-liner below, or grab a release ZIP — every release is CI-built strictly from its tag (`git archive`) and contains exactly eight files: `mumu-menu.ps1`, `bootstrap-update.ps1`, `README.md`, `SKILL.md`, `.version`, `Watch-MumuConnections.ps1`, `Test-MumuTunnelAB.ps1`, `Diag-MumuNx.ps1`.
 
 ```powershell
 irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-menu.ps1 -OutFile $env:TEMP\mumu-menu.ps1; & $env:TEMP\mumu-menu.ps1
@@ -1147,6 +1160,6 @@ irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-me
 
 **SmartScreen warning:** When downloading `.ps1` files, Windows SmartScreen may show "mumu-menu.ps1 can harm your device". This is a false positive — SmartScreen blocks by URL reputation and file extension, not by content analysis. **Chrome:** in the warning card expand "Details" → "Save anyway" (or download tray `⋯` → "Keep" → "Keep anyway"). **Edge:** "Save" → "Show more" → "Keep anyway". The saved file carries Mark-of-the-Web; unblock it via file **Properties → Unblock** or `Unblock-File .\mumu-menu.ps1` before running. Alternatively grab the ZIP from the [latest release](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest) — ZIP downloads are not SmartScreen-blocked.
 
-**Security:** updates come only from tagged GitHub Releases, pinned to their commit SHA, with SHA-256 verification of every downloaded byte; when the API is unreachable, one transport retry goes through the `cdn.jsdelivr.net` mirror of the same pinned commit (no token, no redirect-following). Browser warnings on `.ps1` downloads are file-type triggers, not content verdicts — every release carries CI VirusTotal verdicts in its body. **Microsoft Defender false positive appeal confirmed** (Submission ID: `e7863737-b31e-4a0b-a4ae-6b8316ea00c8`): Microsoft stated «Our scanners show no positive detection — submission closed with no further action pending». Definitions v1.459.282.0: file is clean. The full policy («Reporting a Vulnerability», SLA, safe harbor), endpoint table, threat model and Sigma false-positive analysis are in [SECURITY.md](SECURITY.md); the release pipeline runbook in [RELEASE-RUNBOOK.md](RELEASE-RUNBOOK.md).
+**Security:** updates come only from tagged GitHub Releases, pinned to their commit SHA, with SHA-256 verification of every downloaded byte; when the API is unreachable, one transport retry goes through the `cdn.jsdelivr.net` mirror of the same pinned commit (no token, no redirect-following). Browser warnings on `.ps1` downloads are file-type triggers, not content verdicts — every release carries CI VirusTotal verdicts in its body (v1.22.47: **0 malicious / 0 suspicious, Status: CLEAN**, CI scan 2026-09-28). **Microsoft Defender false positive appeal confirmed** (Submission ID: `e7863737-b31e-4a0b-a4ae-6b8316ea00c8`): Microsoft stated «Our scanners show no positive detection — submission closed with no further action pending». Definitions v1.459.282.0: file is clean. Continuous automated controls: weekly PSScriptAnalyzer (SARIF → Security tab), CI VirusTotal scan per release, weekly Release guard (release completeness + byte-for-byte ZIP-vs-tag audit), grouped Dependabot action updates, actionlint + shellcheck on all workflows. The full policy («Reporting a Vulnerability», SLA, safe harbor), endpoint table, threat model and Sigma false-positive analysis are in [SECURITY.md](SECURITY.md); the release pipeline runbook in [RELEASE-RUNBOOK.md](RELEASE-RUNBOOK.md).
 
 **Updater:** `[U] Check for updates` compares the local `.version` against GitHub release tags and downloads only from tagged releases after explicit confirmation, with backups of the previous files in `backup\<timestamp>\`. `bootstrap-update.ps1` ships inside every release ZIP as a recovery path if the in-menu updater ever breaks. Docs are maintained in Russian with English summaries; the menu itself is in English.
