@@ -183,6 +183,7 @@ curl.exe -sSL -o $env:TEMP\mumu-menu.ps1 https://cdn.jsdelivr.net/gh/genrihx2/Mu
   [DI] Random device IDs
 
   --- Info ---
+  [WN] Watch MuMu network + updater
   [V] Version info
   [U] Check for updates
   [UP] Update plan (dry-run)

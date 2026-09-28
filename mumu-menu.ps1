@@ -238,6 +238,14 @@ function Initialize-TokenStorage {
 $scriptVer = '1.22.47'
 $InstalledVersion = $null
 
+# --- [WN] MuMu network + updater watcher (read-only, opt-in) -----------------
+# All watcher state is script-scoped; nothing here touches firewall, proxy,
+# DNS or routes - the watcher only reads process/network tables and writes
+# its own log file.
+$script:WatcherStopRequested = $false
+$script:WatcherConsoleMode   = $false
+$script:WatcherLogFile       = 'C:\test\mumu-network-update.txt'
+
 $GitHubToken = Get-GitHubToken
 
 # Force TLS 1.2+ (PowerShell 5.1 defaults fail against GitHub with
@@ -3138,6 +3146,7 @@ function Show-Menu {
     Write-Host '  [DI] Random device IDs' -ForegroundColor Yellow
     Write-Host ''
     Write-Host '  --- Info ---' -ForegroundColor Green
+    Write-Host '  [WN] Watch MuMu network + updater' -ForegroundColor Yellow
     Write-Host '  [V] Version info' -ForegroundColor Yellow
     Write-Host '  [U] Check for updates' -ForegroundColor Yellow
     Write-Host '  [UP] Update plan (dry-run)' -ForegroundColor Yellow
@@ -9225,6 +9234,190 @@ function Set-RandomDeviceIds {
     }
 }
 
+# ============================================================================
+# [WN] MuMu network + updater watcher (read-only)
+# ============================================================================
+# Scope (read-only, by design):
+#   - watches MuMuPlayer / MuMuNxMain / MuMuNxUpdater processes (wildcard, so
+#     name variants like MuMuPlayerRemoteBackend are seen too);
+#   - logs NEW external TCP :443 connections to C:\test\mumu-network-update.txt;
+#   - logs MuMuNxUpdater launches (time, PID, process name);
+#   - tracks updater EXE identity (FileVersion / ProductVersion /
+#     LastWriteTime / full path) and logs version changes;
+#   - logs updater remote IPs while an update is in progress;
+#   - dedupes PID/IP/port so long-lived sessions are logged once.
+# It NEVER modifies firewall, proxy, DNS, routes or any connection state.
+
+function Watcher-KeyRelevantTcp {
+    # External TCP :443 connections only - loopback/unspecified targets are noise.
+    @(Get-NetTCPConnection -ErrorAction SilentlyContinue |
+        Where-Object { $_.RemotePort -eq 443 -and
+                       $_.RemoteAddress -notin '127.0.0.1','::1','0.0.0.0','::' })
+}
+
+function Watcher-ResolveUpdaters {
+    # MuMuNxUpdater processes among all MuMu* processes (cached PID->name).
+    param([hashtable]$NameByPid)
+    @($NameByPid.Keys | Where-Object { $NameByPid[$_] -eq 'MuMuNxUpdater' })
+}
+
+function Watcher-GetUpdatersExeInfo {
+    # EXE identity of the updater: full path + version stamps. Returns an
+    # object per updater process, or $null when it cannot be read (exited).
+    param([int]$ProcId)
+    $ci = Get-CimInstance Win32_Process -Filter ("ProcessId = {0}" -f $ProcId) -ErrorAction SilentlyContinue
+    if (-not $ci -or -not $ci.ExecutablePath) { return $null }
+    $exePath = $ci.ExecutablePath
+    $ver = (Get-Item -LiteralPath $exePath -ErrorAction SilentlyContinue)
+    if (-not $ver) { return $null }
+    [PSCustomObject]@{
+        Pid           = $ProcId
+        ExePath       = $exePath
+        FileVersion   = [string]$ver.VersionInfo.FileVersion
+        ProductVersion= [string]$ver.VersionInfo.ProductVersion
+        LastWriteTime = $ver.LastWriteTime.ToString('yyyy-MM-dd HH:mm:ss')
+    }
+}
+
+function Watcher-ProcessUpdateTick {
+    # Track MuMuNxUpdater: launches, EXE version changes, remote IPs while active.
+    param(
+        [hashtable]$NameByPid,
+        [hashtable]$Seen,
+        [System.Collections.Generic.List[string]]$Lines
+    )
+    $stamp  = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    $pids   = Watcher-ResolveUpdaters -NameByPid $NameByPid
+
+    foreach ($procId in $pids) {
+        $key = "updater-launch|$procId"
+        if (-not $Seen.ContainsKey($key)) {
+            $Seen[$key] = $true
+            $Lines.Add(('{0} | UPDATER LAUNCH | {1} | PID={2}' -f $stamp, $NameByPid[$procId], $procId))
+        }
+
+        $exe = Watcher-GetUpdatersExeInfo -ProcId $procId
+        if ($exe) {
+            $verKey = 'updater-exe|{0}|{1}|{2}|{3}|{4}' -f $exe.ExePath.ToLowerInvariant(), $exe.FileVersion, $exe.ProductVersion, $exe.LastWriteTime, $procId
+            if (-not $Seen.ContainsKey($verKey)) {
+                $Seen[$verKey] = $true
+                $Lines.Add(('{0} | UPDATER EXE | PID={1} | {2}' -f $stamp, $procId, $exe.ExePath))
+                $Lines.Add(('{0} | UPDATER VER | PID={1} | FileVersion={2} | ProductVersion={3} | LastWrite={4}' -f $stamp, $procId, $exe.FileVersion, $exe.ProductVersion, $exe.LastWriteTime))
+            }
+        }
+
+        # IPs the updater talks to while it runs (any remote port is relevant here).
+        $conns = @(Get-NetTCPConnection -OwningProcess $procId -ErrorAction SilentlyContinue |
+            Where-Object { $_.RemoteAddress -notin '127.0.0.1','::1','0.0.0.0','::' })
+        foreach ($c in $conns) {
+            $ipKey = 'updater-ip|{0}|{1}|{2}|{3}' -f $procId, $c.LocalPort, $c.RemoteAddress, $c.RemotePort
+            if (-not $Seen.ContainsKey($ipKey)) {
+                $Seen[$ipKey] = $true
+                $Lines.Add(('{0} | UPDATER IP | PID={1} | {2} | {3}:{4}' -f $stamp, $procId, $c.State, $c.RemoteAddress, $c.RemotePort))
+            }
+        }
+    }
+}
+
+function Watcher-Tick {
+    # One poll: collect MuMu* processes, log new :443 connections and updater events.
+    param(
+        [hashtable]$Seen,
+        [System.Collections.Generic.List[string]]$Lines
+    )
+    $stamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+
+    # PID -> process name for every MuMu* process currently alive.
+    $nameByPid = @{}
+    foreach ($p in (Get-Process -Name 'MuMu*' -ErrorAction SilentlyContinue)) {
+        $nameByPid[$p.Id] = $p.ProcessName
+    }
+
+    # New external :443 connections of MuMu* processes (dedup by PID+IP+ports).
+    foreach ($c in (Watcher-KeyRelevantTcp)) {
+        $procId = $c.OwningProcess
+        if (-not $nameByPid.ContainsKey($procId) -and -not $nameByPid.ContainsKey([int]$procId)) { continue }
+        $procName = if ($nameByPid.ContainsKey($procId)) { $nameByPid[$procId] } else { $nameByPid[[int]$procId] }
+        $key = 'tcp|{0}|{1}|{2}|{3}' -f $procId, $c.LocalPort, $c.RemoteAddress, $c.RemotePort
+        if (-not $Seen.ContainsKey($key)) {
+            $Seen[$key] = $true
+            $Lines.Add(('{0} | {1} | PID={2} | TCP | {3} | {4}:{5}' -f $stamp, $procName, $procId, $c.State, $c.RemoteAddress, $c.RemotePort))
+        }
+    }
+
+    Watcher-ProcessUpdateTick -NameByPid $nameByPid -Seen $Seen -Lines $Lines
+}
+
+function Start-MumuWatcher {
+    # [WN] entry point: read-only watcher loop, 5 s cadence, Ctrl+C-safe.
+    Write-Host ''
+    Write-Host 'MuMu network + updater watcher (READ-ONLY)' -ForegroundColor Cyan
+    Write-Host ('  Processes watched : MuMuPlayer*, MuMuNxMain*, MuMuNxUpdater* (MuMu* wildcard)')
+    Write-Host ('  TCP scope         : NEW external :443 connections, dedup PID+IP+ports')
+    Write-Host ('  Updater tracking  : launches, EXE FileVersion/ProductVersion/LastWriteTime, remote IPs')
+    Write-Host ('  Log file          : {0}' -f $script:WatcherLogFile)
+    Write-Host ('  Cadence           : 5 s. Nothing is modified: no firewall, proxy, DNS, routes.')
+    Write-Host ''
+
+    $dir = Split-Path -Parent $script:WatcherLogFile
+    if ($dir -and -not (Test-Path -LiteralPath $dir)) {
+        try { New-Item -ItemType Directory -Path $dir -Force | Out-Null } catch {
+            Write-Host "Cannot create log directory '$dir': $($_.Exception.Message)" -ForegroundColor Red
+            return
+        }
+    }
+
+    $header = '===== MuMu Network + Updater Watcher (menu [WN]) ====='
+    if (-not (Test-Path -LiteralPath $script:WatcherLogFile)) {
+        $header | Set-Content -LiteralPath $script:WatcherLogFile -Encoding UTF8
+        "Started: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" |
+            Add-Content -LiteralPath $script:WatcherLogFile -Encoding UTF8
+    } else {
+        $header | Add-Content -LiteralPath $script:WatcherLogFile -Encoding UTF8
+        "Session started: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" |
+            Add-Content -LiteralPath $script:WatcherLogFile -Encoding UTF8
+    }
+
+    $seen  = @{}
+    $lines = [System.Collections.Generic.List[string]]::new()
+    $script:WatcherStopRequested = $false
+    $script:WatcherConsoleMode   = $true
+
+    try {
+        while (-not $script:WatcherStopRequested) {
+            Watcher-Tick -Seen $seen -Lines $lines
+            foreach ($l in $lines) {
+                Add-Content -LiteralPath $script:WatcherLogFile -Value $l -Encoding UTF8
+                Write-Host $l -ForegroundColor DarkGray
+            }
+            $lines.Clear()
+
+            for ($i = 0; $i -lt 5 -and -not $script:WatcherStopRequested; $i++) {
+                # [Console]::KeyAvailable throws when stdin is redirected (IDE,
+                # piped runs) - treat that as "no key" and just sleep.
+                $keyReady = $false
+                try { $keyReady = [Console]::KeyAvailable } catch { $keyReady = $false }
+                if ($keyReady) {
+                    $ki = [Console]::ReadKey($true)
+                    if ($ki.Key -eq 'C' -and $ki.Modifiers -band [ConsoleModifiers]::Control) {
+                        $script:WatcherStopRequested = $true
+                    } elseif ($ki.Key -eq 'Q') {
+                        $script:WatcherStopRequested = $true
+                    }
+                } else {
+                    Start-Sleep -Milliseconds 200
+                }
+            }
+        }
+    } finally {
+        $script:WatcherConsoleMode = $false
+        "Stopped: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" |
+            Add-Content -LiteralPath $script:WatcherLogFile -Encoding UTF8
+        Write-Host ''
+        Write-Host ('Watcher stopped. Log: {0}' -f $script:WatcherLogFile) -ForegroundColor Cyan
+    }
+}
+
 # Main loop
 do {
     Show-Menu
@@ -9288,6 +9481,7 @@ do {
         'j' { Show-UpdateJournal }
         'st' { Show-InstallStatus; $resp = Read-Host '  d = full drift check, Enter = back'; if ($resp -eq 'd') { Show-InstallStatus -Deep } }
         'diag' { Show-ProblemDiagnostics }
+        'wn' { Start-MumuWatcher }
         'rb' { Show-RollbackFromBackup }
         'dl' { Download-Repository }
         'cr' { Create-GitHubRelease }
