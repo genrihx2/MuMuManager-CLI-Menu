@@ -113,7 +113,10 @@ foreach ($p in $mumuProcs) {
     $ci = Get-CimInstance Win32_Process -Filter ("ProcessId = {0}" -f $p.Id) -ErrorAction SilentlyContinue
     $cmd = if ($ci) { $ci.CommandLine } else { '' }
     $exe = if ($ci) { $ci.ExecutablePath } else { $p.Path }
-    $procRows[$p.Id] = $p.ProcessName
+    # OwningProcess from Get-NetTCPConnection/Get-NetUDPEndpoint is [uint32],
+    # while $p.Id is [int] — hashtable lookups are key-type strict, so cast here
+    # or every socket section below silently matches nothing.
+    $procRows[[uint32]$p.Id] = $p.ProcessName
     Add-Log ('  pid {0,-7} {1,-26} exe: {2}' -f $p.Id, $p.ProcessName, $exe)
     if ($cmd) { Add-Log ('            cmd: {0}' -f $cmd) }
 }
