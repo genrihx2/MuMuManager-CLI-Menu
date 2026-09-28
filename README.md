@@ -462,7 +462,12 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 
 ## Что нового
 
-### v1.22.47
+### v1.22.47 (27.09.2026)
+
+- **Version bump**: `$scriptVer` in `mumu-menu.ps1`, `.version`, README and relnotes synchronized to `1.22.47`.
+- **No code changes**: this release only synchronizes the version markers after v1.22.46.
+
+### v1.22.46 (27.09.2026)
 
 - **Диагностическая троица в комплекте** — release ZIP теперь несёт 8 файлов: добавлены read-only инструменты сетевой диагностики MuMu. `Watch-MumuConnections.ps1` — опрос TCP-таблицы раз в 5 с, в лог только НОВЫЕ установленные подключения MuMu*-процессов (дедуп по 5-tuple+PID — кто, куда и когда, без дублей по долгоживущим сессиям). `Test-MumuTunnelAB.ps1` — снимки сети A/B с diff: подключения, source-адреса, default/fake-IP маршруты, route-lookup по каждому адресату, адаптеры, прокси; режим `-Watch` сам ловит исчезновение/появление `198.18.*` (переключение туннеля) и снимает B + отчёт без ручного вызова. `Diag-MumuNx.ps1` — запуск от администратора: сервисы и процессы MuMu с командными строками, слушатели, TCP/UDP с DNS-резолвингом адресатов, firewall-правила MuMu → лог `MuMuNx-*.txt`. Ни один скрипт не меняет VPN, маршрутизацию или прокси.
 - **Контракт файла-сета: 5 → 8 файлов** — синхронно обновлены: `Test-ReleaseZip` в обоих апдейтерах (строгая проверка missing/extras), списки самобновления `[U]` и bootstrap-update (новые файлы доставляются на существующие инсталляции), fixture deployed-layout ноги CI (`tests/test-deployed-layout.ps1`), недельный zipcheck в release-guard (`EXPECTED_COUNT=8`), T7/T8 тесты (stub-фикстуры и «file set: OK (8 files)»). Старые инсталляции (список из 5) по-прежнему обновляются без ошибок: их списки — подмножество.
@@ -875,6 +880,7 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 |--------|------|-----------|
 | v1.22.47 | 27.09.2026 | Диагностическая троица в ZIP (8 файлов): вотчер MuMu-подключений, A/B-тест туннеля с `-Watch`, elevated-снимок MuMuNx; контракт файла-сета 5→8 |
 | v1.22.46 | 27.09.2026 | Диагностическая троица в ZIP (8 файлов): вотчер MuMu-подключений, A/B-тест туннеля с `-Watch`, elevated-снимок MuMuNx; контракт файла-сета 5→8 |
+| v1.22.45 | 26.09.2026 | CI: deployed-layout Pester-нога (фикстура установленной копии); гейт релиза требует каждую Tests-ногу по имени |
 | v1.22.44 | 25.09.2026 | Фикс: отклонённый токен отключается один раз (script-scope) вместо повтора на каждый запрос; guard в Invoke-GitHubApiGet; bootstrap-тень переменной |
 | v1.22.43 | 25.09.2026 | CI: самодостаточный release-гейт (диспетчеризация Tests на теге), ZIP-проверка в release-guard, фикс якорного regex'а и дедупликации чек-ранов |
 | v1.22.42 | 25.09.2026 | CI: матрица Pester (PS 5.1 + pwsh, пин 5.7.1, канарейка); фикс `PublishedAt` под PS 5.1 |
