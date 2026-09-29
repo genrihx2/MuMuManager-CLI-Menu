@@ -291,3 +291,21 @@ jobs:
           gh api -X PATCH "repos/$REPO/releases/$RELEASE_ID" \
             -f body="$(cat release-body-new.md)" > /dev/null
           echo "Release notes updated with VirusTotal verdicts"
+
+      - name: Dispatch release-guard audit
+        # The guard's vt=no check must see the verdicts ALREADY in the
+        # release body, so the audit is dispatched from HERE - after the
+        # verdict table landed - and not from release.yml right after
+        # publish (that race opened a false vt=no guard issue on v1.22.49
+        # and again on the v1.22.53 tag re-point). Release-event runs only:
+        # a manual dispatch may target an already-audited old release and
+        # would just re-open/close noise. `always()` so a scan failure still
+        # runs the guard, which then reports the missing verdicts honestly.
+        # Never fails the scan itself: the guard's own run carries the verdict.
+        if: github.event_name == 'release' && always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh workflow run release-guard.yml --repo "$GITHUB_REPOSITORY" --ref main \
+            || echo "::warning::release-guard dispatch failed - the weekly schedule or a manual dispatch will cover it"

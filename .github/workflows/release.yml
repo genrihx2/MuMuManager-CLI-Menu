@@ -450,21 +450,24 @@ jobs:
             --notes-file relnotes.md
           echo "=== Release $TAG created ==="
 
-      - name: Dispatch release-guard audit
-        # Audit the fresh release immediately instead of waiting for the
-        # Monday schedule. MUST run after publish: the audit's version-
-        # consistency check compares .version on main against
-        # releases/latest - running it from a tag push raced the publish
-        # (v1.22.49) and opened a false drift issue. Never fails the
-        # release itself: a dispatch failure surfaces here as a warning,
-        # the guard's own run carries the verdict (and auto-closes its
-        # marker issue when everything is green).
+      - name: Publish summary
+        # The release-guard audit is dispatched by virustotal.yml AFTER its
+        # verdict table lands in the release body - dispatching it here
+        # raced the VT scan and produced a false vt=no guard issue
+        # (v1.22.49 and again on v1.22.53 tag re-point). The audit therefore
+        # runs strictly last in the chain: publish -> VT scan (+ verdicts)
+        # -> guard.
         if: steps.tag.outputs.skip != 'true' && steps.ver.outputs.skip != 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.tag }}
+          SHA256: ${{ steps.zip.outputs.sha256 }}
         run: |
-          set -euo pipefail
-          gh workflow run release-guard.yml --repo "$GITHUB_REPOSITORY" --ref main \
-            || echo "::warning::release-guard dispatch failed - the weekly schedule or a manual dispatch will cover it"
+          {
+            echo "### Release $TAG published"
+            echo ""
+            echo "- ZIP: MuMuManager-CLI-Menu-${TAG}.zip"
+            echo "- SHA256: \`${SHA256}\`"
+            echo "- VirusTotal scan: triggered on publish; the release-guard"
+            echo "  audit follows automatically after the VT verdicts land."
+          } | tee -a "$GITHUB_STEP_SUMMARY"
           echo "URL: https://github.com/${GITHUB_REPOSITORY}/releases/tag/$TAG"
