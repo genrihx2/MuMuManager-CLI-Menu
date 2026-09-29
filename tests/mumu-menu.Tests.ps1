@@ -310,10 +310,31 @@ Describe 'Test-ReleaseZip (ZIP self-test)' {
         $zip = Join-Path $script:zDir 'tampered-v1.20.0.zip'
         New-ZipFixture -Path $zip
         Copy-Item -LiteralPath $zip -Destination "$zip.t2" -Force
-        $bytes = [System.IO.File]::ReadAllBytes("$zip.t2"); $bytes[100] = $bytes[100] -bxor 0xFF
+        $bytes = [System.IO.File]::ReadAllBytes("$zip.t2")
+        # Flip a byte in the LAST 64 bytes (central directory): deterministic
+        # sha256 mismatch without risking a corrupt LOCAL file header, which
+        # ZipFile::OpenRead tolerates but entry access throws on.
+        $bytes[$bytes.Length - 20] = $bytes[$bytes.Length - 20] -bxor 0xFF
         [System.IO.File]::WriteAllBytes("$zip.t2", $bytes)
         $r = Test-ReleaseZip -ZipPath "$zip.t2" -ExpectedTag 'v1.20.0'
         $r.Ok | Should -BeFalse
+    }
+
+    It 'never throws on a corrupt archive body (header-level damage)' {
+        # Regression: a flipped byte inside a LOCAL FILE HEADER used to escape
+        # Test-ReleaseZip as a terminating exception (InvalidDataException
+        # "A local file header is corrupt") instead of the contracted
+        # Ok=$false result. CI caught this as a flaky deployed-layout leg.
+        $zip = Join-Path $script:zDir 'header-corrupt-v1.20.0.zip'
+        New-ZipFixture -Path $zip
+        $bytes = [System.IO.File]::ReadAllBytes($zip)
+        # Local header of the first entry starts right after the 4-byte
+        # signature 'PK\x03\x04' at offset 0; flip a byte inside its
+        # structure but before the file data.
+        $bytes[30] = $bytes[30] -bxor 0xFF
+        [System.IO.File]::WriteAllBytes($zip, $bytes)
+        { $script:r = Test-ReleaseZip -ZipPath $zip -ExpectedTag 'v1.20.0' } | Should -Not -Throw
+        $script:r.Ok | Should -BeFalse
     }
 
     It 'fails a scriptVer/tag mismatch' {

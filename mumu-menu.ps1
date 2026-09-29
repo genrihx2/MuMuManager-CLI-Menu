@@ -1183,6 +1183,10 @@ function Test-ReleaseZip {
     }
     if ($zip) {
         try {
+            # Contract: Test-ReleaseZip never throws - a corrupt central
+            # directory / local file header must surface as Ok=$false with a
+            # check line, not as a terminating error in [F]/-VerifyZip.
+            try {
             $names = @($zip.Entries | ForEach-Object { $_.FullName } | Where-Object { $_ -and ($_ -notmatch '/$') } | ForEach-Object { $_ -replace '^\./', '' -replace '^.*[/\\]', '' } | Sort-Object -Unique)
             $missing = @($expectedFiles | Where-Object { $names -notcontains $_ })
             $extras = @($names | Where-Object { $expectedFiles -notcontains $_ })
@@ -1211,6 +1215,11 @@ function Test-ReleaseZip {
                 $checks += "scriptVer: OK ($zipVer matches $ExpectedTag)"
             } else {
                 $checks += "scriptVer: MISMATCH (zip=$(if ($zipVer) { $zipVer } else { 'NOT FOUND' }) expected=$expectedVer)"
+                $ok = $false
+            }
+            } catch {
+                # Corrupt local file header / central directory threw mid-scan.
+                $checks += "archive: corrupt ($($_.Exception.Message))"
                 $ok = $false
             }
         } finally { $zip.Dispose() }

@@ -499,8 +499,9 @@ Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
 
 - **README: раздел про Mark-of-the-Web** — почему ручная распаковка ZIP Проводником блокирует скрипты (`not digitally signed`) и три способа лечения: `[U]`/bootstrap (сами скачивают, снимают метки и подписывают), `Unblock-File`, распаковка `tar -xf`/7-Zip. Плюс строка-симптом в таблицу восстановления.
 - **CI: CodeQL Advanced** — анализ файлов воркфлоу (язык `actions`), пины по SHA, weekly-расписание; `.ps1`-код остаётся под DevSkim + PSScriptAnalyzer.
+- **Харденинг Test-ReleaseZip** — повреждённый ZIP больше не роняет `[F]`/`-VerifyZip` исключением: любое повреждение архива даёт `archive: corrupt (...)` и `Ok=$false`; новый Pester-тест фиксирует контракт «никогда не бросает», tampered-тест стал детерминированным.
 
-**EN summary:** Docs-only release: README gains a Mark-of-the-Web section (why Explorer-extracted ZIP files are blocked and the three fixes: [U]/bootstrap, Unblock-File, tar/7-Zip extraction). CI adds CodeQL Advanced over workflow files (actions language, SHA-pinned, weekly).
+**EN summary:** Docs-only release: README gains a Mark-of-the-Web section (why Explorer-extracted ZIP files are blocked and the three fixes: [U]/bootstrap, Unblock-File, tar/7-Zip extraction). CI adds CodeQL Advanced over workflow files. Test-ReleaseZip hardened in both updaters to never throw on corrupt archives (Ok=$false with an "archive: corrupt" check line; new never-throws Pester test, deterministic tamper fixture).
 
 ### v1.22.48 (28.09.2026)
 
@@ -927,7 +928,7 @@ Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
-| v1.22.49 | 29.09.2026 | README: раздел про MotW при ручной распаковке ZIP; CI: CodeQL Advanced (язык actions) |
+| v1.22.49 | 29.09.2026 | README: раздел про MotW при ручной распаковке ZIP; CI: CodeQL Advanced (язык actions); харденинг Test-ReleaseZip (never-throw) |
 | v1.22.48 | 28.09.2026 | Фикс [U]: полный 8-файловый комплект самобновления; [WN] Watch MuMu network + updater (read-only); фикс uint32 и pre-flight в Diag-MumuNx |
 | v1.22.47 | 27.09.2026 | Диагностическая троица в ZIP (8 файлов): вотчер MuMu-подключений, A/B-тест туннеля с `-Watch`, elevated-снимок MuMuNx; контракт файла-сета 5→8 |
 | v1.22.46 | 27.09.2026 | Диагностическая троица в ZIP (8 файлов): вотчер MuMu-подключений, A/B-тест туннеля с `-Watch`, elevated-снимок MuMuNx; контракт файла-сета 5→8 |
