@@ -88,6 +88,13 @@ $script:EtagCacheFile = $null
 if (-not ($MyInvocation.BoundParameters.Keys -contains 'Force')) {
     $script:EtagCacheFile = Join-Path $ScriptDir '.etag-cache.json'
 }
+# Session tables are DECLARED here, not lazily: reading an unset script-
+# scoped variable is a terminating error under Set-StrictMode -Version
+# Latest, which pwsh 7 hosts inherit from $PROFILE - the menu does not set
+# its own strict mode, so it must not rely on lazy initialization.
+$script:EtagCache   = @{}
+$script:EtagTags    = @{}
+$script:RefShaCache = @{}
 $TokenFile = Join-Path $ScriptDir '.github-token'
 $DpapiTokenFile = Join-Path $ScriptDir '.github-token.dpapi'
 $SimConfigFile = Join-Path $ScriptDir 'sim-config.json'
@@ -2105,7 +2112,13 @@ function Get-MumuInstallRoots {
             if ($key.PSObject.Properties.Name -contains 'InstallLocation' -and $key.InstallLocation) { $loc = [string]$key.InstallLocation }
             elseif ($key.PSObject.Properties.Name -contains 'DisplayIcon' -and $key.DisplayIcon) { $loc = ([string]$key.DisplayIcon -split ',')[0] }
             if (-not $loc) { continue }
-            if (($key.DisplayName -match 'MuMu') -or ($loc -match 'MuMu')) {
+            # StrictMode-safe: some uninstall keys carry no DisplayName at
+            # all - reading it unguarded throws PropertyNotFoundException,
+            # which escapes into the caller's catch (seen live: startup
+            # printed "Could not check MuMu version" under pwsh with a
+            # strict $PROFILE).
+            $displayName = if ($key.PSObject.Properties.Name -contains 'DisplayName') { [string]$key.DisplayName } else { '' }
+            if (($displayName -match 'MuMu') -or ($loc -match 'MuMu')) {
                 $roots += $loc.Trim('"').TrimEnd('\')
             }
         }
