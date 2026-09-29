@@ -362,7 +362,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.22.51
+Script version: 1.22.52
 MuMu version: 6.7.1
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -494,6 +494,14 @@ Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
 **EN summary:** Manual ZIP extraction via Windows Explorer propagates Mark-of-the-Web (NTFS `Zone.Identifier`) to every file, and `RemoteSigned` then blocks unsigned "internet" files. Fix: prefer `[U]`/bootstrap (they download, unblock and sign automatically); or `Get-ChildItem <dir> -Recurse -File | Unblock-File`; or extract with `tar -xf`/7-Zip, which do not propagate the mark. MotW is a local trust mechanism only — release content is CI-verified byte-for-byte against the tag.
 
 ## Что нового
+
+### v1.22.52 (29.09.2026)
+
+- **Фикс запуска под строгим pwsh-хостом** — при `Set-StrictMode -Version Latest` из `$PROFILE` запуск падал на ленивом чтении сессионных таблиц ETag-кэша («cannot be retrieved because it has not been set» → «Could not check MuMu version»); таблицы декларируются сразу, плюс strict-safe чтение `DisplayName` в реестровом обходе.
+- **Блок версий EXE — только активная установка** — строки параллельной второй инсталляции (например, `Netease1\MuMu`) больше не дублируются; полное обнаружение осталось как fallback.
+- **CI: пост-публикационный guard-аудит** — release.yml диспетчеризует release-guard сразу после publish.
+
+**EN summary:** Strict-host startup fix (session tables declared up front; strict-safe DisplayName read in the registry walk — no more "Could not check MuMu version" under Set-StrictMode hosts). The EXE version block lists the active install only (no duplicate parallel-install lines). release.yml dispatches the release-guard audit right after publishing.
 
 ### v1.22.51 (29.09.2026)
 
@@ -941,6 +949,7 @@ Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.52 | 29.09.2026 | Фикс запуска под Set-StrictMode-хостами; блок версий EXE — только активная установка; CI: guard-аудит сразу после publish |
 | v1.22.51 | 29.09.2026 | Автопоиск корней MuMu на любом диске (реестр/ярлыки/процессы/спул); [V] печатает реальные полные пути бинарников |
 | v1.22.50 | 29.09.2026 | Автоверсии MuMuPlayer/MuMuNxUpdater EXE при запуске меню (каскад источников, штамп сборки) |
 | v1.22.49 | 29.09.2026 | README: раздел про MotW при ручной распаковке ZIP; CI: CodeQL Advanced (язык actions); харденинг Test-ReleaseZip (never-throw) |
