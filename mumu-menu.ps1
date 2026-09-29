@@ -2176,7 +2176,18 @@ function Get-MumuInstallRoots {
 
 function Show-MumuExeVersions {
     $product = if ($InstalledVersion) { "$InstalledVersion" } else { '' }
-    foreach ($root in (Get-MumuInstallRoots)) {
+    # Active install only: the MuMuManager directory this menu actually
+    # drives. Parallel second installs (e.g. a leftover Netease1 copy) are
+    # deliberately not listed - their EXEs are the same build and only add
+    # duplicate lines. Full discovery stays as the fallback for machines
+    # where MuMuManager itself was not found.
+    $roots = @()
+    if ($MumuPath -and (Test-Path -LiteralPath (Split-Path -Parent $MumuPath))) {
+        $roots += (Split-Path -Parent $MumuPath)
+    } else {
+        $roots = Get-MumuInstallRoots
+    }
+    foreach ($root in $roots) {
         $player = @("$root\MuMuPlayer.exe", "$root\MuMuNxMain.exe") |
             Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
         $updater = "$root\MuMuNxUpdater.exe"
