@@ -456,10 +456,42 @@ C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
 | `zip: FAILED - do not install` | ZIP не совпал с `.sha256` или составом | Не устанавливать; скачать ZIP из релиза заново |
 | `zip: No ZIP found at …` | Просто нет файла по пути | Ничего — это «nothing to verify», не ошибка |
 | `DRIFT` в `[F]` без сетевых проблем | Локальные файлы изменены | Сравнить изменения, затем bootstrap для выравнивания |
+| «not digitally signed» на файлах из ручного ZIP | Mark-of-the-Web (Zone.Identifier) от браузера | Секция «MotW» ниже: `Unblock-File`, `[U]`/bootstrap или распаковка не-Проводником |
 
 Подробности: `[F]` и `-VerifyZip` — раздел «Проверка целостности» выше; журнал и экспорт — `[J]`; сводный статус — `[ST]`.
 
 **EN summary:** Recovering from a failed update: diagnose first (`[ST]` status, `[DIAG]` problems, `[F]` file-vs-tag verification, `[J] → 3` errors), then act. HASH MISMATCH → re-run `[F]` (stale-CDN false alarms vanish on the re-fetch; stable mismatches mean re-download the ZIP and verify with `-VerifyZip`). Wedged marker ("Up to date" but old content) → `bootstrap-update.ps1 -Force`. Broken files → restore from `backup\YYYYMMDD_HHMMSS`. Lock refusal → wait (locks older than 10 minutes break automatically). The table above maps each symptom to its cause and fix.
+
+## Скрипт не запускается после ручной распаковки ZIP (Mark-of-the-Web)
+
+**Симптом:** после скачивания релизного ZIP браузером и распаковки Проводником PowerShell отказывается запускать скрипты:
+
+```
+File C:\...\mumu-menu.ps1 cannot be loaded. The file ... is not digitally signed.
+You cannot run this script on the current system.
+```
+
+**Почему так:** браузер помечает скачанный файл потоком NTFS `Zone.Identifier` (Mark-of-the-Web, MotW). Проводник при распаковке **копирует** эту метку на каждый извлечённый файл. Политика выполнения `RemoteSigned` требует подписи для всех «пришедших из интернета» файлов — и блокирует их, даже если содержимое корректно. Подписи Authenticode в ZIP нет: релизный архив собирается CI из тега (`git archive`), а подпись на файлы ставит только установщик (bootstrap) уже на инсталляции. MotW — чисто локальный механизм доверия Windows: он не связан с содержимым (которое побайтно сверено с тегом в CI), и его снятие безопасно.
+
+Проверить метку можно так (пустой вывод — метки нет):
+
+```powershell
+Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
+```
+
+**Три способа лечения** — от рекомендуемого к разовому:
+
+1. **Меню `[U]` или `bootstrap-update.ps1` (рекомендуется).** Не распаковывайте ZIP вручную вообще: апдейтер проекта скачивает файлы по HTTPS из релиза, **сам** снимает метки и подписывает скрипты сертификатом проекта. Установка одной строкой из раздела «Установка» использует тот же bootstrap — после неё всё запускается сразу.
+2. **`Unblock-File` — снять метку с уже распакованных файлов:**
+
+   ```powershell
+   Get-ChildItem 'C:\путь\к\MuMuManager-CLI-Menu' -Recurse -File | Unblock-File
+   ```
+
+   Это ровно то, что нужно: метка удаляется, содержимое не меняется, подпись не требуется при `RemoteSigned`.
+3. **Распаковывать не Проводником.** Метку наследует именно встроенный экстрактор Проводника; `tar -xf MuMuManager-CLI-Menu-v1.22.48.zip` (встроен в Windows 10+) или 7-Zip распаковывают без `Zone.Identifier` — файлы сразу запускаются.
+
+**EN summary:** Manual ZIP extraction via Windows Explorer propagates Mark-of-the-Web (NTFS `Zone.Identifier`) to every file, and `RemoteSigned` then blocks unsigned "internet" files. Fix: prefer `[U]`/bootstrap (they download, unblock and sign automatically); or `Get-ChildItem <dir> -Recurse -File | Unblock-File`; or extract with `tar -xf`/7-Zip, which do not propagate the mark. MotW is a local trust mechanism only — release content is CI-verified byte-for-byte against the tag.
 
 ## Что нового
 
