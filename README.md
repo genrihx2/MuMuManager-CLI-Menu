@@ -362,7 +362,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.22.50
+Script version: 1.22.51
 MuMu version: 6.7.1
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -494,6 +494,13 @@ Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
 **EN summary:** Manual ZIP extraction via Windows Explorer propagates Mark-of-the-Web (NTFS `Zone.Identifier`) to every file, and `RemoteSigned` then blocks unsigned "internet" files. Fix: prefer `[U]`/bootstrap (they download, unblock and sign automatically); or `Get-ChildItem <dir> -Recurse -File | Unblock-File`; or extract with `tar -xf`/7-Zip, which do not propagate the mark. MotW is a local trust mechanism only — release content is CI-verified byte-for-byte against the tag.
 
 ## Что нового
+
+### v1.22.51 (29.09.2026)
+
+- **Поиск корней MuMu на любом диске** — `Get-MumuInstallRoots` обнаруживает установку автоматически: каталог MuMuManager, живые процессы `MuMu*`, реестровые Uninstall-записи, ярлыки «Пуска»; при пустых быстрых источниках — ограниченный спул по всем фиксированным дискам (папки `*Netease*`/`*MuMu*`, ≤3 уровней, признак `nx_main`/целевой EXE). Жёстко прописанные C-пути больше не используются.
+- **[V] — реальные полные пути** — блок «MuMu EXE versions» печатает обнаруженный путь каждого бинарника с авто-версией (каскад `FileVersion` → `ProductVersion` → версия продукта → `unknown`) и штампом сборки; ссылка на официальные release notes — на месте.
+
+**EN summary:** MuMu install roots are now discovered on any drive (MuMuManager dir, live processes, registry uninstall entries, Start Menu shortcuts; bounded fixed-drive sweep over *Netease*/*MuMu* folders as fallback) — no hard-coded C: paths. [V] prints the discovered full path per binary with the auto-read version and build stamp, plus the official release-notes link.
 
 ### v1.22.50 (29.09.2026)
 
@@ -934,6 +941,7 @@ Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.51 | 29.09.2026 | Автопоиск корней MuMu на любом диске (реестр/ярлыки/процессы/спул); [V] печатает реальные полные пути бинарников |
 | v1.22.50 | 29.09.2026 | Автоверсии MuMuPlayer/MuMuNxUpdater EXE при запуске меню (каскад источников, штамп сборки) |
 | v1.22.49 | 29.09.2026 | README: раздел про MotW при ручной распаковке ZIP; CI: CodeQL Advanced (язык actions); харденинг Test-ReleaseZip (never-throw) |
 | v1.22.48 | 28.09.2026 | Фикс [U]: полный 8-файловый комплект самобновления; [WN] Watch MuMu network + updater (read-only); фикс uint32 и pre-flight в Diag-MumuNx |

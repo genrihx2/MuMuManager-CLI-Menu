@@ -4,6 +4,11 @@
 
 ---
 
+## v1.22.51 (29.09.2026)
+
+- **Поиск корней MuMu на любом диске** — новая `Get-MumuInstallRoots` заменяет жёстко прописанные C-пути: каталог MuMuManager, пути живых процессов `MuMu*`, реестровые Uninstall-записи (HKLM/HKLM-WOW64/HKCU, `InstallLocation`/`DisplayIcon`, фильтр `MuMu`), ярлыки «Пуска» `*MuMu*.lnk`; и лишь если все быстрые источники пусты — ограниченный спул по всем фиксированным дискам (папки с именем `*Netease*`/`*MuMu*`, до трёх уровней, признак — `nx_main` или целевой EXE). Любая буква диска и пользовательская папка теперь работают.
+- **[V] показывает реальные полные пути** — блок «MuMu EXE versions» печатает обнаруженный путь каждого `MuMuPlayer.exe`/`MuMuNxMain.exe`/`MuMuNxUpdater.exe` с авто-версией (каскад `FileVersion` → `ProductVersion` → версия продукта → `unknown`) и штампом сборки; ссылка на официальные release notes (`mumuplayer.com/update`) — на месте.
+
 ## v1.22.50 (29.09.2026)
 
 - **Автоверсии MuMu-EXE при запуске** — новая `Show-MumuExeVersions` сразу после проверки версии MuMu автоматически находит `MuMuPlayer.exe`/`MuMuNxMain.exe` и `MuMuNxUpdater.exe` (каталог MuMuManager, обе известные корневые установки, пути работающих процессов) и печатает версию каждого файла со штампом сборки — ничего не вводится вручную. Нюанс, который пришлось решить: MuMu 6.x не штампует FileVersion/ProductVersion на этих EXE, поэтому каскад: ресурс версии → ProductVersion → версия продукта из `MuMuManager version` (с пометкой источника) → `unknown`; штамп сборки (LastWriteTime) различает копии.
