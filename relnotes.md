@@ -1,4 +1,4 @@
-﻿# MuMuManager CLI Menu
+# MuMuManager CLI Menu
 
 Интерактивное PowerShell-меню для управления MuMu Emulator через официальный `MuMuManager.exe`.
 
