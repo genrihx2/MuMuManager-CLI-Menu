@@ -362,7 +362,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.22.49
+Script version: 1.22.50
 MuMu version: 6.7.1
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -494,6 +494,12 @@ Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
 **EN summary:** Manual ZIP extraction via Windows Explorer propagates Mark-of-the-Web (NTFS `Zone.Identifier`) to every file, and `RemoteSigned` then blocks unsigned "internet" files. Fix: prefer `[U]`/bootstrap (they download, unblock and sign automatically); or `Get-ChildItem <dir> -Recurse -File | Unblock-File`; or extract with `tar -xf`/7-Zip, which do not propagate the mark. MotW is a local trust mechanism only — release content is CI-verified byte-for-byte against the tag.
 
 ## Что нового
+
+### v1.22.50 (29.09.2026)
+
+- **Автоверсии MuMu-EXE при запуске** — меню автоматически находит `MuMuPlayer.exe`/`MuMuNxMain.exe` и `MuMuNxUpdater.exe` (каталог MuMuManager, обе известные установки, пути живых процессов) и печатает версию каждого файла со штампом сборки. У MuMu 6.x эти EXE не несут ресурса версии — каскад: `FileVersion` → `ProductVersion` → версия продукта из `MuMuManager version` (с пометкой) → `unknown`. Ручной ввод исключён.
+
+**EN summary:** Startup now auto-detects and prints MuMuPlayer/MuMuNxUpdater EXE versions (discovery via MuMuManager dir, both known install roots, live process paths; resolution: version resource → ProductVersion → MuMuManager product version → unknown, always with a build-date stamp). No manual input.
 
 ### v1.22.49 (29.09.2026)
 
@@ -928,6 +934,7 @@ Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.50 | 29.09.2026 | Автоверсии MuMuPlayer/MuMuNxUpdater EXE при запуске меню (каскад источников, штамп сборки) |
 | v1.22.49 | 29.09.2026 | README: раздел про MotW при ручной распаковке ZIP; CI: CodeQL Advanced (язык actions); харденинг Test-ReleaseZip (never-throw) |
 | v1.22.48 | 28.09.2026 | Фикс [U]: полный 8-файловый комплект самобновления; [WN] Watch MuMu network + updater (read-only); фикс uint32 и pre-flight в Diag-MumuNx |
 | v1.22.47 | 27.09.2026 | Диагностическая троица в ZIP (8 файлов): вотчер MuMu-подключений, A/B-тест туннеля с `-Watch`, elevated-снимок MuMuNx; контракт файла-сета 5→8 |
