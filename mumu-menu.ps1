@@ -2080,23 +2080,90 @@ try {
 try { Update-FromGitHub -Passive } catch { Write-Debug "Startup update check failed: $($_.Exception.Message)" }
 
 # Auto-detected versions of the player/updater EXEs (never manual input).
+# The install location is DISCOVERED, not assumed: MuMuManager's own
+# directory, live MuMu* process paths, registry uninstall entries, Start
+# Menu shortcuts; a bounded sweep over ALL fixed drives (folders whose name
+# hints Netease/MuMu, up to three levels, nx_main or target EXE inside)
+# runs only when the fast sources come up empty - any drive letter works.
 # MuMu 6.x does not stamp FileVersion/ProductVersion on MuMuNxMain.exe /
 # MuMuNxUpdater.exe, so the resolution order per binary is:
 #   EXE version resource (FileVersion, then ProductVersion) ->
 #   product version reported by MuMuManager ('version') ->
 #   'unknown'; the build stamp (LastWriteTime) is always appended.
+function Get-MumuInstallRoots {
+    $roots = @()
+    if ($MumuPath) { $roots += (Split-Path -Parent $MumuPath) }
+    foreach ($proc in (Get-Process -Name 'MuMu*' -ErrorAction SilentlyContinue)) {
+        if ($proc.Path) { $roots += (Split-Path -Parent $proc.Path) }
+    }
+    foreach ($regPath in @(
+        'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+        'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*',
+        'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*')) {
+        foreach ($key in (Get-ItemProperty -Path $regPath -ErrorAction SilentlyContinue)) {
+            $loc = ''
+            if ($key.PSObject.Properties.Name -contains 'InstallLocation' -and $key.InstallLocation) { $loc = [string]$key.InstallLocation }
+            elseif ($key.PSObject.Properties.Name -contains 'DisplayIcon' -and $key.DisplayIcon) { $loc = ([string]$key.DisplayIcon -split ',')[0] }
+            if (-not $loc) { continue }
+            if (($key.DisplayName -match 'MuMu') -or ($loc -match 'MuMu')) {
+                $roots += $loc.Trim('"').TrimEnd('\')
+            }
+        }
+    }
+    foreach ($menuRoot in @((Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu'), (Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu'))) {
+        $links = @(Get-ChildItem -LiteralPath $menuRoot -Recurse -Filter '*MuMu*.lnk' -ErrorAction SilentlyContinue)
+        if ($links.Count) {
+            $sh = New-Object -ComObject WScript.Shell
+            foreach ($link in $links) {
+                try {
+                    $target = $sh.CreateShortcut($link.FullName).TargetPath
+                    if ($target -and (Test-Path -LiteralPath $target)) { $roots += (Split-Path -Parent $target) }
+                } catch { Write-Debug "Shortcut resolve failed: $($_.Exception.Message)" }
+            }
+        }
+    }
+    $hasTargets = {
+        foreach ($r in $roots) {
+            if ((Test-Path -LiteralPath (Join-Path $r 'MuMuPlayer.exe')) -or
+                (Test-Path -LiteralPath (Join-Path $r 'MuMuNxMain.exe')) -or
+                (Test-Path -LiteralPath (Join-Path $r 'MuMuNxUpdater.exe'))) { return $true }
+        }
+        return $false
+    }
+    if (-not (& $hasTargets)) {
+        # Bounded sweep: fixed drives only, only folders whose NAME hints
+        # Netease/MuMu, up to three levels deep; a folder qualifies when it
+        # holds nx_main (-> use that) or one of the target EXEs directly.
+        foreach ($drive in ([System.IO.DriveInfo]::GetDrives() | Where-Object { $_.IsReady -and $_.DriveType -eq 'Fixed' })) {
+            $driveRoot = $drive.RootDirectory.FullName
+            foreach ($base in @($driveRoot, (Join-Path $driveRoot 'Program Files'), (Join-Path $driveRoot 'Program Files (x86)'))) {
+                foreach ($hintDir in (Get-ChildItem -LiteralPath $base -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'Netease|MuMu' })) {
+                    $candidates = @($hintDir.FullName)
+                    foreach ($lvl2 in (Get-ChildItem -LiteralPath $hintDir.FullName -Directory -ErrorAction SilentlyContinue)) {
+                        $candidates += $lvl2.FullName
+                        foreach ($lvl3 in (Get-ChildItem -LiteralPath $lvl2.FullName -Directory -ErrorAction SilentlyContinue)) {
+                            $candidates += $lvl3.FullName
+                        }
+                    }
+                    foreach ($cand in $candidates) {
+                        if (Test-Path -LiteralPath (Join-Path $cand 'nx_main')) {
+                            $roots += (Join-Path $cand 'nx_main')
+                        } elseif ((Test-Path -LiteralPath (Join-Path $cand 'MuMuPlayer.exe')) -or
+                                  (Test-Path -LiteralPath (Join-Path $cand 'MuMuNxUpdater.exe')) -or
+                                  (Test-Path -LiteralPath (Join-Path $cand 'MuMuNxMain.exe'))) {
+                            $roots += $cand
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return @($roots | Where-Object { $_ } | Sort-Object -Unique)
+}
+
 function Show-MumuExeVersions {
     $product = if ($InstalledVersion) { "$InstalledVersion" } else { '' }
-    $roots = @()
-    if ($MumuPath) { $roots += Split-Path -Parent $MumuPath }
-    foreach ($p in @('C:\Program Files\Netease\MuMuPlayer\nx_main', 'C:\Program Files\Netease1\MuMu\nx_main')) {
-        if (Test-Path -LiteralPath $p) { $roots += $p }
-    }
-    foreach ($proc in (Get-Process -Name 'MuMuNxMain', 'MuMuPlayer' -ErrorAction SilentlyContinue)) {
-        if ($proc.Path) { $roots += Split-Path -Parent $proc.Path }
-    }
-    $roots = @($roots | Sort-Object -Unique)
-    foreach ($root in $roots) {
+    foreach ($root in (Get-MumuInstallRoots)) {
         $player = @("$root\MuMuPlayer.exe", "$root\MuMuNxMain.exe") |
             Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
         $updater = "$root\MuMuNxUpdater.exe"
@@ -2111,7 +2178,7 @@ function Show-MumuExeVersions {
                      elseif ($pv) { "$pv (ProductVersion)" }
                      elseif ($product) { "$product (product)" }
                      else { 'unknown' }
-            Write-Host ('  {0}: {1} (build {2})' -f (Split-Path -Leaf $path), $ver, $item.LastWriteTime.ToString('yyyy-MM-dd')) -ForegroundColor DarkGray
+            Write-Host ('  {0}: {1} (build {2})' -f $path, $ver, $item.LastWriteTime.ToString('yyyy-MM-dd')) -ForegroundColor DarkGray
         }
     }
 }
