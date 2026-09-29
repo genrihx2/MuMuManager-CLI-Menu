@@ -449,4 +449,21 @@ jobs:
             --title "MuMuManager CLI Menu $TAG" \
             --notes-file relnotes.md
           echo "=== Release $TAG created ==="
+
+      - name: Dispatch release-guard audit
+        # Audit the fresh release immediately instead of waiting for the
+        # Monday schedule. MUST run after publish: the audit's version-
+        # consistency check compares .version on main against
+        # releases/latest - running it from a tag push raced the publish
+        # (v1.22.49) and opened a false drift issue. Never fails the
+        # release itself: a dispatch failure surfaces here as a warning,
+        # the guard's own run carries the verdict (and auto-closes its
+        # marker issue when everything is green).
+        if: steps.tag.outputs.skip != 'true' && steps.ver.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh workflow run release-guard.yml --repo "$GITHUB_REPOSITORY" --ref main \
+            || echo "::warning::release-guard dispatch failed - the weekly schedule or a manual dispatch will cover it"
           echo "URL: https://github.com/${GITHUB_REPOSITORY}/releases/tag/$TAG"
