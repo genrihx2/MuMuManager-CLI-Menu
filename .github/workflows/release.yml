@@ -462,6 +462,7 @@ jobs:
         if: steps.tag.outputs.skip != 'true' && steps.ver.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
         run: |
           set -euo pipefail
           gh workflow run release-guard.yml --repo "$GITHUB_REPOSITORY" --ref main \
