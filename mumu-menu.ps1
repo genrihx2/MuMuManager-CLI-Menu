@@ -2079,6 +2079,43 @@ try {
 # Read-only update check at startup; installs only via menu option [U]
 try { Update-FromGitHub -Passive } catch { Write-Debug "Startup update check failed: $($_.Exception.Message)" }
 
+# Auto-detected versions of the player/updater EXEs (never manual input).
+# MuMu 6.x does not stamp FileVersion/ProductVersion on MuMuNxMain.exe /
+# MuMuNxUpdater.exe, so the resolution order per binary is:
+#   EXE version resource (FileVersion, then ProductVersion) ->
+#   product version reported by MuMuManager ('version') ->
+#   'unknown'; the build stamp (LastWriteTime) is always appended.
+function Show-MumuExeVersions {
+    $product = if ($InstalledVersion) { "$InstalledVersion" } else { '' }
+    $roots = @()
+    if ($MumuPath) { $roots += Split-Path -Parent $MumuPath }
+    foreach ($p in @('C:\Program Files\Netease\MuMuPlayer\nx_main', 'C:\Program Files\Netease1\MuMu\nx_main')) {
+        if (Test-Path -LiteralPath $p) { $roots += $p }
+    }
+    foreach ($proc in (Get-Process -Name 'MuMuNxMain', 'MuMuPlayer' -ErrorAction SilentlyContinue)) {
+        if ($proc.Path) { $roots += Split-Path -Parent $proc.Path }
+    }
+    $roots = @($roots | Sort-Object -Unique)
+    foreach ($root in $roots) {
+        $player = @("$root\MuMuPlayer.exe", "$root\MuMuNxMain.exe") |
+            Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+        $updater = "$root\MuMuNxUpdater.exe"
+        if (-not $player -and -not (Test-Path -LiteralPath $updater)) { continue }
+        foreach ($pair in @(@('player', $player), @('updater', $updater))) {
+            $path = $pair[1]
+            if (-not $path -or -not (Test-Path -LiteralPath $path)) { continue }
+            $item = Get-Item -LiteralPath $path
+            $fv = [string]$item.VersionInfo.FileVersion
+            $pv = [string]$item.VersionInfo.ProductVersion
+            $ver = if ($fv) { $fv }
+                     elseif ($pv) { "$pv (ProductVersion)" }
+                     elseif ($product) { "$product (product)" }
+                     else { 'unknown' }
+            Write-Host ('  {0}: {1} (build {2})' -f (Split-Path -Leaf $path), $ver, $item.LastWriteTime.ToString('yyyy-MM-dd')) -ForegroundColor DarkGray
+        }
+    }
+}
+
 # Check MuMu version
 $MinVersion = [version]'4.0.0.3179'
 try {
@@ -2094,6 +2131,7 @@ try {
     } else {
         Write-Host "MuMu $InstalledVersion OK" -ForegroundColor DarkGray
     }
+    Show-MumuExeVersions
 } catch {
     Write-Host 'Could not check MuMu version' -ForegroundColor Yellow
 }
