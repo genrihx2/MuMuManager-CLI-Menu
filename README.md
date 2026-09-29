@@ -502,6 +502,8 @@ Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
 
 
 
+### v1.22.52 (29.09.2026)
+
 - **Фикс запуска под строгим pwsh-хостом** — при `Set-StrictMode -Version Latest` из `$PROFILE` запуск падал на ленивом чтении сессионных таблиц ETag-кэша («cannot be retrieved because it has not been set» → «Could not check MuMu version»); таблицы декларируются сразу, плюс strict-safe чтение `DisplayName` в реестровом обходе.
 - **Блок версий EXE — только активная установка** — строки параллельной второй инсталляции (например, `Netease1\MuMu`) больше не дублируются; полное обнаружение осталось как fallback.
 - **CI: пост-публикационный guard-аудит** — release.yml диспетчеризует release-guard сразу после publish.
@@ -954,6 +956,7 @@ Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.53 | 29.09.2026 | Блок версий EXE в [V]/при старте — только активная установка (Netease1-дубли убраны); синхронизация версий 1.22.53 |
 | v1.22.52 | 29.09.2026 | Фикс запуска под Set-StrictMode-хостами; блок версий EXE — только активная установка; CI: guard-аудит сразу после publish |
 | v1.22.51 | 29.09.2026 | Автопоиск корней MuMu на любом диске (реестр/ярлыки/процессы/спул); [V] печатает реальные полные пути бинарников |
 | v1.22.50 | 29.09.2026 | Автоверсии MuMuPlayer/MuMuNxUpdater EXE при запуске меню (каскад источников, штамп сборки) |
