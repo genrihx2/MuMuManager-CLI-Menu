@@ -1,10 +1,15 @@
-# MuMuManager CLI Menu
+﻿# MuMuManager CLI Menu
 
 Интерактивное PowerShell-меню для управления MuMu Emulator через официальный `MuMuManager.exe`.
 
 ---
 
-## v1.22.52 (29.09.2026)
+## v1.22.53 (29.09.2026)
+
+- **[V] startup/version block now lists the active install only** - `Show-MumuExeVersions` resolves the directory containing the `MuMuManager.exe` the startup check resolved and skips any parallel second install (e.g. a leftover `Netease1\MuMu`), so the startup block prints a single install's `MuMuPlayer.exe`/`MuMuNxMain.exe`/`MuMuNxUpdater.exe` versions with the auto-read version and a build-date stamp (full discovery via `Get-MumuInstallRoots` remains the fallback when `MuMuManager` itself was not found).
+- **Version bump**: `$scriptVer` in `mumu-menu.ps1`, `relnotes.md`, `README.md` and `.version` synchronized to `1.22.53`.
+
+
 
 - **Фикс запуска под строгим pwsh-хостом** — если в `$PROFILE` pwsh 7 задан `Set-StrictMode -Version Latest`, запуск меню падал: чтение ещё не созданных сессионных таблиц (`$script:EtagCache`/`$script:EtagTags`) стало терминирующей ошибкой, а нестрогий `catch` блока проверки версии печатал «Could not check MuMu version». Таблицы теперь декларируются в script-scope сразу; заодно найден и исправлен второй strict-путь: чтение `$key.DisplayName` без проверки существования у части Uninstall-ключей реестра (выбрасывало `PropertyNotFoundException`, скрывая блок версий EXE).
 - **Блок версий EXE — только активная установка** — `Show-MumuExeVersions` печатал все обнаруженные корни, из-за чего при параллельной второй инсталляции (например, остаточной `Netease1\MuMu`) дублировались строки чужой копии. Теперь показывается единственная установка, которой меню управляет (каталог найденного `MuMuManager.exe`); полное обнаружение осталось как fallback, когда MuMuManager сам не найден.

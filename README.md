@@ -1,4 +1,4 @@
-# MuMu Manager CLI Menu
+﻿# MuMu Manager CLI Menu
 
 [![Code Scanning](https://github.com/genrihx2/MuMuManager-CLI-Menu/actions/workflows/security-scan.yml/badge.svg)](https://github.com/genrihx2/MuMuManager-CLI-Menu/actions/workflows/security-scan.yml)
 [![Latest Release](https://img.shields.io/github/v/release/genrihx2/MuMuManager-CLI-Menu?label=latest)](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest)
@@ -362,7 +362,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.22.52
+Script version: 1.22.53
 MuMu version: 6.7.1
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -495,7 +495,12 @@ Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
 
 ## Что нового
 
-### v1.22.52 (29.09.2026)
+### v1.22.53 (29.09.2026)
+
+- **[V] startup/version block now lists the active install only** - `Show-MumuExeVersions` resolves the directory containing the `MuMuManager.exe` the startup check resolved and skips any parallel second install (e.g. a leftover `Netease1\MuMu`), so the startup block prints a single install's `MuMuPlayer.exe`/`MuMuNxMain.exe`/`MuMuNxUpdater.exe` versions with the auto-read version and a build-date stamp (full discovery via `Get-MumuInstallRoots` remains the fallback when `MuMuManager` itself was not found).
+- **Version bump**: `$scriptVer` in `mumu-menu.ps1`, `relnotes.md`, `README.md` and `.version` synchronized to `1.22.53`.
+
+
 
 - **Фикс запуска под строгим pwsh-хостом** — при `Set-StrictMode -Version Latest` из `$PROFILE` запуск падал на ленивом чтении сессионных таблиц ETag-кэша («cannot be retrieved because it has not been set» → «Could not check MuMu version»); таблицы декларируются сразу, плюс strict-safe чтение `DisplayName` в реестровом обходе.
 - **Блок версий EXE — только активная установка** — строки параллельной второй инсталляции (например, `Netease1\MuMu`) больше не дублируются; полное обнаружение осталось как fallback.
