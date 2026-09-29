@@ -8109,6 +8109,12 @@ function Show-VersionInfo {
         Write-Host 'MuMu version: unknown' -ForegroundColor Yellow
     }
 
+    # MuMu player/updater EXE versions - re-read from the installed files on
+    # every [V] run (discovery + resolution cascade in Show-MumuExeVersions).
+    Write-Host 'MuMu EXE versions:' -ForegroundColor Cyan
+    Show-MumuExeVersions
+    Write-Host 'Official MuMuPlayer release notes: https://www.mumuplayer.com/update' -ForegroundColor Cyan
+
     # PowerShell version
     $psVer = $PSVersionTable.PSVersion
     Write-Host "PowerShell: $psVer" -ForegroundColor $(if ($psVer -ge '5.1') { 'Green' } else { 'Yellow' })
