@@ -362,7 +362,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.22.48
+Script version: 1.22.49
 MuMu version: 6.7.1
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -494,6 +494,13 @@ Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
 **EN summary:** Manual ZIP extraction via Windows Explorer propagates Mark-of-the-Web (NTFS `Zone.Identifier`) to every file, and `RemoteSigned` then blocks unsigned "internet" files. Fix: prefer `[U]`/bootstrap (they download, unblock and sign automatically); or `Get-ChildItem <dir> -Recurse -File | Unblock-File`; or extract with `tar -xf`/7-Zip, which do not propagate the mark. MotW is a local trust mechanism only — release content is CI-verified byte-for-byte against the tag.
 
 ## Что нового
+
+### v1.22.49 (29.09.2026)
+
+- **README: раздел про Mark-of-the-Web** — почему ручная распаковка ZIP Проводником блокирует скрипты (`not digitally signed`) и три способа лечения: `[U]`/bootstrap (сами скачивают, снимают метки и подписывают), `Unblock-File`, распаковка `tar -xf`/7-Zip. Плюс строка-симптом в таблицу восстановления.
+- **CI: CodeQL Advanced** — анализ файлов воркфлоу (язык `actions`), пины по SHA, weekly-расписание; `.ps1`-код остаётся под DevSkim + PSScriptAnalyzer.
+
+**EN summary:** Docs-only release: README gains a Mark-of-the-Web section (why Explorer-extracted ZIP files are blocked and the three fixes: [U]/bootstrap, Unblock-File, tar/7-Zip extraction). CI adds CodeQL Advanced over workflow files (actions language, SHA-pinned, weekly).
 
 ### v1.22.48 (28.09.2026)
 
@@ -920,6 +927,7 @@ Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.49 | 29.09.2026 | README: раздел про MotW при ручной распаковке ZIP; CI: CodeQL Advanced (язык actions) |
 | v1.22.48 | 28.09.2026 | Фикс [U]: полный 8-файловый комплект самобновления; [WN] Watch MuMu network + updater (read-only); фикс uint32 и pre-flight в Diag-MumuNx |
 | v1.22.47 | 27.09.2026 | Диагностическая троица в ZIP (8 файлов): вотчер MuMu-подключений, A/B-тест туннеля с `-Watch`, elevated-снимок MuMuNx; контракт файла-сета 5→8 |
 | v1.22.46 | 27.09.2026 | Диагностическая троица в ZIP (8 файлов): вотчер MuMu-подключений, A/B-тест туннеля с `-Watch`, elevated-снимок MuMuNx; контракт файла-сета 5→8 |
