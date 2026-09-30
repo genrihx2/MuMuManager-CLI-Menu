@@ -26,8 +26,19 @@
     Log lines follow the same compact format as Watch-MumuConnections.ps1:
       '2026-09-27 10:15:00 | MuMuNxMain (pid 123) | 198.18.0.1:51000 -> 34.36.47.246:443'
 
+    Every snapshot also identifies the OWNER of the Wintun tunnel adapter
+    (read-only): it finds the Up '*Wintun*' adapter, resolves who listens on
+    the classic proxy-core ports (SOCKS 10808/10809, mihomo 7890-7893),
+    walks each owner's parent process chain and records path + command line.
+    If none of the owners is a MuMu process, the snapshot warns that the
+    MuMu tunnel toggle does not control this adapter (field case: the owner
+    was INCY, a system-wide TUN proxy). Nothing is ever killed or changed.
+
 .PARAMETER Capture
     Capture a snapshot. -Label marks it (A or B is conventional).
+
+.PARAMETER NoOwnerLookup
+    Skip the tunnel-owner identification (faster, e.g. in loops).
 
 .PARAMETER Label
     Snapshot label, e.g. -Label A (default 'A').
@@ -74,6 +85,7 @@ param(
     [string[]]$Compare,
     [switch]$Watch,
     [switch]$Clean,
+    [switch]$NoOwnerLookup,
     [string]$SnapDir = (Join-Path -Path $env:TEMP -ChildPath 'mumu-ab'),
     [int]$IntervalSec = 2
 )
@@ -147,11 +159,72 @@ function Get-ProxyFacts {
         (Get-RegValueOrDefault -Object $i -Name 'AutoConfigURL'))
 }
 
+function Get-TunnelOwnerFacts {
+    # READ-ONLY probe: who owns the Wintun tunnel adapter?
+    # The 198.18.0.0/16 fake-IP range is the classic sing-box/mihomo/v2ray
+    # TUN signature and such cores usually listen on SOCKS 10808/10809 or
+    # mihomo 7890-7893. Resolving those port owners plus their parent chain
+    # reliably names the tunnel owner (field case: INCY). Nothing is killed.
+
+    $result = [pscustomobject]@{
+        AdapterLine = ''
+        Details     = @()
+        Warning     = ''
+    }
+
+    $tun = @(Get-NetAdapter -ErrorAction SilentlyContinue |
+        Where-Object { $_.InterfaceDescription -like '*Wintun*' -and $_.Status -eq 'Up' } |
+        Select-Object -First 1)
+    if (@($tun).Count -eq 0) {
+        $result.Warning = 'Up-адаптер *Wintun* не найден — туннель сейчас выключен'
+        return $result
+    }
+    $result.AdapterLine = '{0}: {1}' -f $tun[0].Name, $tun[0].InterfaceDescription
+
+    $corePorts = @(10808, 10809, 7890, 7891, 7892, 7893)
+    $listen = @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue |
+        Where-Object { $corePorts -contains $_.LocalPort })
+    $ownerPids = @($listen | Select-Object -ExpandProperty OwningProcess -Unique |
+        Where-Object { $_ -gt 0 })
+
+    $details = @()
+    $ownerNames = @()
+    foreach ($procId in $ownerPids) {
+        $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$procId" -ErrorAction SilentlyContinue
+        if ($null -eq $proc) { continue }
+        $ownerNames += [string]$proc.Name
+        $ports = @($listen | Where-Object { $_.OwningProcess -eq $procId } |
+            Select-Object -ExpandProperty LocalPort -Unique | Sort-Object)
+        $chain = @()
+        $cur = [int]$proc.ParentProcessId
+        for ($i = 0; $i -lt 6 -and $cur -gt 0; $i++) {
+            $par = Get-CimInstance Win32_Process -Filter "ProcessId=$cur" -ErrorAction SilentlyContinue
+            if ($null -eq $par) { break }
+            $chain += ('{0} (pid {1})' -f $par.Name, $par.ProcessId)
+            $cur = [int]$par.ParentProcessId
+        }
+        $details += ('{0} (pid {1}) ports {2} | {3} | {4} | chain: {5}' -f
+            $proc.Name, $proc.ProcessId, ($ports -join '/'),
+            [string]$proc.ExecutablePath, [string]$proc.CommandLine,
+            ($(if ($chain.Count) { $chain -join ' <- ' } else { '<root>' })))
+    }
+    $result.Details = $details
+
+    $mumuOwners = @($ownerNames | Where-Object { $_ -like 'MuMu*' })
+    if ($details.Count -gt 0 -and $mumuOwners.Count -eq 0) {
+        $result.Warning = ('Туннель {0} принадлежит НЕ MuMu ({1}). Тумблер туннеля в MuMu на него не влияет — управляйте из интерфейса владельца.' -f
+            $tun[0].Name, (($ownerNames | Select-Object -Unique | Sort-Object) -join ', '))
+    }
+    return $result
+}
+
 function New-Snapshot {
-    param([string]$Name)
+    param([string]$Name, [switch]$NoOwner)
 
     $conns = @(Get-MumuConnections)
     $routeFacts = Get-RouteFacts
+    $owner = $null
+    if (-not $NoOwner) { $owner = Get-TunnelOwnerFacts }
 
     $routeLookups = @()
     foreach ($ip in @($conns | Select-Object -ExpandProperty RemoteIp -Unique)) {
@@ -196,6 +269,9 @@ function New-Snapshot {
         RouteLookups  = @($routeLookups | Sort-Object)
         Adapters   = Get-Adapters
         Proxy      = Get-ProxyFacts
+        TunnelAdapter = $(if ($NoOwner) { '' } else { $owner.AdapterLine })
+        TunnelOwner   = $(if ($NoOwner) { @() } else { @($owner.Details) })
+        TunnelWarning = $(if ($NoOwner) { '' } else { $owner.Warning })
     }
 
     if (-not (Test-Path $SnapDir)) { $null = New-Item -ItemType Directory -Path $SnapDir -Force }
@@ -212,6 +288,9 @@ function Show-Snapshot {
     ('  default routes: {0}' -f ($Snap.RouteDefaults -join ' | '))
     ('  fake-ip routes: {0}' -f (@($Snap.RouteFakeIp) -join ' | '))
     ('  proxy         : {0}' -f $Snap.Proxy)
+    if ($Snap.TunnelAdapter) { ('  tunnel adapter: {0}' -f $Snap.TunnelAdapter) }
+    foreach ($line in @($Snap.TunnelOwner)) { ('  tunnel owner  : {0}' -f $line) }
+    if ($Snap.TunnelWarning) { ('  >> ВНИМАНИЕ: {0}' -f $Snap.TunnelWarning) }
     foreach ($line in $Snap.Connections) {
         ('    {0} | {1} (pid {2}) | {3} -> {4}' -f $line.Key.PadRight(38), $line.Process, $line.Pid, $line.Local, $line.Remote)
     }
@@ -359,7 +438,7 @@ if ($Watch) {
         $state = 'ПОЯВИЛСЯ'
         if (-not $isPresent) { $state = 'ИСЧЕЗ' }
         Write-Host ("{0}  fake-IP маршрут {1} — снимаю снимок [B]..." -f (Get-Timestamp), $state)
-        $sb = New-Snapshot -Name 'B'
+        $sb = New-Snapshot -Name 'B' -NoOwner:$NoOwnerLookup
         Show-Snapshot -Snap $sb
         Write-SavedReport -A $sa -B $sb -Suffix ('{0}-auto-vs-B' -f $sa.Label)
         return
@@ -367,9 +446,9 @@ if ($Watch) {
 }
 
 if ($Capture) {
-    $snap = New-Snapshot -Name $Label
+    $snap = New-Snapshot -Name $Label -NoOwner:$NoOwnerLookup
     Show-Snapshot -Snap $snap
     return
 }
 
-Write-Host 'Укажите режим: -Capture -Label A | -List | -Compare A,B | -Watch | -Clean'
+Write-Host 'Укажите режим: -Capture -Label A [-NoOwnerLookup] | -List | -Compare A,B | -Watch | -Clean'

@@ -495,6 +495,13 @@ Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
 
 ## Что нового
 
+### v1.22.54 (30.09.2026)
+
+- **Test-MumuTunnelAB: определение владельца Wintun-туннеля (read-only)** — каждый снапшот находит Up-адаптер `*Wintun*`, резолвит владельцев портов прокси-ядер (SOCKS 10808/10809, mihomo 7890–7893), поднимается по цепочке родителей и пишет путь + командную строку; если владелец не `MuMu*` — предупреждение «тумблер MuMu на этот адаптер не влияет» (полевой случай: системный туннель оказался прокси INCY, порт 10808). Новый ключ `-NoOwnerLookup` — быстрый режим без поиска владельца. Как и раньше, ничего не убивается и не меняется.
+- **Version bump**: `$scriptVer` in `mumu-menu.ps1`, `relnotes.md`, `README.md` and `.version` synchronized to `1.22.54`.
+
+**EN summary:** Test-MumuTunnelAB snapshots now identify the Wintun tunnel owner (read-only): resolve proxy-core port listeners (SOCKS 10808/10809, mihomo 7890-7893), walk parent chains, record path + command line; warn when the owner is not a MuMu* process (field case: the system tunnel belonged to INCY on port 10808, not MuMu). New -NoOwnerLookup switch skips the probe. Still read-only — nothing killed, nothing changed.
+
 ### v1.22.53 (29.09.2026)
 
 - **[V] startup/version block now lists the active install only** - `Show-MumuExeVersions` resolves the directory containing the `MuMuManager.exe` the startup check resolved and skips any parallel second install (e.g. a leftover `Netease1\MuMu`), so the startup block prints a single install's `MuMuPlayer.exe`/`MuMuNxMain.exe`/`MuMuNxUpdater.exe` versions with the auto-read version and a build-date stamp (full discovery via `Get-MumuInstallRoots` remains the fallback when `MuMuManager` itself was not found).
@@ -956,6 +963,7 @@ Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.54 | 30.09.2026 | Test-MumuTunnelAB: read-only определение владельца Wintun-туннеля (порты 10808/7890–7893 + цепочка родителей) и предупреждение, если владелец не MuMu; -NoOwnerLookup |
 | v1.22.53 | 29.09.2026 | Блок версий EXE в [V]/при старте — только активная установка (Netease1-дубли убраны); синхронизация версий 1.22.53 |
 | v1.22.52 | 29.09.2026 | Фикс запуска под Set-StrictMode-хостами; блок версий EXE — только активная установка; CI: guard-аудит сразу после publish |
 | v1.22.51 | 29.09.2026 | Автопоиск корней MuMu на любом диске (реестр/ярлыки/процессы/спул); [V] печатает реальные полные пути бинарников |

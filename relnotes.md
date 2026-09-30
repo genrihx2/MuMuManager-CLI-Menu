@@ -4,6 +4,11 @@
 
 ---
 
+## v1.22.54 (30.09.2026)
+
+- **Test-MumuTunnelAB: определение владельца Wintun-туннеля (read-only)** — каждый снапшот теперь находит Up-адаптер `*Wintun*`, резолвит владельцев классических портов прокси-ядер (SOCKS 10808/10809, mihomo 7890–7893) через `Get-NetTCPConnection -State Listen`, поднимается по цепочке родителей каждого владельца (до 6 звеньев) и записывает в снапшот путь, командную строку и цепочку. Если ни один владелец не `MuMu*` — снапшот печатает предупреждение: тумблер туннеля в MuMu на этот адаптер не влияет, управлять надо из интерфейса владельца. Мотивация — полевой случай: системный TUN-туннель `wwan99` (fake-IP `198.18.0.0/16`) оказался прокси INCY (порт 10808), а не MuMu — часы диагностики ушли на исключение MuMu-процессов и сервисов. Новый ключ `-NoOwnerLookup` пропускает поиск (быстрые циклы снапшотов). Как и раньше, ничего не убивается и не меняется.
+- **Version bump**: `$scriptVer` in `mumu-menu.ps1`, `relnotes.md`, `README.md` and `.version` synchronized to `1.22.54`.
+
 ## v1.22.53 (29.09.2026)
 
 - **[V] startup/version block now lists the active install only** - `Show-MumuExeVersions` resolves the directory containing the `MuMuManager.exe` the startup check resolved and skips any parallel second install (e.g. a leftover `Netease1\MuMu`), so the startup block prints a single install's `MuMuPlayer.exe`/`MuMuNxMain.exe`/`MuMuNxUpdater.exe` versions with the auto-read version and a build-date stamp (full discovery via `Get-MumuInstallRoots` remains the fallback when `MuMuManager` itself was not found).
