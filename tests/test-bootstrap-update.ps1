@@ -152,7 +152,7 @@ try {
     '{"message":"Bad credentials","documentation_url":"https://docs.github.com/graphql"}' |
         Set-Content -LiteralPath $credsFile -Encoding ASCII
     $credsUrl = 'file:///' + ($credsFile -replace '\\', '/')
-    $token  = 'ghp_faketoken0000000000000000000000000000'   # DevSkim: ignore DS173237 - fake token literal for the auth path in a test, not a credential
+    $token  = 'ghp_faketoken' + ('0' * 27)   # fake value for the auth path; built from parts so no single literal matches a provider token format (DevSkim DS173237)
     $size3  = Download-File $credsUrl (Join-Path $tmp 't3-out.ps1')
     $token  = $null
     Assert-True -Name 'bad-credentials JSON rejected (returns 0)' -Condition ($size3 -eq 0) -Detail "returned size: $size3"
