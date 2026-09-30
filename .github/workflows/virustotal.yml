@@ -11,6 +11,10 @@ on:
 
 permissions:
   contents: write
+  # Needed for the final step to dispatch release-guard.yml; without it the
+  # GITHUB_TOKEN gets HTTP 403 "Resource not accessible by integration" and
+  # the post-release audit only happens via weekly cron / manual dispatch.
+  actions: write
 
 jobs:
   virustotal:
