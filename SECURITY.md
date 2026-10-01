@@ -303,6 +303,11 @@ The script uses Invoke-WebRequest/curl only to access GitHub API for auto-update
 - Целостность обновлений гарантирована SHA-256-пином и VT-вердиктами релизов
 - Все сетевые эндпоинты задокументированы в таблице выше — никаких скрытых соединений
 
+**Известные ложные срабатывания (проверено):**
+
+- **Microsoft Defender** — FP appeal подтверждён (Submission ID `e7863737-b31e-4a0b-a4ae-6b8316ea00c8`): «Our scanners show no positive detection — submission closed with no further action pending». Definitions v1.459.282.0: файл чистый
+- **Malwarebytes Browser Guard v3.3.6** — блокирует страницу репозитория `github.com/genrihx2/MuMuManager-CLI-Menu` как «Heuristics: suspicious pattern | ID: 32228130» (зафиксировано 2026-10-01). Это текстовая эвристика по содержимому страницы (в README легитимно соседствуют `malware` / `false positive` / `spoofing` / `ExecutionPolicy Bypass`), а не детект файлов: VT-вердикты релиза — 0 malicious / 0 suspicious. Обходной путь на стороне пользователя: в диалоге блокировки поставить галочку «Не блокировать этот веб-сайт в дальнейшем» и нажать «Перейти на этот веб-сайт» — сайт попадёт в локальный allowlist Browser Guard. Репорт отправлен в раздел False Positives форума Malwarebytes; типичный срок снятия текстовых эвристик — 2–6 часов
+
 ### Что НЕ считается уязвимостью
 
 Это задокументированные возможности проекта (см. «Примечание для AV-аналитиков» в README):
@@ -535,6 +540,11 @@ The script uses Invoke-WebRequest/curl only to access GitHub API for auto-update
 - Script signature (Authenticode) survives updates since v1.22.21 — both bootstrap and [U] re-sign after applying
 - Update integrity is guaranteed by SHA-256 pin and release VT verdicts
 - All network endpoints are documented in the table above — no hidden connections
+
+**Known false positives (verified):**
+
+- **Microsoft Defender** — FP appeal confirmed (Submission ID `e7863737-b31e-4a0b-a4ae-6b8316ea00c8`): "Our scanners show no positive detection — submission closed with no further action pending". Definitions v1.459.282.0: file is clean
+- **Malwarebytes Browser Guard v3.3.6** — blocks the repository page `github.com/genrihx2/MuMuManager-CLI-Menu` as "Heuristics: suspicious pattern | ID: 32228130" (seen 2026-10-01). This is a page-text heuristic (the README legitimately contains `malware` / `false positive` / `spoofing` / `ExecutionPolicy Bypass` wording), not a file detection: release VT verdicts are 0 malicious / 0 suspicious. User-side workaround: in the block dialog tick "Do not block this website in the future" and click "Continue to this website" — the site goes to the Browser Guard local allowlist. Reported to the Malwarebytes False Positives forum; typical turnaround for text heuristics is 2–6 hours
 
 ### Out of Scope
 
