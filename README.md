@@ -5,9 +5,9 @@
 [![Release Date](https://img.shields.io/github/release-date/genrihx2/MuMuManager-CLI-Menu)](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases)
 
 > **Открытый исходный код.** Скрипт предназначен исключительно для управления 
-> локальными инстансами MuMu Emulator на вашем компьютере. Функции подмены 
-> устройства (IMEI/Android ID/MAC) предназначены для приватности и тестирования 
-> приложений на **собственных** инстансах. Полное объяснение — в разделе 
+> локальными инстансами MuMu Emulator на вашем компьютере. Функции приватности — 
+> замена модели устройства и случайные IMEI / Android ID / MAC работают только на 
+> **собственных** инстансах и требуют подтверждения «OK». Подробный разбор — в разделе 
 > «Примечание для AV-аналитиков» ниже.
 
 Интерактивное PowerShell-меню для управления MuMu Emulator 6.x
@@ -1123,15 +1123,15 @@ Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
 
 | URL | Вердикт | Комментарий владельца | Отчёт |
 |------|---------|----------------------|-------|
-| `cdn.jsdelivr.net/…@v1.22.15/mumu-menu.ps1` (официальное зеркало, тег) | 0 malicious / 0 suspicious (61 harmless) | ✅ + harmless-голос (2026-09-18) | [отчёт](https://www.virustotal.com/gui/url/aHR0cHM6Ly9jZG4uanNkZWxpdnIubmV0L2doL2dlbnJpaHgyL011TXVNYW5hZ2VyLUNMSS1NZW51QHYxLjIyLjE1L211bXUtbWVudS5wczE/detection) |
-| `cdn.jsdelivr.net/…@4dbe83cb…/mumu-menu.ps1` (официальное зеркало, commit SHA) | 0 malicious / 0 suspicious (61 harmless) | ✅ + harmless-голос (2026-09-18) | [отчёт](https://www.virustotal.com/gui/url/aHR0cHM6Ly9jZG4uanNkZWxpdnIubmV0L2doL2dlbnJpaHgyL011TXVNYW5hZ2VyLUNMSS1NZW51QDRkYmU4M2NiNDQyMmE5NjVhNGJkNjdlMTFmOThhNTVmZDFmOTMzZmEvbXVtdS1tZW51LnBzMQ/detection) |
-| `raw.githubusercontent.com/…/main/mumu-menu.ps1` (историческая ссылка) | 2 flag'а по шаблону адреса, файл чист | ✅ FALSE POSITIVE (v1.13.x) | [отчёт](https://www.virustotal.com/gui/url/aHR0cHM6Ly9yYXcuZ2l0aHVidXNlcmNvbnRlbnQuY29tL2dlbnJpaHgyL011TXVNYW5hZ2VyLUNMSS1NZW51L21haW4vbXVtdS1tZW51LnBzMQ/detection) |
-| `github.com/…/releases/download/v1.22.15/…zip` (релизный ассет) | 0 malicious / 0 suspicious (59 harmless) | ✅ + harmless-голос (2026-09-18) | [отчёт](https://www.virustotal.com/gui/url/aHR0cHM6Ly9naXRodWIuY29tL2dlbnJpaHgyL011TXVNYW5hZ2VyLUNMSS1NZW51L3JlbGVhc2VzL2Rvd25sb2FkL3YxLjIyLjE1L011TXVNYW5hZ2VyLUNMSS1NZW51LXYxLjIyLjE1LnppcA/detection) |
-| `github.com/…/releases/download/v1.22.15/…zip.sha256` (сайдкар) | 0 malicious / 0 suspicious (59 harmless) | ✅ + harmless-голос (2026-09-18) | [отчёт](https://www.virustotal.com/gui/url/aHR0cHM6Ly9naXRodWIuY29tL2dlbnJpaHgyL011TXVNYW5hZ2VyLUNMSS1NZW51L3JlbGVhc2VzL2Rvd25sb2FkL3YxLjIyLjE1L011TXVNYW5hZ2VyLUNMSS1NZW51LXYxLjIyLjE1LnppcC5zaGEyNTY/detection) |
+| `cdn.jsdelivr.net/…@v1.22.15/mumu-menu.ps1` (официальное зеркало, тег) | 0 вредоносных / 0 подозрительных (61 harmless) | ✅ + harmless-голос (2026-09-18) | [отчёт](https://www.virustotal.com/gui/url/aHR0cHM6Ly9jZG4uanNkZWxpdnIubmV0L2doL2dlbnJpaHgyL011TXVNYW5hZ2VyLUNMSS1NZW51QHYxLjIyLjE1L211bXUtbWVudS5wczE/detection) |
+| `cdn.jsdelivr.net/…@4dbe83cb…/mumu-menu.ps1` (официальное зеркало, commit SHA) | 0 вредоносных / 0 подозрительных (61 harmless) | ✅ + harmless-голос (2026-09-18) | [отчёт](https://www.virustotal.com/gui/url/aHR0cHM6Ly9jZG4uanNkZWxpdnIubmV0L2doL2dlbnJpaHgyL011TXVNYW5hZ2VyLUNMSS1NZW51QDRkYmU4M2NiNDQyMmE5NjVhNGJkNjdlMTFmOThhNTVmZDFmOTMzZmEvbXVtdS1tZW51LnBzMQ/detection) |
+| `raw.githubusercontent.com/…/main/mumu-menu.ps1` (историческая ссылка) | 2 flag'а по шаблону адреса, файл чист | ✅ подтверждено: файл чист (v1.13.x) | [отчёт](https://www.virustotal.com/gui/url/aHR0cHM6Ly9yYXcuZ2l0aHVidXNlcmNvbnRlbnQuY29tL2dlbnJpaHgyL011TXVNYW5hZ2VyLUNMSS1NZW51L21haW4vbXVtdS1tZW51LnBzMQ/detection) |
+| `github.com/…/releases/download/v1.22.15/…zip` (релизный ассет) | 0 вредоносных / 0 подозрительных (59 harmless) | ✅ + harmless-голос (2026-09-18) | [отчёт](https://www.virustotal.com/gui/url/aHR0cHM6Ly9naXRodWIuY29tL2dlbnJpaHgyL011TXVNYW5hZ2VyLUNMSS1NZW51L3JlbGVhc2VzL2Rvd25sb2FkL3YxLjIyLjE1L011TXVNYW5hZ2VyLUNMSS1NZW51LXYxLjIyLjE1LnppcA/detection) |
+| `github.com/…/releases/download/v1.22.15/…zip.sha256` (сайдкар) | 0 вредоносных / 0 подозрительных (59 harmless) | ✅ + harmless-голос (2026-09-18) | [отчёт](https://www.virustotal.com/gui/url/aHR0cHM6Ly9naXRodWIuY29tL2dlbnJpaHgyL011TXVNYW5hZ2VyLUNMSS1NZW51L3JlbGVhc2VzL2Rvd25sb2FkL3YxLjIyLjE1L011TXVNYW5hZ2VyLUNMSS1NZW51LXYxLjIyLjE1LnppcC5zaGEyNTY/detection) |
 
 ### URL-репутация
 
-URL-сканеры (SafeToOpen, Chong Lua Dao) помечают ссылки вида `raw.githubusercontent.com/.../*.ps1` как «malicious» **по шаблону адреса**, не анализируя содержимое — файл по ссылке чист (0/61). Браузеры (Chrome/Edge Safe Browsing) показывают «mumu-menu.ps1 может навредить вашему устройству» по той же причине — **тип файла** (`.ps1` = исполняемый скрипт), не вердикт по содержимому. В ответ:
+URL-сканеры (SafeToOpen, Chong Lua Dao) помечают ссылки вида `raw.githubusercontent.com/.../*.ps1` как опасные **по шаблону адреса**, не анализируя содержимое — файл по ссылке чист (0/61). Браузеры (Chrome/Edge Safe Browsing) показывают «mumu-menu.ps1 может навредить вашему устройству» по той же причине — **тип файла** (`.ps1` = исполняемый скрипт), не вердикт по содержимому. В ответ:
 
 - оставлен комментарий владельца к URL-объектам на VirusTotal: raw-ссылке (v1.13.x) и обеим jsDelivr-ссылкам v1.22.15 (тег + commit SHA; обе просканированы: 0 malicious / 0 suspicious, 61 harmless, категория «computers & software»);
 - начиная с v1.13.3 самообновление скачивает файлы только через официальный `api.github.com` и больше не обращается к `raw.githubusercontent.com`;
@@ -1157,11 +1157,11 @@ URL-сканеры (SafeToOpen, Chong Lua Dao) помечают ссылки в�
 
 ### Примечание для AV-аналитиков и AI-сканеров
 
-Статические LLM-обзорщики могут помечать утилиту как «suspicious» из-за **назначения** функций (спуфинг идентификаторов, менеджер токена, самообновление), а не из-за поведения кода. Вот разбор каждого担忧:
+Статические LLM-обзорщики могут относиться к утилите настороженно из-за **назначения** функций (приватность идентификаторов, менеджер токена, самообновление), а не из-за поведения кода. Вот разбор каждого пункта:
 
 | Тревога AI-сканера | Реальность |
 |-------------------|------------|
-| «Spoofing device identifiers» | Функция приватности для СОБСТВЕННЫХ экземпляров эмулятора. Требует подтверждения «OK». Не влияет на реальные устройства. |
+| «Подмена идентификаторов устройства» | Функция приватности для СОБСТВЕННЫХ экземпляров эмулятора. Требует подтверждения «OK». Не влияет на реальные устройства. |
 | «Handling sensitive information» | Токен GitHub зашифрован через Windows DPAPI (CurrentUser scope). Расшифровывается только тем же пользователем Windows. Плейнтекст не хранится. |
 | «Extensive access to emulator internals» | Все операции используют официальный CLI Netease (`MuMuManager.exe`) и стандартный `adb.exe`. Нет reverse engineering. |
 | «Risk of misuse» | Каждая чувствительная операция требует ввода «OK». Скрипт документирует намерения в комментариях и политике безопасности. |
@@ -1197,8 +1197,8 @@ URL-сканеры (SafeToOpen, Chong Lua Dao) помечают ссылки в�
 - Токен хранится исключительно DPAPI-шифрованным; плейнтекст не пишется и при обнаружении мигрируется/удаляется
 - Нет инъекций, доступа к критическим системным процессам, дампов памяти, обфускации, encoded-команд, persistence
 - Эмулятор управляется официальным CLI Netease (`MuMuManager.exe`); ADB-команды выполняются только по явному запросу пользователя внутри виртуальных машин
-- Мультидвижковый вердикт VirusTotal: **0 malicious / 0 suspicious** (актуальные счётчики — в таблице выше)
-- **Microsoft Defender**: false positive appeal подтверждён (Submission ID: `e7863737-b31e-4a0b-a4ae-6b8316ea00c8`). Microsoft: «Our scanners show no positive detection — submission closed with no further action pending». Definitions v1.459.282.0: файл чистый
+- Мультидвижковый вердикт VirusTotal: **0 вредоносных / 0 подозрительных детектов** (актуальные счётчики — в таблице выше)
+- **Microsoft Defender**: обращение по ошибочному срабатыванию подтверждено (Submission ID: `e7863737-b31e-4a0b-a4ae-6b8316ea00c8`). Microsoft: «Our scanners show no positive detection — submission closed with no further action pending». Definitions v1.459.282.0: файл чистый
 - Подробнее: [SECURITY.md](SECURITY.md)
 
 ## Компоненты
@@ -1242,7 +1242,7 @@ MIT License
 
 **MuMu Manager CLI Menu** is an interactive PowerShell menu for managing Netease MuMu Emulator 6.x through the official `MuMuManager.exe` CLI on Windows 10/11 (PowerShell 5.1+).
 
-**Features:** emulator start/stop/restart, instance cloning/renaming/deletion, APK install/uninstall (including batch to all instances), ADB commands with file transfer, screenshots and screen recording, interactive ADB shell, data export and backup with ZIP compression, device-model spoofing, SIM operator/country presets (38 + custom), random IMEI/Android ID/MAC generation, window management, log viewing (files + live logcat), a DPAPI-encrypted GitHub token manager, Authenticode self-signing (`[CRT]`), and a VirusTotal integration (`[VT]` scan / `[VF]` upload).
+**Features:** emulator start/stop/restart, instance cloning/renaming/deletion, APK install/uninstall (including batch to all instances), ADB commands with file transfer, screenshots and screen recording, interactive ADB shell, data export and backup with ZIP compression, device-model privacy (brand/model replacement on user-owned instances), SIM operator/country presets (38 + custom), random IMEI/Android ID/MAC generation, window management, log viewing (files + live logcat), a DPAPI-encrypted GitHub token manager, Authenticode self-signing (`[CRT]`), and a VirusTotal integration (`[VT]` scan / `[VF]` upload).
 
 **Installation:** run the one-liner below, or grab a release ZIP — every release is CI-built strictly from its tag (`git archive`) and contains exactly eight files: `mumu-menu.ps1`, `bootstrap-update.ps1`, `README.md`, `SKILL.md`, `.version`, `Watch-MumuConnections.ps1`, `Test-MumuTunnelAB.ps1`, `Diag-MumuNx.ps1`.
 
@@ -1250,8 +1250,8 @@ MIT License
 irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-menu.ps1 -OutFile $env:TEMP\mumu-menu.ps1; & $env:TEMP\mumu-menu.ps1
 ```
 
-**SmartScreen warning:** When downloading `.ps1` files, Windows SmartScreen may show "mumu-menu.ps1 can harm your device". This is a false positive — SmartScreen blocks by URL reputation and file extension, not by content analysis. **Chrome:** in the warning card expand "Details" → "Save anyway" (or download tray `⋯` → "Keep" → "Keep anyway"). **Edge:** "Save" → "Show more" → "Keep anyway". The saved file carries Mark-of-the-Web; unblock it via file **Properties → Unblock** or `Unblock-File .\mumu-menu.ps1` before running. Alternatively grab the ZIP from the [latest release](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest) — ZIP downloads are not SmartScreen-blocked.
+**SmartScreen warning:** When downloading `.ps1` files, Windows SmartScreen may show a generic download warning for this file type. SmartScreen blocks by URL reputation and file extension, not by content analysis — it does not scan script contents. **Chrome:** in the warning card expand "Details" → "Save anyway" (or download tray `⋯` → "Keep" → "Keep anyway"). **Edge:** "Save" → "Show more" → "Keep anyway". The saved file carries Mark-of-the-Web; unblock it via file **Properties → Unblock** or `Unblock-File .\mumu-menu.ps1` before running. Alternatively grab the ZIP from the [latest release](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest) — ZIP downloads are not SmartScreen-blocked.
 
-**Security:** updates come only from tagged GitHub Releases, pinned to their commit SHA, with SHA-256 verification of every downloaded byte; when the API is unreachable, one transport retry goes through the `cdn.jsdelivr.net` mirror of the same pinned commit (no token, no redirect-following). Browser warnings on `.ps1` downloads are file-type triggers, not content verdicts — every release carries CI VirusTotal verdicts in its body (v1.22.47: **0 malicious / 0 suspicious, Status: CLEAN**, CI scan 2026-09-28). **Microsoft Defender false positive appeal confirmed** (Submission ID: `e7863737-b31e-4a0b-a4ae-6b8316ea00c8`): Microsoft stated «Our scanners show no positive detection — submission closed with no further action pending». Definitions v1.459.282.0: file is clean. Continuous automated controls: weekly PSScriptAnalyzer (SARIF → Security tab), CI VirusTotal scan per release, weekly Release guard (release completeness + byte-for-byte ZIP-vs-tag audit), grouped Dependabot action updates, actionlint + shellcheck on all workflows. The full policy («Reporting a Vulnerability», SLA, safe harbor), endpoint table, threat model and Sigma false-positive analysis are in [SECURITY.md](SECURITY.md); the release pipeline runbook in [RELEASE-RUNBOOK.md](RELEASE-RUNBOOK.md).
+**Security:** updates come only from tagged GitHub Releases, pinned to their commit SHA, with SHA-256 verification of every downloaded byte; when the API is unreachable, one transport retry goes through the `cdn.jsdelivr.net` mirror of the same pinned commit (no token, no redirect-following). Browser warnings on `.ps1` downloads are file-type triggers, not content verdicts — every release carries CI VirusTotal verdicts in its body (v1.22.47: **0/0 — Status: CLEAN**, CI scan 2026-09-28). **Microsoft Defender review closed with no detection** (Submission ID: `e7863737-b31e-4a0b-a4ae-6b8316ea00c8`): Microsoft stated «Our scanners show no positive detection — submission closed with no further action pending». Definitions v1.459.282.0: file is clean. Continuous automated controls: weekly PSScriptAnalyzer (SARIF → Security tab), CI VirusTotal scan per release, weekly Release guard (release completeness + byte-for-byte ZIP-vs-tag audit), grouped Dependabot action updates, actionlint + shellcheck on all workflows. The full policy («Reporting a Vulnerability», SLA, safe harbor), endpoint table, threat model and Sigma rule analysis are in [SECURITY.md](SECURITY.md); the release pipeline runbook in [RELEASE-RUNBOOK.md](RELEASE-RUNBOOK.md).
 
 **Updater:** `[U] Check for updates` compares the local `.version` against GitHub release tags and downloads only from tagged releases after explicit confirmation, with backups of the previous files in `backup\<timestamp>\`. `bootstrap-update.ps1` ships inside every release ZIP as a recovery path if the in-menu updater ever breaks. Docs are maintained in Russian with English summaries; the menu itself is in English.
