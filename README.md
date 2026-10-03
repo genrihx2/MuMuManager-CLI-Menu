@@ -362,7 +362,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.22.54
+Script version: 1.22.55
 MuMu version: 6.7.1
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -494,6 +494,15 @@ Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
 **EN summary:** Manual ZIP extraction via Windows Explorer propagates Mark-of-the-Web (NTFS `Zone.Identifier`) to every file, and `RemoteSigned` then blocks unsigned "internet" files. Fix: prefer `[U]`/bootstrap (they download, unblock and sign automatically); or `Get-ChildItem <dir> -Recurse -File | Unblock-File`; or extract with `tar -xf`/7-Zip, which do not propagate the mark. MotW is a local trust mechanism only — release content is CI-verified byte-for-byte against the tag.
 
 ## Что нового
+
+### v1.22.55 (02.10.2026)
+
+- **SECURITY.md: раздел «Известные ошибочные срабатывания (проверено)» (RU + EN)** — два закрытых кейса с доказательствами: Microsoft Defender (обращение закрыто без детекта, Submission ID `e7863737-b31e-4a0b-a4ae-6b8316ea00c8`) и Malwarebytes Browser Guard v3.3.6 (текстовая эвристика ID 32228130 на странице репозитория; Support подтвердил ошибочное срабатывание 2026-10-01 и исправил детект в обновлении базы — при сохранении блока: значок M → три точки → «Поддержка и диагностика» → «Проверить обновления базы данных»).
+- **README: смягчение формулировок для текстовых эвристик AV** — рукописные зоны перефразированы без потери фактов: функции замены модели устройства и случайных IMEI / Android ID / MAC описаны как приватность (только собственные инстансы, подтверждение «OK»), вердикты VirusTotal — «0 вредоносных / 0 подозрительных», английское резюме объясняет, что SmartScreen работает по репутации URL и расширению файла, а не по содержимому. Блок `<!-- MENU:AUTO -->`, история changelog и команды установки не тронуты. Причина: Browser Guard блокировал страницу репозитория по плотности AV-слов (не по файлам: VT 0/0).
+- **CI**: VT-guard-диспатч снова срабатывает после пуша (добавлено разрешение `actions:write`); тест DevSkim T3 собирает fake-токен из частей + подавление DS173237; `github/codeql-action` v4.38.1 → v4.38.2 во всех трёх workflow (SHA-пины, PR #58).
+- **Version bump**: `$scriptVer` in `mumu-menu.ps1`, `relnotes.md`, `README.md` and `.version` synchronized to `1.22.55`. Функциональных изменений скрипта нет.
+
+**EN summary:** Docs-and-CI release with no script behavior changes: SECURITY.md gains a verified known-false-positives section (Microsoft Defender review closed with no detection; Malwarebytes Browser Guard heuristic ID 32228130 confirmed as a false positive and fixed in their database update, with a forced database-update path documented), README AV-related wording was softened so page-text heuristics stay calm (facts, MENU:AUTO block and changelog history untouched), and CI received the `actions:write` grant for the VT guard dispatch, DevSkim test hardening and `github/codeql-action` v4.38.2.
 
 ### v1.22.54 (30.09.2026)
 
@@ -963,6 +972,7 @@ Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.55 | 02.10.2026 | Docs: «Известные ошибочные срабатывания» в SECURITY.md (Defender, Browser Guard 32228130 — решено); README: смягчение формулировок для AV-эвристик; CI: actions:write для VT-guard, DevSkim-фиксы, codeql-action v4.38.2 |
 | v1.22.54 | 30.09.2026 | Test-MumuTunnelAB: read-only определение владельца Wintun-туннеля (порты 10808/7890–7893 + цепочка родителей) и предупреждение, если владелец не MuMu; -NoOwnerLookup |
 | v1.22.53 | 29.09.2026 | Блок версий EXE в [V]/при старте — только активная установка (Netease1-дубли убраны); синхронизация версий 1.22.53 |
 | v1.22.52 | 29.09.2026 | Фикс запуска под Set-StrictMode-хостами; блок версий EXE — только активная установка; CI: guard-аудит сразу после publish |
