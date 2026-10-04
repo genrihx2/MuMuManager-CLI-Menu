@@ -6,7 +6,7 @@
 
 ## Русский
 
-> Актуально для **v1.22.52** (обновлено 2026-09-29).
+> Актуально для **v1.22.55** (обновлено 2026-10-04).
 
 ### Поддерживаемые версии
 
@@ -307,6 +307,7 @@ The script uses Invoke-WebRequest/curl only to access GitHub API for auto-update
 
 - **Microsoft Defender** — FP appeal подтверждён (Submission ID `e7863737-b31e-4a0b-a4ae-6b8316ea00c8`): «Our scanners show no positive detection — submission closed with no further action pending». Definitions v1.459.282.0: файл чистый
 - **Malwarebytes Browser Guard v3.3.6** — блокировал страницу репозитория `github.com/genrihx2/MuMuManager-CLI-Menu` как «Heuristics: suspicious pattern | ID: 32228130» (зафиксировано 2026-10-01). Это текстовая эвристика по содержимому страницы, а не детект файлов: VT-вердикты релиза — 0 malicious / 0 suspicious. **Статус: решено** — Malwarebytes Support подтвердил ложное срабатывание (ответ от 2026-10-01) и исправил детект в обновлении базы; раскатка ~1–2 ч, при сохранении блокировки — значок **M** → три точки → «Поддержка и диагностика» → «Проверить обновления базы данных». Аварийный обход (если обновление не помогло): в диалоге блокировки поставить галочку «Не блокировать этот веб-сайт в дальнейшем» и нажать «Перейти на этот веб-сайт» — сайт попадёт в локальный allowlist Browser Guard
+- **VirusTotal: crowdsourced YARA/Sigma-подписи (v1.22.55, зафиксировано 2026-10-04)** — на отчёте `mumu-menu.ps1` (хэш `cdabc5965c70…134f`) срабатывают generic YARA/Sigma-подписи: InQuest `Windows_API_Function`, ditekSHen `INDICATOR_SUSPICIOUS_PWSH_B64Encoded_Concatenated_FileEXEC`, Sigma `Suspicious Process Discovery With Get-Process`, `Malicious Nishang PowerShell Commandlets`, `Malicious PowerShell Commandlets - ScriptBlock` (плюс одна Sigma-правила VT не смог загрузить — «Sigma rule cannot be loaded», артефакт витрины VT, не детект). Это **не вердикты антивирусов**: все движки — 0 malicious / 0 suspicious (Status: CLEAN, [scan run](https://github.com/genrihx2/MuMuManager-CLI-Menu/actions/runs/37091306623)). Разбор — в разделах «YARA/Sigma False Positives» ниже и в блоке «SIGMA RULE EXCLUSIONS» шапки mumu-menu.ps1. **Статус: задокументировано**
 
 ### Что НЕ считается уязвимостью
 
@@ -356,6 +357,7 @@ The script uses Invoke-WebRequest/curl only to access GitHub API for auto-update
 - **#12** (`Automated Collection Command PowerShell`): скрипт собирает информацию об инстансах MuMu (`MuMuManager.exe list`) и системной информации (`[V] Version info`) — **legitimate management operations**, не data exfiltration
 - **#13** (`Potential PowerShell Obfuscation Using Alias Cmdlets`): Sigma матчит строковые литералы `curl`/`wget` в коде (проверка наличия HTTP-клиента внутри эмулятора). Скрипт **не использует** `Set-Alias`/`New-Alias`; `curl.exe` вызывается напрямую как executable (`& $curlPath`), не через PowerShell alias
 - **#14** (`Suspicious Config File Modification`): `[FPS]` записывает `desired_framerate` в `customer_config.json` — **локальный файл конфигурации эмулятора**, без network, без execution. Аналогично параметрам `[7] Show settings` и `[RT] root_permission`
+- **#15** (`Suspicious Process Discovery With Get-Process`): `Get-Process -Name 'MuMu*'` — name-фильтрованная read-only проверка, запущены ли процессы эмулятора MuMu (ядро назначения инструмента — менеджер эмулятора). Нет перечисления произвольных системных процессов, нет инъекций; замечено на отчёте VT v1.22.55
 
 ### Благодарности
 
@@ -365,7 +367,7 @@ The script uses Invoke-WebRequest/curl only to access GitHub API for auto-update
 
 ## English
 
-> Current for **v1.22.52** (updated 2026-09-29).
+> Current for **v1.22.55** (updated 2026-10-04).
 
 ### Supported Versions
 
@@ -545,6 +547,7 @@ The script uses Invoke-WebRequest/curl only to access GitHub API for auto-update
 
 - **Microsoft Defender** — FP appeal confirmed (Submission ID `e7863737-b31e-4a0b-a4ae-6b8316ea00c8`): "Our scanners show no positive detection — submission closed with no further action pending". Definitions v1.459.282.0: file is clean
 - **Malwarebytes Browser Guard v3.3.6** — blocked the repository page `github.com/genrihx2/MuMuManager-CLI-Menu` as "Heuristics: suspicious pattern | ID: 32228130" (seen 2026-10-01). This was a page-text heuristic, not a file detection: release VT verdicts are 0 malicious / 0 suspicious. **Status: resolved** — Malwarebytes Support confirmed the false positive (reply dated 2026-10-01) and fixed the detection in a database update; rollout takes ~1–2 h, and if the block is still shown force a database update via the **M** icon → three-dot menu → "Support and diagnostics" → "Check for database updates". Fallback workaround (if the update does not help): in the block dialog tick "Do not block this website in the future" and click "Continue to this website" — the site goes to the Browser Guard local allowlist
+- **VirusTotal: crowdsourced YARA/Sigma signatures (v1.22.55, seen 2026-10-04)** — the `mumu-menu.ps1` report (hash `cdabc5965c70…134f`) shows generic YARA/Sigma matches: InQuest `Windows_API_Function`, ditekSHen `INDICATOR_SUSPICIOUS_PWSH_B64Encoded_Concatenated_FileEXEC`, Sigma `Suspicious Process Discovery With Get-Process`, `Malicious Nishang PowerShell Commandlets`, `Malicious PowerShell Commandlets - ScriptBlock` (plus one Sigma rule VT failed to load — "Sigma rule cannot be loaded" is a VT display artifact, not a detection). These are **not antivirus verdicts**: all engines report 0 malicious / 0 suspicious (Status: CLEAN, [scan run](https://github.com/genrihx2/MuMuManager-CLI-Menu/actions/runs/37091306623)). Breakdown in the "YARA/Sigma False Positives" sections below and the "SIGMA RULE EXCLUSIONS" block in the mumu-menu.ps1 header. **Status: documented**
 
 ### Out of Scope
 
@@ -591,6 +594,7 @@ Documented features are not vulnerabilities (see "Note for AV analysts" in READM
 - **#12** (`Automated Collection Command PowerShell`): script collects MuMu instance info (`MuMuManager.exe list`) and system information (`[V] Version info`) — **legitimate management operations**, not data exfiltration
 - **#13** (`Potential PowerShell Obfuscation Using Alias Cmdlets`): Sigma matches string literals `curl`/`wget` in code (checking for HTTP client inside the emulator). Script does **NOT** use `Set-Alias`/`New-Alias`; `curl.exe` is called directly as executable (`& $curlPath`), not via PowerShell alias
 - **#14** (`Suspicious Config File Modification`): `[FPS]` writes `desired_framerate` to `customer_config.json` — **local emulator config file**, no network, no execution. Same category as `[7] Show settings` and `[RT] root_permission`
+- **#15** (`Suspicious Process Discovery With Get-Process`): `Get-Process -Name 'MuMu*'` — a name-filtered, read-only check whether MuMu emulator processes are running (the tool's core purpose: an emulator manager). No enumeration of arbitrary system processes, no injection; seen on the v1.22.55 VT report
 
 ### AI/LLM Scanner Response
 

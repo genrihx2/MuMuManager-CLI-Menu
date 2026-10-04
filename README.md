@@ -1074,20 +1074,22 @@ Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
 
 ## Безопасность
 
-- **VirusTotal (v1.22.47, 28.09.2026): 0 malicious / 0 suspicious — Status: CLEAN** — релизный ZIP, `mumu-menu.ps1` и SKILL.md из его состава просканированы CI автоматически после публикации; отчёты — в таблице ниже и в [описании релиза](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/tag/v1.22.47)
+- **VirusTotal (v1.22.55, 02.10.2026): 0 malicious / 0 suspicious — Status: CLEAN** — релизный ZIP, `mumu-menu.ps1` и SKILL.md из его состава просканированы CI автоматически после публикации; отчёты — в таблице ниже и в [описании релиза](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/tag/v1.22.55)
 - Скан запускается **автоматически** после публикации релиза: Release workflow публикует релиз с `RELEASE_PAT` (секрет), чтобы сработал триггер `on: release published` — GitHub подавляет триггеры для релизов, созданных `GITHUB_TOKEN`
 - CI автоматически сканирует релизный ZIP, а также `mumu-menu.ps1` и `SKILL.md` из его состава (`virustotal.yml`, секрет `VT_API_KEY`); известные VT объекты переиспользуются по SHA-256; вердикты и пермалинки автоматически публикуются в описании релиза (маркерная секция «VirusTotal verdicts», идемпотентно)
 - Встроенное сканирование: `[VT] VirusTotal scan` — проверяет файлы через VT API
 - **Автоматизированный контроль** (полный список — в [SECURITY.md](SECURITY.md)): еженедельный PSScriptAnalyzer с SARIF в Security-таб (пн 06:00 UTC), CI VirusTotal-скан каждого релиза, еженедельный Release guard (комплектность релизов + побайтовая сверка ZIP последнего релиза с тегом), групповые Dependabot-обновления экшенов, actionlint + shellcheck на все workflows
 
-### VirusTotal: файлы релиза v1.22.47
+### VirusTotal: файлы релиза v1.22.55
 
 | Файл | SHA-256 | Malicious | Suspicious | Отчёт |
 |------|---------|-----------|------------|-------|
-| релизный `MuMuManager-CLI-Menu-v1.22.47.zip` | `ce1dae8aaca8…2baa` | 0 | 0 | [отчёт](https://www.virustotal.com/gui/file/ce1dae8aaca8cf28281c40a50946ebacf749b28cba08c05fd713c6ba5c4a2baa/detection) |
-| `mumu-menu.ps1` (v1.22.47) | `9ebaaf8acda0…a47c` | 0 | 0 | [отчёт](https://www.virustotal.com/gui/file/9ebaaf8acda04698ae67467b6e33ad286161da66b7e1839d30d7e8056d03a47c/detection) |
-| `SKILL.md` (v1.22.47) | `b3e23bb1aa0c…bac9` | 0 | 0 | [отчёт](https://www.virustotal.com/gui/file/b3e23bb1aa0c8206f47a046d46606347d6e63be63cf5ea06f7b2160a1a98bac9/detection) |
+| релизный `MuMuManager-CLI-Menu-v1.22.55.zip` | `c87f7a3016f8…dc05` | 0 | 0 | [отчёт](https://www.virustotal.com/gui/file/c87f7a3016f8d434f5f30ef6b75ca33e6964cf93192fad9bb2c807635655dc05/detection) |
+| `mumu-menu.ps1` (v1.22.55) | `cdabc5965c70…134f` | 0 | 0 | [отчёт](https://www.virustotal.com/gui/file/cdabc5965c701c7b559dbbca26770fab4976815e817b4d1ec304492c7d67134f/detection) |
+| `SKILL.md` (v1.22.55) | `b3e23bb1aa0c…bac9` | 0 | 0 | [отчёт](https://www.virustotal.com/gui/file/b3e23bb1aa0c8206f47a046d46606347d6e63be63cf5ea06f7b2160a1a98bac9/detection) |
 
+> Предыдущий полный скан — v1.22.47 (28.09.2026), также 0/0: ZIP `ce1dae8aaca8…2baa` ([отчёт](https://www.virustotal.com/gui/file/ce1dae8aaca8cf28281c40a50946ebacf749b28cba08c05fd713c6ba5c4a2baa/detection)), `mumu-menu.ps1` `9ebaaf8acda0…a47c` ([отчёт](https://www.virustotal.com/gui/file/9ebaaf8acda04698ae67467b6e33ad286161da66b7e1839d30d7e8056d03a47c/detection)). Хэш SKILL.md не изменился — файл не менялся между релизами.
+>
 > Актуальные вердикты каждого релиза — в секции «VirusTotal verdicts» на странице релиза; ссылка на свежий релиз: [Releases/latest](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest).
 
 ### Исторические VT-сканы (архив)
@@ -1209,6 +1211,7 @@ URL-сканеры (SafeToOpen, Chong Lua Dao) помечают ссылки в�
 - Эмулятор управляется официальным CLI Netease (`MuMuManager.exe`); ADB-команды выполняются только по явному запросу пользователя внутри виртуальных машин
 - Мультидвижковый вердикт VirusTotal: **0 вредоносных / 0 подозрительных детектов** (актуальные счётчики — в таблице выше)
 - **Microsoft Defender**: обращение по ошибочному срабатыванию подтверждено (Submission ID: `e7863737-b31e-4a0b-a4ae-6b8316ea00c8`). Microsoft: «Our scanners show no positive detection — submission closed with no further action pending». Definitions v1.459.282.0: файл чистый
+- **Crowdsourced YARA/Sigma на VirusTotal (v1.22.55)**: generic-подписи (InQuest `Windows_API_Function`, ditekSHen b64-concat-exec, Sigma `Get-Process`/Nishang/Commandlets) срабатывают на типовых админ-паттернах PowerShell — это **не вердикты антивирусов** (все движки 0 malicious / 0 suspicious); разбор каждого правила — в [SECURITY.md](SECURITY.md) и в блоке «SIGMA RULE EXCLUSIONS» шапки [mumu-menu.ps1](mumu-menu.ps1)
 - Подробнее: [SECURITY.md](SECURITY.md)
 
 ## Компоненты
