@@ -35,7 +35,7 @@ param([switch]$Force)
 # ========================================================================
 # SIGMA RULE EXCLUSIONS (Documentation for SOC/AV Analysts)
 # ========================================================================
-# The following Sigma rules trigger on legitimate admin functionality.
+# The following Sigma and YARA rules trigger on legitimate admin functionality.
 # All actions are LOCAL, USER-INITIATED, and REQUIRE EXPLICIT CONSENT.
 #
 # Rule: Suspicious Curl.EXE Download (Florian Roth / Nextron)
@@ -70,6 +70,33 @@ param([switch]$Force)
 #          multipart header contained that MIME token. The script NEVER
 #          reads or writes NTFS alternate data streams. Fixed in 1.18.9:
 #          uploads use curl.exe multipart, the MIME literal is gone.
+#
+# Rule: Suspicious Process Discovery With Get-Process (frack113)
+# Trigger: Get-Process -Name 'MuMu*' status check
+# Context: Name-filtered, read-only check whether MuMu emulator
+#          processes are running - the core purpose of the tool. No
+#          enumeration of arbitrary system processes, no injection.
+#
+# Rule: Windows_API_Function (InQuest YARA)
+# Trigger: Generic string match on Windows API function names in any
+#          script; VT's own description says it "is not an indication
+#          of malicious behavior".
+# Context: Text-level noise. No embedded executables, shellcode or
+#          injection APIs are present in the source.
+#
+# Rule: INDICATOR_SUSPICIOUS_PWSH_B64Encoded_Concatenated_FileEXEC (ditekSHen)
+# Trigger: Generic PowerShell pattern combining concatenation (-join)
+#          with execution; the rule also matches base64-encoded content.
+# Context: No base64 payload and no FromBase64String/ToBase64String
+#          usage exist in the script (grep-verified). Overly generic
+#          for text-heavy admin scripts.
+#
+# Rule: Malicious Nishang PowerShell Commandlets / Malicious PowerShell
+#       Commandlets - ScriptBlock (Sigma)
+# Trigger: Name-based matching of known offensive-framework cmdlet names.
+# Context: No Nishang or other offensive cmdlet names exist in the
+#          source (grep-verified). The -ScriptBlock variant evaluates
+#          scriptblock-log content; nothing malicious is present there.
 # ========================================================================
 
 if ($PSScriptRoot) { $ScriptDir = $PSScriptRoot } else { $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path }
