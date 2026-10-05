@@ -3262,6 +3262,7 @@ function Show-Menu {
     Write-Host '  --- Apps and Settings ---' -ForegroundColor Green
     Write-Host '  [6] List installed apps' -ForegroundColor Yellow
     Write-Host '  [7] Show settings' -ForegroundColor Yellow
+    Write-Host '  [CMP] Compare instance settings' -ForegroundColor Yellow
   Write-Host '  [RT] Enable / disable root (instance)' -ForegroundColor Yellow
   Write-Host '  [VE] Virtual environment (enable/disable/remove)' -ForegroundColor Yellow
   Write-Host '  [FPS] Set frame rate (30/60/90/120/144/240/uncapped)' -ForegroundColor Yellow
@@ -7701,6 +7702,121 @@ function Show-Settings {
     }
 }
 
+function Get-InstanceWritableSettings {
+    # Fetches the full writable-settings set of one instance via
+    # `MuMuManager setting -v <index> --all_writable` (flat JSON, string
+    # values). Works for STOPPED instances too - settings live in the
+    # instance config, not in the running VM. Read-only: no --value here.
+    # -SettingsJson / -MumuPathOverride are test hooks for offline fixtures.
+    param(
+        [string]$Index,
+        [string]$SettingsJson = '',
+        [string]$MumuPathOverride = ''
+    )
+
+    $result = [pscustomobject]@{ ok = $false; settings = @{}; error = '' }
+    # Live fetch only when -SettingsJson was not passed at all - an
+    # explicitly passed empty string means "empty output" (same convention
+    # as the [RM] collector's explicit empty -Processes array).
+    $raw = $SettingsJson
+    if (-not $PSBoundParameters.ContainsKey('SettingsJson')) {
+        $exe = if ($MumuPathOverride) { $MumuPathOverride } else { $MumuPath }
+        if (-not $exe -or -not (Test-Path -LiteralPath $exe)) { $result.error = 'not found'; return $result }
+        try { $raw = (& $exe setting -v $Index --all_writable 2>$null | Out-String) } catch { $result.error = $_.Exception.Message; return $result }
+    }
+    if (-not $raw) { $result.error = 'empty output'; return $result }
+    if ($raw -match 'errcode.*-1') { $result.error = 'not supported by this MuMuManager'; return $result }
+
+    $parsed = $null
+    try { $parsed = $raw | ConvertFrom-Json } catch { $result.error = 'not JSON'; return $result }
+    if (-not $parsed) { $result.error = 'empty output'; return $result }
+
+    $map = @{}
+    foreach ($prop in $parsed.PSObject.Properties) { $map[$prop.Name] = [string]$prop.Value }
+    $result.ok = $true
+    $result.settings = $map
+    return $result
+}
+
+function Compare-Settings {
+    # Pure diff of two settings hashtables: one row per union key -
+    # differing keys first, identical after. The [CMP] screen renders the
+    # diff block and summarizes the identical remainder.
+    param([hashtable]$A, [hashtable]$B)
+
+    $keys = @($A.Keys + $B.Keys | Sort-Object -Unique)
+    $rows = @()
+    foreach ($k in $keys) {
+        $va = if ($A.ContainsKey($k)) { [string]$A[$k] } else { '<missing>' }
+        $vb = if ($B.ContainsKey($k)) { [string]$B[$k] } else { '<missing>' }
+        $rows += [pscustomobject]@{ Key = $k; ValueA = $va; ValueB = $vb; Diff = ($va -ne $vb) }
+    }
+    $diff = @($rows | Where-Object { $_.Diff } | Sort-Object -Property Key)
+    $same = @($rows | Where-Object { -not $_.Diff } | Sort-Object -Property Key)
+    return [pscustomobject]@{
+        Rows = $rows
+        DiffRows = $diff
+        SameRows = $same
+        DiffCount = $diff.Count
+        SameCount = $same.Count
+    }
+}
+
+function Format-CompareValue {
+    # Table cell for the [CMP] diff: empty values are called out honestly,
+    # long ones are capped so the side-by-side columns never collide.
+    param([string]$Value, [int]$Width = 26)
+    if ([string]::IsNullOrEmpty($Value)) { return '(empty)' }
+    if ($Value.Length -gt $Width) { return $Value.Substring(0, $Width) + '~' }
+    return $Value
+}
+
+function Compare-InstanceSettings {
+    # [CMP] entry point: side-by-side comparison of the writable settings
+    # of two instances. READ-ONLY: fetches both sets, diffs them, prints
+    # the differing keys and where each can be changed. Stopped instances
+    # are fine - settings come from the instance config, not the VM.
+    param([string]$IndexA = '', [string]$IndexB = '')
+
+    Write-Host ''
+    Write-Host 'Compare instance settings (READ-ONLY)' -ForegroundColor Cyan
+
+    if (-not $IndexA) { $IndexA = Get-InstanceIndex 'Select instance A' }
+    if (-not $IndexA) { return }
+    if (-not $IndexB) { $IndexB = Get-InstanceIndex 'Select instance B' }
+    if (-not $IndexB) { return }
+    if ($IndexA -eq $IndexB) {
+        Write-Host "  Same instance ($IndexA) selected twice - nothing to compare." -ForegroundColor Yellow
+        return
+    }
+
+    $fa = Get-InstanceWritableSettings -Index $IndexA
+    $fb = Get-InstanceWritableSettings -Index $IndexB
+    if (-not $fa.ok) { Write-Host "  Instance $IndexA settings unavailable: $($fa.error)" -ForegroundColor Red; return }
+    if (-not $fb.ok) { Write-Host "  Instance $IndexB settings unavailable: $($fb.error)" -ForegroundColor Red; return }
+
+    $cmp = Compare-Settings -A $fa.settings -B $fb.settings
+    Write-Host ''
+    Write-Host ('  Instance A: #{0}   Instance B: #{1}' -f $IndexA, $IndexB) -ForegroundColor Cyan
+    Write-Host ('  Keys compared: {0}   differ: {1}   identical: {2}' -f $cmp.Rows.Count, $cmp.DiffCount, $cmp.SameCount) -ForegroundColor White
+    Write-Host ''
+
+    if ($cmp.DiffCount -eq 0) {
+        Write-Host '  Settings are identical.' -ForegroundColor Green
+        return
+    }
+
+    Write-Host ('  {0,-30}{1,-28}{2,-28}' -f 'Key', "A: #$IndexA", "B: #$IndexB") -ForegroundColor DarkGray
+    foreach ($r in $cmp.DiffRows) {
+        Write-Host ('  {0,-30}{1,-28}{2,-28}' -f $r.Key, (Format-CompareValue -Value $r.ValueA), (Format-CompareValue -Value $r.ValueB)) -ForegroundColor Yellow
+    }
+
+    Write-Host ''
+    Write-Host ('  + {0} identical key(s) not listed.' -f $cmp.SameCount) -ForegroundColor DarkGray
+    Write-Host '  Fix: menu [7] Show settings / [FPS] / [RT] / [DM], or' -ForegroundColor DarkGray
+    Write-Host ('  MuMuManager.exe setting -v N --key <key> --value <value>  (N = {0} or {1})' -f $IndexA, $IndexB) -ForegroundColor DarkGray
+}
+
 function Invoke-AdbShell {
     # Thin wrapper: run one shell command inside the instance VM through
     # the official MuMuManager adb transport (no direct adb.exe process
@@ -9596,12 +9712,50 @@ function Start-MumuWatcher {
 
 # ── [RM] Resource monitor (live CPU/RAM of MuMu processes) ──────────
 
+function Get-InstanceProcessMap {
+    # Maps a running instance's emulator PID to a display label
+    # ("#0 Android Device") by asking MuMuManager for `info -v all` - the
+    # same read-only query the menu uses everywhere. Running instances
+    # carry a `pid` key; stopped ones do not and are skipped.
+    # -InfoJson / -MumuPathOverride are test hooks: Pester feeds fixture
+    # JSON offline, no emulator and no MuMuManager binary needed.
+    param(
+        [string]$InfoJson = '',
+        [string]$MumuPathOverride = ''
+    )
+
+    $map = @{}
+    $raw = $InfoJson
+    if (-not $raw) {
+        $exe = if ($MumuPathOverride) { $MumuPathOverride } else { $MumuPath }
+        if (-not $exe -or -not (Test-Path -LiteralPath $exe)) { return $map }
+        try { $raw = (& $exe info -v all 2>$null | Out-String) } catch { return $map }
+    }
+    if (-not $raw) { return $map }
+
+    $info = $null
+    try { $info = $raw | ConvertFrom-Json } catch { return $map }
+    if (-not $info) { return $map }
+
+    foreach ($prop in $info.PSObject.Properties) {
+        $inst = $prop.Value
+        if (-not $inst) { continue }
+        $pidValue = $null
+        if ($inst.PSObject.Properties.Name -contains 'pid') { $pidValue = $inst.pid }
+        if (-not $pidValue) { continue }
+        $iname = [string]$inst.name
+        $label = if ($iname) { "#{0} {1}" -f $prop.Name, $iname } else { "#{0}" -f $prop.Name }
+        $map[[int]$pidValue] = $label
+    }
+    return $map
+}
+
 function Get-MumuProcessSamples {
     # Normalized snapshot of every MuMu* process. Read-only: the live path
     # is Get-Process -Name 'MuMu*' (the same check [WN] and [DIAG] use).
     # -Processes accepts pre-built Process-like stubs so tests and CI run
     # this offline; an explicitly passed empty array means "no processes".
-    param([object[]]$Processes)
+    param([object[]]$Processes, [hashtable]$InstanceMap)
 
     if (-not $PSBoundParameters.ContainsKey('Processes')) {
         $Processes = @(Get-Process -Name 'MuMu*' -ErrorAction SilentlyContinue)
@@ -9626,13 +9780,16 @@ function Get-MumuProcessSamples {
             elseif ($span.TotalHours -ge 1) { $uptime = '{0}h {1:D2}m' -f $span.Hours, $span.Minutes }
             else { $uptime = '{0}m {1:D2}s' -f $span.Minutes, $span.Seconds }
         } catch { $uptime = 'n/a' }
+        $instance = ''
+        if ($InstanceMap -and $InstanceMap.ContainsKey([int]$p.Id)) { $instance = [string]$InstanceMap[[int]$p.Id] }
         $samples += [pscustomobject]@{
-            Pid    = [int]$p.Id
-            Name   = [string]$p.ProcessName
-            CpuSec = $cpuSec
-            RamMB  = $ramMB
-            PrivMB = $privMB
-            Uptime = $uptime
+            Pid      = [int]$p.Id
+            Name     = [string]$p.ProcessName
+            Instance = $instance
+            CpuSec   = $cpuSec
+            RamMB    = $ramMB
+            PrivMB   = $privMB
+            Uptime   = $uptime
         }
     }
     return $samples
@@ -9675,13 +9832,15 @@ function Get-MumuResourceSnapshot {
         }
         $totalRamMB += $s.RamMB
         $totalPrivMB += $s.PrivMB
+        $instLbl = [string]$s.Instance
         $rows.Add([pscustomobject]@{
-            Pid    = $s.Pid
-            Name   = $s.Name
-            CpuPct = $rowPct
-            RamMB  = $s.RamMB
-            PrivMB = $s.PrivMB
-            Uptime = $s.Uptime
+            Pid      = $s.Pid
+            Name     = $s.Name
+            Instance = $instLbl
+            CpuPct   = $rowPct
+            RamMB    = $s.RamMB
+            PrivMB   = $s.PrivMB
+            Uptime   = $s.Uptime
         })
     }
     if (-not $NoBaseline) { $totalPctOut = [Math]::Round([Math]::Min(100.0, $totalCpuPct), 1) }
@@ -9729,7 +9888,8 @@ function Show-ResourceMonitor {
             $lastTick = $now
             if ($elapsed -le 0) { $elapsed = 0.001 }
 
-            $samples = @(Get-MumuProcessSamples)
+            $instMap = Get-InstanceProcessMap
+            $samples = @(Get-MumuProcessSamples -InstanceMap $instMap)
             $snap = Get-MumuResourceSnapshot -Samples $samples -Prev $prev -ElapsedSeconds $elapsed -Sort $sortMode -NoBaseline:$firstFrame
 
             # Re-baseline BEFORE drawing so a slow tick never double-counts.
@@ -9753,7 +9913,7 @@ function Show-ResourceMonitor {
                 Write-Host '  No MuMu processes are running right now.' -ForegroundColor Yellow
                 Write-Host '  Launch the emulator via [2] or [B], then reopen [RM].' -ForegroundColor DarkGray
             } else {
-                Write-Host ('  {0,-8}{1,-20}{2,8}{3,10}{4,10}  {5}' -f 'PID', 'Name', 'CPU %', 'RAM MB', 'Priv MB', 'Uptime') -ForegroundColor DarkGray
+                Write-Host ('  {0,-8}{1,-23}{2,-19}{3,7}{4,9}{5,9}  {6}' -f 'PID', 'Name', 'Instance', 'CPU %', 'RAM MB', 'Priv MB', 'Uptime') -ForegroundColor DarkGray
                 foreach ($r in $snap.Rows) {
                     $cpuTxt = '     -'
                     $color = 'White'
@@ -9762,7 +9922,13 @@ function Show-ResourceMonitor {
                         if ($r.CpuPct -ge 50) { $color = 'Red' }
                         elseif ($r.CpuPct -ge 25) { $color = 'Yellow' }
                     }
-                    Write-Host ('  {0,-8}{1,-20}{2,8}{3,10:F1}{4,10:F1}  {5}' -f $r.Pid, $r.Name, $cpuTxt, $r.RamMB, $r.PrivMB, $r.Uptime) -ForegroundColor $color
+                    $instTxt = if ($r.Instance) { $r.Instance } else { '-' }
+                    # Real MuMu process names run to 22 chars
+                    # (MuMuPlayerRemoteBackend) - at a 22-wide field they would
+                    # collide with the Instance column, so cap at 21 + '~'.
+                    $nameTxt = $r.Name
+                    if ($nameTxt.Length -gt 21) { $nameTxt = $nameTxt.Substring(0, 21) + '~' }
+                    Write-Host ('  {0,-8}{1,-23}{2,-19}{3,7}{4,9:F1}{5,9:F1}  {6}' -f $r.Pid, $nameTxt, $instTxt, $cpuTxt, $r.RamMB, $r.PrivMB, $r.Uptime) -ForegroundColor $color
                 }
             }
 
@@ -9811,6 +9977,7 @@ do {
         'n' { Rename-Emulator }
         '6' { Show-Apps }
         '7' { Show-Settings }
+        'cmp' { Compare-InstanceSettings }
         'rt' { Set-RootPermission }
         've' { Show-VirtualEnv }
         'fps' { Set-FrameRate }

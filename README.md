@@ -130,6 +130,7 @@ curl.exe -sSL -o $env:TEMP\mumu-menu.ps1 https://cdn.jsdelivr.net/gh/genrihx2/Mu
   --- Apps and Settings ---
   [6] List installed apps
   [7] Show settings
+  [CMP] Compare instance settings
   [RT] Enable / disable root (instance)
   [VE] Virtual environment (enable/disable/remove)
   [FPS] Set frame rate (30/60/90/120/144/240/uncapped)

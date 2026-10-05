@@ -37,7 +37,8 @@ BeforeAll {
                         'Get-AutoDiagSummary', 'Invoke-StartupAutoDiag', 'Show-AutoDiagLine',
                         'Read-EtagCacheFile', 'Get-EtagCacheFileState', 'Save-EtagCacheFile', 'Invoke-EtagCacheMaintenance',
                         'Test-CurlRetrySupport', 'Get-CurlGitHubArgs', 'Invoke-GitHubApiGet', 'Get-ReleaseInfo', 'Invoke-GitHubGet',
-                        'Get-MumuProcessSamples', 'Get-MumuResourceSnapshot', 'Show-ResourceMonitor')) {
+                        'Get-MumuProcessSamples', 'Get-MumuResourceSnapshot', 'Show-ResourceMonitor', 'Get-InstanceProcessMap',
+                        'Get-InstanceWritableSettings', 'Compare-Settings', 'Format-CompareValue')) {
         $f = $script:ast.FindAll({
             param($node)
             $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -2551,6 +2552,21 @@ Describe 'Resource monitor ([RM] CPU/RAM, live)' {
         $snap.TotalRamMB | Should -Be 0
     }
 
+    It 'collector attaches the instance label when an instance map is supplied' {
+        $stub = New-MumuProcStub -Id 26200 -Name 'MuMuNxDevice' -CpuSec 1 -RamMB 1 -PrivMB 1
+        $s = @(Get-MumuProcessSamples -Processes $stub -InstanceMap @{ 26200 = '#0 Android Device' })
+        $s[0].Instance | Should -Be '#0 Android Device'
+        $s2 = @(Get-MumuProcessSamples -Processes $stub)
+        $s2[0].Instance | Should -Be ''
+    }
+
+    It 'snapshot carries the instance label into the rendered rows' {
+        $stubs = @((New-MumuProcStub -Id 7 -Name 'A' -CpuSec 1 -RamMB 1 -PrivMB 1))
+        $samples = @(Get-MumuProcessSamples -Processes $stubs -InstanceMap @{ 7 = '#2 Android Device-2' })
+        $snap = Get-MumuResourceSnapshot -Samples $samples -Prev @{} -ElapsedSeconds 1 -Cores 1
+        $snap.Rows[0].Instance | Should -Be '#2 Android Device-2'
+    }
+
     It '[RM] -Once renders one frame without throwing (CI: no MuMu processes)' {
         { Show-ResourceMonitor -Once } | Should -Not -Throw
     }
@@ -2564,16 +2580,149 @@ Describe 'Resource monitor ([RM] CPU/RAM, live)' {
         # Quit keys exist for the interactive loop (Q, Esc, Ctrl+C).
         ($src.Contains('$ki.Key -eq ''Q'' -or $ki.Key -eq ''Escape''')) | Should -Be $true
         ($src.Contains('[ConsoleModifiers]::Control')) | Should -Be $true
+        # Per-instance column: the map is fetched every tick and rendered.
+        ($src.Contains('$instMap = Get-InstanceProcessMap')) | Should -Be $true
+        ($src -match '\{0,-8\}\{1,-23\}\{2,-19\}\{3,7\}') | Should -Be $true
     }
 
     It '[RM] stays read-only: no network calls, no writes inside the monitor functions' {
-        foreach ($n in @('Get-MumuProcessSamples', 'Get-MumuResourceSnapshot', 'Show-ResourceMonitor')) {
+        foreach ($n in @('Get-InstanceProcessMap', 'Get-MumuProcessSamples', 'Get-MumuResourceSnapshot', 'Show-ResourceMonitor')) {
             $f = $script:ast.FindAll({
                 param($node)
                 $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $n
             }, $true) | Select-Object -First 1
             $f | Should -Not -BeNullOrEmpty
             $text = $f.Extent.Text
+            $text -match 'curl|Invoke-WebRequest|Invoke-RestMethod|Set-Content|Add-Content|New-Item|Out-File' | Should -Be $false
+        }
+    }
+}
+
+Describe 'Instance process map ([RM] per-instance column)' {
+
+    It 'parses the real pretty-printed info -v all shape and maps only running PIDs' {
+        # Fixture mirrors the actual MuMuManager output (pretty-printed,
+        # multiline): instance 0 running with pid, instance 1 stopped -
+        # no `pid` key, must be skipped.
+        $json = @'
+{
+  "0": {
+    "adb_port": 16384,
+    "is_android_started": true,
+    "is_process_started": true,
+    "name": "Android Device",
+    "pid": 26200,
+    "player_state": "start_finished"
+  },
+  "1": {
+    "is_process_started": false,
+    "name": "Android Device-1"
+  }
+}
+'@
+        $m = Get-InstanceProcessMap -InfoJson $json
+        $m[26200] | Should -Be '#0 Android Device'
+        $m.Keys.Count | Should -Be 1
+    }
+
+    It 'a running instance without a name still maps as #N' {
+        $m = Get-InstanceProcessMap -InfoJson '{"0": {"pid": 777}}'
+        $m[777] | Should -Be '#0'
+    }
+
+    It 'invalid JSON and empty input produce an empty map without throwing' {
+        { Get-InstanceProcessMap -InfoJson 'MuMuManager: fatal error' } | Should -Not -Throw
+        (Get-InstanceProcessMap -InfoJson 'not json').Keys.Count | Should -Be 0
+        (Get-InstanceProcessMap -InfoJson '').Keys.Count | Should -Be 0
+    }
+
+    It 'live path: missing MuMuManager binary returns an empty map silently' {
+        (Get-InstanceProcessMap -MumuPathOverride 'C:\\definitely-missing\\MuMuManager.exe').Keys.Count | Should -Be 0
+    }
+}
+
+Describe 'Instance settings compare ([CMP])' {
+
+    It 'diff: union of keys, differing first, <missing> for keys absent on one side' {
+        $a = @{ 'gpu_mode' = 'high'; 'max_frame_rate' = '60'; 'shared' = 'yes' }
+        $b = @{ 'gpu_mode' = 'middle'; 'only_b' = 'x'; 'shared' = 'yes' }
+        $c = Compare-Settings -A $a -B $b
+        $c.DiffCount | Should -Be 3
+        $c.SameCount | Should -Be 1
+        $c.DiffRows.Key | Should -Be @('gpu_mode', 'max_frame_rate', 'only_b')
+        ($c.DiffRows | Where-Object { $_.Key -eq 'max_frame_rate' }).ValueB | Should -Be '<missing>'
+        ($c.DiffRows | Where-Object { $_.Key -eq 'only_b' }).ValueA | Should -Be '<missing>'
+        ($c.DiffRows | Where-Object { $_.Key -eq 'gpu_mode' }).Diff | Should -BeTrue
+    }
+
+    It 'diff: identical sets produce zero diff rows' {
+        $s = @{ 'gpu_mode' = 'high'; 'max_frame_rate' = '60' }
+        $c = Compare-Settings -A $s -B ($s.Clone())
+        $c.DiffCount | Should -Be 0
+        $c.SameCount | Should -Be 2
+        @($c.DiffRows).Count | Should -Be 0
+    }
+
+    It 'value formatting: empty is honest, long values are capped with a tilde' {
+        Format-CompareValue -Value '' | Should -Be '(empty)'
+        Format-CompareValue -Value 'vk' | Should -Be 'vk'
+        $long = 'Remote NDIS based Internet Sharing Device'
+        $fmt = Format-CompareValue -Value $long
+        $fmt.Length | Should -Be 27
+        $fmt.EndsWith('~') | Should -BeTrue
+        $fmt.StartsWith('Remote NDIS based Interne') | Should -BeTrue
+    }
+
+    It 'collector parses the real flat --all_writable JSON shape' {
+        $json = @'
+{
+  "gpu_mode": "high",
+  "max_frame_rate": "60",
+  "net_bridge_dns1": "",
+  "phone_model": "Galaxy A54"
+}
+'@
+        $r = Get-InstanceWritableSettings -Index '9' -SettingsJson $json
+        $r.ok | Should -BeTrue
+        $r.error | Should -Be ''
+        $r.settings['gpu_mode'] | Should -Be 'high'
+        $r.settings['net_bridge_dns1'] | Should -Be ''
+        $r.settings.Keys.Count | Should -Be 4
+    }
+
+    It 'collector degrades honestly: unsupported, garbage, empty, missing binary' {
+        $r1 = Get-InstanceWritableSettings -Index '0' -SettingsJson '{"errcode": -1}'
+        $r1.ok | Should -BeFalse
+        $r1.error | Should -Match 'not supported'
+        $r2 = Get-InstanceWritableSettings -Index '0' -SettingsJson 'MuMuManager: fatal'
+        $r2.ok | Should -BeFalse
+        $r2.error | Should -Be 'not JSON'
+        $r3 = Get-InstanceWritableSettings -Index '0' -SettingsJson ''
+        $r3.ok | Should -BeFalse
+        $r3.error | Should -Be 'empty output'
+        $r4 = Get-InstanceWritableSettings -Index '0' -MumuPathOverride 'C:\\definitely-missing\\MuMuManager.exe'
+        $r4.ok | Should -BeFalse
+        $r4.error | Should -Be 'not found'
+    }
+
+    It 'wiring: [CMP] is in the menu next to [7], maps to Compare-InstanceSettings, same-instance pick is refused' {
+        $src = Get-Content -Raw $script:menuPath
+        ($src -match '\[CMP\] Compare instance settings') | Should -Be $true
+        ($src -match "'cmp' \{ Compare-InstanceSettings \}") | Should -Be $true
+        ($src.Contains('Same instance ($IndexA) selected twice')) | Should -Be $true
+    }
+
+    It '[CMP] stays read-only: no writes and no network in the compare functions' {
+        foreach ($n in @('Get-InstanceWritableSettings', 'Compare-Settings', 'Format-CompareValue', 'Compare-InstanceSettings')) {
+            $f = $script:ast.FindAll({
+                param($node)
+                $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $n
+            }, $true) | Select-Object -First 1
+            $f | Should -Not -BeNullOrEmpty
+            $text = $f.Extent.Text
+            # The settings WRITE flag (--value) may only appear in the help
+            # hint text - never on a line that actually INVOKES anything.
+            @($text -split "`n" | Where-Object { $_ -match '--value' -and $_ -match '& ' }).Count | Should -Be 0
             $text -match 'curl|Invoke-WebRequest|Invoke-RestMethod|Set-Content|Add-Content|New-Item|Out-File' | Should -Be $false
         }
     }
