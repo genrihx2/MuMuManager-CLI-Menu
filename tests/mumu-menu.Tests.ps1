@@ -38,7 +38,8 @@ BeforeAll {
                         'Read-EtagCacheFile', 'Get-EtagCacheFileState', 'Save-EtagCacheFile', 'Invoke-EtagCacheMaintenance',
                         'Test-CurlRetrySupport', 'Get-CurlGitHubArgs', 'Invoke-GitHubApiGet', 'Get-ReleaseInfo', 'Invoke-GitHubGet',
                         'Get-MumuProcessSamples', 'Get-MumuResourceSnapshot', 'Show-ResourceMonitor', 'Get-InstanceProcessMap',
-                        'Get-InstanceWritableSettings', 'Compare-Settings', 'Format-CompareValue')) {
+                        'Get-InstanceWritableSettings', 'Compare-Settings', 'Format-CompareValue',
+                        'Update-ResourceStats', 'Get-ResourceStatsSummary', 'ConvertTo-ResourceExportLines', 'Export-ResourceSnapshot')) {
         $f = $script:ast.FindAll({
             param($node)
             $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -2583,10 +2584,14 @@ Describe 'Resource monitor ([RM] CPU/RAM, live)' {
         # Per-instance column: the map is fetched every tick and rendered.
         ($src.Contains('$instMap = Get-InstanceProcessMap')) | Should -Be $true
         ($src -match '\{0,-8\}\{1,-23\}\{2,-19\}\{3,7\}') | Should -Be $true
+        # v2 keys: pause, reset, export.
+        ($src.Contains("if (`$ki.Key -eq 'P') {")) | Should -Be $true
+        ($src.Contains("if (`$ki.Key -eq 'R') {")) | Should -Be $true
+        ($src.Contains("if (`$ki.Key -eq 'E') {")) | Should -Be $true
     }
 
-    It '[RM] stays read-only: no network calls, no writes inside the monitor functions' {
-        foreach ($n in @('Get-InstanceProcessMap', 'Get-MumuProcessSamples', 'Get-MumuResourceSnapshot', 'Show-ResourceMonitor')) {
+    It '[RM] stays read-only: no network calls, no writes inside the monitor loop functions' {
+        foreach ($n in @('Get-InstanceProcessMap', 'Get-MumuProcessSamples', 'Get-MumuResourceSnapshot', 'Update-ResourceStats', 'Get-ResourceStatsSummary', 'ConvertTo-ResourceExportLines', 'Show-ResourceMonitor')) {
             $f = $script:ast.FindAll({
                 param($node)
                 $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $n
@@ -2638,6 +2643,133 @@ Describe 'Instance process map ([RM] per-instance column)' {
 
     It 'live path: missing MuMuManager binary returns an empty map silently' {
         (Get-InstanceProcessMap -MumuPathOverride 'C:\\definitely-missing\\MuMuManager.exe').Keys.Count | Should -Be 0
+    }
+}
+
+Describe 'Resource monitor v2 (peaks/avg, pause/reset/export, RAM delta)' {
+
+    BeforeAll {
+        function New-SampleRow {
+            param([int]$Id, [string]$Name = 'MuMuNxMain', [string]$Instance = '', $CpuPct = $null, [double]$RamMB = 100, [double]$PrivMB = 50)
+            [pscustomobject]@{
+                Pid = $Id; Name = $Name; Instance = $Instance; CpuPct = $CpuPct
+                RamDelta = $null; RamMB = $RamMB; PrivMB = $PrivMB; Uptime = '1h 00m'
+            }
+        }
+        function New-EmptyStats { return @{ ByPid = @{}; Spark = @(); PeakTotal = $null } }
+        function New-Snap {
+            param([object[]]$Rows, $TotalCpu = $null)
+            [pscustomobject]@{
+                Rows = @($Rows); ProcessCount = @($Rows).Count
+                TotalCpuPct = $TotalCpu; TotalRamMB = 1.0; TotalPrivMB = 1.0
+            }
+        }
+    }
+
+    It 'accumulator: peak/avg per PID, peak RAM; NoBaseline ticks do not skew averages' {
+        $st = New-EmptyStats
+        $null = Update-ResourceStats -Stats $st -Rows @((New-SampleRow -Id 1 -CpuPct $null -RamMB 100)) -TotalCpuPct $null -CountThisTick:$false
+        $null = Update-ResourceStats -Stats $st -Rows @((New-SampleRow -Id 1 -CpuPct 20 -RamMB 150)) -TotalCpuPct 20 -CountThisTick:$true
+        $null = Update-ResourceStats -Stats $st -Rows @((New-SampleRow -Id 1 -CpuPct 60 -RamMB 120)) -TotalCpuPct 60 -CountThisTick:$true
+        $e = $st.ByPid[1]
+        $e.PeakCpu | Should -Be 60
+        ([Math]::Round([double]$e.CpuSum / $e.CpuN, 1)) | Should -Be 40
+        $e.CpuN | Should -Be 2
+        $e.PeakRam | Should -Be 150
+        $e.RamLow | Should -Be 100
+        $st.PeakTotal | Should -Be 60
+        $st.Spark.Count | Should -Be 2
+    }
+
+    It 'accumulator: process exits and returns with a new name - entry follows the new name' {
+        $st = New-EmptyStats
+        $null = Update-ResourceStats -Stats $st -Rows @((New-SampleRow -Id 5 -Name 'MuMuNxMain' -CpuPct 10 -RamMB 100)) -TotalCpuPct 10 -CountThisTick:$true
+        $null = Update-ResourceStats -Stats $st -Rows @((New-SampleRow -Id 5 -Name 'MuMuNxMain2' -CpuPct 30 -RamMB 110)) -TotalCpuPct 30 -CountThisTick:$true
+        $st.ByPid[5].Name | Should -Be 'MuMuNxMain2'
+        $st.ByPid[5].PeakCpu | Should -Be 30
+    }
+
+    It 'sparkline ring buffer caps at 60 ticks (oldest dropped)' {
+        $st = New-EmptyStats
+        for ($i = 1; $i -le 75; $i++) {
+            $null = Update-ResourceStats -Stats $st -Rows @() -TotalCpuPct 1 -CountThisTick:$true
+        }
+        $st.Spark.Count | Should -Be 60
+        $st.Spark[0] | Should -Be 1
+    }
+
+    It 'summary sorts by peak CPU desc, no-sample PIDs last' {
+        $st = New-EmptyStats
+        $null = Update-ResourceStats -Stats $st -Rows @((New-SampleRow -Id 9 -Name 'S' -CpuPct $null), (New-SampleRow -Id 2 -CpuPct 40), (New-SampleRow -Id 7 -CpuPct 10)) -TotalCpuPct 50 -CountThisTick:$true
+        $s = Get-ResourceStatsSummary -Stats $st
+        @($s)[0].Pid | Should -Be 2
+        @($s)[1].Pid | Should -Be 7
+        @($s)[2].Pid | Should -Be 9
+        @($s)[2].PeakCpuPct | Should -BeNullOrEmpty
+    }
+
+    It 'export md: header + snapshot table + session block; idempotent' {
+        $st = New-EmptyStats
+        $null = Update-ResourceStats -Stats $st -Rows @((New-SampleRow -Id 1 -Name 'MuMuNxDevice' -Instance '#0 Android Device' -CpuPct 12.5 -RamMB 353.2 -PrivMB 1201.9)) -TotalCpuPct 12.5 -CountThisTick:$true
+        $snap = New-Snap -Rows @((New-SampleRow -Id 1 -Name 'MuMuNxDevice' -Instance '#0 Android Device' -CpuPct 12.5 -RamMB 353.2 -PrivMB 1201.9)) -TotalCpu 12.5
+        $l1 = @(ConvertTo-ResourceExportLines -Snapshot $snap -Stats $st -Format 'md')
+        $l2 = @(ConvertTo-ResourceExportLines -Snapshot $snap -Stats $st -Format 'md')
+        ($l1 -join "`n") | Should -Be ($l2 -join "`n")
+        ($l1 -join "`n") | Should -Match '# MuMu resource monitor snapshot'
+        ($l1 -join "`n") | Should -Match 'Session peaks/averages'
+        ($l1 -join "`n") | Should -Match 'MuMuNxDevice'
+        ($l1 -join "`n") | Should -Match '353\.2'
+    }
+
+    It 'export csv: invariant decimals, quoted text, honest empty numerics' {
+        $snap = New-Snap -Rows @((New-SampleRow -Id 3 -Name 'A"x' -Instance 'In,stance' -CpuPct 3.1 -RamMB 10.5 -PrivMB 5))
+        $l = @(ConvertTo-ResourceExportLines -Snapshot $snap -Stats (New-EmptyStats) -Format 'csv')
+        $l[0] | Should -Be 'pid,name,instance,cpu_pct,ram_delta_mb,ram_mb,priv_mb,uptime'
+        $expected = (@('3', '"A""x"', '"In,stance"', '3.1', '', '10.5', '5', '1h 00m') -join ',')
+        $l[1] | Should -Be $expected
+    }
+
+    It 'export json: round-trips and carries the delta field' {
+        $snap = New-Snap -Rows @((New-SampleRow -Id 1 -CpuPct 3.1 -RamMB 10.5)) -TotalCpu 3.1
+        $snap.Rows[0].RamDelta = -12.5
+        $l = @(ConvertTo-ResourceExportLines -Snapshot $snap -Stats (New-EmptyStats) -Format 'json')
+        $obj = $l -join "`n" | ConvertFrom-Json
+        $obj.processCount | Should -Be 1
+        $obj.processes[0].ramDeltaMB | Should -Be -12.5
+        $obj.processes[0].cpuPct | Should -Be 3.1
+    }
+
+    It 'export writer: UTF-8 BOM, output subdir, md/csv/json targets, honest failure' {
+        $dir = Join-Path $TestDrive "rm_$(Get-Random)"
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        $snap = New-Snap -Rows @((New-SampleRow -Id 1 -CpuPct 3.1 -RamMB 10.5)) -TotalCpu 3.1
+        $r = Export-ResourceSnapshot -Snapshot $snap -Stats (New-EmptyStats) -Format 'csv' -BaseDir $dir
+        $r.ok | Should -BeTrue
+        Test-Path $r.path | Should -BeTrue
+        ($r.path -match 'output\\resource-snapshot-\d{8}-\d{6}\.csv$') | Should -BeTrue
+        $bytes = [System.IO.File]::ReadAllBytes($r.path)[0..2]
+        ($bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) | Should -BeTrue
+        $json = Export-ResourceSnapshot -Snapshot $snap -Stats (New-EmptyStats) -Format '3' -BaseDir $dir
+        $json.ok | Should -BeTrue
+        ($json.path -match '\.json$') | Should -BeTrue
+        # Honest failure: the base path exists but is a FILE, so creating
+        # <base>\output can never succeed (New-Item -Force would happily
+        # create a whole missing directory chain, which is by design).
+        $fileBase = Join-Path $TestDrive "rmfile_$(Get-Random)"
+        Set-Content -LiteralPath $fileBase -Value 'not a directory'
+        $bad = Export-ResourceSnapshot -Snapshot $snap -Stats (New-EmptyStats) -Format 'csv' -BaseDir $fileBase
+        $bad.ok | Should -BeFalse
+        $bad.error | Should -Not -Be ''
+    }
+
+    It 'snapshot: RAM delta is computed from the previous tick, $null on the first frame' {
+        $samples = @(
+            [pscustomobject]@{ Pid = 1; Name = 'A'; Instance = ''; CpuSec = 0; RamMB = 100.0; PrivMB = 50; Uptime = 'x' }
+        )
+        $s1 = Get-MumuResourceSnapshot -Samples $samples -Prev @{} -PrevRam @{} -ElapsedSeconds 1 -Cores 1 -NoBaseline
+        $s1.Rows[0].RamDelta | Should -BeNullOrEmpty
+        $s2 = Get-MumuResourceSnapshot -Samples $samples -Prev @{} -PrevRam @{ 1 = 112.0 } -ElapsedSeconds 1 -Cores 1
+        $s2.Rows[0].RamDelta | Should -Be -12
     }
 }
 

@@ -9804,6 +9804,7 @@ function Get-MumuResourceSnapshot {
     param(
         [object[]]$Samples,
         [hashtable]$Prev,
+        [hashtable]$PrevRam,
         [double]$ElapsedSeconds = 1.0,
         [int]$Cores = [Environment]::ProcessorCount,
         [ValidateSet('cpu', 'ram', 'pid')]
@@ -9833,14 +9834,17 @@ function Get-MumuResourceSnapshot {
         $totalRamMB += $s.RamMB
         $totalPrivMB += $s.PrivMB
         $instLbl = [string]$s.Instance
+        $ramDelta = $null
+        if ($PrevRam -and $PrevRam.ContainsKey($s.Pid)) { $ramDelta = [Math]::Round($s.RamMB - [double]$PrevRam[$s.Pid], 1) }
         $rows.Add([pscustomobject]@{
-            Pid      = $s.Pid
-            Name     = $s.Name
-            Instance = $instLbl
-            CpuPct   = $rowPct
-            RamMB    = $s.RamMB
-            PrivMB   = $s.PrivMB
-            Uptime   = $s.Uptime
+            Pid       = $s.Pid
+            Name      = $s.Name
+            Instance  = $instLbl
+            CpuPct    = $rowPct
+            RamDelta  = $ramDelta
+            RamMB     = $s.RamMB
+            PrivMB    = $s.PrivMB
+            Uptime    = $s.Uptime
         })
     }
     if (-not $NoBaseline) { $totalPctOut = [Math]::Round([Math]::Min(100.0, $totalCpuPct), 1) }
@@ -9857,6 +9861,192 @@ function Get-MumuResourceSnapshot {
         TotalCpuPct  = $totalPctOut
         TotalRamMB   = [Math]::Round($totalRamMB, 1)
         TotalPrivMB  = [Math]::Round($totalPrivMB, 1)
+    }
+}
+
+function Update-ResourceStats {
+    # Pure per-tick accumulator for the [RM] session: updates peak/avg CPU
+    # per PID, peak RAM and the session RAM floor (for the RAM-delta arrows),
+    # appends the total CPU% to the sparkline ring buffer, and tracks the
+    # peak total. Returns the SAME hashtable instances (mutable state lives
+    # in the caller). -NoBaseline ticks (first frame / after sort / interval
+    # change) contribute no CPU sample - a fake 0 would skew the averages.
+    param(
+        [hashtable]$Stats,
+        [object[]]$Rows,
+        [double]$TotalCpuPct,
+        [bool]$CountThisTick,
+        [int]$SparkCap = 60
+    )
+
+    if ($CountThisTick -and $null -ne $TotalCpuPct) {
+        $sp = @($Stats.Spark)
+        if ($sp.Count -ge $SparkCap) { $sp = @($sp | Select-Object -Last ($SparkCap - 1)) }
+        $sp += [double]$TotalCpuPct
+        $Stats.Spark = $sp
+        if ($null -eq $Stats.PeakTotal -or $TotalCpuPct -gt [double]$Stats.PeakTotal) { $Stats.PeakTotal = [double]$TotalCpuPct }
+    }
+
+    foreach ($r in @($Rows)) {
+        if (-not $r) { continue }
+        if (-not $Stats.ByPid.ContainsKey($r.Pid)) {
+            $Stats.ByPid[$r.Pid] = [ordered]@{
+                Name = [string]$r.Name
+                Instance = [string]$r.Instance
+                PeakCpu = $null
+                CpuSum = 0.0
+                CpuN = 0
+                PeakRam = 0.0
+                RamLow = $null
+            }
+        }
+        $e = $Stats.ByPid[$r.Pid]
+        if ($e.Name -ne [string]$r.Name) { $e.Name = [string]$r.Name }
+        if ([string]$r.Instance -and $e.Instance -ne [string]$r.Instance) { $e.Instance = [string]$r.Instance }
+        if ($null -ne $r.CpuPct) {
+            if ($null -eq $e.PeakCpu -or $r.CpuPct -gt $e.PeakCpu) { $e.PeakCpu = [double]$r.CpuPct }
+            $e.CpuSum += [double]$r.CpuPct
+            $e.CpuN++
+            if ($null -eq $e.RamLow -or $r.RamMB -lt [double]$e.RamLow) { $e.RamLow = [double]$r.RamMB }
+        } else {
+            if ($null -eq $e.RamLow) { $e.RamLow = [double]$r.RamMB }
+        }
+        if ($r.RamMB -gt [double]$e.PeakRam) { $e.PeakRam = [double]$r.RamMB }
+    }
+    return $Stats
+}
+
+function Get-ResourceStatsSummary {
+    # Read-only shape of the session stats for the export file: one row per
+    # PID seen this session, peak/avg CPU, peak RAM, sorted by peak CPU desc.
+    param([hashtable]$Stats)
+    $rows = @()
+    foreach ($pidKey in @($Stats.ByPid.Keys | Sort-Object)) {
+        $e = $Stats.ByPid[$pidKey]
+        $avg = $null
+        if ([int]$e.CpuN -gt 0) { $avg = [Math]::Round([double]$e.CpuSum / [int]$e.CpuN, 1) }
+        $rows += [pscustomobject]@{
+            Pid = $pidKey
+            Name = $e.Name
+            Instance = $e.Instance
+            PeakCpuPct = if ($null -ne $e.PeakCpu) { [Math]::Round([double]$e.PeakCpu, 1) } else { $null }
+            AvgCpuPct = $avg
+            PeakRamMB = [Math]::Round([double]$e.PeakRam, 1)
+        }
+    }
+    return @($rows | Sort-Object -Property @{ Expression = { if ($null -ne $_.PeakCpuPct) { $_.PeakCpuPct } else { -1.0 } } } -Descending)
+}
+
+function ConvertTo-ResourceExportLines {
+    # Builds the [E] export lines for one snapshot. Pure formatting: the
+    # caller decides where (and whether) to write them. MD is issue-ready,
+    # CSV stays BOM-less per repo rule, JSON is fully round-trippable.
+    param(
+        [object]$Snapshot,
+        [hashtable]$Stats,
+        [string]$Format
+    )
+
+    $stamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    # Invariant decimals everywhere: the current culture would write
+    # '353,2' in ru-RU (the CI/AGENTS rule for numbers in files).
+    $inv = [Globalization.CultureInfo]::InvariantCulture
+    $totalTxt = if ($null -ne $Snapshot.TotalCpuPct) { '{0}%' -f ([double]$Snapshot.TotalCpuPct).ToString($inv) } else { 'measuring...' }
+    $session = @('')
+    if ($Stats -and $Stats.ByPid.Count -gt 0) {
+        $summary = Get-ResourceStatsSummary -Stats $Stats
+        $session = @('') + @('Session peaks/averages (per process, this monitor session):') + @('') +
+            @('| PID | Name | Instance | Peak CPU % | Avg CPU % | Peak RAM MB |') + @('|---|---|---|---|---|---|') +
+            @($summary | ForEach-Object {
+                $peak = if ($null -ne $_.PeakCpuPct) { ([double]$_.PeakCpuPct).ToString($inv) } else { '-' }
+                $avg = if ($null -ne $_.AvgCpuPct) { ([double]$_.AvgCpuPct).ToString($inv) } else { '-' }
+                $inst = if ($_.Instance) { $_.Instance } else { '-' }
+                '| {0} | {1} | {2} | {3} | {4} | {5} |' -f $_.Pid, $_.Name, $inst, $peak, $avg, $_.PeakRamMB
+            })
+    }
+
+    switch ($Format) {
+        'json' {
+            $obj = [ordered]@{
+                generated = $stamp
+                processCount = $Snapshot.ProcessCount
+                totalCpuPct = $Snapshot.TotalCpuPct
+                totalRamMB = $Snapshot.TotalRamMB
+                totalPrivMB = $Snapshot.TotalPrivMB
+                processes = @($Snapshot.Rows | ForEach-Object {
+                    [ordered]@{
+                        pid = $_.Pid; name = $_.Name; instance = $_.Instance
+                        cpuPct = $_.CpuPct; ramDeltaMB = $_.RamDelta; ramMB = $_.RamMB; privMB = $_.PrivMB; uptime = $_.Uptime
+                    }
+                })
+            }
+            $json = $obj | ConvertTo-Json -Depth 4
+            return @($json -split "`r?`n")
+        }
+        'csv' {
+            $inv = [Globalization.CultureInfo]::InvariantCulture
+            $lines = @('pid,name,instance,cpu_pct,ram_delta_mb,ram_mb,priv_mb,uptime')
+            foreach ($r in $Snapshot.Rows) {
+                $inst = ('"' + ($r.Instance -replace '"', '""') + '"')
+                $name = ('"' + ($r.Name -replace '"', '""') + '"')
+                # Invariant decimals as STRINGS: a [double] cast after
+                # ToString would re-render through the current culture and
+                # put '3,1' back in ru-RU (phantom CSV column).
+                $cpu = if ($null -ne $r.CpuPct) { ([double]$r.CpuPct).ToString($inv) } else { '' }
+                $delta = if ($null -ne $r.RamDelta) { ([double]$r.RamDelta).ToString($inv) } else { '' }
+                $lines += ('{0},{1},{2},{3},{4},{5},{6},{7}' -f $r.Pid, $name, $inst, $cpu, $delta, ([double]$r.RamMB).ToString($inv), ([double]$r.PrivMB).ToString($inv), $r.Uptime)
+            }
+            return $lines
+        }
+        default {
+            $lines = @()
+            $lines += '# MuMu resource monitor snapshot'
+            $lines += ''
+            $lines += ('Generated: {0}' -f $stamp)
+            $lines += ('Processes: {0}   Total CPU: {1}   RAM: {2} MB (private {3} MB)' -f $Snapshot.ProcessCount, $totalTxt, ([double]$Snapshot.TotalRamMB).ToString($inv), ([double]$Snapshot.TotalPrivMB).ToString($inv))
+            $lines += $session
+            $lines += ''
+            $lines += '| PID | Name | Instance | CPU % | RAM Δ MB | RAM MB | Priv MB | Uptime |'
+            $lines += '|---|---|---|---|---|---|---|---|'
+            foreach ($r in $Snapshot.Rows) {
+                $inst = if ($r.Instance) { $r.Instance } else { '-' }
+                $cpu = if ($null -ne $r.CpuPct) { ([double]$r.CpuPct).ToString($inv) } else { '-' }
+                $delta = if ($null -ne $r.RamDelta) { ([double]$r.RamDelta).ToString($inv) } else { '-' }
+                $lines += ('| {0} | {1} | {2} | {3} | {4} | {5} | {6} | {7} |' -f $r.Pid, $r.Name, $inst, $cpu, $delta, ([double]$r.RamMB).ToString($inv), ([double]$r.PrivMB).ToString($inv), $r.Uptime)
+                if ($r.Name -match '\|') { Write-Debug "md: process name contained a pipe: $($r.Name)" }
+            }
+            return $lines
+        }
+    }
+}
+
+function Export-ResourceSnapshot {
+    # [RM] -> [E]: writes the current snapshot (+ session peaks) to a UTF-8
+    # BOM file under <script dir>\output\ (created on demand; same spirit
+    # as [J] -> 5, which writes next to the journal). The live loop stays
+    # read-only - writing happens ONLY here, on an explicit user action.
+    # CSV numerics use the invariant culture: '{0}' -f 3.1 renders '3,1'
+    # in ru-RU and would add a phantom CSV column.
+    param([object]$Snapshot, [hashtable]$Stats, [string]$Format = 'md', [string]$BaseDir = '')
+    try {
+        $fmtKey = switch -Regex ($Format) {
+            '^(2|csv)$' { 'csv' }
+            '^(3|json)$' { 'json' }
+            default { 'md' }
+        }
+        # -BaseDir is the Pester hook; production resolves the script folder.
+        $base = $BaseDir
+        if (-not $base) { $base = $PSScriptRoot }
+        if (-not $base) { $base = Split-Path -Parent $PSCommandPath }
+        if (-not $base) { $base = (Get-Location).Path }
+        $dir = Join-Path $base 'output'
+        if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+        $target = Join-Path $dir ("resource-snapshot-{0}.{1}" -f (Get-Date -Format 'yyyyMMdd-HHmmss'), $fmtKey)
+        $linesToWrite = [string[]]@(ConvertTo-ResourceExportLines -Snapshot $Snapshot -Stats $Stats -Format $fmtKey)
+        [System.IO.File]::WriteAllLines($target, $linesToWrite, (New-Object System.Text.UTF8Encoding($true)))
+        return @{ ok = $true; path = $target; lines = $linesToWrite.Count }
+    } catch {
+        return @{ ok = $false; error = $_.Exception.Message }
     }
 }
 
@@ -9877,12 +10067,42 @@ function Show-ResourceMonitor {
 
     $sortMode = 'cpu'
     $prev = @{}
+    $prevRam = @{}
     $lastTick = Get-Date
     $frames = 0
     $firstFrame = $true
+    $paused = $false
+    # Session accumulator (peaks/averages/sparkline); lives only for this
+    # [RM] invocation - [R] resets it to a fresh, empty state.
+    $stats = @{
+        ByPid = @{}
+        Spark = @()
+        PeakTotal = $null
+    }
 
     try {
         while ($true) {
+            if ($paused) {
+                # Frozen frame: no sampling, no redraw, no stat updates -
+                # only quit/resume keys are honored. Without this gate the
+                # header said PAUSED while the loop kept redrawing behind it.
+                $keyReady = $false
+                try { $keyReady = [Console]::KeyAvailable } catch { $keyReady = $false }
+                if ($keyReady) {
+                    $ki = [Console]::ReadKey($true)
+                    if ($ki.Key -eq 'C' -and ($ki.Modifiers -band [ConsoleModifiers]::Control)) { return }
+                    if ($ki.Key -eq 'Q' -or $ki.Key -eq 'Escape') { return }
+                    if ($ki.Key -eq 'P') {
+                        $paused = $false
+                        $lastTick = Get-Date
+                        $firstFrame = $true
+                    }
+                } else {
+                    Start-Sleep -Milliseconds 100
+                }
+                continue
+            }
+
             $now = Get-Date
             $elapsed = ($now - $lastTick).TotalSeconds
             $lastTick = $now
@@ -9890,11 +10110,13 @@ function Show-ResourceMonitor {
 
             $instMap = Get-InstanceProcessMap
             $samples = @(Get-MumuProcessSamples -InstanceMap $instMap)
-            $snap = Get-MumuResourceSnapshot -Samples $samples -Prev $prev -ElapsedSeconds $elapsed -Sort $sortMode -NoBaseline:$firstFrame
+            $snap = Get-MumuResourceSnapshot -Samples $samples -Prev $prev -PrevRam $prevRam -ElapsedSeconds $elapsed -Sort $sortMode -NoBaseline:$firstFrame
 
             # Re-baseline BEFORE drawing so a slow tick never double-counts.
             $prev = @{}
-            foreach ($s in $samples) { $prev[$s.Pid] = $s.CpuSec }
+            $prevRam = @{}
+            foreach ($s in $samples) { $prev[$s.Pid] = $s.CpuSec; $prevRam[$s.Pid] = $s.RamMB }
+            $null = Update-ResourceStats -Stats $stats -Rows $snap.Rows -TotalCpuPct $snap.TotalCpuPct -CountThisTick:(-not $firstFrame)
             $firstFrame = $false
             $frames++
 
@@ -9904,16 +10126,28 @@ function Show-ResourceMonitor {
             $totalCpuTxt = 'measuring... (next frame)'
             if ($null -ne $snap.TotalCpuPct) { $totalCpuTxt = ('{0}%' -f $snap.TotalCpuPct) }
             $sortTxt = switch ($sortMode) { 'cpu' { 'CPU %' } 'ram' { 'RAM' } default { 'PID' } }
+            # Sparkline: one char per measured tick, '#' scaled to 0-100%.
+            # Blocks would be nicer but '#' stays honest in every codepage.
+            $sparkChars = @()
+            foreach ($v in @($stats.Spark)) {
+                $n = [int][Math]::Round([double]$v / 5.0)
+                if ($n -gt 20) { $n = 20 }
+                $sparkChars += ('#' * $n)
+            }
+            $sparkTxt = if ($sparkChars.Count) { $sparkChars -join ' ' } else { '(measuring)' }
+            $peakTotalTxt = if ($null -ne $stats.PeakTotal) { '{0}%' -f $stats.PeakTotal } else { '-' }
+            $pausedTxt = if ($paused) { '   PAUSED [P] to resume' } else { '' }
             Write-Host $bar -ForegroundColor Cyan
-            Write-Host ('  MuMu resource monitor   sort: {0}   refresh: {1}s' -f $sortTxt, $IntervalSeconds) -ForegroundColor Cyan
-            Write-Host ('  Processes: {0}   Total CPU: {1}   RAM: {2} MB (private {3} MB)' -f $snap.ProcessCount, $totalCpuTxt, $snap.TotalRamMB, $snap.TotalPrivMB) -ForegroundColor White
+            Write-Host ('  MuMu resource monitor   sort: {0}   refresh: {1}s{2}' -f $sortTxt, $IntervalSeconds, $pausedTxt) -ForegroundColor Cyan
+            Write-Host ('  CPU total {0}   peak {1}   history: {2}' -f $totalCpuTxt, $peakTotalTxt, $sparkTxt) -ForegroundColor White
+            Write-Host ('  Processes: {0}   RAM: {1} MB (private {2} MB)' -f $snap.ProcessCount, $snap.TotalRamMB, $snap.TotalPrivMB) -ForegroundColor White
             Write-Host $bar -ForegroundColor Cyan
 
             if ($snap.ProcessCount -eq 0) {
                 Write-Host '  No MuMu processes are running right now.' -ForegroundColor Yellow
                 Write-Host '  Launch the emulator via [2] or [B], then reopen [RM].' -ForegroundColor DarkGray
             } else {
-                Write-Host ('  {0,-8}{1,-23}{2,-19}{3,7}{4,9}{5,9}  {6}' -f 'PID', 'Name', 'Instance', 'CPU %', 'RAM MB', 'Priv MB', 'Uptime') -ForegroundColor DarkGray
+                Write-Host ('  {0,-8}{1,-23}{2,-19}{3,7}{4,9}{5,9}{6,9}  {7}' -f 'PID', 'Name', 'Instance', 'CPU %', 'RAM d', 'RAM MB', 'Priv MB', 'Uptime') -ForegroundColor DarkGray
                 foreach ($r in $snap.Rows) {
                     $cpuTxt = '     -'
                     $color = 'White'
@@ -9928,12 +10162,19 @@ function Show-ResourceMonitor {
                     # collide with the Instance column, so cap at 21 + '~'.
                     $nameTxt = $r.Name
                     if ($nameTxt.Length -gt 21) { $nameTxt = $nameTxt.Substring(0, 21) + '~' }
-                    Write-Host ('  {0,-8}{1,-23}{2,-19}{3,7}{4,9:F1}{5,9:F1}  {6}' -f $r.Pid, $nameTxt, $instTxt, $cpuTxt, $r.RamMB, $r.PrivMB, $r.Uptime) -ForegroundColor $color
+                    # RAM delta sign: ASCII only - Unicode arrows degrade to
+                    # '?' on legacy codepages (CP866).
+                    $deltaTxt = '      -'
+                    if ($null -ne $r.RamDelta) {
+                        $sign = if ($r.RamDelta -gt 0) { '+' } elseif ($r.RamDelta -lt 0) { '-' } else { '=' }
+                        $deltaTxt = ('{0,6:F1}{1}' -f [Math]::Abs($r.RamDelta), $sign)
+                    }
+                    Write-Host ('  {0,-8}{1,-23}{2,-19}{3,7}{4,9}{5,9:F1}{6,9:F1}  {7}' -f $r.Pid, $nameTxt, $instTxt, $cpuTxt, $deltaTxt, $r.RamMB, $r.PrivMB, $r.Uptime) -ForegroundColor $color
                 }
             }
 
             Write-Host $bar -ForegroundColor Cyan
-            Write-Host '  Keys: [S] sort CPU/RAM/PID   [+]/[-] interval   [Q]/Esc quit' -ForegroundColor DarkGray
+            Write-Host '  Keys: [S]ort  [+]/[-] interval  [P]ause  [R]eset stats  [E]xport  [Q]uit' -ForegroundColor DarkGray
             if ($Once) { break }
 
             # Key handling inside the refresh interval. [Console]::KeyAvailable
@@ -9949,6 +10190,26 @@ function Show-ResourceMonitor {
                     if ($ki.Key -eq 'S') { $sortMode = switch ($sortMode) { 'cpu' { 'ram' } 'ram' { 'pid' } default { 'cpu' } }; $firstFrame = $true; break }
                     if ($ki.Key -eq 'OemPlus' -or $ki.Key -eq 'Add') { $IntervalSeconds = [Math]::Max(1, $IntervalSeconds - 1); $firstFrame = $true; break }
                     if ($ki.Key -eq 'OemMinus' -or $ki.Key -eq 'Subtract') { $IntervalSeconds = [Math]::Min(30, $IntervalSeconds + 1); $firstFrame = $true; break }
+                    if ($ki.Key -eq 'E') {
+                        Write-Host ''
+                        $fmtIn = Read-Host '  Export format [1] md [2] csv [3] json (Enter = 1)'
+                        $exp = Export-ResourceSnapshot -Snapshot $snap -Stats $stats -Format $fmtIn
+                        if ($exp.ok) {
+                            Write-Host ("  Exported {0} line(s) -> {1}" -f $exp.lines, $exp.path) -ForegroundColor Green
+                        } else {
+                            Write-Host ("  Export failed: {0}" -f $exp.error) -ForegroundColor Red
+                        }
+                        Write-Host '  Press any key to redraw...' -ForegroundColor DarkGray
+                        $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
+                        break
+                    }
+                    if ($ki.Key -eq 'P') {
+                        $paused = -not $paused
+                        $lastTick = Get-Date
+                        $firstFrame = $true
+                        break
+                    }
+                    if ($ki.Key -eq 'R') { $stats = @{ ByPid = @{}; Spark = @(); PeakTotal = $null }; $firstFrame = $true; break }
                 } else {
                     Start-Sleep -Milliseconds 100
                     $waitedMs += 100
