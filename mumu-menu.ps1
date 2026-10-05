@@ -3316,6 +3316,7 @@ function Show-Menu {
     Write-Host ''
     Write-Host '  --- Info ---' -ForegroundColor Green
     Write-Host '  [WN] Watch MuMu network + updater' -ForegroundColor Yellow
+    Write-Host '  [RM] Resource monitor (CPU/RAM, live)' -ForegroundColor Yellow
     Write-Host '  [V] Version info' -ForegroundColor Yellow
     Write-Host '  [U] Check for updates' -ForegroundColor Yellow
     Write-Host '  [UP] Update plan (dry-run)' -ForegroundColor Yellow
@@ -9593,6 +9594,207 @@ function Start-MumuWatcher {
     }
 }
 
+# ── [RM] Resource monitor (live CPU/RAM of MuMu processes) ──────────
+
+function Get-MumuProcessSamples {
+    # Normalized snapshot of every MuMu* process. Read-only: the live path
+    # is Get-Process -Name 'MuMu*' (the same check [WN] and [DIAG] use).
+    # -Processes accepts pre-built Process-like stubs so tests and CI run
+    # this offline; an explicitly passed empty array means "no processes".
+    param([object[]]$Processes)
+
+    if (-not $PSBoundParameters.ContainsKey('Processes')) {
+        $Processes = @(Get-Process -Name 'MuMu*' -ErrorAction SilentlyContinue)
+    }
+
+    $samples = @()
+    foreach ($p in @($Processes)) {
+        if (-not $p) { continue }
+        $cpuSec = 0.0
+        try { $cpuSec = [double]$p.TotalProcessorTime.TotalSeconds } catch { $cpuSec = 0.0 }
+        $ramMB = 0.0
+        try { $ramMB = [Math]::Round($p.WorkingSet64 / 1MB, 1) } catch { $ramMB = 0.0 }
+        $privMB = 0.0
+        try { $privMB = [Math]::Round($p.PrivateMemorySize64 / 1MB, 1) } catch { $privMB = 0.0 }
+        $uptime = 'n/a'
+        try {
+            $span = (Get-Date) - $p.StartTime
+            # Use the component properties (Days/Hours/Minutes), NOT casts of
+            # Total* - [int]1.5h rounds UP to 2 and '2h 30m' lies about a
+            # 91-minute uptime (caught by the [RM] Pester test).
+            if ($span.TotalDays -ge 1) { $uptime = '{0}d {1:D2}h {2:D2}m' -f $span.Days, $span.Hours, $span.Minutes }
+            elseif ($span.TotalHours -ge 1) { $uptime = '{0}h {1:D2}m' -f $span.Hours, $span.Minutes }
+            else { $uptime = '{0}m {1:D2}s' -f $span.Minutes, $span.Seconds }
+        } catch { $uptime = 'n/a' }
+        $samples += [pscustomobject]@{
+            Pid    = [int]$p.Id
+            Name   = [string]$p.ProcessName
+            CpuSec = $cpuSec
+            RamMB  = $ramMB
+            PrivMB = $privMB
+            Uptime = $uptime
+        }
+    }
+    return $samples
+}
+
+function Get-MumuResourceSnapshot {
+    # Pure math over collected samples: per-process CPU% as the delta
+    # against the previous tick, normalized to logical cores, plus machine
+    # totals and the sorted row set for the [RM] frame. -NoBaseline marks
+    # the very first frame: there is no previous sample yet, so CPU% is
+    # honestly rendered as "-" instead of a fake 0.
+    param(
+        [object[]]$Samples,
+        [hashtable]$Prev,
+        [double]$ElapsedSeconds = 1.0,
+        [int]$Cores = [Environment]::ProcessorCount,
+        [ValidateSet('cpu', 'ram', 'pid')]
+        [string]$Sort = 'cpu',
+        [switch]$NoBaseline
+    )
+
+    $rows = [System.Collections.Generic.List[object]]::new()
+    $totalCpuPct = 0.0
+    $totalRamMB = 0.0
+    $totalPrivMB = 0.0
+    $totalPctOut = $null
+    $denom = [Math]::Max(0.001, $ElapsedSeconds) * [Math]::Max(1, $Cores)
+
+    foreach ($s in @($Samples)) {
+        if (-not $s) { continue }
+        $rowPct = $null
+        if (-not $NoBaseline) {
+            $prevSec = 0.0
+            if ($Prev -and $Prev.ContainsKey($s.Pid)) { $prevSec = [double]$Prev[$s.Pid] }
+            $pct = (($s.CpuSec - $prevSec) / $denom) * 100.0
+            if ($pct -lt 0) { $pct = 0.0 }
+            if ($pct -gt 100) { $pct = 100.0 }
+            $totalCpuPct += $pct
+            $rowPct = [Math]::Round($pct, 1)
+        }
+        $totalRamMB += $s.RamMB
+        $totalPrivMB += $s.PrivMB
+        $rows.Add([pscustomobject]@{
+            Pid    = $s.Pid
+            Name   = $s.Name
+            CpuPct = $rowPct
+            RamMB  = $s.RamMB
+            PrivMB = $s.PrivMB
+            Uptime = $s.Uptime
+        })
+    }
+    if (-not $NoBaseline) { $totalPctOut = [Math]::Round([Math]::Min(100.0, $totalCpuPct), 1) }
+
+    $sorted = switch ($Sort) {
+        'ram' { @($rows | Sort-Object -Property RamMB -Descending) }
+        'pid' { @($rows | Sort-Object -Property Pid) }
+        default { @($rows | Sort-Object -Property CpuPct -Descending) }
+    }
+
+    return [pscustomobject]@{
+        Rows         = $sorted
+        ProcessCount = @($Samples).Count
+        TotalCpuPct  = $totalPctOut
+        TotalRamMB   = [Math]::Round($totalRamMB, 1)
+        TotalPrivMB  = [Math]::Round($totalPrivMB, 1)
+    }
+}
+
+function Show-ResourceMonitor {
+    # [RM] entry point: read-only live view of MuMu* process CPU/RAM.
+    # -Once renders exactly one frame and returns (tests, CI, piped runs);
+    # the live loop redraws every $IntervalSeconds until Q/Esc/Ctrl+C.
+    param([switch]$Once, [int]$IntervalSeconds = 2)
+
+    if ($IntervalSeconds -lt 1) { $IntervalSeconds = 1 }
+    if ($IntervalSeconds -gt 30) { $IntervalSeconds = 30 }
+
+    if (-not $Once -and [Console]::IsInputRedirected) {
+        # No console to read keys from - looping forever would be un-quittable.
+        Write-Host '  Stdin is redirected - rendering a single frame.' -ForegroundColor DarkYellow
+        $Once = $true
+    }
+
+    $sortMode = 'cpu'
+    $prev = @{}
+    $lastTick = Get-Date
+    $frames = 0
+    $firstFrame = $true
+
+    try {
+        while ($true) {
+            $now = Get-Date
+            $elapsed = ($now - $lastTick).TotalSeconds
+            $lastTick = $now
+            if ($elapsed -le 0) { $elapsed = 0.001 }
+
+            $samples = @(Get-MumuProcessSamples)
+            $snap = Get-MumuResourceSnapshot -Samples $samples -Prev $prev -ElapsedSeconds $elapsed -Sort $sortMode -NoBaseline:$firstFrame
+
+            # Re-baseline BEFORE drawing so a slow tick never double-counts.
+            $prev = @{}
+            foreach ($s in $samples) { $prev[$s.Pid] = $s.CpuSec }
+            $firstFrame = $false
+            $frames++
+
+            try { Clear-Host } catch { Write-Debug "Clear-Host unavailable: $($_.Exception.Message)" }
+
+            $bar = '=' * 62
+            $totalCpuTxt = 'measuring... (next frame)'
+            if ($null -ne $snap.TotalCpuPct) { $totalCpuTxt = ('{0}%' -f $snap.TotalCpuPct) }
+            $sortTxt = switch ($sortMode) { 'cpu' { 'CPU %' } 'ram' { 'RAM' } default { 'PID' } }
+            Write-Host $bar -ForegroundColor Cyan
+            Write-Host ('  MuMu resource monitor   sort: {0}   refresh: {1}s' -f $sortTxt, $IntervalSeconds) -ForegroundColor Cyan
+            Write-Host ('  Processes: {0}   Total CPU: {1}   RAM: {2} MB (private {3} MB)' -f $snap.ProcessCount, $totalCpuTxt, $snap.TotalRamMB, $snap.TotalPrivMB) -ForegroundColor White
+            Write-Host $bar -ForegroundColor Cyan
+
+            if ($snap.ProcessCount -eq 0) {
+                Write-Host '  No MuMu processes are running right now.' -ForegroundColor Yellow
+                Write-Host '  Launch the emulator via [2] or [B], then reopen [RM].' -ForegroundColor DarkGray
+            } else {
+                Write-Host ('  {0,-8}{1,-20}{2,8}{3,10}{4,10}  {5}' -f 'PID', 'Name', 'CPU %', 'RAM MB', 'Priv MB', 'Uptime') -ForegroundColor DarkGray
+                foreach ($r in $snap.Rows) {
+                    $cpuTxt = '     -'
+                    $color = 'White'
+                    if ($null -ne $r.CpuPct) {
+                        $cpuTxt = '{0,6:F1}' -f $r.CpuPct
+                        if ($r.CpuPct -ge 50) { $color = 'Red' }
+                        elseif ($r.CpuPct -ge 25) { $color = 'Yellow' }
+                    }
+                    Write-Host ('  {0,-8}{1,-20}{2,8}{3,10:F1}{4,10:F1}  {5}' -f $r.Pid, $r.Name, $cpuTxt, $r.RamMB, $r.PrivMB, $r.Uptime) -ForegroundColor $color
+                }
+            }
+
+            Write-Host $bar -ForegroundColor Cyan
+            Write-Host '  Keys: [S] sort CPU/RAM/PID   [+]/[-] interval   [Q]/Esc quit' -ForegroundColor DarkGray
+            if ($Once) { break }
+
+            # Key handling inside the refresh interval. [Console]::KeyAvailable
+            # throws when stdin is redirected - treat that as "no key".
+            $waitedMs = 0
+            while ($waitedMs -lt ($IntervalSeconds * 1000)) {
+                $keyReady = $false
+                try { $keyReady = [Console]::KeyAvailable } catch { $keyReady = $false }
+                if ($keyReady) {
+                    $ki = [Console]::ReadKey($true)
+                    if ($ki.Key -eq 'C' -and ($ki.Modifiers -band [ConsoleModifiers]::Control)) { return }
+                    if ($ki.Key -eq 'Q' -or $ki.Key -eq 'Escape') { return }
+                    if ($ki.Key -eq 'S') { $sortMode = switch ($sortMode) { 'cpu' { 'ram' } 'ram' { 'pid' } default { 'cpu' } }; $firstFrame = $true; break }
+                    if ($ki.Key -eq 'OemPlus' -or $ki.Key -eq 'Add') { $IntervalSeconds = [Math]::Max(1, $IntervalSeconds - 1); $firstFrame = $true; break }
+                    if ($ki.Key -eq 'OemMinus' -or $ki.Key -eq 'Subtract') { $IntervalSeconds = [Math]::Min(30, $IntervalSeconds + 1); $firstFrame = $true; break }
+                } else {
+                    Start-Sleep -Milliseconds 100
+                    $waitedMs += 100
+                }
+            }
+        }
+    } finally {
+        Write-Host ''
+        Write-Host ('Resource monitor stopped ({0} frame(s) rendered).' -f $frames) -ForegroundColor Cyan
+    }
+}
+
 # Main loop
 do {
     Show-Menu
@@ -9657,6 +9859,7 @@ do {
         'st' { Show-InstallStatus; $resp = Read-Host '  d = full drift check, Enter = back'; if ($resp -eq 'd') { Show-InstallStatus -Deep } }
         'diag' { Show-ProblemDiagnostics }
         'wn' { Start-MumuWatcher }
+        'rm' { Show-ResourceMonitor }
         'rb' { Show-RollbackFromBackup }
         'dl' { Download-Repository }
         'cr' { Create-GitHubRelease }

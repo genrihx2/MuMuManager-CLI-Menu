@@ -184,6 +184,7 @@ curl.exe -sSL -o $env:TEMP\mumu-menu.ps1 https://cdn.jsdelivr.net/gh/genrihx2/Mu
 
   --- Info ---
   [WN] Watch MuMu network + updater
+  [RM] Resource monitor (CPU/RAM, live)
   [V] Version info
   [U] Check for updates
   [UP] Update plan (dry-run)

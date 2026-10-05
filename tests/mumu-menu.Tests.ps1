@@ -36,7 +36,8 @@ BeforeAll {
                         'Get-DiagSummary', 'Show-UpdatePlan',
                         'Get-AutoDiagSummary', 'Invoke-StartupAutoDiag', 'Show-AutoDiagLine',
                         'Read-EtagCacheFile', 'Get-EtagCacheFileState', 'Save-EtagCacheFile', 'Invoke-EtagCacheMaintenance',
-                        'Test-CurlRetrySupport', 'Get-CurlGitHubArgs', 'Invoke-GitHubApiGet', 'Get-ReleaseInfo', 'Invoke-GitHubGet')) {
+                        'Test-CurlRetrySupport', 'Get-CurlGitHubArgs', 'Invoke-GitHubApiGet', 'Get-ReleaseInfo', 'Invoke-GitHubGet',
+                        'Get-MumuProcessSamples', 'Get-MumuResourceSnapshot', 'Show-ResourceMonitor')) {
         $f = $script:ast.FindAll({
             param($node)
             $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -2445,5 +2446,135 @@ Describe 'ADB probe hardening (v1.22.5): explicit connect, candidates, kill-on-t
         $sw.Stop()
         $p.adbReady | Should -BeFalse
         $sw.Elapsed.TotalSeconds | Should -BeLessThan 15
+    }
+}
+
+Describe 'Resource monitor ([RM] CPU/RAM, live)' {
+
+    BeforeAll {
+        function New-MumuProcStub {
+            # Process-like stub: same member names the live collector reads
+            # off System.Diagnostics.Process (Id, ProcessName,
+            # TotalProcessorTime, WorkingSet64, PrivateMemorySize64,
+            # StartTime). Switches drop members to exercise the honest
+            # degrade path (access denied / exited process shapes).
+            param([int]$Id, [string]$Name, [double]$CpuSec, [double]$RamMB, [double]$PrivMB, [int]$UpMinutes = 90, [switch]$NoStart, [switch]$NoTimes)
+            $o = [pscustomobject]@{ Id = $Id; ProcessName = $Name }
+            if (-not $NoTimes) {
+                $o | Add-Member -NotePropertyName TotalProcessorTime -NotePropertyValue ([timespan]::FromSeconds($CpuSec))
+                $o | Add-Member -NotePropertyName WorkingSet64 -NotePropertyValue ([long]($RamMB * 1MB))
+                $o | Add-Member -NotePropertyName PrivateMemorySize64 -NotePropertyValue ([long]($PrivMB * 1MB))
+            }
+            if (-not $NoStart) {
+                $o | Add-Member -NotePropertyName StartTime -NotePropertyValue ((Get-Date).AddMinutes(-$UpMinutes))
+            }
+            return $o
+        }
+    }
+
+    It 'collector normalizes a real-shaped process stub into sample fields' {
+        $stub = New-MumuProcStub -Id 4242 -Name 'MuMuNxMain' -CpuSec 12.5 -RamMB 2048 -PrivMB 1500
+        $s = @(Get-MumuProcessSamples -Processes $stub)
+        $s.Count | Should -Be 1
+        $s[0].Pid | Should -Be 4242
+        $s[0].Name | Should -Be 'MuMuNxMain'
+        $s[0].CpuSec | Should -Be 12.5
+        $s[0].RamMB | Should -Be 2048
+        $s[0].PrivMB | Should -Be 1500
+        $s[0].Uptime | Should -Match '^1h 30m$'
+    }
+
+    It 'collector degrades honestly when members are missing or unreadable' {
+        $bare = [pscustomobject]@{ Id = 7; ProcessName = 'MuMuPlayer' }
+        $s = @(Get-MumuProcessSamples -Processes $bare)
+        $s[0].CpuSec | Should -Be 0
+        $s[0].RamMB | Should -Be 0
+        $s[0].Uptime | Should -Be 'n/a'
+    }
+
+    It 'collector: explicitly passed empty array means no processes (no live fallback)' {
+        $s = @(Get-MumuProcessSamples -Processes @())
+        $s.Count | Should -Be 0
+    }
+
+    It 'snapshot -NoBaseline: first frame shows no CPU% but honest RAM totals' {
+        $stubs = @(
+            (New-MumuProcStub -Id 1 -Name 'A' -CpuSec 1 -RamMB 100 -PrivMB 60),
+            (New-MumuProcStub -Id 2 -Name 'B' -CpuSec 1 -RamMB 250 -PrivMB 90)
+        )
+        $samples = @(Get-MumuProcessSamples -Processes $stubs)
+        $snap = Get-MumuResourceSnapshot -Samples $samples -Prev @{} -ElapsedSeconds 1 -Cores 4 -NoBaseline
+        $snap.ProcessCount | Should -Be 2
+        $snap.TotalCpuPct | Should -BeNullOrEmpty
+        foreach ($r in $snap.Rows) { $r.CpuPct | Should -BeNullOrEmpty }
+        $snap.TotalRamMB | Should -Be 350
+        $snap.TotalPrivMB | Should -Be 150
+    }
+
+    It 'snapshot computes CPU% from the delta against the previous tick, normalized to cores' {
+        $stubs = @((New-MumuProcStub -Id 1001 -Name 'A' -CpuSec 12.0 -RamMB 10 -PrivMB 5))
+        $prev = @{ 1001 = 10.0 }
+        $snap = Get-MumuResourceSnapshot -Samples @(Get-MumuProcessSamples -Processes $stubs) -Prev $prev -ElapsedSeconds 2 -Cores 2
+        $snap.Rows[0].CpuPct | Should -Be 50
+        $snap.TotalCpuPct | Should -Be 50
+    }
+
+    It 'snapshot clamps negative deltas to 0 and over-100% to 100' {
+        $down = Get-MumuProcessSamples -Processes @((New-MumuProcStub -Id 5 -Name 'A' -CpuSec 1 -RamMB 0 -PrivMB 0))
+        $s1 = Get-MumuResourceSnapshot -Samples @($down) -Prev @{ 5 = 50.0 } -ElapsedSeconds 1 -Cores 1
+        $s1.Rows[0].CpuPct | Should -Be 0
+        $up = Get-MumuProcessSamples -Processes @((New-MumuProcStub -Id 6 -Name 'A' -CpuSec 1000 -RamMB 0 -PrivMB 0))
+        $s2 = Get-MumuResourceSnapshot -Samples @($up) -Prev @{ 6 = 0.0 } -ElapsedSeconds 1 -Cores 1
+        $s2.Rows[0].CpuPct | Should -Be 100
+    }
+
+    It 'snapshot sorts by CPU% desc by default, RAM desc and PID asc on demand' {
+        # CPU deltas small enough to stay under the 100% per-row clamp
+        # (90/5/50 CPU-seconds over a 1 s tick would ALL clamp to 100 and
+        # the sort order would degenerate to input order - caught live).
+        $stubs = @(
+            (New-MumuProcStub -Id 3 -Name 'C' -CpuSec 0.9 -RamMB 10 -PrivMB 1),
+            (New-MumuProcStub -Id 1 -Name 'A' -CpuSec 0.05 -RamMB 500 -PrivMB 1),
+            (New-MumuProcStub -Id 2 -Name 'B' -CpuSec 0.5 -RamMB 900 -PrivMB 1)
+        )
+        $samples = @(Get-MumuProcessSamples -Processes $stubs)
+        (Get-MumuResourceSnapshot -Samples $samples -Prev @{} -ElapsedSeconds 1 -Cores 1).Rows.Pid | Should -Be @(3, 2, 1)
+        (Get-MumuResourceSnapshot -Samples $samples -Prev @{} -ElapsedSeconds 1 -Cores 1 -Sort ram).Rows.Pid | Should -Be @(2, 1, 3)
+        (Get-MumuResourceSnapshot -Samples $samples -Prev @{} -ElapsedSeconds 1 -Cores 1 -Sort pid).Rows.Pid | Should -Be @(1, 2, 3)
+    }
+
+    It 'snapshot: empty sample set is an honest zero, not an error' {
+        $snap = Get-MumuResourceSnapshot -Samples @() -Prev @{} -ElapsedSeconds 1 -Cores 1
+        $snap.ProcessCount | Should -Be 0
+        @($snap.Rows).Count | Should -Be 0
+        $snap.TotalCpuPct | Should -Be 0
+        $snap.TotalRamMB | Should -Be 0
+    }
+
+    It '[RM] -Once renders one frame without throwing (CI: no MuMu processes)' {
+        { Show-ResourceMonitor -Once } | Should -Not -Throw
+    }
+
+    It 'wiring: [RM] maps in the main switch, the menu lists it, the loop re-baselines before drawing' {
+        $src = Get-Content -Raw $script:menuPath
+        ($src -match "'rm' \{ Show-ResourceMonitor \}") | Should -Be $true
+        ($src -match '\[RM\] Resource monitor \(CPU/RAM, live\)') | Should -Be $true
+        ($src -match '-NoBaseline:\$firstFrame') | Should -Be $true
+        ($src -match "Get-Process -Name 'MuMu\*' -ErrorAction SilentlyContinue") | Should -Be $true
+        # Quit keys exist for the interactive loop (Q, Esc, Ctrl+C).
+        ($src.Contains('$ki.Key -eq ''Q'' -or $ki.Key -eq ''Escape''')) | Should -Be $true
+        ($src.Contains('[ConsoleModifiers]::Control')) | Should -Be $true
+    }
+
+    It '[RM] stays read-only: no network calls, no writes inside the monitor functions' {
+        foreach ($n in @('Get-MumuProcessSamples', 'Get-MumuResourceSnapshot', 'Show-ResourceMonitor')) {
+            $f = $script:ast.FindAll({
+                param($node)
+                $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $n
+            }, $true) | Select-Object -First 1
+            $f | Should -Not -BeNullOrEmpty
+            $text = $f.Extent.Text
+            $text -match 'curl|Invoke-WebRequest|Invoke-RestMethod|Set-Content|Add-Content|New-Item|Out-File' | Should -Be $false
+        }
     }
 }
