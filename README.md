@@ -364,7 +364,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.22.56
+Script version: 1.22.57
 MuMu version: 6.7.1
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -496,6 +496,14 @@ Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
 **EN summary:** Manual ZIP extraction via Windows Explorer propagates Mark-of-the-Web (NTFS `Zone.Identifier`) to every file, and `RemoteSigned` then blocks unsigned "internet" files. Fix: prefer `[U]`/bootstrap (they download, unblock and sign automatically); or `Get-ChildItem <dir> -Recurse -File | Unblock-File`; or extract with `tar -xf`/7-Zip, which do not propagate the mark. MotW is a local trust mechanism only — release content is CI-verified byte-for-byte against the tag.
 
 ## Что нового
+
+### v1.22.57 (05.10.2026)
+
+- **[CMP] Compare instance settings** — новый read-only пункт меню рядом с [7]: сравнение записываемых настроек двух инстансов бок-о-бок. Читаются `setting -v N --all_writable` (плоский JSON) — работает и для **остановленных** инстансов (настройки живут в конфиге, не в VM). Таблица: объединение ключей, различающиеся первыми, `<missing>` для отсутствующих с одной стороны, пустые значения честно `(empty)`, длинные обрезаются с `~`. Итог «N compared / differ / identical» и подсказка где править: `[7]/[FPS]/[RT]/[DM]` либо `MuMuManager.exe setting -v N --key <key> --value <value>`. Повторный выбор того же инстанса отклоняется. Инвариант read-only закреплён тестом: ни одна строка кода не может одновременно вызывать команду и нести флаг записи.
+- **[RM]: колонка Instance** — монитор ресурсов сопоставляет PID процессов с инстансами через `MuMuManager info -v all` (у запущенного инстанса есть ключ `pid`) и печатает колонку «#N Имя», обновляемую каждый тик; остановленные инстансы честно пропускаются, отсутствие MuMuManager/битый JSON дают пустую карту без падения. Имена процессов по 22 символа (`MuMuPlayerRemoteBackend`) больше не слипаются с колонкой — Name обрезается до 21 + `~`.
+- **Version bump**: `$scriptVer` in `mumu-menu.ps1`, `relnotes.md`, `README.md` and `.version` synchronized to `1.22.57`.
+
+**EN summary:** Feature release: new read-only [CMP] menu entry compares the writable settings of two instances side by side — fetched via `setting --all_writable` (flat JSON, works for stopped instances too since settings live in the instance config), differing keys first with `<missing>`/`(empty)` markers and tilde-capped long values, plus a fix pointer to the menu items or the exact `setting` command; re-picking the same instance is refused, and a Pester invariant forbids any code line from both invoking a command and carrying the write flag. The [RM] resource monitor gains an "Instance" column — emulator PIDs are mapped to instance names via `info -v all` (`pid` key), refreshed every tick, with honest empty-map degradation and a truncation fix for 22-char process names. Pester suite: 199 tests.
 
 ### v1.22.56 (05.10.2026)
 
@@ -982,6 +990,7 @@ Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.57 | 05.10.2026 | Feature: [CMP] сравнение записываемых настроек двух инстансов бок-о-бок (read-only, остановленные ОК, diff + подсказка где править); [RM]: колонка Instance (PID→«#N Имя» через info, тик-обновление) |
 | v1.22.56 | 05.10.2026 | Feature: [RM] resource monitor — live CPU/RAM-панель всех MuMu*-процессов (CPU% по дельте, RAM/private, аптайм, сортировки CPU/RAM/PID, интервал 1–30 с, read-only); Docs: 4 VT YARA/Sigma FP в SIGMA RULE EXCLUSIONS, отчёт VT v1.22.55 в SECURITY.md/README |
 | v1.22.55 | 02.10.2026 | Docs: «Известные ошибочные срабатывания» в SECURITY.md (Defender, Browser Guard 32228130 — решено); README: смягчение формулировок для AV-эвристик; CI: actions:write для VT-guard, DevSkim-фиксы, codeql-action v4.38.2 |
 | v1.22.54 | 30.09.2026 | Test-MumuTunnelAB: read-only определение владельца Wintun-туннеля (порты 10808/7890–7893 + цепочка родителей) и предупреждение, если владелец не MuMu; -NoOwnerLookup |
