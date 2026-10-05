@@ -363,7 +363,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.22.55
+Script version: 1.22.56
 MuMu version: 6.7.1
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -495,6 +495,14 @@ Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
 **EN summary:** Manual ZIP extraction via Windows Explorer propagates Mark-of-the-Web (NTFS `Zone.Identifier`) to every file, and `RemoteSigned` then blocks unsigned "internet" files. Fix: prefer `[U]`/bootstrap (they download, unblock and sign automatically); or `Get-ChildItem <dir> -Recurse -File | Unblock-File`; or extract with `tar -xf`/7-Zip, which do not propagate the mark. MotW is a local trust mechanism only — release content is CI-verified byte-for-byte against the tag.
 
 ## Что нового
+
+### v1.22.56 (05.10.2026)
+
+- **[RM] Resource monitor (CPU/RAM, live)** — новый read-only пункт меню (секция Info, рядом с [WN]): панель всех процессов `MuMu*` с автообновлением каждые 2 с (настраивается 1–30 с): CPU% каждого процесса по дельте TotalProcessorTime между тиками с нормировкой на логические ядра и клампом 0–100%, RAM (working set) и private bytes в МБ, аптайм, тоталы; подсветка строк (≥50% красный, ≥25% жёлтый); клавиши [S] сортировка CPU%/RAM/PID, [+] / [-] интервал, Q/Esc/Ctrl+C выход. Первый кадр без базовой линии — CPU% честно «-», а не фейковые нули; перенаправленный stdin (CI/пайпы) — один кадр вместо зависания. Формат аптайма строится на компонентах TimeSpan, а не приведении Total* — Pester поймал баг округления ([int]1.5ч → 2ч: «2h 30m» для 91-минутного аптайма) до релиза.
+- **Docs**: 4 новых generic-срабатывания YARA/Sigma из отчёта VT v1.22.55 задокументированы в блоке «SIGMA RULE EXCLUSIONS» шапки [mumu-menu.ps1](mumu-menu.ps1); SECURITY.md/README получили отчёт VT v1.22.55 (0/0/0 CLEAN, ссылки на отчёты), третий verified-FP кейс и правило Sigma #15 (RU + EN).
+- **Version bump**: `$scriptVer` in `mumu-menu.ps1`, `relnotes.md`, `README.md` and `.version` synchronized to `1.22.56`.
+
+**EN summary:** Feature release: new read-only [RM] resource monitor menu entry renders a live panel of every MuMu* process — per-process CPU% computed from the TotalProcessorTime delta between ticks (normalized to logical cores, clamped 0-100%), working set/private MB, uptime and machine totals, with CPU/RAM/PID sorting ([S]), an adjustable 1-30 s refresh interval ([+]/[-]), Q/Esc/Ctrl+C to quit, and a baseline-free first frame that shows "-" instead of fake zeros; redirected stdin renders a single frame so CI runs cannot hang. Docs: 4 new VT YARA/Sigma false positives documented in the SIGMA RULE EXCLUSIONS header block, and the v1.22.55 VirusTotal report (0/0/0 CLEAN) recorded in SECURITY.md/README. The Pester suite grew to 186 tests and caught an uptime-rounding bug pre-release.
 
 ### v1.22.55 (02.10.2026)
 
@@ -973,6 +981,7 @@ Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.56 | 05.10.2026 | Feature: [RM] resource monitor — live CPU/RAM-панель всех MuMu*-процессов (CPU% по дельте, RAM/private, аптайм, сортировки CPU/RAM/PID, интервал 1–30 с, read-only); Docs: 4 VT YARA/Sigma FP в SIGMA RULE EXCLUSIONS, отчёт VT v1.22.55 в SECURITY.md/README |
 | v1.22.55 | 02.10.2026 | Docs: «Известные ошибочные срабатывания» в SECURITY.md (Defender, Browser Guard 32228130 — решено); README: смягчение формулировок для AV-эвристик; CI: actions:write для VT-guard, DevSkim-фиксы, codeql-action v4.38.2 |
 | v1.22.54 | 30.09.2026 | Test-MumuTunnelAB: read-only определение владельца Wintun-туннеля (порты 10808/7890–7893 + цепочка родителей) и предупреждение, если владелец не MuMu; -NoOwnerLookup |
 | v1.22.53 | 29.09.2026 | Блок версий EXE в [V]/при старте — только активная установка (Netease1-дубли убраны); синхронизация версий 1.22.53 |
