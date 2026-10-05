@@ -364,7 +364,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.22.57
+Script version: 1.22.58
 MuMu version: 6.7.1
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -496,6 +496,13 @@ Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
 **EN summary:** Manual ZIP extraction via Windows Explorer propagates Mark-of-the-Web (NTFS `Zone.Identifier`) to every file, and `RemoteSigned` then blocks unsigned "internet" files. Fix: prefer `[U]`/bootstrap (they download, unblock and sign automatically); or `Get-ChildItem <dir> -Recurse -File | Unblock-File`; or extract with `tar -xf`/7-Zip, which do not propagate the mark. MotW is a local trust mechanism only — release content is CI-verified byte-for-byte against the tag.
 
 ## Что нового
+
+### v1.22.58 (05.10.2026)
+
+- **[RM] v2: настоящая пауза, сессионные пики, спарклайн, экспорт, дельта RAM** — четыре улучшения монитора ресурсов (все read-only, кроме явного экспорта). **[P] пауза** — теперь настоящий «замороженный кадр»: гейт стоит ДО сэмплирования, опрос процессов и обновление статистики останавливаются полностью, работают только выход и P-резюм (первый кадр после паузы пересчитывает базовую линию — CPU% не врёт; первая версия только писала «PAUSED» в шапке, продолжая перерисовку — поймано финальной проверкой). **Сессионная статистика** ([R] — сброс): peak/avg CPU% по каждому процессу, peak RAM и RAM-пол, пик тотала; тики без базовой линии не портят среднее фейковыми нулями; переиспользованный PID следует за новым именем процесса. **Спарклайн** тотала CPU (#-бары, ring-buffer 60 тиков) в шапке. **[E] экспорт**: MD/CSV/JSON в `output\` рядом со скриптом (UTF-8 BOM по правилу репо, инвариантные decimals — в ru-RU `{0}` давал бы `3,1` и фантомную колонку CSV; CSV-квотинг; JSON round-trip), запись живёт только в `Export-ResourceSnapshot` — живой цикл остаётся read-only по AST-инварианту. **Колонка «RAM d»** — изменение памяти процесса с прошлого тика со знаками `+/=/-` (ASCII: юникод-стрелки деградируют в `?` на CP866), честно `-` на первом кадре.
+- **Version bump**: `$scriptVer` in `mumu-menu.ps1`, `relnotes.md`, `README.md` and `.version` synchronized to `1.22.58`.
+
+**EN summary:** [RM] resource monitor v2 with four user-picked upgrades: a real pause ([P] freezes the loop BEFORE sampling - the first draft only painted PAUSED while redrawing behind it, caught by the final completion check), session peaks/averages per PID with [R] reset and baseline-free ticks, a '#' total-CPU sparkline (60-tick ring buffer) in the header, an [E] export to MD/CSV/JSON under output\ (UTF-8 BOM, invariant-culture decimals so ru-RU never splits CSV fields, JSON round-trip; the write lives only in Export-ResourceSnapshot so the live loop stays read-only by the AST invariant), and a per-process RAM delta column with ASCII +/=/- signs. Pester suite: 208 tests.
 
 ### v1.22.57 (05.10.2026)
 
@@ -990,6 +997,7 @@ Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.58 | 05.10.2026 | Feature: [RM] v2 — настоящая пауза [P] (гейт до сэмплирования), сессионные peak/avg CPU и peak RAM со сбросом [R], спарклайн тотала CPU, экспорт [E] MD/CSV/JSON (BOM, инвариантные decimals), дельта RAM «+/=/-» |
 | v1.22.57 | 05.10.2026 | Feature: [CMP] сравнение записываемых настроек двух инстансов бок-о-бок (read-only, остановленные ОК, diff + подсказка где править); [RM]: колонка Instance (PID→«#N Имя» через info, тик-обновление) |
 | v1.22.56 | 05.10.2026 | Feature: [RM] resource monitor — live CPU/RAM-панель всех MuMu*-процессов (CPU% по дельте, RAM/private, аптайм, сортировки CPU/RAM/PID, интервал 1–30 с, read-only); Docs: 4 VT YARA/Sigma FP в SIGMA RULE EXCLUSIONS, отчёт VT v1.22.55 в SECURITY.md/README |
 | v1.22.55 | 02.10.2026 | Docs: «Известные ошибочные срабатывания» в SECURITY.md (Defender, Browser Guard 32228130 — решено); README: смягчение формулировок для AV-эвристик; CI: actions:write для VT-guard, DevSkim-фиксы, codeql-action v4.38.2 |
