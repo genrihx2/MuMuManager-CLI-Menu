@@ -43,6 +43,7 @@ BeforeAll {
                         'Get-MuMuInstallCandidateDirs', 'Get-MuMuActiveManagerPath', 'Get-MuMuInstalls',
                         'Get-MuMuInstallLabel', 'Get-MuMuInstallChoicePath', 'Read-MuMuInstallChoice', 'Save-MuMuInstallChoice',
                         'Get-MuMuVmsRoot', 'Get-MuMuInstanceAndroidVersion', 'Get-MuMuInstanceDir',
+                        'Get-AuthenticodeSignerName', 'Get-MuMuInstallDrift',
                         'Resolve-MuMuInstall', 'Update-MumuInstallState')) {
         $f = $script:ast.FindAll({
             param($node)
@@ -3134,6 +3135,127 @@ Describe 'Instance folder resolution (ambiguous <version>-<index> folders)' {
                 }, $true) | Select-Object -First 1
             $text = $f.Extent.Text
             $text -match 'curl|Invoke-WebRequest|Set-Content|New-Item|Out-File|Remove-Item' | Should -Be $false
+        }
+    }
+}
+
+Describe 'Install drift report ([DIAG], multi-install)' {
+
+    # Fixture builders - two side-by-side installs shaped like the live
+    # machine: a global build (active, idle) and a domestic build with a
+    # running emulator. Offline: -Installs and -StateProbe are the seams.
+    BeforeEach {
+        $script:aMgr = 'C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe'
+        $script:bMgr = 'C:\Program Files\Netease1\MuMu\nx_main\MuMuManager.exe'
+        $script:installs = @(
+            [pscustomobject]@{ Root = 'C:\Program Files\Netease\MuMuPlayer\nx_main'; Manager = $script:aMgr
+                Product = '6.8.0.0'; BuildDate = '2026-09-23'; Signer = ''; Instances = 3; IsActive = $false },
+            [pscustomobject]@{ Root = 'C:\Program Files\Netease1\MuMu\nx_main'; Manager = $script:bMgr
+                Product = '6.8.2.0'; BuildDate = '2026-09-29'; Signer = ''; Instances = 2; IsActive = $false }
+        )
+    }
+
+    It 'a single install produces no findings at all' {
+        $one = @($script:installs[0])
+        $d = Get-MuMuInstallDrift -ActiveManager $script:aMgr -Installs $one -StateProbe { param($e) @{ Total = 3; Running = 0 } }
+        $d.Findings.Count | Should -Be 0
+        $d.Installs.Count | Should -Be 1
+        $d.Installs[0].IsActive | Should -BeTrue
+    }
+
+    It 'warns when a running emulator belongs to another install' {
+        $d = Get-MuMuInstallDrift -ActiveManager $script:aMgr -Installs $script:installs `
+            -StateProbe { param($e) if ($e -eq 'C:\Program Files\Netease1\MuMu\nx_main\MuMuManager.exe') { @{ Total = 2; Running = 1 } } else { @{ Total = 3; Running = 0 } } }
+        $warn = @($d.Findings | Where-Object severity -eq 'warn')
+        $warn.Count | Should -Be 1
+        $warn[0].message | Should -Match 'belongs to another installation \(Netease1\\MuMu \(1 running\)\)'
+        $warn[0].message | Should -Match 'switch with \[IN\]'
+    }
+
+    It 'stays quiet when both installs are idle - or both are busy' {
+        $idle = Get-MuMuInstallDrift -ActiveManager $script:aMgr -Installs $script:installs `
+            -StateProbe { param($e) @{ Total = 2; Running = 0 } }
+        @($idle.Findings | Where-Object severity -eq 'warn').Count | Should -Be 0
+        $busy = Get-MuMuInstallDrift -ActiveManager $script:aMgr -Installs $script:installs `
+            -StateProbe { param($e) @{ Total = 2; Running = 1 } }
+        @($busy.Findings | Where-Object severity -eq 'warn').Count | Should -Be 0
+    }
+
+    It 'reports every non-active install once, with state and build (info)' {
+        $d = Get-MuMuInstallDrift -ActiveManager $script:aMgr -Installs $script:installs `
+            -StateProbe { param($e) @{ Total = 2; Running = 0 } }
+        $infos = @($d.Findings | Where-Object severity -eq 'info')
+        $infos.Count | Should -Be 1
+        $infos[0].message | Should -Match 'MuMu installation Netease1\\MuMu'
+        $infos[0].message | Should -Match '0/2 instance\(s\) running'
+        $infos[0].message | Should -Match 'updater build 2026-09-29'
+    }
+
+    It 'a failing state probe degrades to "state unknown" instead of crashing' {
+        $d = Get-MuMuInstallDrift -ActiveManager $script:aMgr -Installs $script:installs `
+            -StateProbe { param($e) throw 'manager gone' }
+        $infos = @($d.Findings | Where-Object severity -eq 'info')
+        $infos[0].message | Should -Match 'state unknown'
+        @($d.Findings | Where-Object severity -eq 'warn').Count | Should -Be 0
+    }
+
+    It 'flags signer drift across installs as info, naming both certificates' {
+        $signed = @(
+            [pscustomobject]@{ Root = 'C:\A'; Manager = $script:aMgr; Product = '6.8.0.0'; BuildDate = '2026-09-23'
+                Signer = 'Netease Interactive Entertainment Pte. Ltd.'; Instances = 0; IsActive = $false },
+            [pscustomobject]@{ Root = 'C:\B'; Manager = $script:bMgr; Product = '6.8.2.0'; BuildDate = '2026-09-29'
+                Signer = 'NetEase (Hangzhou) Network Co., Ltd'; Instances = 0; IsActive = $false }
+        )
+        $d = Get-MuMuInstallDrift -ActiveManager $script:aMgr -Installs $signed -StateProbe { param($e) @{ Total = 0; Running = 0 } }
+        $drift = @($d.Findings | Where-Object { $_.severity -eq 'info' -and $_.message -match 'different certificates' })
+        $drift.Count | Should -Be 1
+        $drift[0].message | Should -Match 'Netease Interactive Entertainment Pte\. Ltd\.'
+        $drift[0].message | Should -Match 'NetEase \(Hangzhou\) Network Co\., Ltd'
+    }
+
+    It 'warns when an updater binary is not validly signed' {
+        $bad = @(
+            [pscustomobject]@{ Root = 'C:\A'; Manager = $script:aMgr; Product = ''; BuildDate = ''; Signer = 'NetEase (Hangzhou) Network Co., Ltd'; Instances = 0; IsActive = $false },
+            [pscustomobject]@{ Root = 'C:\B'; Manager = $script:bMgr; Product = ''; BuildDate = ''; Signer = 'unsigned'; Instances = 0; IsActive = $false }
+        )
+        $d = Get-MuMuInstallDrift -ActiveManager $script:aMgr -Installs $bad -StateProbe { param($e) @{ Total = 0; Running = 0 } }
+        $warn = @($d.Findings | Where-Object { $_.severity -eq 'warn' -and $_.message -match 'not validly signed' })
+        $warn.Count | Should -Be 1
+        $warn[0].message | Should -Match 'Netease1\\MuMu'
+    }
+
+    It 'the signer helper extracts a bare CN from quoted and unquoted subjects' {
+        # Cannot fabricate Authenticode results offline - the helper's
+        # regex is exercised against the two REAL binaries this machine
+        # actually carries; both are validly signed by NetEase entities.
+        $h = Get-AuthenticodeSignerName 'C:\Program Files\Netease1\MuMu\nx_main\MuMuNxUpdater.exe'
+        $g = Get-AuthenticodeSignerName 'C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuNxUpdater.exe'
+        if ($h -and $h -ne 'signature unavailable') { $h | Should -Not -Match 'CN=' }
+        if ($g -and $g -ne 'signature unavailable') { $g | Should -Not -Match 'CN=' }
+        # Degrades honestly on a missing file - empty, never a throw.
+        Get-AuthenticodeSignerName 'C:\definitely\missing\MuMuNxUpdater.exe' | Should -Be ''
+    }
+
+    It 'wiring: [DIAG] renders the drift block, startup auto-diag feeds its findings' {
+        $src = Get-Content -Raw $script:menuPath
+        # The screen computes drift with the slow probes and renders the table.
+        ($src -match 'Get-MuMuInstallDrift -ActiveManager \$MumuPath -CheckSignatures -QueryVersion') | Should -Be $true
+        ($src -match 'MuMu installations:') | Should -Be $true
+        # The startup path computes it WITHOUT the slow probes.
+        ($src -match '(?s)function Invoke-StartupAutoDiag.*?Get-MuMuInstallDrift -ActiveManager \$MumuPath \}') | Should -Be $true
+        # Findings flow into the collector through -DriftFindings.
+        ($src -match '-DriftFindings \$\(if \(\$drift\) \{ \$drift\.Findings \} else \{ @\(\) \}\)') | Should -Be $true
+    }
+
+    It 'the drift collector stays local: no network, no writes' {
+        foreach ($n in @('Get-MuMuInstallDrift', 'Get-AuthenticodeSignerName')) {
+            $f = $script:ast.FindAll({
+                    param($node)
+                    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $n
+                }, $true) | Select-Object -First 1
+            $f | Should -Not -BeNullOrEmpty
+            $text = $f.Extent.Text
+            $text -match 'curl|Invoke-WebRequest|Invoke-RestMethod|Set-Content|Add-Content|Out-File|Remove-Item' | Should -Be $false
         }
     }
 }

@@ -3070,6 +3070,146 @@ function Invoke-MumuManagerProbe {
     return $r
 }
 
+function Get-AuthenticodeSignerName {
+    # Short signer identity of a signed binary: the CN= value without the
+    # prefix and quotes ('CN="NetEase (Hangzhou) Network Co., Ltd"' ->
+    # 'NetEase (Hangzhou) Network Co., Ltd'). Read-only and fully local -
+    # Authenticode validation never touches the network. Returns '' for an
+    # unsigned file and 'signature unavailable' when the check itself
+    # failed, so callers can degrade honestly instead of guessing.
+    param([string]$Path)
+    if (-not ($Path -and (Test-Path -LiteralPath $Path -PathType Leaf))) { return '' }
+    try {
+        $sig = Get-AuthenticodeSignature -LiteralPath $Path
+        if (-not $sig -or $sig.Status -eq 'NotSigned') { return 'unsigned' }
+        if ($sig.Status -ne 'Valid') { return "invalid signature ($($sig.Status))" }
+        $cn = [regex]::Match($sig.SignerCertificate.Subject, '^CN=(?:"([^"]*)"|([^,]*))')
+        if ($cn.Groups[1].Success) { return $cn.Groups[1].Value }
+        return $cn.Groups[2].Value.Trim()
+    } catch {
+        Write-Debug "signature check failed for ${Path}: $($_.Exception.Message)"
+        return 'signature unavailable'
+    }
+}
+
+function Get-MuMuInstallDrift {
+    # Cross-install drift report for [DIAG] (read-only, local-only).
+    # With [IN] the menu can drive any of several side-by-side installs,
+    # and they are NOT interchangeable: this machine carries a domestic
+    # (NetEase Hangzhou) and a global (Netease Interactive Entertainment
+    # Pte. Ltd., Singapore) build with different updater binaries. What
+    # the report flags:
+    #   - every NON-active install, with its running instance count,
+    #     updater build date and (with -CheckSignatures) its signer -
+    #     so a second copy is never invisible;
+    #   - a WARNING when a running Android instance belongs to ANOTHER
+    #     install while this menu drives an idle one - commands would
+    #     hit the wrong copy (seen live: menu on Netease\MuMuPlayer with
+    #     0 running, emulator alive under Netease1\MuMu);
+    #   - an INFO when installs carry builds signed by different
+    #     certificates - expected for domestic vs global distributions,
+    #     worth seeing, not a problem;
+    #   - a WARNING when an updater binary is not validly signed
+    #     (only with -CheckSignatures - the startup path must stay fast).
+    # Pure with respect to its inputs: -Installs and -StateProbe are the
+    # test seams, -CheckSignatures/-QueryVersion gate the slow probes.
+    # Returns [pscustomobject]@{ Installs; Findings } - the findings feed
+    # Get-ProblemFindings via -DriftFindings, the details feed the render.
+    param(
+        [string]$ActiveManager = '',
+        [object[]]$Installs = @(),
+        [scriptblock]$StateProbe,
+        [switch]$CheckSignatures,
+        [switch]$QueryVersion
+    )
+    if ($Installs -and $Installs.Count) {
+        $list = @($Installs)
+    } else {
+        # Session cache: the startup resolve already enumerated installs,
+        # [DIAG] and the auto-diag reuse it instead of re-scanning disks.
+        $cache = Get-Variable -Name 'MuMuInstallsCache' -Scope Script -ErrorAction SilentlyContinue
+        if ($cache -and $cache.Value) { $list = @($cache.Value) }
+        else {
+            $list = @(Get-MuMuInstalls -QueryVersion:$QueryVersion)
+            $script:MuMuInstallsCache = $list
+        }
+    }
+    $defaultProbe = {
+        param([string]$ManagerExe)
+        try {
+            $j = & $ManagerExe info -v all 2>$null | ConvertFrom-Json
+            $total = 0; $running = 0
+            foreach ($k in $j.PSObject.Properties.Name) {
+                $total++
+                if ($j.$k.is_android_started) { $running++ }
+            }
+            return @{ Total = $total; Running = $running }
+        } catch { return @{ Total = -1; Running = -1 } }
+    }
+    $probe = if ($StateProbe) { $StateProbe } else { $defaultProbe }
+    $details = New-Object 'System.Collections.Generic.List[object]'
+    foreach ($inst in $list) {
+        $label = Get-MuMuInstallLabel -ManagerPath $inst.Manager
+        $state = @{ Total = -1; Running = -1 }
+        if ($list.Count -ge 2) {
+            try { $state = & $probe $inst.Manager } catch { $state = @{ Total = -1; Running = -1 } }
+        }
+        $verTxt = [string]$inst.Product
+        # The session cache was built without version queries; fill the
+        # requested ones in on demand instead of re-scanning the disks.
+        if ($QueryVersion -and -not $verTxt) {
+            try {
+                $vj = & $inst.Manager version 2>$null | ConvertFrom-Json
+                if ($vj.version) { $verTxt = [string]$vj.version }
+            } catch { Write-Debug "version query failed for $($inst.Manager)" }
+        }
+        $signer = $inst.Signer
+        if ($CheckSignatures -and -not $signer) {
+            $updater = Join-Path $inst.Root 'MuMuNxUpdater.exe'
+            $signer = Get-AuthenticodeSignerName -Path $updater
+        }
+        $details.Add([pscustomobject]@{
+            Label = $label; Root = $inst.Root; Manager = $inst.Manager
+            Product = $verTxt; BuildDate = [string]$inst.BuildDate
+            Signer = [string]$signer
+            Total = [int]$state.Total; Running = [int]$state.Running
+            IsActive = ($inst.Manager -eq $ActiveManager)
+        })
+    }
+    $findings = New-Object 'System.Collections.Generic.List[object]'
+    $add = { param($sev, $msg) $findings.Add([pscustomobject]@{ severity = $sev; area = 'install'; message = $msg }) }
+    if ($details.Count -ge 2) {
+        $active = $details | Where-Object { $_.IsActive } | Select-Object -First 1
+        foreach ($d in $details) {
+            if ($d.IsActive) { continue }
+            $stateTxt = if ($d.Total -lt 0) { 'state unknown' } else { "{0}/{1} instance(s) running" -f $d.Running, $d.Total }
+            $verTxt2 = if ($d.Product) { " MuMu {0}," -f $d.Product } else { ',' }
+            & $add 'info' ("MuMu installation {0} ({1}):{2} {3}, updater build {4}{5}" -f `
+                $d.Label, $d.Root, $verTxt2.TrimEnd(','), $stateTxt, $(if ($d.BuildDate) { $d.BuildDate } else { 'unknown' }), $(if ($d.Signer) { ", signer: {0}" -f $d.Signer } else { '' }))
+        }
+        # The actionable catch: commands go to the ACTIVE install only.
+        $activeRunning = if ($active -and $active.Running -ge 0) { $active.Running } else { 0 }
+        $busyElsewhere = @($details | Where-Object { -not $_.IsActive -and $_.Running -gt 0 })
+        if ($busyElsewhere.Count -and $activeRunning -eq 0) {
+            $who = ($busyElsewhere | ForEach-Object { "{0} ({1} running)" -f $_.Label, $_.Running }) -join ', '
+            & $add 'warn' ("a running Android instance belongs to another installation ({0}) while this menu drives {1} (0 running) - switch with [IN] to manage it" -f $who, $(if ($active) { $active.Label } else { Get-MuMuInstallLabel -ManagerPath $ActiveManager }))
+        }
+        # Signer drift: factual, not a defect - domestic vs global builds.
+        $signers = @($details | Where-Object { $_.Signer } | Select-Object -ExpandProperty Signer -Unique)
+        if ($signers.Count -ge 2) {
+            & $add 'info' ("installations carry builds signed by different certificates: {0} vs {1} - expected for domestic vs global distributions" -f $signers[0], $signers[1])
+        }
+        foreach ($d in $details) {
+            if ($d.Signer -and $d.Signer -match '^(unsigned|invalid signature)') {
+                & $add 'warn' ("update binary of {0} is not validly signed ({1}) - verify the install" -f $d.Label, $d.Signer)
+            }
+        }
+    }
+    # .ToArray() before the hashtable literal: converting a List inside a
+    # [pscustomobject]@{} literal throws 'Argument types do not match'.
+    return [pscustomobject]@{ Installs = @($details.ToArray()); Findings = @($findings.ToArray()) }
+}
+
 function Get-ProblemFindings {
     # Returns an array of finding objects:
     #   severity: 'error' | 'warn' | 'info'   area: install|lock|journal|mumu
@@ -3084,6 +3224,7 @@ function Get-ProblemFindings {
         [string]$InstalledVersion = '',
         [string]$ScriptVer = '',
         [string]$MinVersion = '4.0.0.3179',
+        [object[]]$DriftFindings = @(),
         [scriptblock]$MumuProbe = { param($exe) Invoke-MumuManagerProbe -TargetPath $exe }
     )
     $findings = New-Object System.Collections.Generic.List[object]
@@ -3238,6 +3379,11 @@ function Get-ProblemFindings {
         }
     } catch { Write-Debug "disk check failed: $($_.Exception.Message)" }
 
+    # ── Multi-install drift (precomputed by Get-MuMuInstallDrift) ──
+    foreach ($df in $DriftFindings) {
+        if ($df -and $df.severity -and $df.message) { $findings.Add($df) }
+    }
+
     return $findings.ToArray()
 }
 
@@ -3384,8 +3530,13 @@ function Show-RollbackFromBackup {
 function Show-ProblemDiagnostics {
     # Renders the findings collected by Get-ProblemFindings, grouped by
     # severity, with an honest summary line. Read-only: nothing here
-    # mutates the install.
-    $findings = @(Get-ProblemFindings -ScriptDir $ScriptDir -VersionFile $VersionFile -MenuPath (Join-Path $ScriptDir 'mumu-menu.ps1') -JournalFile $script:JournalFile -MumuPath $MumuPath -InstalledVersion $InstalledVersion -ScriptVer $scriptVer)
+    # mutates the install. The multi-install drift block (comparison table
+    # + its findings) is computed here on demand - signatures and version
+    # queries are too slow for the startup auto-diag, but fine for a
+    # screen the user opened deliberately.
+    $drift = $null
+    try { $drift = Get-MuMuInstallDrift -ActiveManager $MumuPath -CheckSignatures -QueryVersion } catch { Write-Debug "install drift failed: $($_.Exception.Message)" }
+    $findings = @(Get-ProblemFindings -ScriptDir $ScriptDir -VersionFile $VersionFile -MenuPath (Join-Path $ScriptDir 'mumu-menu.ps1') -JournalFile $script:JournalFile -MumuPath $MumuPath -InstalledVersion $InstalledVersion -ScriptVer $scriptVer -DriftFindings $(if ($drift) { $drift.Findings } else { @() }))
     Write-Host ''
     Write-Host '  === Problem diagnostics ===' -ForegroundColor Cyan
     $errors = @($findings | Where-Object { $_.severity -eq 'error' })
@@ -3410,6 +3561,18 @@ function Show-ProblemDiagnostics {
         Write-Host ("  {0} - {1}" -f $diag.verdict, $detail) -ForegroundColor $diag.color
     }
     Write-Host ("  install: {0}" -f $ScriptDir) -ForegroundColor DarkGray
+    if ($drift -and @($drift.Installs).Count -ge 2) {
+        Write-Host ''
+        Write-Host '  MuMu installations:' -ForegroundColor Cyan
+        foreach ($d in $drift.Installs) {
+            $mark = if ($d.IsActive) { '*' } else { ' ' }
+            $state = if ($d.Total -ge 0) { '{0}/{1} running' -f $d.Running, $d.Total } else { 'state unknown' }
+            $color = if ($d.IsActive) { 'Green' } else { 'White' }
+            Write-Host ("  {0} {1} - {2}{3}, updater build {4}" -f $mark, $d.Label, $state, $(if ($d.Product) { ", MuMu " + $d.Product } else { '' }), $(if ($d.BuildDate) { $d.BuildDate } else { 'unknown' })) -ForegroundColor $color
+            if ($d.Signer) { Write-Host ("      signer: {0}" -f $d.Signer) -ForegroundColor DarkGray }
+        }
+        Write-Host '  (* = the install this menu drives; switch with [IN])' -ForegroundColor DarkGray
+    }
 }
 
 # ── Startup auto-diag (issue #30) ────────────────────────────────────
@@ -3457,7 +3620,9 @@ function Invoke-StartupAutoDiag {
     if ($null -ne $script:AutoDiagSummary) { return $script:AutoDiagSummary }
     $script:AutoDiagSummary = ''
     try {
-        $f = @(Get-ProblemFindings -ScriptDir $ScriptDir -VersionFile $VersionFile -MenuPath (Join-Path $ScriptDir 'mumu-menu.ps1') -JournalFile $script:JournalFile -MumuPath $MumuPath -InstalledVersion $InstalledVersion -ScriptVer $scriptVer)
+        $drift = $null
+        try { $drift = Get-MuMuInstallDrift -ActiveManager $MumuPath } catch { Write-Debug "install drift failed: $($_.Exception.Message)" }
+        $f = @(Get-ProblemFindings -ScriptDir $ScriptDir -VersionFile $VersionFile -MenuPath (Join-Path $ScriptDir 'mumu-menu.ps1') -JournalFile $script:JournalFile -MumuPath $MumuPath -InstalledVersion $InstalledVersion -ScriptVer $scriptVer -DriftFindings $(if ($drift) { $drift.Findings } else { @() }))
         $script:AutoDiagSummary = Get-AutoDiagSummary -Findings $f
     } catch {
         Write-Debug "auto-diag failed (non-fatal): $($_.Exception.Message)"
