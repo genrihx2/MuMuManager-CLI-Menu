@@ -365,7 +365,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.22.59
+Script version: 1.22.60
 MuMu version: 6.7.1
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -502,6 +502,12 @@ Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
 **EN summary:** Manual ZIP extraction via Windows Explorer propagates Mark-of-the-Web (NTFS `Zone.Identifier`) to every file, and `RemoteSigned` then blocks unsigned "internet" files. Fix: prefer `[U]`/bootstrap (they download, unblock and sign automatically); or `Get-ChildItem <dir> -Recurse -File | Unblock-File`; or extract with `tar -xf`/7-Zip, which do not propagate the mark. MotW is a local trust mechanism only — release content is CI-verified byte-for-byte against the tag.
 
 ## Что нового
+
+### v1.22.60 (06.10.2026)
+
+- **[DIAG]: отчёт о расхождении установок MuMu** — новый read-only блок для машин с несколькими параллельными копиями MuMu (см. [IN] в v1.22.59). Копии не взаимозаменяемы: на этой машине стоит domestic-сборка (подписант NetEase (Hangzhou) Network Co., Ltd) и глобальная (Netease Interactive Entertainment Pte. Ltd., Сингапур) с разными бинарниками апдейтера (сборки 2026-09-29 и 2026-09-23). Новый `Get-MuMuInstallDrift` (чистая, с тестовыми швами `-Installs`/`-StateProbe`) добавляет в [DIAG]: **info** по каждой неактивной установке — сколько инстансов запущено, дата сборки апдейтера, (в [DIAG]) версия и подписант; **warn**, когда запущенный Android-инстанс принадлежит ДРУГОЙ установке, а меню смотрит на пустую (поймано вживую: меню на `Netease\MuMuPlayer` с 0 running, эмулятор жив в `Netease1\MuMu` — команды попадали бы не в ту копию; подсказка «switch with [IN]»); **info** о разных сертификатах подписи — это ожидаемо для domestic/global, но теперь видно сразу; **warn** при невалидной подписи апдейтера (только в [DIAG]). Экран печатает сравнительную таблицу установок со звёздочкой у активной. Медленные проверки (подписи Authenticode, запросы версий) живут только в [DIAG] — стартовый авто-диаг использует быстрый путь с кэшем установок и без подписей; одна установка findings не порождает вовсе. Проверено вживую: авто-диаг на старте поднялся с 1 до 2 warnings (drift-warning честно указал на Netease1, где работает инстанс). **Version bump**: `$scriptVer` in `mumu-menu.ps1`, `relnotes.md`, `README.md` and `.version` synchronized to `1.22.60`.
+
+**EN summary:** [DIAG] install-drift report for machines carrying several side-by-side MuMu installs. The new pure `Get-MuMuInstallDrift` (test seams `-Installs`/`-StateProbe`) adds to the diagnostics screen an info line per non-active install (running instance count, updater build date, and - on the [DIAG] screen only - product version and Authenticode signer), a warning when a running Android instance belongs to ANOTHER install while the menu drives an idle one (caught live: menu on Netease\MuMuPlayer with 0 running while the emulator lived under Netease1\MuMu - commands would hit the wrong copy; the message points at [IN]), an info when installs carry builds signed by different certificates (expected for domestic vs global distributions, now visible), and a warning for an invalidly signed updater binary (screen only). The screen renders a comparison table with the active install starred. Slow probes (Authenticode, version queries) stay in the on-demand [DIAG] screen; the startup auto-diag uses the fast path (session-cached install list, no signatures), and a single-install machine produces no findings at all. Verified live: the startup auto-diag went from 1 to 2 warnings, honestly naming the install where the emulator actually runs. Pester suite: 242 tests.
 
 ### v1.22.59 (06.10.2026)
 
@@ -1011,6 +1017,7 @@ Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.60 | 06.10.2026 | Feature: [DIAG] отчёт о расхождении установок MuMu — таблица установок (версия, сборка апдейтера, подписант, running-инстансы) со звёздочкой у активной; warn когда запущенный эмулятор принадлежит другой установке (подсказка [IN]); info о разных сертификатах подписи (domestic vs global); медленные проверки только в [DIAG], старт — быстрый путь |
 | v1.22.59 | 06.10.2026 | Feature: [IN] мульти-установочность — общий реестр установок (раскладка MuMu 15 `nx_device`, параллельный `Netease1\MuMu`), переключение активной без перезапуска, пин в `.mumu-install`, установка в статус-строке; fix: папка инстанса выбирается по паре `<версия>-<индекс>` (`android_version` из менеджера) — осиротевший `12.0-0` больше не выигрывает у живого `15.0-0` в [BA]/[RE]/[G]/[FPS] |
 | v1.22.58 | 05.10.2026 | Feature: [RM] v2 — настоящая пауза [P] (гейт до сэмплирования), сессионные peak/avg CPU и peak RAM со сбросом [R], спарклайн тотала CPU, экспорт [E] MD/CSV/JSON (BOM, инвариантные decimals), дельта RAM «+/=/-» |
 | v1.22.57 | 05.10.2026 | Feature: [CMP] сравнение записываемых настроек двух инстансов бок-о-бок (read-only, остановленные ОК, diff + подсказка где править); [RM]: колонка Instance (PID→«#N Имя» через info, тик-обновление) |
