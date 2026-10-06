@@ -1117,21 +1117,21 @@ Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
 
 ## Безопасность
 
-- **VirusTotal (v1.22.57, 05.10.2026): 0 malicious / 0 suspicious — Status: CLEAN** — релизный ZIP, `mumu-menu.ps1` и SKILL.md из его состава просканированы CI автоматически после публикации ([scan run](https://github.com/genrihx2/MuMuManager-CLI-Menu/actions/runs/37269423200)); отчёты — в таблице ниже и в [описании релиза](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/tag/v1.22.57)
+- **VirusTotal (v1.22.59, 06.10.2026): 0 malicious / 0 suspicious — Status: CLEAN** — релизный ZIP, `mumu-menu.ps1` и SKILL.md из его состава просканированы CI автоматически после публикации ([scan run](https://github.com/genrihx2/MuMuManager-CLI-Menu/actions/runs/37421411108)); отчёты — в таблице ниже и в [описании релиза](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/tag/v1.22.59)
 - Скан запускается **автоматически** после публикации релиза: Release workflow публикует релиз с `RELEASE_PAT` (секрет), чтобы сработал триггер `on: release published` — GitHub подавляет триггеры для релизов, созданных `GITHUB_TOKEN`
 - CI автоматически сканирует релизный ZIP, а также `mumu-menu.ps1` и `SKILL.md` из его состава (`virustotal.yml`, секрет `VT_API_KEY`); известные VT объекты переиспользуются по SHA-256; вердикты и пермалинки автоматически публикуются в описании релиза (маркерная секция «VirusTotal verdicts», идемпотентно)
 - Встроенное сканирование: `[VT] VirusTotal scan` — проверяет файлы через VT API
 - **Автоматизированный контроль** (полный список — в [SECURITY.md](SECURITY.md)): еженедельный PSScriptAnalyzer с SARIF в Security-таб (пн 06:00 UTC), CI VirusTotal-скан каждого релиза, еженедельный Release guard (комплектность релизов + побайтовая сверка ZIP последнего релиза с тегом), групповые Dependabot-обновления экшенов, actionlint + shellcheck на все workflows
 
-### VirusTotal: файлы релиза v1.22.57
+### VirusTotal: файлы релиза v1.22.59
 
 | Файл | SHA-256 | Malicious | Suspicious | Отчёт |
 |------|---------|-----------|------------|-------|
-| релизный `MuMuManager-CLI-Menu-v1.22.57.zip` | `f12e08215b8f…0661` | 0 | 0 | [отчёт](https://www.virustotal.com/gui/file/f12e08215b8f179cc5268aa47e0fe5b4157ee8204572620edd631ccb57350661/detection) |
-| `mumu-menu.ps1` (v1.22.57) | `1563048a2582…b570` | 0 | 0 | [отчёт](https://www.virustotal.com/gui/file/1563048a2582e23e6c0df5ab5ac38bb9f420b726e052cc10581b8c5eccc2b570/detection) |
-| `SKILL.md` (v1.22.57) | `b3e23bb1aa0c…bac9` | 0 | 0 | [отчёт](https://www.virustotal.com/gui/file/b3e23bb1aa0c8206f47a046d46606347d6e63be63cf5ea06f7b2160a1a98bac9/detection) |
+| релизный `MuMuManager-CLI-Menu-v1.22.59.zip` | `8949d7d896e2…d204` | 0 | 0 | [отчёт](https://www.virustotal.com/gui/file/8949d7d896e2344127575b78c3b938caa79fddf888ca4be71ad1dba29806d204/detection) |
+| `mumu-menu.ps1` (v1.22.59) | `93d91a2ff121…199` | 0 | 0 | [отчёт](https://www.virustotal.com/gui/file/93d91a2ff121fd1e291e85ff49fb1395d765579e2dac58745c3060a8173ee199/detection) |
+| `SKILL.md` (v1.22.59) | `b3e23bb1aa0c…bac9` | 0 | 0 | [отчёт](https://www.virustotal.com/gui/file/b3e23bb1aa0c8206f47a046d46606347d6e63be63cf5ea06f7b2160a1a98bac9/detection) |
 
-> Предыдущий полный скан — v1.22.56 (05.10.2026), также 0/0: ZIP `65c96b52388d…c1f6` ([отчёт](https://www.virustotal.com/gui/file/65c96b52388dab939426319879373598f67cbf2c0503b3362bc2a27c7a26c1f6/detection)), `mumu-menu.ps1` `127ab3b471be…25d5` ([отчёт](https://www.virustotal.com/gui/file/127ab3b471be15d19c7054e478a338c0e13505f12d83b90308db6caff29b25d5/detection)). Хэш SKILL.md не изменился — файл не менялся между релизами.
+> Предыдущий полный скан — v1.22.58 (05.10.2026), также 0/0: ZIP `9cbdff54efc0…3988` ([отчёт](https://www.virustotal.com/gui/file/9cbdff54efc0865c393aca4858d2244c35412ad6ed789ac0d219c250199f3988/detection)), `mumu-menu.ps1` `4db36c00a900…da6a` ([отчёт](https://www.virustotal.com/gui/file/4db36c00a900f21e07fb2ead89c6f08a8d83daffc1c68d7c4d8eef3a5486da6a/detection)). Хэш SKILL.md не изменился — файл не менялся между релизами.
 >
 > Актуальные вердикты каждого релиза — в секции «VirusTotal verdicts» на странице релиза; ссылка на свежий релиз: [Releases/latest](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest).
 
