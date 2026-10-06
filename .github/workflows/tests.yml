@@ -34,14 +34,30 @@ permissions:
 
 jobs:
   bootstrap-detector:
+    # The updater regression harness (Download-File JSON detector, journal
+    # writer, updater self-refresh, release-ZIP self-test) is the ONLY
+    # CI coverage of the update functions that is NOT the Pester suite.
+    # It used to run on pwsh only, while the suite's own matrix exists
+    # precisely because a test can be green on pwsh and red on Windows
+    # PowerShell 5.1 (v1.22.41: Mock of a not-dot-sourced command).
+    # The updater targets 5.1+, so the harness now runs on BOTH engines.
+    # Two steps in ONE job - not a matrix - because release.yml's gate
+    # matches this job by EXACT NAME (REQUIRED_LEGS); a matrix would
+    # rename the legs and block every future release.
     runs-on: windows-latest
     timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - name: Run regression tests (bootstrap-update JSON detector)
+      - name: Run regression tests (bootstrap-update JSON detector, pwsh)
         shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./tests/test-bootstrap-update.ps1
+
+      - name: Run regression tests (bootstrap-update JSON detector, Windows PowerShell 5.1)
+        shell: powershell
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./tests/test-bootstrap-update.ps1
@@ -95,8 +111,9 @@ jobs:
     # update-readme.ps1, tests/...). A test that silently needs a repo-only
     # file must never be discovered from a live machine's red run - the
     # BOM-hygiene test (tagged RepoFiles) failed exactly that way on a real
-    # install, healthy otherwise. Both engines against the SAME fixture copy;
-    # tests tagged RepoFiles are excluded (172 tests). Job name is prefixed
+    # install, healthy otherwise; the .gitignore assertion joined it in
+    # v1.22.59. Both engines against the SAME fixture copy;
+    # tests tagged RepoFiles are excluded. Job name is prefixed
     # with pester-unit: the release gate audits Tests legs by EXACT NAME
     # (REQUIRED_LEGS in release.yml), which lists this job verbatim.
     name: pester-unit (deployed layout / both engines)
