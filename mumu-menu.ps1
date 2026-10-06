@@ -269,7 +269,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.22.60'
+$scriptVer = '1.22.61'
 $InstalledVersion = $null
 
 # --- [WN] MuMu network + updater watcher (read-only, opt-in) -----------------

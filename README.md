@@ -365,7 +365,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.22.60
+Script version: 1.22.61
 MuMu version: 6.7.1
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -502,6 +502,14 @@ Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
 **EN summary:** Manual ZIP extraction via Windows Explorer propagates Mark-of-the-Web (NTFS `Zone.Identifier`) to every file, and `RemoteSigned` then blocks unsigned "internet" files. Fix: prefer `[U]`/bootstrap (they download, unblock and sign automatically); or `Get-ChildItem <dir> -Recurse -File | Unblock-File`; or extract with `tar -xf`/7-Zip, which do not propagate the mark. MotW is a local trust mechanism only — release content is CI-verified byte-for-byte against the tag.
 
 ## Что нового
+
+### v1.22.61 (06.10.2026)
+
+- **[DIAG]: быстрое переключение на установку с работающим эмулятором** — продолжение drift-отчёта v1.22.60. Когда диагностика показывает предупреждение «running Android instance belongs to another installation», экран теперь предлагает сделать это сразу: `Switch to Netease1\MuMu now? (y/N)` — на `y` выполняется то же переключение, что и в [IN] (без дублирования логики: общий `Switch-MuMuActiveInstall` переписывает `$MumuPath`, метку статус-строки, пин `.mumu-install`, пишет `install-switch` в журнал и перечитывает версию/инстансы). На Enter/N — ничего не меняется. Сам [IN] переведён на ту же функцию — второй копии логики переключения больше нет.
+- **Исправлен ложный warning в [DIAG] «could not read the script version»** (пойман живым прогоном сразу после добавления drift-блока): коллектор проблем читал только первые 260 строк `mumu-menu.ps1`, а `$scriptVer` после появления мульти-установочного блока уехал на строку 272 — каждая здоровая установка получала warning «could not read the script version from mumu-menu.ps1» и теряла детектор клина (marker AHEAD of content). Голова чтения увеличена до 400 строк с комментарием о причине; живой [DIAG] снова «Status: healthy», детектор клина работает. Важно: реальный клин-кейс (marker впереди контента) остаётся обнаружимым — тесты фикстур не изменились.
+- **Version bump**: `$scriptVer` in `mumu-menu.ps1`, `relnotes.md`, `README.md` and `.version` synchronized to `1.22.61`.
+
+**EN summary:** [DIAG] quick-switch, completing the v1.22.60 drift report. When the diagnostics warn that a running Android instance belongs to another installation, the screen now offers to act on it immediately: `Switch to Netease1\MuMu now? (y/N)` - on y it performs the exact same switch as [IN] through the one shared `Switch-MuMuActiveInstall` (re-points $MumuPath, the status-line label, the .mumu-install pin, journals install-switch and refreshes version/instance state); Enter/N changes nothing. [IN] itself was refactored onto that function, so the switch logic exists exactly once. Second fix, caught live on the first run after the drift block landed: the problem collector read only the first 260 lines of mumu-menu.ps1 while $scriptVer had moved to line 272, so every healthy install got a false 'could not read the script version' warning and lost the version-marker wedge detector - the read head is now 400 lines with a comment explaining why, the live [DIAG] is back to 'Status: healthy', and the real wedge case (marker ahead of content) stays detectable. Pester suite: 247 tests.
 
 ### v1.22.60 (06.10.2026)
 
@@ -1017,6 +1025,7 @@ Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.61 | 06.10.2026 | Feature: [DIAG] быстрое переключение — на предупреждении о чужом запущенном эмуляторе `Switch to ... now? (y/N)` через общий `Switch-MuMuActiveInstall` ([IN] переведён на него же); fix: ложный warning «could not read the script version» — голова чтения 260→400 строк ($scriptVer уехал за строку 260 после мульти-установочного блока), детектор клина снова работает |
 | v1.22.60 | 06.10.2026 | Feature: [DIAG] отчёт о расхождении установок MuMu — таблица установок (версия, сборка апдейтера, подписант, running-инстансы) со звёздочкой у активной; warn когда запущенный эмулятор принадлежит другой установке (подсказка [IN]); info о разных сертификатах подписи (domestic vs global); медленные проверки только в [DIAG], старт — быстрый путь |
 | v1.22.59 | 06.10.2026 | Feature: [IN] мульти-установочность — общий реестр установок (раскладка MuMu 15 `nx_device`, параллельный `Netease1\MuMu`), переключение активной без перезапуска, пин в `.mumu-install`, установка в статус-строке; fix: папка инстанса выбирается по паре `<версия>-<индекс>` (`android_version` из менеджера) — осиротевший `12.0-0` больше не выигрывает у живого `15.0-0` в [BA]/[RE]/[G]/[FPS] |
 | v1.22.58 | 05.10.2026 | Feature: [RM] v2 — настоящая пауза [P] (гейт до сэмплирования), сессионные peak/avg CPU и peak RAM со сбросом [R], спарклайн тотала CPU, экспорт [E] MD/CSV/JSON (BOM, инвариантные decimals), дельта RAM «+/=/-» |
