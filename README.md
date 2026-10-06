@@ -1133,21 +1133,21 @@ Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
 
 ## Безопасность
 
-- **VirusTotal (v1.22.60, 06.10.2026): 0 malicious / 0 suspicious — Status: CLEAN** — релизный ZIP, `mumu-menu.ps1` и SKILL.md из его состава просканированы CI автоматически после публикации; отчёты — в таблице ниже и в [описании релиза](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/tag/v1.22.60)
+- **VirusTotal (v1.22.61, 06.10.2026): 0 malicious / 0 suspicious — Status: CLEAN** — релизный ZIP, `mumu-menu.ps1` и SKILL.md из его состава просканированы CI автоматически после публикации; отчёты — в таблице ниже и в [описании релиза](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/tag/v1.22.61)
 - Скан запускается **автоматически** после публикации релиза: Release workflow публикует релиз с `RELEASE_PAT` (секрет), чтобы сработал триггер `on: release published` — GitHub подавляет триггеры для релизов, созданных `GITHUB_TOKEN`
 - CI автоматически сканирует релизный ZIP, а также `mumu-menu.ps1` и `SKILL.md` из его состава (`virustotal.yml`, секрет `VT_API_KEY`); известные VT объекты переиспользуются по SHA-256; вердикты и пермалинки автоматически публикуются в описании релиза (маркерная секция «VirusTotal verdicts», идемпотентно)
 - Встроенное сканирование: `[VT] VirusTotal scan` — проверяет файлы через VT API
 - **Автоматизированный контроль** (полный список — в [SECURITY.md](SECURITY.md)): еженедельный PSScriptAnalyzer с SARIF в Security-таб (пн 06:00 UTC), CI VirusTotal-скан каждого релиза, еженедельный Release guard (комплектность релизов + побайтовая сверка ZIP последнего релиза с тегом), групповые Dependabot-обновления экшенов, actionlint + shellcheck на все workflows
 
-### VirusTotal: файлы релиза v1.22.60
+### VirusTotal: файлы релиза v1.22.61
 
 | Файл | SHA-256 | Malicious | Suspicious | Отчёт |
 |------|---------|-----------|------------|-------|
-| релизный `MuMuManager-CLI-Menu-v1.22.60.zip` | `88d8d0041a11…a866` | 0 | 0 | [отчёт](https://www.virustotal.com/gui/file/88d8d0041a1179cda53280d1f48253e5fc4ca60cf823cbf8dfc1bf150c69a866/detection) |
-| `mumu-menu.ps1` (v1.22.60) | `bf58dc1e203f…0875` | 0 | 0 | [отчёт](https://www.virustotal.com/gui/file/bf58dc1e203f6ca5eb92fd7be01379d7b6ca1eb077d98323fe156660757e0875/detection) |
-| `SKILL.md` (v1.22.60) | `b3e23bb1aa0c…bac9` | 0 | 0 | [отчёт](https://www.virustotal.com/gui/file/b3e23bb1aa0c8206f47a046d46606347d6e63be63cf5ea06f7b2160a1a98bac9/detection) |
+| релизный `MuMuManager-CLI-Menu-v1.22.61.zip` | `7fe510dc0a85…a571` | 0 | 0 | [отчёт](https://www.virustotal.com/gui/file/7fe510dc0a85001a4c752ff67467677a82e5604d561016c8b689c4407db7a571/detection) |
+| `mumu-menu.ps1` (v1.22.61) | `9caa292dea44…b957` | 0 | 0 | [отчёт](https://www.virustotal.com/gui/file/9caa292dea442540fc516b93847df657f494209c3d0c424ec976ade11abbb957/detection) |
+| `SKILL.md` (v1.22.61) | `b3e23bb1aa0c…bac9` | 0 | 0 | [отчёт](https://www.virustotal.com/gui/file/b3e23bb1aa0c8206f47a046d46606347d6e63be63cf5ea06f7b2160a1a98bac9/detection) |
 
-> Предыдущий полный скан — v1.22.59 (06.10.2026), также 0/0: ZIP `8949d7d896e2…d204` ([отчёт](https://www.virustotal.com/gui/file/8949d7d896e2344127575b78c3b938caa79fddf888ca4be71ad1dba29806d204/detection)), `mumu-menu.ps1` `93d91a2ff121…199` ([отчёт](https://www.virustotal.com/gui/file/93d91a2ff121fd1e291e85ff49fb1395d765579e2dac58745c3060a8173ee199/detection)). Хэш SKILL.md не изменился — файл не менялся между релизами.
+> Предыдущий полный скан — v1.22.60 (06.10.2026), также 0/0: ZIP `88d8d0041a11…a866` ([отчёт](https://www.virustotal.com/gui/file/88d8d0041a1179cda53280d1f48253e5fc4ca60cf823cbf8dfc1bf150c69a866/detection)), `mumu-menu.ps1` `bf58dc1e203f…0875` ([отчёт](https://www.virustotal.com/gui/file/bf58dc1e203f6ca5eb92fd7be01379d7b6ca1eb077d98323fe156660757e0875/detection)). Хэш SKILL.md не изменился — файл не менялся между релизами.
 >
 > Актуальные вердикты каждого релиза — в секции «VirusTotal verdicts» на странице релиза; ссылка на свежий релиз: [Releases/latest](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest).
 
