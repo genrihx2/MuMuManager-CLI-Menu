@@ -538,43 +538,364 @@ function Invoke-GitHubGet {
     throw "Request failed after 4 attempt(s) (curl exit $LASTEXITCODE - 35/56/28 = flaky network/TLS, 403 = rate limit): $Url"
 }
 
-# Auto-detect MuMuManager.exe path
-$MumuPath = ''
-$PossiblePaths = @(
-    'C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe',
-    'C:\Program Files (x86)\Netease\MuMuPlayer\nx_main\MuMuManager.exe',
-    "$env:LOCALAPPDATA\Netease\MuMuPlayer\nx_main\MuMuManager.exe",
-    "$env:ProgramFiles\Netease\MuMuPlayer\shell\MuMuManager.exe",
-    "$env:ProgramFiles(x86)\Netease\MuMuPlayer\shell\MuMuManager.exe",
-    "$env:ProgramFiles\Netease\MuMuPlayer-12.0\shell\MuMuManager.exe",
-    "$env:ProgramFiles\Netease\MuMuPlayer-12.1\shell\MuMuManager.exe"
-)
-foreach ($p in $PossiblePaths) {
-    if (Test-Path $p) { $MumuPath = $p; break }
-}
-# Also check registry
-if (-not $MumuPath) {
-    try {
-        $reg = Get-ItemProperty 'HKLM:\SOFTWARE\Netease\MuMuPlayer' -ErrorAction SilentlyContinue
-        if ($reg.InstallPath) {
-            $regPath = Join-Path $reg.InstallPath 'nx_main\MuMuManager.exe'
-            if (Test-Path $regPath) {
-                $MumuPath = $regPath
-            } else {
-                $regPath = Join-Path $reg.InstallPath 'shell\MuMuManager.exe'
-                if (Test-Path $regPath) { $MumuPath = $regPath }
+# ── Multi-install support ───────────────────────────────────────────────
+# One machine can carry several MuMu installs side by side: the classic
+# 6.x layout (Netease\MuMuPlayer\nx_main) and the 15.x layout
+# (Netease\MuMu\nx_main plus the device engine under nx_device\<ver>\shell,
+# which is where adb/MuMuNxDevice live), often in a leftover sibling
+# directory (Netease1\MuMu) next to the real one. Every command in this
+# script talks to exactly ONE MuMuManager.exe - $MumuPath - so "which
+# install do we drive" is resolved ONCE here and can be changed later from
+# the menu ([IN]) without a restart. All consumers read $MumuPath at call
+# time, so re-pointing it switches the whole menu.
+$script:MumuInstallChoiceFile = Join-Path $ScriptDir '.mumu-install'
+$script:ActiveManagerOverride = ''
+
+function Get-MuMuInstallCandidateDirs {
+    # Ordered candidate directories that really hold MuMuManager.exe.
+    # Cheap BY DESIGN - this runs on every start before the menu appears:
+    # fixed layouts first (so the default choice stays what it always was),
+    # then a one-level generic probe (any *Netease* / *MuMu* folder under
+    # Program Files / Program Files (x86) / LOCALAPPDATA, its children,
+    # then nx_main | shell | nx_device\<ver>\shell), then the registry.
+    # No recursive walk and no drive sweep here - that lives in
+    # Get-MumuInstallRoots and is used by the [IN] screen on demand.
+    # -Bases overrides the search roots (tests point it at a fixture).
+    param([string[]]$Bases = @())
+    $dirs = New-Object 'System.Collections.Generic.List[string]'
+    $add = {
+        param([string]$Dir)
+        if (-not $Dir) { return }
+        $Dir = $Dir.Trim('"').TrimEnd('\', '/')
+        # Only directories that carry the manager are worth reporting.
+        if (-not (Test-Path -LiteralPath (Join-Path $Dir 'MuMuManager.exe') -PathType Leaf)) { return }
+        if (-not $dirs.Contains($Dir)) { $dirs.Add($Dir) }
+    }
+    if ($PSBoundParameters.ContainsKey('Bases')) { $bases = $Bases } else {
+        $bases = @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:LOCALAPPDATA) |
+            Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Container) }
+    }
+    # 1. Fixed layouts, most common first.
+    foreach ($base in $bases) {
+        foreach ($rel in @(
+                'Netease\MuMuPlayer\nx_main', 'Netease\MuMuPlayer\shell',
+                'Netease\MuMu\nx_main', 'Netease\MuMu\shell',
+                'Netease1\MuMu\nx_main', 'Netease1\MuMu\shell')) {
+            & $add (Join-Path $base $rel)
+        }
+    }
+    # 2. Generic probe - catches Netease2\MuMu, MuMuPlayer-12.2, the
+    #    nx_device\<ver>\shell device engine and any future folder name.
+    foreach ($base in $bases) {
+        foreach ($hint in @(Get-ChildItem -LiteralPath $base -Directory -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Name -match 'Netease|MuMu' })) {
+            & $add $hint.FullName
+            foreach ($lvl2 in @(Get-ChildItem -LiteralPath $hint.FullName -Directory -ErrorAction SilentlyContinue)) {
+                & $add $lvl2.FullName
+                & $add (Join-Path $lvl2.FullName 'nx_main')
+                & $add (Join-Path $lvl2.FullName 'shell')
+                foreach ($dev in @(Get-ChildItem -LiteralPath (Join-Path $lvl2.FullName 'nx_device') -Directory -ErrorAction SilentlyContinue)) {
+                    & $add (Join-Path $dev.FullName 'shell')
+                }
             }
         }
+    }
+    # 3. Registry (native + WOW6432Node + the 15.x product key).
+    foreach ($key in @('HKLM:\SOFTWARE\Netease\MuMuPlayer', 'HKLM:\SOFTWARE\Netease\MuMu',
+            'HKLM:\SOFTWARE\WOW6432Node\Netease\MuMuPlayer')) {
+        try {
+            $reg = Get-ItemProperty -Path $key -ErrorAction SilentlyContinue
+            # StrictMode-safe: not every product key carries InstallPath.
+            if ($reg -and ($reg.PSObject.Properties.Name -contains 'InstallPath') -and $reg.InstallPath) {
+                $regRoot = ([string]$reg.InstallPath).Trim('"').TrimEnd('\')
+                & $add $regRoot
+                & $add (Join-Path $regRoot 'nx_main')
+                & $add (Join-Path $regRoot 'shell')
+                foreach ($dev in @(Get-ChildItem -LiteralPath (Join-Path $regRoot 'nx_device') -Directory -ErrorAction SilentlyContinue)) {
+                    & $add (Join-Path $dev.FullName 'shell')
+                }
+            }
+        } catch {
+            Write-Warning "Registry lookup failed: $($_.Exception.Message)"
+        }
+    }
+    return @($dirs)
+}
+
+function Get-MuMuActiveManagerPath {
+    # The MuMuManager.exe this session drives. StrictMode-safe lookup:
+    # the helpers are extracted and exercised standalone by the tests,
+    # where the script-scope $MumuPath does not exist.
+    if ($script:ActiveManagerOverride) { return [string]$script:ActiveManagerOverride }
+    $v = Get-Variable -Name 'MumuPath' -Scope Script -ErrorAction SilentlyContinue
+    if ($v -and $v.Value) { return [string]$v.Value }
+    return ''
+}
+
+function Get-MuMuInstalls {
+    # Every MuMu install we can see, best candidate first. One object per
+    # install:
+    #   Root        directory holding MuMuManager.exe
+    #   Manager     full path to that MuMuManager.exe
+    #   DeviceShell nx_device\<ver>\shell of the 15.x layout ('' for 6.x)
+    #   Layout      short human-readable layout label
+    #   Product     version the manager reports (only with -QueryVersion)
+    #   Instances   instance count it lists (only with -QueryVersion)
+    #   BuildDate   MuMuManager.exe build stamp (metadata, no process)
+    #   IsActive    true for the install this session drives
+    # -ExtraRoots  extra directories to probe (Get-MumuInstallRoots output)
+    # -ManagerPath counts as active (tests); defaults to the live one
+    # -QueryVersion starts each manager once (version + info -v all)
+    param(
+        [string[]]$ExtraRoots = @(),
+        [string]$ManagerPath = '',
+        [switch]$QueryVersion,
+        [string[]]$Bases = @()
+    )
+    if (-not $ManagerPath) { $ManagerPath = Get-MuMuActiveManagerPath }
+    # Only forward -Bases when the caller bound it, so an explicit empty
+    # array really means 'discover nothing' instead of falling back to the
+    # real Program Files probe.
+    $candArgs = @{}
+    if ($PSBoundParameters.ContainsKey('Bases')) { $candArgs['Bases'] = $Bases }
+    $dirs = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($d in @(Get-MuMuInstallCandidateDirs @candArgs) + @($ExtraRoots)) {
+        if (-not $d) { continue }
+        $d = ([string]$d).Trim('"').TrimEnd('\', '/')
+        # Extra roots may name the install root (holds nx_main) or the
+        # manager directory itself - normalise both to the manager dir.
+        if (Test-Path -LiteralPath (Join-Path $d 'MuMuManager.exe') -PathType Leaf) {
+            # already normalised
+        } elseif (Test-Path -LiteralPath (Join-Path $d 'nx_main\MuMuManager.exe') -PathType Leaf) {
+            $d = Join-Path $d 'nx_main'
+        } else {
+            continue
+        }
+        if (-not $dirs.Contains($d)) { $dirs.Add($d) }
+    }
+    $result = @()
+    foreach ($d in $dirs) {
+        $mgr = Join-Path $d 'MuMuManager.exe'
+        $installRoot = $d
+        if ((Split-Path -Leaf $d) -in @('nx_main', 'shell')) { $installRoot = Split-Path -Parent $d }
+        $shell = ''
+        $deviceVer = ''
+        $devRoot = Join-Path $installRoot 'nx_device'
+        if (Test-Path -LiteralPath $devRoot -PathType Container) {
+            $dev = @(Get-ChildItem -LiteralPath $devRoot -Directory -ErrorAction SilentlyContinue |
+                    Sort-Object Name -Descending)[0]
+            if ($dev) {
+                $devShell = Join-Path $dev.FullName 'shell'
+                if (Test-Path -LiteralPath $devShell -PathType Container) {
+                    $shell = $devShell
+                    $deviceVer = $dev.Name
+                }
+            }
+        }
+        $layout = if ($shell) { "MuMu 15 device engine (nx_device\$deviceVer\shell)" }
+                  elseif ((Split-Path -Leaf $d) -eq 'nx_main') { 'MuMu 6 (nx_main)' }
+                  else { 'legacy (shell)' }
+        $product = ''
+        $instances = 0
+        $buildDate = ''
+        try { $buildDate = (Get-Item -LiteralPath $mgr).LastWriteTime.ToString('yyyy-MM-dd') } catch { $buildDate = 'unknown' }
+        if ($QueryVersion) {
+            try {
+                $verJson = & $mgr version 2>$null | ConvertFrom-Json
+                if ($verJson.version) { $product = [string]$verJson.version }
+                $info = & $mgr info -v all 2>$null | ConvertFrom-Json
+                foreach ($k in $info.PSObject.Properties.Name) { $instances++ }
+            } catch {
+                Write-Debug "Install query failed for ${d}: $($_.Exception.Message)"
+            }
+        }
+        $result += [PSCustomObject]@{
+            Root        = $d
+            Manager     = $mgr
+            DeviceShell = $shell
+            Layout      = $layout
+            Product     = $product
+            Instances   = $instances
+            BuildDate   = $buildDate
+            IsActive    = ($mgr -eq $ManagerPath)
+        }
+    }
+    return @($result)
+}
+
+function Get-MuMuInstallLabel {
+    # Short 'Netease1\MuMu' label for the status line: the last two path
+    # segments above the manager. Falls back to whatever depth the path
+    # has, so nothing ever prints an empty or half-built tag.
+    param([string]$ManagerPath = '')
+    if (-not $ManagerPath) { $ManagerPath = Get-MuMuActiveManagerPath }
+    if (-not $ManagerPath) { return '' }
+    $dir = Split-Path -Parent $ManagerPath
+    if (-not $dir) { return $ManagerPath }
+    # Drop the manager's own folder (nx_main / shell): what identifies an
+    # install to the user is the folder ABOVE it (Netease1\MuMu).
+    $root = if ((Split-Path -Leaf $dir) -in @('nx_main', 'shell')) { Split-Path -Parent $dir } else { $dir }
+    if (-not $root) { return $dir }
+    $leaf = Split-Path -Leaf $root
+    if (-not $leaf) { return $root }
+    $upLeaf = if (Split-Path -Parent $root) { Split-Path -Leaf (Split-Path -Parent $root) } else { '' }
+    if ($upLeaf) { return "$upLeaf\$leaf" }
+    return $leaf
+}
+
+function Get-MuMuVmsRoot {
+    # <install root>\vms for the install this menu drives. Both known
+    # layouts keep it one level above nx_main (MuMuPlayer\vms,
+    # Netease1\MuMu\vms), so one hop up from the manager directory is
+    # enough and no path is hard-coded.
+    param([string]$ManagerPath = '')
+    if (-not $ManagerPath) { $ManagerPath = Get-MuMuActiveManagerPath }
+    if (-not $ManagerPath) { return '' }
+    $nxDir = Split-Path -Parent $ManagerPath
+    if (-not $nxDir) { return '' }
+    $installRoot = Split-Path -Parent $nxDir
+    if (-not $installRoot) { return '' }
+    return (Join-Path $installRoot 'vms')
+}
+
+function Get-MuMuInstanceAndroidVersion {
+    # The android version the manager runs for an index ('15.0', '12.0').
+    # Read from its own `info` output, never guessed: the instance folder
+    # name carries the same version, and an upgraded instance leaves the
+    # old one behind under the SAME index. '' when it cannot be asked.
+    # -InfoJson is the offline test hook (a real `info` payload).
+    param([string]$Index, [string]$ManagerPath = '', [string]$InfoJson = '')
+    if (-not $Index) { return '' }
+    try {
+        $exe = if ($ManagerPath) { $ManagerPath } else { Get-MuMuActiveManagerPath }
+        $text = if ($PSBoundParameters.ContainsKey('InfoJson')) { $InfoJson }
+                else { (& $exe info -v $Index 2>$null | Out-String) }
+        $json = $text | ConvertFrom-Json
+        if (-not $json) { return '' }
+        # `info -v N` answers keyed by index; fall back to the bare shape.
+        $node = $json.$Index
+        if (-not $node) { $node = $json }
+        if (($node.PSObject.Properties.Name -contains 'android_version') -and $node.android_version) {
+            return [string]$node.android_version
+        }
+        return ''
     } catch {
-        Write-Warning "Registry lookup failed: $($_.Exception.Message)"
+        Write-Debug "android_version lookup failed for index ${Index}: $($_.Exception.Message)"
+        return ''
     }
 }
 
+function Get-MuMuInstanceDir {
+    # Instance data folder(s) for an index, best candidate FIRST.
+    # Folder names are <prefix>-<android version>-<index>
+    # (MuMuPlayerGlobal-15.0-0, MuMuPlayer-12.0-0) - so the index ALONE is
+    # ambiguous: after an upgrade the stale 12.0-0 sits right next to the
+    # current 15.0-0 under the same index. When the manager reports which
+    # android version it runs for that index, that folder wins; everything
+    # else follows newest-first so callers can still offer the choice.
+    # -NoVersionQuery skips the manager call (offline / already known).
+    # Returns string[] of full paths, empty when nothing matches.
+    param(
+        [string]$Index,
+        [string]$VmsRoot = '',
+        [string]$AndroidVersion = '',
+        [string]$ManagerPath = '',
+        [switch]$NoVersionQuery
+    )
+    if (-not $Index) { return @() }
+    if (-not $VmsRoot) { $VmsRoot = Get-MuMuVmsRoot -ManagerPath $ManagerPath }
+    if (-not $VmsRoot) { return @() }
+    if (-not (Test-Path -LiteralPath $VmsRoot -PathType Container)) { return @() }
+    if (-not $AndroidVersion -and -not $NoVersionQuery) {
+        $AndroidVersion = Get-MuMuInstanceAndroidVersion -Index $Index -ManagerPath $ManagerPath
+    }
+    $exact = @()
+    $others = @()
+    foreach ($d in @(Get-ChildItem -LiteralPath $VmsRoot -Directory -ErrorAction SilentlyContinue)) {
+        $ver = ''
+        $m = [regex]::Match($d.Name, '-(?<ver>\d+\.\d+)-(?<idx>\d+)$')
+        if ($m.Success) {
+            $ver = $m.Groups['ver'].Value
+            if ($m.Groups['idx'].Value -ne $Index) { continue }
+        } else {
+            # Pre-15 layout: the name may carry no version at all
+            # (MuMuPlayer-0). Keep supporting it, just ranked last.
+            $m2 = [regex]::Match($d.Name, '-(\d+)$')
+            if (-not $m2.Success -or $m2.Groups[1].Value -ne $Index) { continue }
+        }
+        $entry = [PSCustomObject]@{ Path = $d.FullName; Ver = $ver; Time = $d.LastWriteTime }
+        if ($AndroidVersion -and $ver -eq $AndroidVersion) { $exact += $entry } else { $others += $entry }
+    }
+    # Rank the exact match(es) first, each group newest-first. Sorting the
+    # combined list would interleave the orphan back in, which is exactly
+    # the bug this function exists to prevent.
+    $ranked = @(@($exact | Sort-Object Time -Descending)) + @(@($others | Sort-Object Time -Descending))
+    return @($ranked | ForEach-Object { $_.Path })
+}
+
+function Get-MuMuInstallChoicePath {
+    $v = Get-Variable -Name 'MumuInstallChoiceFile' -Scope Script -ErrorAction SilentlyContinue
+    if ($v -and $v.Value) { return [string]$v.Value }
+    return (Join-Path $PWD.Path '.mumu-install')
+}
+
+function Read-MuMuInstallChoice {
+    # MuMuManager.exe the user pinned with [IN]; '' when nothing was
+    # pinned, the file is empty, or the pinned install is gone.
+    $file = Get-MuMuInstallChoicePath
+    try {
+        if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { return '' }
+        $raw = ([System.IO.File]::ReadAllText($file)).Trim()
+        if (-not $raw) { return '' }
+        if (Test-Path -LiteralPath $raw -PathType Leaf) { return $raw }
+        return ''
+    } catch {
+        Write-Debug "Install choice read failed: $($_.Exception.Message)"
+        return ''
+    }
+}
+
+function Save-MuMuInstallChoice {
+    # Pin the active install for the next start. UTF-8 WITHOUT BOM: the
+    # file is read back as a bare path (a BOM would break the Test-Path).
+    param([string]$ManagerPath)
+    if (-not $ManagerPath) { return $false }
+    try {
+        $enc = New-Object System.Text.UTF8Encoding($false)
+        [System.IO.File]::WriteAllText((Get-MuMuInstallChoicePath), $ManagerPath, $enc)
+        return $true
+    } catch {
+        Write-Debug "Install choice write failed: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+function Resolve-MuMuInstall {
+    # Which MuMuManager.exe to drive at start-up:
+    #   1. the install the user pinned with [IN] (still present),
+    #   2. otherwise the first discovered install.
+    # '' means nothing was found - the caller reports it and exits.
+    # -ExtraRoots is the offline test seam for case 2.
+    param([string[]]$ExtraRoots = @(), [string[]]$Bases = @())
+    $saved = Read-MuMuInstallChoice
+    if ($saved) { return $saved }
+    $installArgs = @{ ExtraRoots = $ExtraRoots }
+    if ($PSBoundParameters.ContainsKey('Bases')) { $installArgs['Bases'] = $Bases }
+    $installs = @(Get-MuMuInstalls @installArgs)
+    if ($installs.Count) { return $installs[0].Manager }
+    return ''
+}
+
+# Auto-detect MuMuManager.exe path (multi-install aware)
+$MumuPath = Resolve-MuMuInstall
+
 # Check if MuMuManager.exe exists
-if (-not (Test-Path $MumuPath)) {
-    Write-Error "MuMuManager.exe not found at $MumuPath"
+if (-not (Test-Path -LiteralPath $MumuPath -PathType Leaf)) {
+    Write-Error 'MuMuManager.exe not found. Searched Program Files, Program Files (x86), LOCALAPPDATA and the registry for the MuMu 6 layout (nx_main / shell) and the MuMu 15 layout (MuMu\nx_main, nx_device\<version>\shell). Install MuMu, or set $MumuPath near the top of this script.'
     exit 1
 }
+# Shown in the status line so it is always obvious which copy is active.
+$script:MumuInstallLabel = Get-MuMuInstallLabel -ManagerPath $MumuPath
 
 # Auto-update from GitHub
 function Get-ContentHash {
@@ -2234,6 +2555,107 @@ function Show-MumuExeVersions {
     }
 }
 
+function Update-MumuInstallState {
+    # Re-read version + instance state after [IN] re-pointed the menu at
+    # another install, so the very next menu paint already shows the new
+    # copy. Refreshes the script-scope values every other function reads
+    # ($InstalledVersion and the quick-status cache). Returns
+    # @{ ok; version; instances } - ok=false when the manager does not
+    # answer (wrong architecture, missing runtime, corrupted install).
+    # -ManagerPath / -VersionJson / -InfoJson are the offline test hooks.
+    param(
+        [string]$ManagerPath = '',
+        [string]$VersionJson = '',
+        [string]$InfoJson = ''
+    )
+    $exe = if ($ManagerPath) { $ManagerPath } else { Get-MuMuActiveManagerPath }
+    $version = ''
+    $instances = 0
+    try {
+        $verText = if ($PSBoundParameters.ContainsKey('VersionJson')) { $VersionJson }
+                   else { (& $exe version 2>$null | Out-String) }
+        $verJson = $verText | ConvertFrom-Json
+        if ($verJson.version) { $version = [string]$verJson.version }
+        $infoText = if ($PSBoundParameters.ContainsKey('InfoJson')) { $InfoJson }
+                    else { (& $exe info -v all 2>$null | Out-String) }
+        $info = $infoText | ConvertFrom-Json
+        foreach ($k in $info.PSObject.Properties.Name) { $instances++ }
+    } catch {
+        Write-Debug "Install state refresh failed: $($_.Exception.Message)"
+    }
+    $script:InstalledVersion = if ($version) { [version]$version } else { $null }
+    $script:QuickStatusCache = $null
+    $script:QuickStatusTs = [datetime]::MinValue
+    return @{ ok = [bool]$version; version = $version; instances = $instances }
+}
+
+function Show-MuMuInstalls {
+    # [IN] Pick which MuMu install this menu drives. Local-only: reads
+    # candidate directories and starts each manager ONCE (version + list)
+    # to describe it. Switching re-points $MumuPath for the whole menu -
+    # no restart, no file edit - and pins the choice for the next start.
+    # -Choice makes the screen scriptable/testable.
+    param([string]$Choice = '', [switch]$NoQuery)
+    Write-Host ''
+    Write-Host '=== MuMu installations ===' -ForegroundColor Cyan
+    # Full discovery (incl. the drive sweep in Get-MumuInstallRoots) is
+    # affordable here: this screen is opened by hand, not on every start.
+    $installs = @(Get-MuMuInstalls -ExtraRoots @(Get-MumuInstallRoots) -QueryVersion:(-not $NoQuery))
+    if (-not $installs.Count) {
+        Write-Host '  No MuMu installation found (no MuMuManager.exe in any known location).' -ForegroundColor Yellow
+        return
+    }
+    $n = 0
+    foreach ($inst in $installs) {
+        $n++
+        $mark = if ($inst.IsActive) { '*' } else { ' ' }
+        $color = if ($inst.IsActive) { 'Green' } else { 'White' }
+        $ver = if ($inst.Product) { $inst.Product } else { 'unknown' }
+        Write-Host ('  [{0}] {1} MuMu {2} - {3} instance(s), build {4}' -f $n, $mark, $ver, $inst.Instances, $inst.BuildDate) -ForegroundColor $color
+        Write-Host ('       {0}' -f $inst.Root) -ForegroundColor DarkGray
+        Write-Host ('       {0}' -f $inst.Layout) -ForegroundColor DarkGray
+        if ($inst.DeviceShell) { Write-Host ('       device shell: {0}' -f $inst.DeviceShell) -ForegroundColor DarkGray }
+    }
+    if (-not $Choice) {
+        $Choice = Read-Host ("  Active install number (1-{0}, Enter=back)" -f $installs.Count)
+    }
+    $Choice = ([string]$Choice).Trim()
+    if (-not $Choice) { return }
+    if ($Choice -match '^[qQ]$') { return }
+    $idx = 0
+    if (-not [int]::TryParse($Choice, [ref]$idx) -or $idx -lt 1 -or $idx -gt $installs.Count) {
+        Write-Host "  '$Choice' is not an install number (1-$($installs.Count))." -ForegroundColor Red
+        return
+    }
+    $target = $installs[$idx - 1]
+    if ($target.IsActive) {
+        Write-Host '  That install is already active.' -ForegroundColor DarkGray
+        return
+    }
+    $previous = Get-MuMuActiveManagerPath
+    $script:MumuPath = $target.Manager
+    $script:ActiveManagerOverride = $target.Manager
+    $script:MumuInstallLabel = Get-MuMuInstallLabel -ManagerPath $target.Manager
+    if (Save-MuMuInstallChoice -ManagerPath $target.Manager) {
+        Write-Host ('  Choice pinned in {0}' -f (Get-MuMuInstallChoicePath)) -ForegroundColor DarkGray
+    } else {
+        Write-Host '  Could not pin the choice (.mumu-install) - it lasts for this session only.' -ForegroundColor Yellow
+    }
+    Write-UpdateJournal -EventType 'install-switch' -From $previous -To $target.Manager -Detail ("build {0}" -f $target.BuildDate)
+    $state = Update-MumuInstallState -ManagerPath $target.Manager
+    Write-Host ''
+    Write-Host ('  Active install: {0}' -f $target.Manager) -ForegroundColor Green
+    if ($state.ok) {
+        Write-Host ('  MuMu {0}, {1} instance(s) visible to this menu.' -f $state.version, $state.instances) -ForegroundColor Green
+        if ($state.version -and ([version]$state.version -lt $MinVersion)) {
+            Write-Host ('  WARNING: MuMu {0} is older than the required {1} - some commands will fail.' -f $state.version, $MinVersion) -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host '  This MuMuManager.exe did not answer - switching anyway, but most commands will fail.' -ForegroundColor Yellow
+    }
+    Write-Host '  No restart needed: every menu command uses this install from now on.' -ForegroundColor DarkGray
+}
+
 # Check MuMu version
 $MinVersion = [version]'4.0.0.3179'
 try {
@@ -2261,11 +2683,15 @@ function Show-QuickStatus {
     # Show compact status line at the top of the menu
     # Cache MuMuManager info for 5 seconds to avoid lag on every menu render
     $muVer = if ($InstalledVersion) { "$InstalledVersion" } else { 'unknown' }
+    # Which install we drive (Netease\MuMuPlayer, Netease1\MuMu, ...) - the
+    # whole menu talks to exactly one MuMuManager.exe, so it is always shown.
+    $installTag = if ($script:MumuInstallLabel) { " | $($script:MumuInstallLabel)" } else { '' }
     $now = [datetime]::Now
     if ($script:QuickStatusCache -and ($now - $script:QuickStatusTs).TotalSeconds -lt 5) {
         $total = $script:QuickStatusCache.total
         $running = $script:QuickStatusCache.running
-        Write-Host "  v$scriptVer | MuMu $muVer | $running/$total running" -ForegroundColor DarkGray
+        $script:QuickStatusTs = $now
+        Write-Host "  v$scriptVer | MuMu $muVer$installTag | $running/$total running" -ForegroundColor DarkGray
         return
     }
     try {
@@ -2277,9 +2703,9 @@ function Show-QuickStatus {
         }
         $script:QuickStatusCache = @{ total = $total; running = $running }
         $script:QuickStatusTs = $now
-        Write-Host "  v$scriptVer | MuMu $muVer | $running/$total running" -ForegroundColor DarkGray
+        Write-Host "  v$scriptVer | MuMu $muVer$installTag | $running/$total running" -ForegroundColor DarkGray
     } catch {
-        Write-Host "  v$scriptVer | MuMu $muVer" -ForegroundColor DarkGray
+        Write-Host "  v$scriptVer | MuMu $muVer$installTag" -ForegroundColor DarkGray
     }
 }
 
@@ -3318,6 +3744,7 @@ function Show-Menu {
     Write-Host '  --- Info ---' -ForegroundColor Green
     Write-Host '  [WN] Watch MuMu network + updater' -ForegroundColor Yellow
     Write-Host '  [RM] Resource monitor (CPU/RAM, live)' -ForegroundColor Yellow
+    Write-Host '  [IN] MuMu installation (choose active)' -ForegroundColor Yellow
     Write-Host '  [V] Version info' -ForegroundColor Yellow
     Write-Host '  [U] Check for updates' -ForegroundColor Yellow
     Write-Host '  [UP] Update plan (dry-run)' -ForegroundColor Yellow
@@ -3786,19 +4213,10 @@ function Backup-EmulatorData {
     if (-not $index) { return }
     Write-Host ''
 
-    $nxDir = Split-Path $MumuPath -Parent
-    $installRoot = Split-Path $nxDir -Parent
-    $vmsRoot = Join-Path $installRoot 'vms'
-
-    $candidates = @()
-    if (Test-Path -LiteralPath $vmsRoot) {
-        foreach ($d in (Get-ChildItem -LiteralPath $vmsRoot -Directory)) {
-            $m = [regex]::Match($d.Name, '-(\d+)$')
-            if ($m.Success -and $m.Groups[1].Value -eq $index) {
-                $candidates += $d.FullName
-            }
-        }
-    }
+    $vmsRoot = Get-MuMuVmsRoot
+    # The index alone is ambiguous (12.0-0 and 15.0-0 are both index 0);
+    # the manager's own android_version decides which folder is live.
+    $candidates = @(Get-MuMuInstanceDir -Index $index -VmsRoot $vmsRoot)
 
     Write-Host 'Instance data folder:' -ForegroundColor Cyan
     if ($candidates.Count -gt 0) {
@@ -4066,19 +4484,8 @@ function Restore-EmulatorData {
     if (-not $index) { return }
 
     # Find target folder
-    $nxDir = Split-Path $MumuPath -Parent
-    $installRoot = Split-Path $nxDir -Parent
-    $vmsRoot = Join-Path $installRoot 'vms'
-
-    $targets = @()
-    if (Test-Path -LiteralPath $vmsRoot) {
-        foreach ($d in (Get-ChildItem -LiteralPath $vmsRoot -Directory)) {
-            $m = [regex]::Match($d.Name, '-(\d+)$')
-            if ($m.Success -and $m.Groups[1].Value -eq $index) {
-                $targets += $d.FullName
-            }
-        }
-    }
+    $vmsRoot = Get-MuMuVmsRoot
+    $targets = @(Get-MuMuInstanceDir -Index $index -VmsRoot $vmsRoot)
 
     if ($targets.Count -gt 0) {
         $dest = $targets[0]
@@ -7279,18 +7686,10 @@ function Show-Logs {
     $gLogState = @{ collapsed = 0; lastTag = $null }
 
     if ($mode -eq '1') {
-        $nxDir = Split-Path $MumuPath -Parent
-        $root = Split-Path $nxDir -Parent
-        $vmsRoot = Join-Path $root 'vms'
-
         $candidates = @()
-        if (Test-Path -LiteralPath $vmsRoot) {
-            $instDir = Get-ChildItem -LiteralPath $vmsRoot -Directory |
-                Where-Object { $mm = [regex]::Match($_.Name, '-(\d+)$'); $mm.Success -and $mm.Groups[1].Value -eq $index } |
-                Select-Object -First 1
-            if ($instDir) {
-                $candidates += (Join-Path $instDir.FullName 'logs\api.log')
-            }
+        $instDirs = @(Get-MuMuInstanceDir -Index $index)
+        if ($instDirs.Count) {
+            $candidates += (Join-Path $instDirs[0] 'logs\api.log')
         }
         $roamLogs = Get-ChildItem (Join-Path $env:APPDATA 'Netease') -Recurse -Filter '*.log' -ErrorAction SilentlyContinue |
             Sort-Object LastWriteTime -Descending | Select-Object -First 3
@@ -8073,30 +8472,34 @@ function Set-FrameRate {
     # a settle pause and offer a restart to make it stick.
 
     # --- quick overview: FPS for all instances ---
-    $nxDir     = Split-Path $MumuPath -Parent
-    $installRoot = Split-Path $nxDir -Parent
-    $vmsRoot   = Join-Path $installRoot 'vms'
+    # Driven by the manager's own instance list, not by a folder walk: an
+    # upgraded install leaves the stale <ver>-<index> folder behind and a
+    # folder walk would report it as a live instance with index 0's state.
+    $vmsRoot   = Get-MuMuVmsRoot
     if (Test-Path -LiteralPath $vmsRoot) {
         Write-Host '  Instance FPS overview:' -ForegroundColor Cyan
-        foreach ($d in (Get-ChildItem -LiteralPath $vmsRoot -Directory)) {
-            $m = [regex]::Match($d.Name, '-(\d+)$')
-            if ($m.Success) {
-                $instIndex = $m.Groups[1].Value
-                $cfgFile = Join-Path $d.FullName 'configs\customer_config.json'
+        $allInfo = $null
+        try { $allInfo = & $MumuPath info -v all 2>$null | ConvertFrom-Json } catch { Write-Debug "info failed: $_" }
+        if ($allInfo) {
+            foreach ($instIndex in $allInfo.PSObject.Properties.Name) {
+                $inst = $allInfo.$instIndex
+                $ver = if ($inst.android_version) { [string]$inst.android_version } else { '' }
+                $dirs = @(Get-MuMuInstanceDir -Index $instIndex -VmsRoot $vmsRoot -AndroidVersion $ver)
+                $instDir = if ($dirs.Count) { $dirs[0] } else { '' }
+                $folderName = if ($instDir) { Split-Path -Leaf $instDir } else { '(folder not found)' }
                 $fps = '?'
-                if (Test-Path -LiteralPath $cfgFile) {
-                    try {
-                        $c = Get-Content -LiteralPath $cfgFile -Raw | ConvertFrom-Json
-                        $fps = $c.setting.frame_setting.desired_framerate
-                    } catch { Write-Debug "fps read failed: $_" }
+                if ($instDir) {
+                    $cfgFile = Join-Path $instDir 'configs\customer_config.json'
+                    if (Test-Path -LiteralPath $cfgFile) {
+                        try {
+                            $c = Get-Content -LiteralPath $cfgFile -Raw | ConvertFrom-Json
+                            $fps = $c.setting.frame_setting.desired_framerate
+                        } catch { Write-Debug "fps read failed: $_" }
+                    }
                 }
-                $state = 'stopped'
-                try {
-                    $info = & $MumuPath info -v $instIndex 2>$null | ConvertFrom-Json
-                    if ($info.$instIndex.player_state) { $state = $info.$instIndex.player_state }
-                } catch { Write-Debug "state read failed: $_" }
+                $state = if ($inst.player_state) { $inst.player_state } else { 'stopped' }
                 $color = if ($state -eq 'start_finished') { 'Green' } else { 'DarkGray' }
-                Write-Host ("    [{0}] {1,-30} FPS={2,-6} {3}" -f $instIndex, $d.Name, $fps, $state) -ForegroundColor $color
+                Write-Host ("    [{0}] {1,-26} FPS={2,-6} {3}" -f $instIndex, $folderName, $fps, $state) -ForegroundColor $color
             }
         }
         Write-Host ''
@@ -8107,20 +8510,10 @@ function Set-FrameRate {
     Write-Host ''
 
     # --- locate customer_config.json ---
-    $nxDir     = Split-Path $MumuPath -Parent
-    $installRoot = Split-Path $nxDir -Parent
-    $vmsRoot   = Join-Path $installRoot 'vms'
-    $instDir   = $null
+    $vmsRoot = Get-MuMuVmsRoot
+    $dirs    = @(Get-MuMuInstanceDir -Index $index -VmsRoot $vmsRoot)
+    $instDir = if ($dirs.Count) { $dirs[0] } else { '' }
 
-    if (Test-Path -LiteralPath $vmsRoot) {
-        foreach ($d in (Get-ChildItem -LiteralPath $vmsRoot -Directory)) {
-            $m = [regex]::Match($d.Name, '-(\d+)$')
-            if ($m.Success -and $m.Groups[1].Value -eq $index) {
-                $instDir = $d.FullName
-                break
-            }
-        }
-    }
     if (-not $instDir) {
         Write-Host "  Instance #$index directory not found under $vmsRoot" -ForegroundColor Red
         return
@@ -9485,8 +9878,10 @@ function Set-RandomDeviceIds {
         Write-Host ''
         Write-Host 'Verifying simulation.json...' -ForegroundColor DarkGray
 
-        # Find the VMS directory by scanning for matching simulation.json
-        $vmsRoot = Join-Path (Split-Path (Split-Path $MumuPath)) 'vms'
+        # Find the VMS directory by scanning for matching simulation.json.
+        # Every folder is scanned (not just the resolved one): after a
+        # rewrite the values may still live in the previous version folder.
+        $vmsRoot = Get-MuMuVmsRoot
         if (Test-Path $vmsRoot) {
             $found = $false
             foreach ($dir in (Get-ChildItem $vmsRoot -Directory)) {
@@ -10288,6 +10683,7 @@ do {
         'diag' { Show-ProblemDiagnostics }
         'wn' { Start-MumuWatcher }
         'rm' { Show-ResourceMonitor }
+        'in' { Show-MuMuInstalls }
         'rb' { Show-RollbackFromBackup }
         'dl' { Download-Repository }
         'cr' { Create-GitHubRelease }

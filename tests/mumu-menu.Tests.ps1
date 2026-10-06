@@ -39,7 +39,11 @@ BeforeAll {
                         'Test-CurlRetrySupport', 'Get-CurlGitHubArgs', 'Invoke-GitHubApiGet', 'Get-ReleaseInfo', 'Invoke-GitHubGet',
                         'Get-MumuProcessSamples', 'Get-MumuResourceSnapshot', 'Show-ResourceMonitor', 'Get-InstanceProcessMap',
                         'Get-InstanceWritableSettings', 'Compare-Settings', 'Format-CompareValue',
-                        'Update-ResourceStats', 'Get-ResourceStatsSummary', 'ConvertTo-ResourceExportLines', 'Export-ResourceSnapshot')) {
+                        'Update-ResourceStats', 'Get-ResourceStatsSummary', 'ConvertTo-ResourceExportLines', 'Export-ResourceSnapshot',
+                        'Get-MuMuInstallCandidateDirs', 'Get-MuMuActiveManagerPath', 'Get-MuMuInstalls',
+                        'Get-MuMuInstallLabel', 'Get-MuMuInstallChoicePath', 'Read-MuMuInstallChoice', 'Save-MuMuInstallChoice',
+                        'Get-MuMuVmsRoot', 'Get-MuMuInstanceAndroidVersion', 'Get-MuMuInstanceDir',
+                        'Resolve-MuMuInstall', 'Update-MumuInstallState')) {
         $f = $script:ast.FindAll({
             param($node)
             $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -976,8 +980,10 @@ Describe '[FPS] frame rate setting (wiring)' {
         # Touches the correct JSON path.
         $t | Should -Match 'frame_setting'
         $t | Should -Match 'desired_framerate'
-        # Locates the instance directory via vms root.
-        $t | Should -Match "Join-Path.*vms'"
+        # Locates the instance directory via the vms root (the resolver that
+        # disambiguates several folders sharing one index).
+        ($t | Should -Match 'Get-MuMuVmsRoot')
+        ($t | Should -Match 'Get-MuMuInstanceDir')
         $t | Should -Match '\$index'
         # Offers restart to apply the change.
         $t | Should -Match 'Restart instance now'
@@ -2856,6 +2862,277 @@ Describe 'Instance settings compare ([CMP])' {
             # hint text - never on a line that actually INVOKES anything.
             @($text -split "`n" | Where-Object { $_ -match '--value' -and $_ -match '& ' }).Count | Should -Be 0
             $text -match 'curl|Invoke-WebRequest|Invoke-RestMethod|Set-Content|Add-Content|New-Item|Out-File' | Should -Be $false
+        }
+    }
+}
+
+Describe 'Multi-install support ([IN] choose the active MuMu install)' {
+
+    BeforeEach {
+        # Two installs in one fixture tree, exactly the shape seen live:
+        # the classic 6.x layout and a MuMu 15 layout (nx_main plus a
+        # device engine under nx_device\<ver>\shell) in a sibling folder.
+        $script:fx = Join-Path $TestDrive ('fx' + ([Guid]::NewGuid().ToString('N').Substring(0, 8)))
+        New-Item -ItemType Directory -Path $script:fx -Force | Out-Null
+        $script:fxA = Join-Path $script:fx 'Netease\MuMuPlayer\nx_main'
+        New-Item -ItemType Directory -Path $script:fxA -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $script:fxA 'MuMuManager.exe') -Value 'stub'
+        Set-Content -LiteralPath (Join-Path $script:fxA 'MuMuNxMain.exe') -Value 'stub'
+        $script:fxRoot = Join-Path $script:fx 'Netease1\MuMu'
+        $script:fxB = Join-Path $script:fxRoot 'nx_main'
+        New-Item -ItemType Directory -Path $script:fxB -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $script:fxB 'MuMuManager.exe') -Value 'stub'
+        New-Item -ItemType Directory -Path (Join-Path $script:fxRoot 'nx_device\15.0\shell') -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $script:fxRoot 'nx_device\12.0\shell') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $script:fxRoot 'nx_device\15.0\shell\MuMuNxDevice.exe') -Value 'stub'
+        $script:fxMgrA = Join-Path $script:fxA 'MuMuManager.exe'
+        $script:fxMgrB = Join-Path $script:fxB 'MuMuManager.exe'
+        $script:fxShell = Join-Path $script:fxRoot 'nx_device\15.0\shell'
+        $script:MumuInstallChoiceFile = Join-Path $script:fx '.mumu-install'
+        $script:InstalledVersion = $null
+        $script:QuickStatusCache = @{ total = 9; running = 9 }
+    }
+
+    It 'candidate probe finds the MuMu 15 layout a fixed path list would miss' {
+        $dirs = @(Get-MuMuInstallCandidateDirs -Bases @($script:fx))
+        $dirs | Should -Contain $script:fxA
+        $dirs | Should -Contain $script:fxB
+    }
+
+    It 'reports only directories that really hold MuMuManager.exe, without duplicates' {
+        $dirs = @(Get-MuMuInstallCandidateDirs -Bases @($script:fx))
+        $dirs.Count | Should -Be ($dirs | Sort-Object -Unique).Count
+        foreach ($d in $dirs) { Test-Path -LiteralPath (Join-Path $d 'MuMuManager.exe') | Should -BeTrue }
+        # The device shell carries adb/NemuShell/MuMuNxDevice, never the
+        # manager - offering it would hand the menu a dead install.
+        $dirs | Should -Not -Contain $script:fxShell
+    }
+
+    It 'discovery order keeps the classic Netease\MuMuPlayer install first' {
+        $f = $script:ast.FindAll({
+                param($node)
+                $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Get-MuMuInstallCandidateDirs'
+            }, $true) | Select-Object -First 1
+        $text = $f.Extent.Text
+        $iClassic = $text.IndexOf("'Netease\MuMuPlayer\nx_main'")
+        $iNew = $text.IndexOf("'Netease1\MuMu\nx_main'")
+        $iClassic | Should -BeGreaterThan 0
+        $iClassic | Should -BeLessThan $iNew
+    }
+
+    It 'lists both installs with layout, device shell and active marker' {
+        $inst = @(Get-MuMuInstalls -ExtraRoots @((Join-Path $script:fx 'Netease\MuMuPlayer'), $script:fxRoot) -Bases @() -ManagerPath $script:fxMgrA)
+        $inst.Count | Should -Be 2
+        $a = $inst | Where-Object { $_.Root -eq $script:fxA }
+        $b = $inst | Where-Object { $_.Root -eq $script:fxB }
+        $a.IsActive | Should -BeTrue
+        $b.IsActive | Should -BeFalse
+        $a.Layout | Should -Be 'MuMu 6 (nx_main)'
+        $a.DeviceShell | Should -Be ''
+        # Newest device engine wins over the stale 12.0 folder.
+        $b.Layout | Should -Be 'MuMu 15 device engine (nx_device\15.0\shell)'
+        $b.DeviceShell | Should -Be $script:fxShell
+        $b.Manager | Should -Be $script:fxMgrB
+    }
+
+    It 'an install root and its nx_main are one install, reported once' {
+        $inst = @(Get-MuMuInstalls -ExtraRoots @($script:fxRoot, $script:fxB) -Bases @())
+        $inst.Count | Should -Be 1
+        $inst[0].Root | Should -Be $script:fxB
+    }
+
+    It 'pins the active install to a BOM-less path file and reads it back' {
+        Save-MuMuInstallChoice -ManagerPath $script:fxMgrB | Should -BeTrue
+        Read-MuMuInstallChoice | Should -Be $script:fxMgrB
+        $bytes = [IO.File]::ReadAllBytes($script:MumuInstallChoiceFile)
+        # UTF-8 WITHOUT BOM: a BOM would break the Test-Path in the reader.
+        $bytes[0] | Should -Not -Be 0xEF
+        [Text.Encoding]::UTF8.GetString($bytes) | Should -Be $script:fxMgrB
+    }
+
+    It 'ignores an empty, missing or stale pin instead of failing to start' {
+        Read-MuMuInstallChoice | Should -Be ''
+        [IO.File]::WriteAllText($script:MumuInstallChoiceFile, '')
+        Read-MuMuInstallChoice | Should -Be ''
+        Save-MuMuInstallChoice -ManagerPath $script:fxMgrB | Should -BeTrue
+        Remove-Item -LiteralPath $script:fxB -Recurse -Force
+        Read-MuMuInstallChoice | Should -Be ''
+        Save-MuMuInstallChoice -ManagerPath '' | Should -BeFalse
+    }
+
+    It 'start-up honours the pin, and falls back to the first install without one' {
+        Resolve-MuMuInstall -ExtraRoots @($script:fxRoot) -Bases @() | Should -Be $script:fxMgrB
+        Save-MuMuInstallChoice -ManagerPath $script:fxMgrA | Should -BeTrue
+        Resolve-MuMuInstall -ExtraRoots @($script:fxRoot) -Bases @() | Should -Be $script:fxMgrA
+    }
+
+    It 'start-up returns nothing when no install exists at all' {
+        Resolve-MuMuInstall -ExtraRoots @((Join-Path $script:fx 'nowhere')) -Bases @() | Should -Be ''
+    }
+
+    It 'refreshes version and instance count after a switch (offline JSON hooks)' {
+        $s = Update-MumuInstallState -ManagerPath $script:fxMgrB -VersionJson '{"version":"6.8.2.0"}' -InfoJson '{"0":{"player_state":"running"},"1":{"player_state":"stopped"}}'
+        $s.ok | Should -BeTrue
+        $s.version | Should -Be '6.8.2.0'
+        $s.instances | Should -Be 2
+        $script:InstalledVersion | Should -Be ([version]'6.8.2.0')
+        # The stale quick-status cache must go, or the menu keeps showing
+        # the previous install's instance counts for 5 more seconds.
+        $script:QuickStatusCache | Should -BeNullOrEmpty
+    }
+
+    It 'a manager that does not answer reports honestly instead of lying' {
+        $s = Update-MumuInstallState -VersionJson 'MuMuManager: fatal' -InfoJson ''
+        $s.ok | Should -BeFalse
+        $s.version | Should -Be ''
+        $script:InstalledVersion | Should -BeNullOrEmpty
+    }
+
+    It 'the status-line label names the install, not just its leaf folder' {
+        Get-MuMuInstallLabel -ManagerPath 'C:\Program Files\Netease1\MuMu\nx_main\MuMuManager.exe' |
+            Should -Be 'Netease1\MuMu'
+        Get-MuMuInstallLabel -ManagerPath 'C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe' |
+            Should -Be 'Netease\MuMuPlayer'
+        # Shallow paths must still produce something printable.
+        Get-MuMuInstallLabel -ManagerPath 'C:\MuMuManager.exe' | Should -Be 'C:\'
+        Get-MuMuInstallLabel -ManagerPath '' | Should -Be ''
+    }
+
+    It 'wiring: [IN] is in the menu and maps to Show-MuMuInstalls' {
+        $src = Get-Content -Raw $script:menuPath
+        ($src -match '\[IN\] MuMu installation \(choose active\)') | Should -Be $true
+        ($src -match "'in' \{ Show-MuMuInstalls \}") | Should -Be $true
+    }
+
+    It 'wiring: the status line shows which install is active' {
+        $src = Get-Content -Raw $script:menuPath
+        ($src -match '\$script:MumuInstallLabel') | Should -Be $true
+        ($src -match 'MuMu \$muVer\$installTag') | Should -Be $true
+    }
+
+    It 'the pin is a bare path next to the script, and it is git-ignored' {
+        $src = Get-Content -Raw $script:menuPath
+        ($src -match "(?m)^\`$script:MumuInstallChoiceFile = Join-Path \`$ScriptDir '\.mumu-install'") | Should -Be $true
+        $ignore = Get-Content -Raw (Join-Path (Join-Path $PSScriptRoot '..') '.gitignore')
+        ($ignore -match '(?m)^\.mumu-install\r?$') | Should -Be $true
+    }
+
+    It 'install discovery and switching stay local: no network, no MuMu writes' {
+        foreach ($n in @('Get-MuMuInstallCandidateDirs', 'Get-MuMuInstalls', 'Get-MuMuActiveManagerPath',
+                'Get-MuMuInstallLabel', 'Get-MuMuInstallChoicePath', 'Read-MuMuInstallChoice', 'Save-MuMuInstallChoice',
+                'Resolve-MuMuInstall', 'Update-MumuInstallState', 'Show-MuMuInstalls')) {
+            $f = $script:ast.FindAll({
+                    param($node)
+                    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $n
+                }, $true) | Select-Object -First 1
+            $f | Should -Not -BeNullOrEmpty
+            $text = $f.Extent.Text
+            $text -match 'curl|Invoke-WebRequest|Invoke-RestMethod' | Should -Be $false
+            # The only file written is the pin, and only through [IO.File].
+            $text -match 'Set-Content|Add-Content|New-Item|Out-File' | Should -Be $false
+        }
+    }
+}
+
+Describe 'Instance folder resolution (ambiguous <version>-<index> folders)' {
+
+    BeforeEach {
+        # The live shape on this machine: MuMuPlayer-12.0-0 is the folder
+        # an upgrade left behind, MuMuPlayer-15.0-0 is what the manager
+        # actually runs, and the other install prefixes folders
+        # MuMuPlayerGlobal-*. Both old and new names share index 0.
+        $script:vms = Join-Path $TestDrive ('vms' + ([Guid]::NewGuid().ToString('N').Substring(0, 8)))
+        New-Item -ItemType Directory -Path $script:vms -Force | Out-Null
+        $script:old = Join-Path $script:vms 'MuMuPlayer-12.0-0'
+        $script:live = Join-Path $script:vms 'MuMuPlayer-15.0-0'
+        $script:two = Join-Path $script:vms 'MuMuPlayer-15.0-2'
+        $script:legacy = Join-Path $script:vms 'MuMuPlayer-0'
+        $script:globalPrefix = Join-Path $script:vms 'MuMuPlayerGlobal-15.0-0'
+        foreach ($d in @($script:old, $script:live, $script:two, $script:legacy, $script:globalPrefix)) {
+            New-Item -ItemType Directory -Path $d -Force | Out-Null
+        }
+        New-Item -ItemType Directory -Path (Join-Path $script:vms 'MuMuPlayer-15.0-base') -Force | Out-Null
+        # Deterministic ages: the orphan is the OLDEST folder.
+        (Get-Item $script:old).LastWriteTime = (Get-Date).AddDays(-30)
+        (Get-Item $script:live).LastWriteTime = Get-Date
+        (Get-Item $script:two).LastWriteTime = (Get-Date).AddDays(-20)
+        (Get-Item $script:legacy).LastWriteTime = (Get-Date).AddDays(-1)
+        (Get-Item $script:globalPrefix).LastWriteTime = (Get-Date).AddDays(-2)
+    }
+
+    It 'finds the vms root one hop above nx_main, for both install layouts' {
+        Get-MuMuVmsRoot -ManagerPath 'C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe' |
+            Should -Be 'C:\Program Files\Netease\MuMuPlayer\vms'
+        Get-MuMuVmsRoot -ManagerPath 'C:\Program Files\Netease1\MuMu\nx_main\MuMuManager.exe' |
+            Should -Be 'C:\Program Files\Netease1\MuMu\vms'
+        Get-MuMuVmsRoot -ManagerPath '' | Should -Be ''
+    }
+
+    It 'reads the android version the manager runs for an index' {
+        Get-MuMuInstanceAndroidVersion -Index '0' -InfoJson '{"0":{"index":0,"android_version":"15.0"}}' |
+            Should -Be '15.0'
+        # Some builds answer with the bare object instead of a keyed map.
+        Get-MuMuInstanceAndroidVersion -Index '2' -InfoJson '{"android_version":"12.0"}' | Should -Be '12.0'
+        # No version / garbage / empty index must degrade to '' , never throw.
+        Get-MuMuInstanceAndroidVersion -Index '0' -InfoJson '{"0":{"player_state":"stopped"}}' | Should -Be ''
+        Get-MuMuInstanceAndroidVersion -Index '0' -InfoJson 'MuMuManager: fatal' | Should -Be ''
+        Get-MuMuInstanceAndroidVersion -Index '' -InfoJson '{"0":{"android_version":"15.0"}}' | Should -Be ''
+    }
+
+    It 'picks the folder whose version matches the manager, orphan demoted' {
+        $dirs = @(Get-MuMuInstanceDir -Index '0' -VmsRoot $script:vms -AndroidVersion '15.0')
+        $dirs[0] | Should -Be $script:live
+        # The stale 12.0-0 folder is still reported - as a later choice,
+        # never first. (Both 15.0 folders match the version, so they lead.)
+        $dirs.Count | Should -BeGreaterThan 1
+        $dirs[-1] | Should -Be $script:old
+        @($dirs | Where-Object { $_ -eq $script:globalPrefix }).Count | Should -Be 1
+    }
+
+    It 'honours a 12.0 instance even though newer 15.0 folders share its index' {
+        @(Get-MuMuInstanceDir -Index '0' -VmsRoot $script:vms -AndroidVersion '12.0')[0] | Should -Be $script:old
+    }
+
+    It 'falls back to newest-first when the manager cannot be asked' {
+        $dirs = @(Get-MuMuInstanceDir -Index '0' -VmsRoot $script:vms -NoVersionQuery)
+        $dirs[0] | Should -Be $script:live
+        # Pre-15 names (no version in the folder) still resolve.
+        $dirs | Should -Contain $script:legacy
+        # The oldest folder never leads the list.
+        $dirs[-1] | Should -Be $script:old
+        # ...base is not an instance and must never be offered.
+        @($dirs | Where-Object { $_ -like '*base*' }).Count | Should -Be 0
+    }
+
+    It 'unknown index and missing vms root return nothing instead of throwing' {
+        @(Get-MuMuInstanceDir -Index '7' -VmsRoot $script:vms -NoVersionQuery).Count | Should -Be 0
+        @(Get-MuMuInstanceDir -Index '0' -VmsRoot (Join-Path $TestDrive 'nope') -NoVersionQuery).Count | Should -Be 0
+        @(Get-MuMuInstanceDir -Index '' -VmsRoot $script:vms -NoVersionQuery).Count | Should -Be 0
+    }
+
+    It 'wiring: the folder-walking call sites all go through the resolver' {
+        foreach ($n in @('Backup-EmulatorData', 'Restore-EmulatorData', 'Show-Logs', 'Set-FrameRate', 'Set-RandomDeviceIds')) {
+            $f = $script:ast.FindAll({
+                    param($node)
+                    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $n
+                }, $true) | Select-Object -First 1
+            $f | Should -Not -BeNullOrEmpty
+            $text = $f.Extent.Text
+            $text | Should -Match 'Get-MuMuInstanceDir|Get-MuMuVmsRoot'
+            # The hand-rolled index walk is what mis-picked 12.0-0 for
+            # index 0 - it must be gone from every one of them.
+            ($text -match "regex\]::Match\(\`$d\.Name, '-\(\\d\+\)\$'") | Should -Be $false
+        }
+    }
+
+    It 'the resolver itself stays local: no network, no writes' {
+        foreach ($n in @('Get-MuMuVmsRoot', 'Get-MuMuInstanceAndroidVersion', 'Get-MuMuInstanceDir')) {
+            $f = $script:ast.FindAll({
+                    param($node)
+                    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $n
+                }, $true) | Select-Object -First 1
+            $text = $f.Extent.Text
+            $text -match 'curl|Invoke-WebRequest|Set-Content|New-Item|Out-File|Remove-Item' | Should -Be $false
         }
     }
 }
