@@ -3010,7 +3010,8 @@ Describe 'Multi-install support ([IN] choose the active MuMu install)' {
         ($src -match 'MuMu \$muVer\$installTag') | Should -Be $true
     }
 
-    It 'the pin is a bare path next to the script, and it is git-ignored' {
+    # Tagged RepoFiles: the deployed-layout fixture has no .gitignore.
+    It 'the pin is a bare path next to the script, and it is git-ignored' -Tag 'RepoFiles' {
         $src = Get-Content -Raw $script:menuPath
         ($src -match "(?m)^\`$script:MumuInstallChoiceFile = Join-Path \`$ScriptDir '\.mumu-install'") | Should -Be $true
         $ignore = Get-Content -Raw (Join-Path (Join-Path $PSScriptRoot '..') '.gitignore')
