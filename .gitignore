@@ -31,3 +31,9 @@ backup/
 *.old
 *.new
 testResults.xml
+
+# Pinned active MuMu install chosen with menu [IN] (local machine state)
+.mumu-install
+
+# Local HTTP ETag cache written by the startup update check
+.etag-cache.json

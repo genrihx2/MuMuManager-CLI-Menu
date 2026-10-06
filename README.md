@@ -186,6 +186,7 @@ curl.exe -sSL -o $env:TEMP\mumu-menu.ps1 https://cdn.jsdelivr.net/gh/genrihx2/Mu
   --- Info ---
   [WN] Watch MuMu network + updater
   [RM] Resource monitor (CPU/RAM, live)
+  [IN] MuMu installation (choose active)
   [V] Version info
   [U] Check for updates
   [UP] Update plan (dry-run)
@@ -364,7 +365,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.22.58
+Script version: 1.22.59
 MuMu version: 6.7.1
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -375,12 +376,17 @@ Instances: 1 (1 running)
 
 ## Путь к MuMuManager.exe
 
-По умолчанию скрипт ищет:
+Скрипт сам находит установленный MuMu при каждом запуске (без правки файла) — сначала фиксированные раскладки, затем общий поиск по `Program Files` / `LOCALAPPDATA` и реестру, потом полный скан дисков:
+
 ```
-C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe
+C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe   (MuMu 6)
+C:\Program Files\Netease\MuMu\nx_main\MuMuManager.exe        (MuMu 15, nx_device\<версия>\shell)
+C:\Program Files\Netease1\MuMu\nx_main\MuMuManager.exe       (вторая, параллельная установка)
 ```
 
-Если MuMu установлен в другое место, измените переменную `$MumuPath` в начале файла `mumu-menu.ps1`.
+Если на машине несколько копий MuMu, активную выбирает пункт меню `[IN] MuMu installation` — переключение мгновенное (перезапуск не нужен), выбор запоминается в `.mumu-install` рядом со скриптом. Активная установка всегда видна в статус-строке меню.
+
+Если MuMu установлен в нестандартное место и не найден автопоиском, измените переменную `$MumuPath` в начале файла `mumu-menu.ps1`.
 
 ## Автообновление
 
@@ -496,6 +502,14 @@ Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
 **EN summary:** Manual ZIP extraction via Windows Explorer propagates Mark-of-the-Web (NTFS `Zone.Identifier`) to every file, and `RemoteSigned` then blocks unsigned "internet" files. Fix: prefer `[U]`/bootstrap (they download, unblock and sign automatically); or `Get-ChildItem <dir> -Recurse -File | Unblock-File`; or extract with `tar -xf`/7-Zip, which do not propagate the mark. MotW is a local trust mechanism only — release content is CI-verified byte-for-byte against the tag.
 
 ## Что нового
+
+### v1.22.59 (06.10.2026)
+
+- **[IN] Мульти-установочность: меню видит и выбирает установку MuMu** — новая функция. Раньше автопоиск знал только `Netease\MuMuPlayer` (жёсткий список из 7 путей), поэтому раскладка MuMu 15 (`Netease\MuMu\nx_main` + движок устройства в `nx_device\<версия>\shell`) и параллельная вторая установка в `Netease1\MuMu` в быстрый список не попадали — их находил только медленный скан всех дисков. Теперь: `Get-MuMuInstallCandidateDirs` (фикс-раскладки + одноуровневый обход `*Netease*`/`*MuMu*` + реестр, только каталоги где реально лежит `MuMuManager.exe`), `Get-MuMuInstalls` (единый список установок: корень, менеджер, device shell, раскладка, дата сборки, версия и число инстансов при запросе, метка активной), `Resolve-MuMuInstall` (выбор при старте) и пункт `[IN]` — таблица установок со звёздочкой у активной, переключение без перезапуска (все команды читают `$MumuPath` в момент вызова), перечитывание версии/инстансов и сброс кэша статус-строки после переключения. Выбор пинуется в `.mumu-install` (только путь, UTF-8 без BOM, в `.gitignore`); пустой/битый/устаревший пин молча игнорируется. Статус-строка меню всегда показывает активную установку: `v1.22.59 | MuMu 6.8.2.0 | Netease1\MuMu | 1/2 running`. Значение по умолчанию не изменилось — при отсутствии пина первой берётся классическая `Netease\MuMuPlayer`.
+- **Исправлен выбор папки инстанса: `12.0-0` больше не выигрывает у живого `15.0-0`** (поймано на живой машине). Папки инстансов называются `<префикс>-<версия Android>-<индекс>` (`MuMuPlayer-15.0-0`, `MuMuPlayerGlobal-12.0-1`), поэтому одного индекса мало: после обновления Android старый `12.0-0` остаётся рядом с текущим `15.0-0` под тем же индексом 0, а код брал первую попавшуюся папку. Новый `Get-MuMuInstanceDir` спрашивает у менеджера `android_version` для индекса (`Get-MuMuInstanceAndroidVersion`) и ставит совпадающую папку первой; остальные идут следом новейшими первыми (бэкап/восстановление по-прежнему предлагают выбор), старые имена без версии поддержаны, `...-base` никогда не выдаётся за инстанс. На него переведены `[BA]`, `[RE]`, `[G]`, `[FPS]` и `[DI]` — обзор FPS теперь строится по списку инстансов менеджера, а не по обходу папок, и не показывает осиротевшие каталоги как живые. Корень `vms` берётся из активной установки (`Get-MuMuVmsRoot`), а не из предположения о пути.
+- **Version bump**: `$scriptVer` in `mumu-menu.ps1`, `relnotes.md`, `README.md` and `.version` synchronized to `1.22.59`.
+
+**EN summary:** Multi-install support. Auto-detection no longer relies on a seven-entry hard-coded list of `Netease\MuMuPlayer` paths: `Get-MuMuInstallCandidateDirs` probes the fixed layouts, a one-level generic sweep of `*Netease*`/`*MuMu*` folders under Program Files / LOCALAPPDATA and the registry (keeping only directories that really contain `MuMuManager.exe`), `Get-MuMuInstalls` returns one descriptor per install (root, manager, device shell, layout, build date, and - on demand - reported version and instance count), and the new menu entry `[IN] MuMu installation` lists them with the active one starred and switches instantly - no restart, because every command reads `$MumuPath` at call time. The choice is pinned in a BOM-less `.mumu-install` path file (git-ignored); an empty, corrupt or stale pin is silently ignored, and the default is unchanged when nothing is pinned. The status line always names the active install. Second fix, caught on the live machine: instance folders are named `<prefix>-<android version>-<index>`, so an upgraded instance leaves the stale `MuMuPlayer-12.0-0` next to the current `MuMuPlayer-15.0-0` under the same index 0 - and the old index-only walk picked whichever came first. The new `Get-MuMuInstanceDir` asks the manager for the index's `android_version` and ranks the matching folder first, then the rest newest-first (backup/restore still offer the choice), keeps supporting pre-15 names without a version, never offers a `-base` folder; `[BA]`, `[RE]`, `[G]`, `[FPS]` and `[DI]` now go through it, and the FPS overview is driven by the manager's instance list instead of a folder walk. Pester suite: 232 tests.
 
 ### v1.22.58 (05.10.2026)
 
@@ -997,6 +1011,7 @@ Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.59 | 06.10.2026 | Feature: [IN] мульти-установочность — общий реестр установок (раскладка MuMu 15 `nx_device`, параллельный `Netease1\MuMu`), переключение активной без перезапуска, пин в `.mumu-install`, установка в статус-строке; fix: папка инстанса выбирается по паре `<версия>-<индекс>` (`android_version` из менеджера) — осиротевший `12.0-0` больше не выигрывает у живого `15.0-0` в [BA]/[RE]/[G]/[FPS] |
 | v1.22.58 | 05.10.2026 | Feature: [RM] v2 — настоящая пауза [P] (гейт до сэмплирования), сессионные peak/avg CPU и peak RAM со сбросом [R], спарклайн тотала CPU, экспорт [E] MD/CSV/JSON (BOM, инвариантные decimals), дельта RAM «+/=/-» |
 | v1.22.57 | 05.10.2026 | Feature: [CMP] сравнение записываемых настроек двух инстансов бок-о-бок (read-only, остановленные ОК, diff + подсказка где править); [RM]: колонка Instance (PID→«#N Имя» через info, тик-обновление) |
 | v1.22.56 | 05.10.2026 | Feature: [RM] resource monitor — live CPU/RAM-панель всех MuMu*-процессов (CPU% по дельте, RAM/private, аптайм, сортировки CPU/RAM/PID, интервал 1–30 с, read-only); Docs: 4 VT YARA/Sigma FP в SIGMA RULE EXCLUSIONS, отчёт VT v1.22.55 в SECURITY.md/README |
