@@ -43,7 +43,7 @@ BeforeAll {
                         'Get-MuMuInstallCandidateDirs', 'Get-MuMuActiveManagerPath', 'Get-MuMuInstalls',
                         'Get-MuMuInstallLabel', 'Get-MuMuInstallChoicePath', 'Read-MuMuInstallChoice', 'Save-MuMuInstallChoice',
                         'Get-MuMuVmsRoot', 'Get-MuMuInstanceAndroidVersion', 'Get-MuMuInstanceDir',
-                        'Get-AuthenticodeSignerName', 'Get-MuMuInstallDrift',
+                        'Get-AuthenticodeSignerName', 'Get-MuMuInstallDrift', 'Switch-MuMuActiveInstall',
                         'Resolve-MuMuInstall', 'Update-MumuInstallState')) {
         $f = $script:ast.FindAll({
             param($node)
@@ -3257,5 +3257,68 @@ Describe 'Install drift report ([DIAG], multi-install)' {
             $text = $f.Extent.Text
             $text -match 'curl|Invoke-WebRequest|Invoke-RestMethod|Set-Content|Add-Content|Out-File|Remove-Item' | Should -Be $false
         }
+    }
+}
+Describe 'Quick install switch ([DIAG] prompt + [IN] shared implementation)' {
+
+    BeforeEach {
+        $script:aMgr = 'C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe'
+        $script:bMgr = 'C:\Program Files\Netease1\MuMu\nx_main\MuMuManager.exe'
+        $script:MumuInstallChoiceFile = Join-Path $TestDrive '.mumu-install'
+        $script:JournalFile = Join-Path $TestDrive 'update-journal.log'
+        $script:MinVersion = [version]'4.0.0.0'
+        $script:InstalledVersion = $null
+        $script:QuickStatusCache = @{ total = 9; running = 9 }
+    }
+
+    It 'switching re-points the menu, pins a BOM-less path and journals the event' {
+        $s = Switch-MuMuActiveInstall -ManagerPath $script:bMgr -BuildDate '2026-09-29' `
+            -VersionJson '{"version":"6.8.2.0"}' -InfoJson '{"0":{"is_android_started":true},"2":{"is_android_started":false}}'
+        $s.ok | Should -BeTrue
+        $s.version | Should -Be '6.8.2.0'
+        $s.instances | Should -Be 2
+        # The whole menu follows: the override wins over discovery.
+        Get-MuMuActiveManagerPath | Should -Be $script:bMgr
+        # Pin: BOM-less bare path, survives a restart.
+        $bytes = [IO.File]::ReadAllBytes($script:MumuInstallChoiceFile)
+        $bytes[0] | Should -Not -Be 0xEF
+        [Text.Encoding]::UTF8.GetString($bytes) | Should -Be $script:bMgr
+        # Journal: one install-switch event with the target manager.
+        $line = @(Get-Content -LiteralPath $script:JournalFile | Where-Object { $_.Trim() })[-1]
+        ($line -split "`t")[2] | Should -Be 'install-switch'
+        ($line -split "`t")[4] | Should -Be $script:bMgr
+    }
+
+    It 'the switch refreshes the stale quick-status cache and the version' {
+        $script:QuickStatusCache | Should -Not -BeNullOrEmpty
+        $null = Switch-MuMuActiveInstall -ManagerPath $script:bMgr -VersionJson '{"version":"6.8.2.0"}' -InfoJson '{"0":{}}'
+        $script:QuickStatusCache | Should -BeNullOrEmpty
+        $script:InstalledVersion | Should -Be ([version]'6.8.2.0')
+    }
+
+    It '-Quiet switches silently: pin and state still land, no banner needed' {
+        $s = Switch-MuMuActiveInstall -ManagerPath $script:aMgr -VersionJson '{"version":"6.8.0.0"}' -InfoJson '{"0":{},"1":{},"2":{}}' -Quiet
+        $s.ok | Should -BeTrue
+        Get-MuMuActiveManagerPath | Should -Be $script:aMgr
+        Test-Path -LiteralPath $script:MumuInstallChoiceFile | Should -BeTrue
+    }
+
+    It 'wiring: [DIAG] offers the inline switch, [IN] delegates to the same function' {
+        $src = Get-Content -Raw $script:menuPath
+        ($src -match 'Switch to \{0\} now\? \(y/N\)') | Should -Be $true
+        ($src -match 'Switch-MuMuActiveInstall -ManagerPath \$pick\.Manager') | Should -Be $true
+        # [IN] no longer carries a second copy of the switch logic.
+        ($src -match 'Switch-MuMuActiveInstall -ManagerPath \$target\.Manager') | Should -Be $true
+        ($src -match '(?s)function Show-MuMuInstalls.*?Switch-MuMuActiveInstall') | Should -Be $true
+    }
+
+    It 'the switch stays local: no network, no exotic writes' {
+        $f = $script:ast.FindAll({
+                param($node)
+                $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Switch-MuMuActiveInstall'
+            }, $true) | Select-Object -First 1
+        $f | Should -Not -BeNullOrEmpty
+        $text = $f.Extent.Text
+        $text -match 'curl|Invoke-WebRequest|Invoke-RestMethod|Set-Content|Add-Content|Out-File' | Should -Be $false
     }
 }

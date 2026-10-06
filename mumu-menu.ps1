@@ -2589,6 +2589,52 @@ function Update-MumuInstallState {
     return @{ ok = [bool]$version; version = $version; instances = $instances }
 }
 
+function Switch-MuMuActiveInstall {
+    # Re-points the whole menu at another MuMu install: $MumuPath (every
+    # command reads it at call time), the status-line label, the
+    # .mumu-install pin and the journal event, then refreshes the version
+    # and instance state. The one switch implementation shared by [IN] and
+    # by the [DIAG] quick-switch prompt. -Quiet skips the banner (used
+    # where the caller prints its own context); -VersionJson/-InfoJson are
+    # the offline test hooks of Update-MumuInstallState. Returns
+    # @{ ok; version; instances }.
+    param(
+        [Parameter(Mandatory = $true)] [string]$ManagerPath,
+        [string]$BuildDate = '',
+        [string]$VersionJson = '',
+        [string]$InfoJson = '',
+        [switch]$Quiet
+    )
+    $previous = Get-MuMuActiveManagerPath
+    $script:MumuPath = $ManagerPath
+    $script:ActiveManagerOverride = $ManagerPath
+    $script:MumuInstallLabel = Get-MuMuInstallLabel -ManagerPath $ManagerPath
+    if (Save-MuMuInstallChoice -ManagerPath $ManagerPath) {
+        if (-not $Quiet) { Write-Host ('  Choice pinned in {0}' -f (Get-MuMuInstallChoicePath)) -ForegroundColor DarkGray }
+    } elseif (-not $Quiet) {
+        Write-Host '  Could not pin the choice (.mumu-install) - it lasts for this session only.' -ForegroundColor Yellow
+    }
+    Write-UpdateJournal -EventType 'install-switch' -From $previous -To $ManagerPath -Detail $(if ($BuildDate) { "build {0}" -f $BuildDate } else { '' })
+    $stateArgs = @{ ManagerPath = $ManagerPath }
+    if ($PSBoundParameters.ContainsKey('VersionJson')) { $stateArgs['VersionJson'] = $VersionJson }
+    if ($PSBoundParameters.ContainsKey('InfoJson')) { $stateArgs['InfoJson'] = $InfoJson }
+    $state = Update-MumuInstallState @stateArgs
+    if (-not $Quiet) {
+        Write-Host ''
+        Write-Host ('  Active install: {0}' -f $ManagerPath) -ForegroundColor Green
+        if ($state.ok) {
+            Write-Host ('  MuMu {0}, {1} instance(s) visible to this menu.' -f $state.version, $state.instances) -ForegroundColor Green
+            if ($state.version -and ($state.version -as [version]) -and ([version]$state.version -lt $MinVersion)) {
+                Write-Host ('  WARNING: MuMu {0} is older than the required {1} - some commands will fail.' -f $state.version, $MinVersion) -ForegroundColor Yellow
+            }
+        } else {
+            Write-Host '  This MuMuManager.exe did not answer - switching anyway, but most commands will fail.' -ForegroundColor Yellow
+        }
+        Write-Host '  No restart needed: every menu command uses this install from now on.' -ForegroundColor DarkGray
+    }
+    return $state
+}
+
 function Show-MuMuInstalls {
     # [IN] Pick which MuMu install this menu drives. Local-only: reads
     # candidate directories and starts each manager ONCE (version + list)
@@ -2632,28 +2678,7 @@ function Show-MuMuInstalls {
         Write-Host '  That install is already active.' -ForegroundColor DarkGray
         return
     }
-    $previous = Get-MuMuActiveManagerPath
-    $script:MumuPath = $target.Manager
-    $script:ActiveManagerOverride = $target.Manager
-    $script:MumuInstallLabel = Get-MuMuInstallLabel -ManagerPath $target.Manager
-    if (Save-MuMuInstallChoice -ManagerPath $target.Manager) {
-        Write-Host ('  Choice pinned in {0}' -f (Get-MuMuInstallChoicePath)) -ForegroundColor DarkGray
-    } else {
-        Write-Host '  Could not pin the choice (.mumu-install) - it lasts for this session only.' -ForegroundColor Yellow
-    }
-    Write-UpdateJournal -EventType 'install-switch' -From $previous -To $target.Manager -Detail ("build {0}" -f $target.BuildDate)
-    $state = Update-MumuInstallState -ManagerPath $target.Manager
-    Write-Host ''
-    Write-Host ('  Active install: {0}' -f $target.Manager) -ForegroundColor Green
-    if ($state.ok) {
-        Write-Host ('  MuMu {0}, {1} instance(s) visible to this menu.' -f $state.version, $state.instances) -ForegroundColor Green
-        if ($state.version -and ([version]$state.version -lt $MinVersion)) {
-            Write-Host ('  WARNING: MuMu {0} is older than the required {1} - some commands will fail.' -f $state.version, $MinVersion) -ForegroundColor Yellow
-        }
-    } else {
-        Write-Host '  This MuMuManager.exe did not answer - switching anyway, but most commands will fail.' -ForegroundColor Yellow
-    }
-    Write-Host '  No restart needed: every menu command uses this install from now on.' -ForegroundColor DarkGray
+    $null = Switch-MuMuActiveInstall -ManagerPath $target.Manager -BuildDate $target.BuildDate
 }
 
 # Check MuMu version
@@ -3250,7 +3275,11 @@ function Get-ProblemFindings {
     $fileVer = ''
     if ($MenuPath -and (Test-Path -LiteralPath $MenuPath -PathType Leaf)) {
         try {
-            $head = (Get-Content -LiteralPath $MenuPath -TotalCount 260 -ErrorAction SilentlyContinue) -join "`n"
+            # Head bound 400: $scriptVer moved past line 260 (the old bound)
+            # when the multi-install block landed, and every healthy install
+            # then got a false 'could not read the script version' warning.
+            # 400 covers the header plus all top-level state with margin.
+            $head = (Get-Content -LiteralPath $MenuPath -TotalCount 400 -ErrorAction SilentlyContinue) -join "`n"
             if ($head -match "\`$scriptVer\s*=\s*'([\d\.]+)'") { $fileVer = $Matches[1] }
         } catch { Write-Debug "scriptVer read failed: $($_.Exception.Message)" }
     }
@@ -3572,6 +3601,19 @@ function Show-ProblemDiagnostics {
             if ($d.Signer) { Write-Host ("      signer: {0}" -f $d.Signer) -ForegroundColor DarkGray }
         }
         Write-Host '  (* = the install this menu drives; switch with [IN])' -ForegroundColor DarkGray
+        # Quick fix for the wrong-install warning: the report already knows
+        # which install owns the running emulator - offer to switch inline.
+        $active = $drift.Installs | Where-Object { $_.IsActive } | Select-Object -First 1
+        $busy = @($drift.Installs | Where-Object { (-not $_.IsActive) -and ($_.Running -gt 0) })
+        if ($busy.Count -and $active -and ($active.Running -eq 0)) {
+            $pick = $busy | Sort-Object Running -Descending | Select-Object -First 1
+            Write-Host ''
+            Write-Host ('  Switch to {0} now? (y/N)' -f $pick.Label) -ForegroundColor White
+            $resp = Read-Host '  y/N'
+            if ($resp -match '^[yY]') {
+                $null = Switch-MuMuActiveInstall -ManagerPath $pick.Manager -BuildDate $pick.BuildDate
+            }
+        }
     }
 }
 
