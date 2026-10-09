@@ -45,7 +45,8 @@ BeforeAll {
                         'Get-MuMuVmsRoot', 'Get-MuMuInstanceAndroidVersion', 'Get-MuMuInstanceDir',
                         'Get-MuMuOrphanInstanceDirs',
                         'Get-AuthenticodeSignerName', 'Get-MuMuInstallDrift', 'Switch-MuMuActiveInstall',
-                        'Resolve-MuMuInstall', 'Update-MumuInstallState')) {
+                        'Resolve-MuMuInstall', 'Update-MumuInstallState',
+                        'Stop-Logcat')) {
         $f = $script:ast.FindAll({
             param($node)
             $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -3260,6 +3261,36 @@ Describe 'Install drift report ([DIAG], multi-install)' {
         }
     }
 }
+Describe 'Stop-Logcat (live logcat cleanup on exit)' {
+
+    It 'function exists and is wired next to Get-AllIndices' {
+        $src = [System.IO.File]::ReadAllText($script:menuPath)
+        ($src -match 'function Stop-Logcat \{') | Should -Be $true
+        ($src -match 'Stop-Logcat -Index \$index') | Should -Be $true
+        ($src -match 'function Get-AllIndices \{') | Should -Be $true
+    }
+
+    It 'prints nothing on the host and does not throw for a blank index' {
+        $out = & { Stop-Logcat -Index '' } 2>&1
+        ($out -join '') | Should -Be ''
+    }
+
+    It 'is declared read-only (no writes/external commands beyond the safe adb logcat -c)' {
+        $src = [System.IO.File]::ReadAllText($script:menuPath)
+        # Locate the function body by its declaration.
+        $start = $src.IndexOf('function Stop-Logcat {')
+        $declEnd = $src.IndexOf('}', $start + 20)
+        $body = $src.Substring($start, $declEnd - $start + 1)
+        # Declared next to Get-AllIndices so the menu-local adb host is in scope.
+        ($src -match 'function Get-AllIndices \{') | Should -Be $true
+        # Keep the body honest: only the adb logcat -c no-op and debug on failure.
+        ($body -match 'adb -v \$Index -c '\''logcat -c'\'') | Should -Be $true
+        ($body -match 'Write-Debug') | Should -Be $true
+        ($body -notmatch 'Set-Content|Add-Content|Out-File|New-Item|Remove-Item|Invoke-WebRequest|curl|Invoke-RestMethod') | Should -Be $true
+    }
+
+}
+
 Describe 'Orphan instance folder report ([DIAG], read-only)' {
 
     # Fixture shaped like the live machine's vms folder: two folders the

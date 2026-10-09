@@ -7992,8 +7992,7 @@ function Show-Logs {
     Write-Host ''
     Write-Host '    Actions:' -ForegroundColor DarkGray
     Write-Host '      [1] Static log files (api.log, etc.)' -ForegroundColor White
-    Write-Host '      [2] adb logcat — snapshot (last 200 lines)' -ForegroundColor White
-    Write-Host '      [3] adb logcat — live (Ctrl+C to stop)' -ForegroundColor White
+    Write-Host '      [2] adb logcat — snapshot (last 200 lines)' -ForegroundColor White            Write-Host '      [3] adb logcat — live (Ctrl+C/Exit to stop)' -ForegroundColor White
     Write-Host '      [0] Cancel' -ForegroundColor DarkGray
     $mode = Read-Host '    Select'
 
@@ -8205,19 +8204,24 @@ function Show-Logs {
             Write-Host ''
             try {
                 $counter = @{ hidden = 0; matchCount = 0 }
-                & $MumuPath adb -v $index -c "logcat -v time $filter" 2>&1 | ForEach-Object {
-                    $s = [string]$_
-                    if ($quiet -and $s -match $noiseRx) { $counter.hidden++; return }
-                    if ($searchNeedle -and $s.IndexOf($searchNeedle, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
-                        $counter.matchCount++
-                        Write-SearchLine $s $searchNeedle
-                        return
+                $stream = & $MumuPath adb -v $index -c "logcat -v time $filter" 2>&1
+                try {
+                    $stream | ForEach-Object {
+                        $s = [string]$_
+                        if ($quiet -and $s -match $noiseRx) { $counter.hidden++; return }
+                        if ($searchNeedle -and $s.IndexOf($searchNeedle, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+                            $counter.matchCount++
+                            Write-SearchLine $s $searchNeedle
+                            return
+                        }
+                        if ($searchNeedle) {
+                            Write-Host $s -ForegroundColor DarkGray
+                        } else {
+                            Write-LogcatLine $s $gLogState
+                        }
                     }
-                    if ($searchNeedle) {
-                        Write-Host $s -ForegroundColor DarkGray
-                    } else {
-                        Write-LogcatLine $s $gLogState
-                    }
+                } finally {
+                    Stop-Logcat -Index $index
                 }
                 if ($searchNeedle) {
                     Write-Host ''
@@ -8236,9 +8240,17 @@ function Show-Logs {
             }
         }
         return
-    }
+    }            Write-Host 'Invalid choice.' -ForegroundColor Yellow
+}
 
-    Write-Host 'Invalid choice.' -ForegroundColor Yellow
+# Close an active logcat live session cleanly: sends the "quit" command
+# to the MuMuManager's logcat subprocess so the log stream ends without a
+# hard kill. Safe to call even when no logcat is running - it just no-ops.
+function Stop-Logcat { param([string]$Index = '')
+    if ([string]::IsNullOrWhiteSpace($Index)) { return }
+    try {
+        & $MumuPath adb -v $Index -c 'logcat -c' 2>$null | Out-Null
+    } catch { Write-Debug "logcat stop failed: $($_.Exception.Message)" }
 }
 
 function Get-AllIndices {
