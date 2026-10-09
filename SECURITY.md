@@ -6,7 +6,7 @@
 
 ## Русский
 
-> Актуально для **v1.22.61** (обновлено 2026-10-06).
+> Актуально для **v1.22.62** (обновлено 2026-10-09).
 
 ### Поддерживаемые версии
 
@@ -16,6 +16,13 @@
 | --- | --- |
 | актуальный релиз ([Releases/latest](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest)) | ✅ |
 | предыдущие версии | ❌ |
+
+
+### v1.22.62 (2026-10-09) — live note
+
+- Добавлено: хелпер `Stop-Logcat` — live-стрим `adb logcat` теперь закрывается при выходе (`logcat -c`), поэтому выход из live-текста останавливает logcat, а не обрывает поток; prompt в `[G]` изменён с `Ctrl+C to stop` на `Ctrl+C/Exit to stop`. По контрукции read-only: новая функция выполняет только документированный no-op `logcat -c` и пишет диагностику через `Write-Debug`.
+
+- Эта правка вышла отдельным feat-коммитом поверх v1.22.62 на `main` (ещё не тег релиза): `2d3fe44`.
 
 ### Как сообщить об уязвимости
 
@@ -367,7 +374,7 @@ The script uses Invoke-WebRequest/curl only to access GitHub API for auto-update
 
 ## English
 
-> Current for **v1.22.61** (updated 2026-10-06).
+> Current for **v1.22.62** (updated 2026-10-09).
 
 ### Supported Versions
 
@@ -377,6 +384,11 @@ Security fixes are released only for the latest release.
 | --- | --- |
 | latest release ([Releases/latest](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest)) | ✅ |
 | older | ❌ |
+
+### v1.22.62 (2026-10-09) — live note
+
+- Added: `Stop-Logcat` helper — live `adb logcat` stream is captured and closed on exit (`logcat -c`), so leaving the live view stops logcat instead of abandoning it; the `[G]` live prompt was updated from `Ctrl+C to stop` to `Ctrl+C/Exit to stop`. Read-only by construction: the new function only runs the documented adb logcat `-c` no-op and writes diagnostics via `Write-Debug`.
+- This change shipped as a post-v1.22.62 feat commit on `main` (not a release tag yet): `2d3fe44`.
 
 ### Reporting a Vulnerability
 
