@@ -3297,7 +3297,7 @@ Describe 'Stop-Logcat (live logcat cleanup on exit)' {
         # Declared next to Get-AllIndices so the menu-local adb host is in scope.
         ($src -match 'function Get-AllIndices \{') | Should -Be $true
         # Keep the body honest: only the adb logcat -c no-op and debug on failure.
-        $needle    = 'adb -v ' + [char]36 + 'Index -c ' + [char]39 + 'logcat -c' + [char]39
+        $needle    = 'adb --vmindex ' + [char]36 + 'Index --cmd ' + [char]39 + 'logcat -c' + [char]39
         $hasLogcatC = ($body.IndexOf($needle, [StringComparison]::Ordinal) -ge 0)
         $hasDebug  = ($body -match 'Write-Debug')
         $hasBad    = ($body -match 'Set-Content|Add-Content|Out-File|New-Item|Remove-Item|Invoke-WebRequest|curl|Invoke-RestMethod')

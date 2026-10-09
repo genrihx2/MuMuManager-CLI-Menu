@@ -158,7 +158,7 @@ function Wait-ADBOnline {
     $elapsed = 0
     while ($elapsed -lt $MaxWait) {
         try {
-            $test = & $MumuPath adb -v $Index -c 'shell echo ok' 2>&1 | Out-String
+            $test = & $MumuPath adb --vmindex $Index --cmd 'shell echo ok' 2>&1 | Out-String
             if ($test.Trim() -eq 'ok') { return $true }
         } catch { Write-Debug "Wait-ForAdb: $_" }
         Start-Sleep -Seconds 2
@@ -183,7 +183,7 @@ function Apply-SavedSim {
         return
     }
     try {
-        & $MumuPath adb -v $Index -c "shell setprop persist.mumu.mccmnc $numeric" 2>&1 | Out-Null
+        & $MumuPath adb --vmindex $Index --cmd "shell setprop persist.mumu.mccmnc $numeric" 2>&1 | Out-Null
         @(
             "setprop gsm.sim.operator.numeric $numeric"
             "setprop gsm.sim.operator.iso-country $cc"
@@ -194,16 +194,16 @@ function Apply-SavedSim {
             "setprop gsm.sim.operator.isroaming false"
             "setprop gsm.operator.isroaming false"
         ) | ForEach-Object {
-            & $MumuPath adb -v $Index -c "shell $_" 2>&1 | Out-Null
+            & $MumuPath adb --vmindex $Index --cmd "shell $_" 2>&1 | Out-Null
         }
-        & $MumuPath adb -v $Index -c "shell settings put global mobile_operator $numeric" 2>&1 | Out-Null
-        & $MumuPath adb -v $Index -c "shell settings put global operator_numeric $numeric" 2>&1 | Out-Null
-        & $MumuPath adb -v $Index -c "shell settings put global operator_alpha `"$alphaShell`"" 2>&1 | Out-Null
-        & $MumuPath adb -v $Index -c "shell settings put global sim_operator `"$alphaShell`"" 2>&1 | Out-Null
-        & $MumuPath adb -v $Index -c "shell settings put global gsm_operator_alpha `"$alphaShell`"" 2>&1 | Out-Null
+        & $MumuPath adb --vmindex $Index --cmd "shell settings put global mobile_operator $numeric" 2>&1 | Out-Null
+        & $MumuPath adb --vmindex $Index --cmd "shell settings put global operator_numeric $numeric" 2>&1 | Out-Null
+        & $MumuPath adb --vmindex $Index --cmd "shell settings put global operator_alpha `"$alphaShell`"" 2>&1 | Out-Null
+        & $MumuPath adb --vmindex $Index --cmd "shell settings put global sim_operator `"$alphaShell`"" 2>&1 | Out-Null
+        & $MumuPath adb --vmindex $Index --cmd "shell settings put global gsm_operator_alpha `"$alphaShell`"" 2>&1 | Out-Null
         # debug.tracing.mcc/mnc — emulator internal MCC/MNC
-        & $MumuPath adb -v $Index -c "shell setprop debug.tracing.mcc $($entry.mcc)" 2>&1 | Out-Null
-        & $MumuPath adb -v $Index -c "shell setprop debug.tracing.mnc $($entry.mnc)" 2>&1 | Out-Null
+        & $MumuPath adb --vmindex $Index --cmd "shell setprop debug.tracing.mcc $($entry.mcc)" 2>&1 | Out-Null
+        & $MumuPath adb --vmindex $Index --cmd "shell setprop debug.tracing.mnc $($entry.mnc)" 2>&1 | Out-Null
         Write-Host "  [$Index] SIM auto-applied: $alpha ($numeric)" -ForegroundColor DarkGreen
     } catch {
         Write-Host "  [$Index] SIM auto-apply failed: $($_.Exception.Message)" -ForegroundColor DarkYellow
@@ -4557,7 +4557,7 @@ function Clear-AppData {
     $confirm = Read-Host 'Type YES to confirm'
     if ($confirm -cne 'YES') { Write-Host 'Cancelled.' -ForegroundColor Yellow; return }
     Write-Host "Clearing data for $package..." -ForegroundColor Cyan
-    & $MumuPath adb -v $index -c "shell pm clear $package" 2>&1 | Out-Null
+    & $MumuPath adb --vmindex $index --cmd "shell pm clear $package" 2>&1 | Out-Null
     Write-Host 'Done!' -ForegroundColor Green
 }
 
@@ -4568,7 +4568,7 @@ function Stop-App {
     $package = (Read-Host 'Enter package name').Trim()
     if (-not $package) { Write-Host 'Cancelled.' -ForegroundColor Yellow; return }
     Write-Host "Force stopping $package..." -ForegroundColor Cyan
-    & $MumuPath adb -v $index -c "shell am force-stop $package" 2>&1 | Out-Null
+    & $MumuPath adb --vmindex $index --cmd "shell am force-stop $package" 2>&1 | Out-Null
     Write-Host 'Done!' -ForegroundColor Green
 }
 
@@ -4579,7 +4579,7 @@ function Start-App {
     $package = (Read-Host 'Enter package name').Trim()
     if (-not $package) { Write-Host 'Cancelled.' -ForegroundColor Yellow; return }
     Write-Host "Starting $package..." -ForegroundColor Cyan
-    & $MumuPath adb -v $index -c "shell monkey -p $package -c android.intent.category.LAUNCHER 1" 2>&1 | Out-Null
+    & $MumuPath adb --vmindex $index --cmd "shell monkey -p $package -c android.intent.category.LAUNCHER 1" 2>&1 | Out-Null
     Write-Host 'Done!' -ForegroundColor Green
 }
 
@@ -5235,7 +5235,7 @@ function Test-EmulatorConnection {
         param($cmd)
         $prevEap = $ErrorActionPreference
         $ErrorActionPreference = 'SilentlyContinue'
-        try { $raw = & $MumuPath adb -v $index -c "shell $cmd" 2>&1 } finally { $ErrorActionPreference = $prevEap }
+        try { $raw = & $MumuPath adb --vmindex $index --cmd "shell $cmd" 2>&1 } finally { $ErrorActionPreference = $prevEap }
         (($raw | ForEach-Object { "$_" }) -join "`n").TrimEnd()
     }
 
@@ -5356,7 +5356,7 @@ function Test-Network {
         param($cmd)
         $prevEap = $ErrorActionPreference
         $ErrorActionPreference = 'SilentlyContinue'
-        try { $raw = & $MumuPath adb -v $index -c "shell $cmd" 2>&1 } finally { $ErrorActionPreference = $prevEap }
+        try { $raw = & $MumuPath adb --vmindex $index --cmd "shell $cmd" 2>&1 } finally { $ErrorActionPreference = $prevEap }
         (($raw | ForEach-Object { "$_" }) -join "`n").TrimEnd()
     }
 
@@ -8157,7 +8157,7 @@ function Show-Logs {
             Write-Host "=== adb logcat snapshot (last 200 lines, filter: $filterDesc) ===" -ForegroundColor Green
             $job = Start-Job -ScriptBlock {
                 param($mp, $idx, $flt)
-                & $mp adb -v $idx -c "logcat -v time -d -t 200 $flt" 2>&1
+                & $mp adb --vmindex $idx --cmd "logcat -v time -d -t 200 $flt" 2>&1
             } -ArgumentList $MumuPath, $index, $filter
             if (Wait-Job $job -Timeout 30) {
                 $raw = Receive-Job $job
@@ -8204,7 +8204,7 @@ function Show-Logs {
             Write-Host ''
             try {
                 $counter = @{ hidden = 0; matchCount = 0 }
-                $stream = & $MumuPath adb -v $index -c "logcat -v time $filter" 2>&1
+                $stream = & $MumuPath adb --vmindex $index --cmd "logcat -v time $filter" 2>&1
                 try {
                     $stream | ForEach-Object {
                         $s = [string]$_
@@ -8251,7 +8251,7 @@ function Show-Logs {
 function Stop-Logcat { param([string]$Index = '')
     if ([string]::IsNullOrWhiteSpace($Index)) { return }
     try {
-        & $MumuPath adb -v $Index -c 'logcat -c' 2>$null | Out-Null
+        & $MumuPath adb --vmindex $Index --cmd 'logcat -c' 2>$null | Out-Null
     } catch { Write-Debug "Stop-Logcat: $($_.Exception.Message)" }
 }
 
@@ -8405,7 +8405,7 @@ function Show-Apps {
     Write-Host 'Fetching installed apps...' -ForegroundColor Cyan
     $job = Start-Job -ScriptBlock {
         param($mp, $idx)
-        & $mp adb -v $idx -c 'shell pm list packages -3' 2>&1
+        & $mp adb --vmindex $idx --cmd 'shell pm list packages -3' 2>&1
     } -ArgumentList $MumuPath, $index
     $timeout = 30
     if (Wait-Job $job -Timeout $timeout) {
@@ -8432,7 +8432,7 @@ function Show-Apps {
 
         $job2 = Start-Job -ScriptBlock {
             param($mp, $idx)
-            & $mp adb -v $idx -c 'shell pm list packages' 2>&1
+            & $mp adb --vmindex $idx --cmd 'shell pm list packages' 2>&1
         } -ArgumentList $MumuPath, $index
         if (Wait-Job $job2 -Timeout $timeout) {
             $allOut = Receive-Job $job2
@@ -8615,7 +8615,7 @@ function Invoke-AdbShell {
     $prevEnc = $OutputEncoding
     try {
         $OutputEncoding = [System.Text.Encoding]::UTF8
-        return (& $MumuPath adb -v $Index -c "shell $Command" 2>&1 | Out-String)
+        return (& $MumuPath adb --vmindex $Index --cmd "shell $Command" 2>&1 | Out-String)
     } finally {
         $OutputEncoding = $prevEnc
     }
@@ -9281,13 +9281,13 @@ function Save-Screenshot {
     Write-Host "Taking screenshot of instance $index..." -ForegroundColor Cyan
 
     # Take screenshot via ADB
-    & $MumuPath adb -v $index -c "shell screencap -p $remotePath" 2>&1 | Out-Null
+    & $MumuPath adb --vmindex $index --cmd "shell screencap -p $remotePath" 2>&1 | Out-Null
 
     # Pull file from emulator
-    & $MumuPath adb -v $index -c "pull $remotePath $destPath" 2>&1 | Out-Null
+    & $MumuPath adb --vmindex $index --cmd "pull $remotePath $destPath" 2>&1 | Out-Null
 
     # Cleanup remote file
-    & $MumuPath adb -v $index -c "shell rm $remotePath" 2>&1 | Out-Null
+    & $MumuPath adb --vmindex $index --cmd "shell rm $remotePath" 2>&1 | Out-Null
 
     if (Test-Path $destPath) {
         $size = (Get-Item $destPath).Length / 1KB
@@ -9306,7 +9306,7 @@ function Invoke-ADBCommand {
     $cmd = (Read-Host 'Enter ADB command').Trim()
 
     Write-Host 'Running ADB command...' -ForegroundColor Cyan
-    Invoke-Mumu adb -v $index -c $cmd
+    Invoke-Mumu adb --vmindex $index --cmd $cmd
 }
 
 function ADB-FileTransfer {
@@ -9333,7 +9333,7 @@ function ADB-FileTransfer {
         if (-not $remotePath) { $remotePath = '/sdcard/Download/' }
         $size = '{0:N1} KB' -f ((Get-Item -LiteralPath $localPath).Length / 1KB)
         Write-Host "  Pushing $(Split-Path $localPath -Leaf) ($size) to $remotePath..." -ForegroundColor Cyan
-        $result = & $MumuPath adb -v $index -c "push \"$localPath\" $remotePath" 2>&1 | Out-String
+        $result = & $MumuPath adb --vmindex $index --cmd "push \"$localPath\" $remotePath" 2>&1 | Out-String
         if ($result -match 'pushed|bytes') {
             Write-Host '  Done!' -ForegroundColor Green
         } else {
@@ -9349,7 +9349,7 @@ function ADB-FileTransfer {
             New-Item -ItemType Directory -Path $localDir -Force | Out-Null
         }
         Write-Host "  Pulling $remotePath..." -ForegroundColor Cyan
-        $result = & $MumuPath adb -v $index -c "pull $remotePath \"$localDir\"" 2>&1 | Out-String
+        $result = & $MumuPath adb --vmindex $index --cmd "pull $remotePath \"$localDir\"" 2>&1 | Out-String
         if ($result -match 'pulled|bytes') {
             Write-Host "  Saved to: $localDir" -ForegroundColor Green
         } else {
@@ -9360,7 +9360,7 @@ function ADB-FileTransfer {
         $path = (Read-Host 'Path to list (Enter=/sdcard/)').Trim()
         if (-not $path) { $path = '/sdcard/' }
         Write-Host "  Listing $path..." -ForegroundColor Cyan
-        $result = & $MumuPath adb -v $index -c "shell ls -la $path" 2>&1
+        $result = & $MumuPath adb --vmindex $index --cmd "shell ls -la $path" 2>&1
         $result | ForEach-Object { Write-Host "  $_" -ForegroundColor White }
     }
 }
@@ -9383,9 +9383,9 @@ function ADB-ScreenCapture {
         $localDir = (Read-Host 'Save to directory (Enter=current)').Trim().Trim('"')
         if (-not $localDir) { $localDir = $PWD.Path }
         Write-Host '  Taking screenshot...' -ForegroundColor Cyan
-        & $MumuPath adb -v $index -c "shell screencap -p $remotePath" 2>&1 | Out-Null
-        $result = & $MumuPath adb -v $index -c "pull $remotePath \"$localDir\screenshot_$($index).png\"" 2>&1 | Out-String
-        & $MumuPath adb -v $index -c "shell rm $remotePath" 2>&1 | Out-Null
+        & $MumuPath adb --vmindex $index --cmd "shell screencap -p $remotePath" 2>&1 | Out-Null
+        $result = & $MumuPath adb --vmindex $index --cmd "pull $remotePath \"$localDir\screenshot_$($index).png\"" 2>&1 | Out-String
+        & $MumuPath adb --vmindex $index --cmd "shell rm $remotePath" 2>&1 | Out-Null
         if ($result -match 'pulled|bytes') {
             $file = Join-Path $localDir "screenshot_$($index).png"
             $size = '{0:N1} KB' -f ((Get-Item -LiteralPath $file).Length / 1KB)
@@ -9403,10 +9403,10 @@ function ADB-ScreenCapture {
         if (-not $localDir) { $localDir = $PWD.Path }
         Write-Host "  Recording screen for ${duration}s... (Ctrl+C to stop early)" -ForegroundColor Cyan
         try {
-            & $MumuPath adb -v $index -c "shell screenrecord --time-limit $duration $remotePath" 2>&1 | Out-Null
+            & $MumuPath adb --vmindex $index --cmd "shell screenrecord --time-limit $duration $remotePath" 2>&1 | Out-Null
         } catch { Write-Debug "Recording interrupted: $($_.Exception.Message)" }
-        $result = & $MumuPath adb -v $index -c "pull $remotePath \"$localDir\ recording_$($index).mp4\"" 2>&1 | Out-String
-        & $MumuPath adb -v $index -c "shell rm $remotePath" 2>&1 | Out-Null
+        $result = & $MumuPath adb --vmindex $index --cmd "pull $remotePath \"$localDir\ recording_$($index).mp4\"" 2>&1 | Out-String
+        & $MumuPath adb --vmindex $index --cmd "shell rm $remotePath" 2>&1 | Out-Null
         if ($result -match 'pulled|bytes') {
             $file = Join-Path $localDir "recording_$($index).mp4"
             $size = '{0:N1} KB' -f ((Get-Item -LiteralPath $file).Length / 1KB)
@@ -9428,7 +9428,7 @@ function ADB-InteractiveShell {
     while ($true) {
         $cmd = (Read-Host 'adb>').Trim()
         if (-not $cmd -or $cmd -eq 'exit' -or $cmd -eq 'quit') { break }
-        & $MumuPath adb -v $index -c "shell $cmd" 2>&1 | ForEach-Object { Write-Host "  $_" }
+        & $MumuPath adb --vmindex $index --cmd "shell $cmd" 2>&1 | ForEach-Object { Write-Host "  $_" }
     }
     Write-Host 'Shell closed.' -ForegroundColor DarkGray
 }
@@ -9551,7 +9551,7 @@ function Set-DeviceModel {
             $info = & $MumuPath info -v $index 2>$null | ConvertFrom-Json
             if ($info.is_android_started) {
                 $escaped = $display -replace ' ', '\ '
-                & $MumuPath adb -v $index -c "shell settings put global device_name $escaped" 2>&1 | Out-Null
+                & $MumuPath adb --vmindex $index --cmd "shell settings put global device_name $escaped" 2>&1 | Out-Null
                 Write-Host 'Device name updated live.' -ForegroundColor DarkGray
             }
         } catch {
@@ -9574,7 +9574,7 @@ function Show-SimCheck {
     try {
         $checkJob = Start-Job -ScriptBlock {
             param($mp, $idx)
-            & $mp adb -v $idx -c 'shell getprop' 2>$null | Out-String
+            & $mp adb --vmindex $idx --cmd 'shell getprop' 2>$null | Out-String
         } -ArgumentList $MumuPath, $index
         if (Wait-Job $checkJob -Timeout 10) {
             $props = Receive-Job $checkJob
@@ -9755,7 +9755,7 @@ function Show-SimConfig {
                 $props = ''
                 $vj = Start-Job -ScriptBlock {
                     param($mp, $i)
-                    & $mp adb -v $i -c 'shell getprop' 2>$null | Out-String
+                    & $mp adb --vmindex $i --cmd 'shell getprop' 2>$null | Out-String
                 } -ArgumentList $MumuPath, $idx
                 if (Wait-Job $vj -Timeout 10) { $props = Receive-Job $vj }
                 Remove-Job $vj -Force -ErrorAction SilentlyContinue
@@ -9788,7 +9788,7 @@ function Set-SimOperator {
         $props = ''
         $adbJob = Start-Job -ScriptBlock {
             param($mp, $idx)
-            & $mp adb -v $idx -c 'shell getprop' 2>$null | Out-String
+            & $mp adb --vmindex $idx --cmd 'shell getprop' 2>$null | Out-String
         } -ArgumentList $MumuPath, $index
         if (Wait-Job $adbJob -Timeout 10) {
             $props = Receive-Job $adbJob
@@ -9978,7 +9978,7 @@ function Set-SimOperator {
     Write-Host "Setting SIM to $alpha ($numeric, $cc)..." -ForegroundColor Cyan
     try {
         # 1) MuMu-specific persist property (most reliable in MuMu)
-        & $MumuPath adb -v $index -c "shell setprop persist.mumu.mccmnc $numeric" 2>&1 | Out-Null
+        & $MumuPath adb --vmindex $index --cmd "shell setprop persist.mumu.mccmnc $numeric" 2>&1 | Out-Null
 
         # 2) Standard gsm.sim.* and gsm.operator.* shell properties
         $cmds = @(
@@ -9992,26 +9992,26 @@ function Set-SimOperator {
             "setprop gsm.operator.isroaming false"
         )
         foreach ($c in $cmds) {
-            & $MumuPath adb -v $index -c "shell $c" 2>&1 | Out-Null
+            & $MumuPath adb --vmindex $index --cmd "shell $c" 2>&1 | Out-Null
         }
 
         # 3) MuMu debug.tracing.* properties (emulator internal MCC/MNC)
-        & $MumuPath adb -v $index -c "shell setprop debug.tracing.mcc $($sel.MCC)" 2>&1 | Out-Null
-        & $MumuPath adb -v $index -c "shell setprop debug.tracing.mnc $($sel.MNC)" 2>&1 | Out-Null
+        & $MumuPath adb --vmindex $index --cmd "shell setprop debug.tracing.mcc $($sel.MCC)" 2>&1 | Out-Null
+        & $MumuPath adb --vmindex $index --cmd "shell setprop debug.tracing.mnc $($sel.MNC)" 2>&1 | Out-Null
         Write-Host "  Set debug.tracing.mcc=$($sel.MCC) mnc=$($sel.MNC)" -ForegroundColor DarkGray
 
         # 3) Settings global — carrier ID / operator name (persists across shell restarts)
-        & $MumuPath adb -v $index -c "shell settings put global mobile_operator $numeric" 2>&1 | Out-Null
-        & $MumuPath adb -v $index -c "shell settings put global operator_numeric $numeric" 2>&1 | Out-Null
-        & $MumuPath adb -v $index -c "shell settings put global operator_alpha `"$alphaShell`"" 2>&1 | Out-Null
-        & $MumuPath adb -v $index -c "shell settings put global sim_operator `"$alphaShell`"" 2>&1 | Out-Null
-        & $MumuPath adb -v $index -c "shell settings put global gsm_operator_alpha `"$alphaShell`"" 2>&1 | Out-Null
+        & $MumuPath adb --vmindex $index --cmd "shell settings put global mobile_operator $numeric" 2>&1 | Out-Null
+        & $MumuPath adb --vmindex $index --cmd "shell settings put global operator_numeric $numeric" 2>&1 | Out-Null
+        & $MumuPath adb --vmindex $index --cmd "shell settings put global operator_alpha `"$alphaShell`"" 2>&1 | Out-Null
+        & $MumuPath adb --vmindex $index --cmd "shell settings put global sim_operator `"$alphaShell`"" 2>&1 | Out-Null
+        & $MumuPath adb --vmindex $index --cmd "shell settings put global gsm_operator_alpha `"$alphaShell`"" 2>&1 | Out-Null
 
         # Verify (with timeout)
         $props2 = ''
         $verifyJob = Start-Job -ScriptBlock {
             param($mp, $idx)
-            & $mp adb -v $idx -c 'shell getprop' 2>$null | Out-String
+            & $mp adb --vmindex $idx --cmd 'shell getprop' 2>$null | Out-String
         } -ArgumentList $MumuPath, $index
         if (Wait-Job $verifyJob -Timeout 10) {
             $props2 = Receive-Job $verifyJob
