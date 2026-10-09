@@ -8,5 +8,6 @@
         'PSReviewUnusedParameter'
         'PSUseDeclaredVarsMoreThanAssignments'
         'PSUseApprovedVerbs'
+        'PSAvoidUsingPositionalParameters'
     )
 }
