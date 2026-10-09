@@ -8240,7 +8240,9 @@ function Show-Logs {
             }
         }
         return
-    }            Write-Host 'Invalid choice.' -ForegroundColor Yellow
+    }
+
+    Write-Host 'Invalid choice.' -ForegroundColor Yellow
 }
 
 # Close an active logcat live session cleanly: sends the "quit" command
@@ -8250,7 +8252,7 @@ function Stop-Logcat { param([string]$Index = '')
     if ([string]::IsNullOrWhiteSpace($Index)) { return }
     try {
         & $MumuPath adb -v $Index -c 'logcat -c' 2>$null | Out-Null
-    } catch { Write-Debug "logcat stop failed: $($_.Exception.Message)" }
+    } catch { Write-Debug "Stop-Logcat: $($_.Exception.Message)" }
 }
 
 function Get-AllIndices {
