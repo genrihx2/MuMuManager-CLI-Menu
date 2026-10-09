@@ -269,7 +269,7 @@ function Initialize-TokenStorage {
     }
 }
 
-$scriptVer = '1.22.61'
+$scriptVer = '1.22.62'
 $InstalledVersion = $null
 
 # --- [WN] MuMu network + updater watcher (read-only, opt-in) -----------------
@@ -831,6 +831,125 @@ function Get-MuMuInstanceDir {
     # the bug this function exists to prevent.
     $ranked = @(@($exact | Sort-Object Time -Descending)) + @(@($others | Sort-Object Time -Descending))
     return @($ranked | ForEach-Object { $_.Path })
+}
+
+function Get-MuMuOrphanInstanceDirs {
+    # Read-only orphan scan of the active install's vms root ([DIAG]).
+    # Folder names are <prefix>-<android version>-<index>; the manager
+    # knows an instance by index and runs exactly ONE folder for it - the
+    # exact-android-version match resolved by Get-MuMuInstanceDir. Every
+    # OTHER folder under vms is dead weight this report surfaces:
+    #   'stale'   - a live index's folder from an OLDER android version
+    #               (the leftover an upgrade leaves behind, e.g. 12.0-0
+    #               sitting next to the 15.0-0 the manager now runs);
+    #   'orphan'  - an index the manager does not list at all (a deleted
+    #               instance, or a folder of a removed/foreign install);
+    #   'unknown' - a name that does not look like an instance folder.
+    # Each entry carries the last-write time and the recursive size so
+    # the user can judge what reclaiming it would free. NOTHING is ever
+    # deleted or written: Get-ChildItem/Measure-Object only.
+    # Seams for tests: -VmsRoot (fixture dir), -UsedDirs (folders to treat
+    # as the manager's own; an explicit empty array means 'uses nothing'),
+    # -InstanceListJson (a real `info -v all` payload so no manager
+    # process is started).
+    # Returns [pscustomobject]@{ Scanned; Note; Entries }. Scanned=$false
+    # means the scan could not run honestly (no vms folder, or the
+    # manager's instance list was unavailable) - the caller then says so
+    # instead of pretending there are no orphans.
+    param(
+        [string]$VmsRoot = '',
+        [string]$ManagerPath = '',
+        [string[]]$UsedDirs = @(),
+        [string]$InstanceListJson = ''
+    )
+    if (-not $VmsRoot) { $VmsRoot = Get-MuMuVmsRoot -ManagerPath $ManagerPath }
+    if (-not ($VmsRoot -and (Test-Path -LiteralPath $VmsRoot -PathType Container))) {
+        return [pscustomobject]@{ Scanned = $false; Note = 'vms folder not found'; Entries = @() }
+    }
+    $used = New-Object 'System.Collections.Generic.List[string]'
+    $boundUsed = $PSBoundParameters.ContainsKey('UsedDirs')
+    foreach ($u in $UsedDirs) { if ($u) { $used.Add((([string]$u).TrimEnd('\', '/'))) } }
+    if (-not $boundUsed) {
+        # Which indices does the manager list, and which folder does each
+        # actually run? `info -v all` answers keyed by index; the FIRST
+        # resolved folder per index is the one in use - the same ranking
+        # every folder-walking menu action uses, so this report never
+        # disagrees with the menu's own view of an instance.
+        $nodes = $null
+        try {
+            $text = ''
+            if ($PSBoundParameters.ContainsKey('InstanceListJson')) { $text = $InstanceListJson }
+            else {
+                $exe = if ($ManagerPath) { $ManagerPath } else { Get-MuMuActiveManagerPath }
+                if ($exe) { $text = (& $exe info -v all 2>$null | Out-String) }
+            }
+            if ($text) { $nodes = $text | ConvertFrom-Json }
+        } catch {
+            Write-Debug "instance list query failed: $($_.Exception.Message)"
+            $nodes = $null
+        }
+        if (-not $nodes) {
+            return [pscustomobject]@{ Scanned = $false; Note = 'the manager did not answer "info -v all"'; Entries = @() }
+        }
+        foreach ($k in @($nodes.PSObject.Properties.Name)) {
+            $node = $nodes.$k
+            $ver = ''
+            if ($node -and ($node.PSObject.Properties.Name -contains 'android_version') -and $node.android_version) {
+                $ver = [string]$node.android_version
+            }
+            $dirs = @(Get-MuMuInstanceDir -Index $k -VmsRoot $VmsRoot -AndroidVersion $ver -NoVersionQuery)
+            if ($dirs.Count) { $used.Add((([string]$dirs[0]).TrimEnd('\', '/'))) }
+        }
+    }
+    # Indices with a folder in use: a same-index folder of any other
+    # version is 'stale'; every other parsed index is a true 'orphan'.
+    $liveIndices = @{}
+    foreach ($u in $used) {
+        $m = [regex]::Match((Split-Path -Leaf $u), '-(\d+)$')
+        if ($m.Success) { $liveIndices[$m.Groups[1].Value] = $true }
+    }
+    $entries = New-Object 'System.Collections.Generic.List[object]'
+    foreach ($d in @(Get-ChildItem -LiteralPath $VmsRoot -Directory -ErrorAction SilentlyContinue)) {
+        $full = ([string]$d.FullName).TrimEnd('\', '/')
+        $inUse = $false
+        foreach ($u in $used) { if ($u -ieq $full) { $inUse = $true; break } }
+        if ($inUse) { continue }
+        $index = ''
+        $ver = ''
+        $status = 'unknown'
+        $m = [regex]::Match($d.Name, '-(?<ver>\d+\.\d+)-(?<idx>\d+)$')
+        if ($m.Success) {
+            $ver = $m.Groups['ver'].Value
+            $index = $m.Groups['idx'].Value
+            $status = if ($liveIndices.ContainsKey($index)) { 'stale' } else { 'orphan' }
+        } else {
+            # Pre-15 layout: the name may carry no version at all.
+            $m2 = [regex]::Match($d.Name, '-(\d+)$')
+            if ($m2.Success) {
+                $index = $m2.Groups[1].Value
+                $status = if ($liveIndices.ContainsKey($index)) { 'stale' } else { 'orphan' }
+            }
+        }
+        $files = @(Get-ChildItem -LiteralPath $d.FullName -Recurse -File -ErrorAction SilentlyContinue)
+        $sizeBytes = ($files | Measure-Object Length -Sum).Sum
+        if (-not $sizeBytes) { $sizeBytes = 0 }
+        $entries.Add([pscustomobject]@{
+            Name      = $d.Name
+            Path      = $d.FullName
+            Index     = $index
+            Android   = $ver
+            Status    = $status
+            LastWrite = $d.LastWriteTime
+            SizeMB    = [Math]::Round($sizeBytes / 1MB, 1)
+            Files     = $files.Count
+        })
+    }
+    # Biggest reclaimable first WITHIN a kind; kinds rank orphan (index
+    # unknown to the manager) ahead of same-index stale leftovers ahead
+    # of unrecognized names.
+    $rank = @{ orphan = 0; stale = 1; unknown = 2 }
+    $ordered = @($entries.ToArray() | Sort-Object @{ expression = { $rank[[string]$_.Status] } }, @{ expression = { $_.SizeMB }; Descending = $true })
+    return [pscustomobject]@{ Scanned = $true; Note = ''; Entries = $ordered }
 }
 
 function Get-MuMuInstallChoicePath {
@@ -3250,6 +3369,7 @@ function Get-ProblemFindings {
         [string]$ScriptVer = '',
         [string]$MinVersion = '4.0.0.3179',
         [object[]]$DriftFindings = @(),
+        [object[]]$OrphanDirs = @(),
         [scriptblock]$MumuProbe = { param($exe) Invoke-MumuManagerProbe -TargetPath $exe }
     )
     $findings = New-Object System.Collections.Generic.List[object]
@@ -3408,6 +3528,20 @@ function Get-ProblemFindings {
         }
     } catch { Write-Debug "disk check failed: $($_.Exception.Message)" }
 
+    # ── vms folders the manager does not use (precomputed) ────────
+    # Get-MuMuOrphanInstanceDirs does the disk walk; here the entries only
+    # become info findings: dead weight, not a malfunction. The startup
+    # auto-diag never passes -OrphanDirs, so this costs nothing there.
+    foreach ($od in $OrphanDirs) {
+        if (-not ($od -and $od.Name)) { continue }
+        $why = switch ([string]$od.Status) {
+            'stale'  { "old-version leftover of live index $($od.Index)" }
+            'orphan' { "index $($od.Index) is not known to the manager" }
+            default  { 'unrecognized folder name' }
+        }
+        & $add 'info' 'mumu' ("vms folder {0} is not used by the active install ({1} MB, {2})" -f $od.Name, $od.SizeMB, $why)
+    }
+
     # ── Multi-install drift (precomputed by Get-MuMuInstallDrift) ──
     foreach ($df in $DriftFindings) {
         if ($df -and $df.severity -and $df.message) { $findings.Add($df) }
@@ -3565,7 +3699,12 @@ function Show-ProblemDiagnostics {
     # screen the user opened deliberately.
     $drift = $null
     try { $drift = Get-MuMuInstallDrift -ActiveManager $MumuPath -CheckSignatures -QueryVersion } catch { Write-Debug "install drift failed: $($_.Exception.Message)" }
-    $findings = @(Get-ProblemFindings -ScriptDir $ScriptDir -VersionFile $VersionFile -MenuPath (Join-Path $ScriptDir 'mumu-menu.ps1') -JournalFile $script:JournalFile -MumuPath $MumuPath -InstalledVersion $InstalledVersion -ScriptVer $scriptVer -DriftFindings $(if ($drift) { $drift.Findings } else { @() }))
+    # Read-only orphan scan of the active install's vms root: instance
+    # folders the manager does not use. Too slow for the startup auto-diag
+    # (recursive size walk), right for a screen the user opened.
+    $orphan = $null
+    try { $orphan = Get-MuMuOrphanInstanceDirs -ManagerPath $MumuPath } catch { Write-Debug "orphan scan failed: $($_.Exception.Message)" }
+    $findings = @(Get-ProblemFindings -ScriptDir $ScriptDir -VersionFile $VersionFile -MenuPath (Join-Path $ScriptDir 'mumu-menu.ps1') -JournalFile $script:JournalFile -MumuPath $MumuPath -InstalledVersion $InstalledVersion -ScriptVer $scriptVer -DriftFindings $(if ($drift) { $drift.Findings } else { @() }) -OrphanDirs $(if ($orphan -and $orphan.Scanned) { $orphan.Entries } else { @() }))
     Write-Host ''
     Write-Host '  === Problem diagnostics ===' -ForegroundColor Cyan
     $errors = @($findings | Where-Object { $_.severity -eq 'error' })
@@ -3613,6 +3752,35 @@ function Show-ProblemDiagnostics {
             if ($resp -match '^[yY]') {
                 $null = Switch-MuMuActiveInstall -ManagerPath $pick.Manager -BuildDate $pick.BuildDate
             }
+        }
+    }
+    # The orphan table comes last: the folder list is the report, and the
+    # reader should reach the "nothing was deleted" line with the facts
+    # already on screen.
+    if ($orphan) {
+        if ($orphan.Scanned) {
+            if (@($orphan.Entries).Count) {
+                Write-Host ''
+                Write-Host '  Instance folders in vms not used by the active install:' -ForegroundColor Cyan
+                foreach ($e in @($orphan.Entries)) {
+                    $why = switch ([string]$e.Status) {
+                        'stale'   { "old android $($e.Android) folder of live index $($e.Index)" }
+                        'orphan'  { "index $($e.Index) is not listed by the manager" }
+                        default   { 'unrecognized folder name' }
+                    }
+                    $idx = if ($e.Index -ne '') { "idx $($e.Index)" } else { '' }
+                    $verTxt = if ($e.Android -ne '') { "android $($e.Android)" } else { '' }
+                    $color = if ($e.Status -eq 'orphan') { 'Yellow' } else { 'White' }
+                    Write-Host ("    {0}  {1}  {2}  {3:yyyy-MM-dd}  {4} MB  ({5})" -f $e.Name, $idx, $verTxt, $e.LastWrite, $e.SizeMB, $why) -ForegroundColor $color
+                }
+                Write-Host '  Read-only scan - nothing was deleted; removing a folder is a manual decision.' -ForegroundColor DarkGray
+            } else {
+                Write-Host ''
+                Write-Host '  Every vms instance folder is in use by the active install.' -ForegroundColor DarkGray
+            }
+        } else {
+            Write-Host ''
+            Write-Host ("  Orphan folder scan skipped: {0}" -f $orphan.Note) -ForegroundColor DarkGray
         }
     }
 }

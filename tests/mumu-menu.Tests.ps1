@@ -43,6 +43,7 @@ BeforeAll {
                         'Get-MuMuInstallCandidateDirs', 'Get-MuMuActiveManagerPath', 'Get-MuMuInstalls',
                         'Get-MuMuInstallLabel', 'Get-MuMuInstallChoicePath', 'Read-MuMuInstallChoice', 'Save-MuMuInstallChoice',
                         'Get-MuMuVmsRoot', 'Get-MuMuInstanceAndroidVersion', 'Get-MuMuInstanceDir',
+                        'Get-MuMuOrphanInstanceDirs',
                         'Get-AuthenticodeSignerName', 'Get-MuMuInstallDrift', 'Switch-MuMuActiveInstall',
                         'Resolve-MuMuInstall', 'Update-MumuInstallState')) {
         $f = $script:ast.FindAll({
@@ -3259,6 +3260,150 @@ Describe 'Install drift report ([DIAG], multi-install)' {
         }
     }
 }
+Describe 'Orphan instance folder report ([DIAG], read-only)' {
+
+    # Fixture shaped like the live machine's vms folder: two folders the
+    # manager runs, the upgrade leftover it abandoned, a folder of an
+    # index it no longer lists, and a name that is not an instance.
+    BeforeEach {
+        $script:vms = Join-Path $TestDrive ('vms' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
+        New-Item -ItemType Directory -Path $script:vms -Force | Out-Null
+        $script:old   = Join-Path $script:vms 'MuMuPlayer-12.0-0'     # stale: live index 0, old version
+        $script:live  = Join-Path $script:vms 'MuMuPlayer-15.0-0'     # in use
+        $script:two   = Join-Path $script:vms 'MuMuPlayer-15.0-2'     # in use
+        $script:gone  = Join-Path $script:vms 'MuMuPlayer-15.0-5'     # orphan: index deleted
+        $script:weird = Join-Path $script:vms 'MuMuPlayer-15.0-base'  # not an instance folder
+        foreach ($d in @($script:old, $script:live, $script:two, $script:gone, $script:weird)) {
+            New-Item -ItemType Directory -Path $d -Force | Out-Null
+        }
+        # Deterministic sizes: 1 MB in the stale folder, 2 MB in the
+        # orphan - the BIGGER orphan still sorts first (kind beats size).
+        Set-Content -LiteralPath (Join-Path $script:old 'data.img') -Value ('x' * 1048576)
+        Set-Content -LiteralPath (Join-Path $script:gone 'data.img') -Value ('y' * 2097152)
+        (Get-Item $script:old).LastWriteTime = (Get-Date).AddDays(-30)
+        (Get-Item $script:gone).LastWriteTime = (Get-Date).AddDays(-3)
+    }
+
+    It 'reports the upgrade leftover but never a folder the manager runs' {
+        $r = Get-MuMuOrphanInstanceDirs -VmsRoot $script:vms -InstanceListJson '{"0":{"android_version":"15.0"},"2":{"android_version":"15.0"}}'
+        $r.Scanned | Should -BeTrue
+        $names = @($r.Entries | Select-Object -ExpandProperty Name)
+        $names | Should -Contain 'MuMuPlayer-12.0-0'
+        $names | Should -Not -Contain 'MuMuPlayer-15.0-0'
+        $names | Should -Not -Contain 'MuMuPlayer-15.0-2'
+        $stale = $r.Entries | Where-Object { $_.Name -eq 'MuMuPlayer-12.0-0' }
+        $stale.Status | Should -Be 'stale'
+        $stale.Index | Should -Be '0'
+        $stale.Android | Should -Be '12.0'
+    }
+
+    It 'classifies a deleted instance folder as orphan and odd names as unknown' {
+        # Only instance 0 is listed now: 2 becomes an orphan too, and the
+        # stale 12.0-0 of the LIVE index stays a stale.
+        $r = Get-MuMuOrphanInstanceDirs -VmsRoot $script:vms -InstanceListJson '{"0":{"android_version":"15.0"}}'
+        $gone = $r.Entries | Where-Object { $_.Name -eq 'MuMuPlayer-15.0-5' }
+        $gone.Status | Should -Be 'orphan'
+        $gone.Index | Should -Be '5'
+        ($r.Entries | Where-Object { $_.Name -eq 'MuMuPlayer-15.0-2' }).Status | Should -Be 'orphan'
+        ($r.Entries | Where-Object { $_.Name -eq 'MuMuPlayer-15.0-base' }).Status | Should -Be 'unknown'
+    }
+
+    It 'carries last-write time and the real recursive size' {
+        $r = Get-MuMuOrphanInstanceDirs -VmsRoot $script:vms -UsedDirs @($script:live, $script:two)
+        $stale = $r.Entries | Where-Object { $_.Name -eq 'MuMuPlayer-12.0-0' }
+        $stale.SizeMB | Should -Be 1
+        $stale.Files | Should -Be 1
+        $stale.LastWrite.Date | Should -Be ((Get-Date).AddDays(-30).Date)
+    }
+
+    It 'folders named via -UsedDirs are treated as in use without a manager query' {
+        $r = Get-MuMuOrphanInstanceDirs -VmsRoot $script:vms -UsedDirs @($script:live, $script:two)
+        $names = @($r.Entries | Select-Object -ExpandProperty Name)
+        $names | Should -Not -Contain 'MuMuPlayer-15.0-0'
+        $names | Should -Not -Contain 'MuMuPlayer-15.0-2'
+        @($r.Entries).Count | Should -Be 3
+    }
+
+    It 'orders by kind first (orphan, stale, unknown), size within a kind' {
+        # The orphan (2 MB) is BIGGER than the stale folder (1 MB) yet
+        # still sorts first: unknown indices outrank same-index leftovers.
+        $r = Get-MuMuOrphanInstanceDirs -VmsRoot $script:vms -UsedDirs @($script:live, $script:two)
+        (@($r.Entries | Select-Object -ExpandProperty Status) -join ',') | Should -Be 'orphan,stale,unknown'
+    }
+
+    It 'a manager that does not answer yields an honest skip, not a fake clean bill' {
+        $r = Get-MuMuOrphanInstanceDirs -VmsRoot $script:vms -InstanceListJson ''
+        $r.Scanned | Should -BeFalse
+        $r.Note | Should -Match 'did not answer'
+        @($r.Entries).Count | Should -Be 0
+        # Garbage instead of the info payload behaves the same way.
+        $r2 = Get-MuMuOrphanInstanceDirs -VmsRoot $script:vms -InstanceListJson 'not json at all'
+        $r2.Scanned | Should -BeFalse
+    }
+
+    It 'a missing vms root degrades honestly too' {
+        $r = Get-MuMuOrphanInstanceDirs -VmsRoot (Join-Path $TestDrive 'nope')
+        $r.Scanned | Should -BeFalse
+        $r.Note | Should -Match 'vms folder'
+    }
+
+    It 'the scan is read-only: every fixture folder and byte survives' {
+        $before = @(Get-ChildItem -LiteralPath $script:vms -Recurse -File | Sort-Object FullName)
+        $null = Get-MuMuOrphanInstanceDirs -VmsRoot $script:vms -InstanceListJson '{"0":{"android_version":"15.0"},"2":{"android_version":"15.0"}}'
+        $after = @(Get-ChildItem -LiteralPath $script:vms -Recurse -File | Sort-Object FullName)
+        $after.Count | Should -Be $before.Count
+        for ($i = 0; $i -lt $before.Count; $i++) {
+            $after[$i].FullName | Should -Be $before[$i].FullName
+            $after[$i].Length | Should -Be $before[$i].Length
+        }
+        foreach ($d in @($script:old, $script:live, $script:two, $script:gone, $script:weird)) {
+            Test-Path -LiteralPath $d -PathType Container | Should -BeTrue
+        }
+    }
+
+    It 'Get-ProblemFindings turns orphan entries into info findings' {
+        $d = Join-Path $TestDrive "diag_orphan_$(Get-Random)"
+        New-Item -ItemType Directory -Path $d -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $d 'mumu-menu.ps1') -Value "`$scriptVer = '1.22.61'`n# body"
+        Set-Content -LiteralPath (Join-Path $d '.version') -Value 'v1.22.61' -NoNewline
+        Set-Content -LiteralPath (Join-Path $d 'MuMuManager.exe') -Value 'stub'
+        [System.IO.File]::WriteAllLines((Join-Path $d 'update-journal.log'), [string[]]@("2026-09-15 10:00:00`tbootstrap`tupdate-ok`tv1.21.2`tv1.21.3`t4 file(s) updated"), (New-Object System.Text.UTF8Encoding($false)))
+        $f = @(Get-ProblemFindings -ScriptDir $d -VersionFile (Join-Path $d '.version') -MenuPath (Join-Path $d 'mumu-menu.ps1') `
+                -JournalFile (Join-Path $d 'update-journal.log') -MumuPath (Join-Path $d 'MuMuManager.exe') -ScriptVer '1.22.61' `
+                -MumuProbe { param($exe) @{ found = $true; instances = 0; running = 0; adbReady = $false; error = '' } } `
+                -OrphanDirs @([pscustomobject]@{ Name = 'MuMuPlayer-12.0-0'; Index = '0'; Android = '12.0'; Status = 'stale'; SizeMB = 12000.5; LastWrite = (Get-Date) }))
+        $info = @($f | Where-Object { $_.severity -eq 'info' -and $_.message -match 'MuMuPlayer-12\.0-0' })
+        $info.Count | Should -Be 1
+        $info[0].message | Should -Match 'not used by the active install'
+        $info[0].message | Should -Match 'old-version leftover of live index 0'
+    }
+
+    It 'wiring: [DIAG] renders the orphan table; the startup auto-diag stays fast' {
+        $src = Get-Content -Raw $script:menuPath
+        ($src -match 'Get-MuMuOrphanInstanceDirs -ManagerPath \$MumuPath') | Should -BeTrue
+        ($src -match 'Instance folders in vms not used by the active install') | Should -BeTrue
+        ($src -match '-OrphanDirs \$\(if \(\$orphan -and \$orphan\.Scanned\) \{ \$orphan\.Entries \} else \{ @\(\) \}\)') | Should -BeTrue
+        # Invoke-StartupAutoDiag must NOT walk the vms folders (a recursive
+        # size scan is too slow for startup) - its collector runs without
+        # -OrphanDirs.
+        $f = $script:ast.FindAll({
+                param($node)
+                $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Invoke-StartupAutoDiag'
+            }, $true) | Select-Object -First 1
+        $f | Should -Not -BeNullOrEmpty
+        ($f.Extent.Text -match 'Orphan') | Should -Be $false
+    }
+
+    It 'the orphan scanner stays local: no network, no writes, no deletes' {
+        $f = $script:ast.FindAll({
+                param($node)
+                $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Get-MuMuOrphanInstanceDirs'
+            }, $true) | Select-Object -First 1
+        $f | Should -Not -BeNullOrEmpty
+        ($f.Extent.Text -match 'curl|Invoke-WebRequest|Invoke-RestMethod|Set-Content|Add-Content|Out-File|New-Item|Remove-Item|Copy-Item') | Should -Be $false
+    }
+}
+
 Describe 'Quick install switch ([DIAG] prompt + [IN] shared implementation)' {
 
     BeforeEach {

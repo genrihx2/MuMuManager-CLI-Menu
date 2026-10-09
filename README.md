@@ -365,7 +365,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.22.61
+Script version: 1.22.62
 MuMu version: 6.7.1
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -502,6 +502,13 @@ Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
 **EN summary:** Manual ZIP extraction via Windows Explorer propagates Mark-of-the-Web (NTFS `Zone.Identifier`) to every file, and `RemoteSigned` then blocks unsigned "internet" files. Fix: prefer `[U]`/bootstrap (they download, unblock and sign automatically); or `Get-ChildItem <dir> -Recurse -File | Unblock-File`; or extract with `tar -xf`/7-Zip, which do not propagate the mark. MotW is a local trust mechanism only — release content is CI-verified byte-for-byte against the tag.
 
 ## Что нового
+
+### v1.22.62 (09.10.2026)
+
+- **[DIAG]: read-only отчёт об осиротевших папках инстансов** — новый блок после drift-отчёта v1.22.60. Функция `Get-MuMuOrphanInstanceDirs` (только чтение, `Get-ChildItem`/`Measure-Object`) открывает `vms` активной установки и сортирует каждую папку `<префикс>-<версия Android>-<индекс>` по трём классам: **stale** — живой индекс, но папка от старой версии Android (остаток обновления, например `MuMuPlayer-12.0-0` рядом с живым `15.0-0`); **orphan** — индекс, которого менеджер не знает (удалённый инстанс или папка чужой/удалённой установки); **unknown** — имя, не похожее на папку инстанса. Каждая строка несёт время последней записи и рекурсивный размер (МБ) и число файлов, чтобы решить, что удавать. В [DIAG] экран печатает таблицу и строку «ничего не удалено — удаление папки — ручное решение»; стартовый авто-диаг **не** делает дорогую рекурсивную пробежку (быстрый старт), orphan-отчёт тут не появляется. Каждая orphan-строка становится info-находкой в `Get-ProblemFindings` (info не ломает Status: healthy). Проверено вживую: скан активной установки Netease1 (vms) за 393 мс вернул одну запись `MuMuPlayer-12.0-0, idx 0, 113 MB, stale` — текущие `15.0-0`/`15.0-2` в отчёт не попали.
+- **Version bump**: `$scriptVer` in `mumu-menu.ps1`, `relnotes.md`, `README.md` and `.version` synchronized to `1.22.62`.
+
+**EN summary:** [DIAG] read-only orphan instance-folder report, continuing the v1.22.60 drift line. New `Get-MuMuOrphanInstanceDirs` (read-only, `Get-ChildItem`/`Measure-Object`) opens the active install's `vms` root and classifies each `<prefix>-<android version>-<index>` folder into three kinds: stale (a live index but an older-android leftover, e.g. `MuMuPlayer-12.0-0` sitting beside the live `15.0-0`), orphan (an index the manager doesn't know - deleted instance or a folder of a removed/foreign install), and unknown (a name that doesn't look like an instance folder). Each row carries last-write time, recursive size in MB and file count so the user can judge what reclaiming would free. The [DIAG] screen renders a table with a 'nothing was deleted - removing a folder is a manual decision' line; the startup auto-diag does NOT do the expensive recursive walk (fast start) and does not surface orphan there. Each orphan row becomes an info finding in `Get-ProblemFindings` (info never breaks Status: healthy). Verified live: a 393 ms scan of the active Netease1 vms returned one entry, `MuMuPlayer-12.0-0, idx 0, 113 MB, stale` - the current `15.0-0`/`15.0-2` did not appear. Pester suite: 258 tests.
 
 ### v1.22.61 (06.10.2026)
 
@@ -1025,6 +1032,7 @@ Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.62 | 09.10.2026 | Feature: [DIAG] read-only отчёт об осиротевших папках инстансов — новый блок `Get-MuMuOrphanInstanceDirs` после drift-отчёта v1.22.60; каждая папка `<префикс>-<версия Android>-<индекс>` в `vms` классифицируется как stale (живой индекс, старая версия Android — остаток обновления)/orphan (индекс, которого нет в менеджере)/unknown (непарсится как папка), в строках время записи + рекурсивный размер МБ + число файлов, «ничего не удалено — удаление — ручное решение», старт не делает дорогую рекурсию; каждая orphan-строка становится info-находкой в Get-ProblemFindings (Status: healthy не ломает); вживую скан Netease1 (vms) за 393 мс вернул одну запись `MuMuPlayer-12.0-0, idx 0, 113 MB, stale`, текущие `15.0-0`/`15.0-2` в отчёт не попали; Pester 258/258 |
 | v1.22.61 | 06.10.2026 | Feature: [DIAG] быстрое переключение — на предупреждении о чужом запущенном эмуляторе `Switch to ... now? (y/N)` через общий `Switch-MuMuActiveInstall` ([IN] переведён на него же); fix: ложный warning «could not read the script version» — голова чтения 260→400 строк ($scriptVer уехал за строку 260 после мульти-установочного блока), детектор клина снова работает |
 | v1.22.60 | 06.10.2026 | Feature: [DIAG] отчёт о расхождении установок MuMu — таблица установок (версия, сборка апдейтера, подписант, running-инстансы) со звёздочкой у активной; warn когда запущенный эмулятор принадлежит другой установке (подсказка [IN]); info о разных сертификатах подписи (domestic vs global); медленные проверки только в [DIAG], старт — быстрый путь |
 | v1.22.59 | 06.10.2026 | Feature: [IN] мульти-установочность — общий реестр установок (раскладка MuMu 15 `nx_device`, параллельный `Netease1\MuMu`), переключение активной без перезапуска, пин в `.mumu-install`, установка в статус-строке; fix: папка инстанса выбирается по паре `<версия>-<индекс>` (`android_version` из менеджера) — осиротевший `12.0-0` больше не выигрывает у живого `15.0-0` в [BA]/[RE]/[G]/[FPS] |
