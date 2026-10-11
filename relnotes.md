@@ -4,6 +4,15 @@
 
 ---
 
+## v1.22.64 (11.10.2026)
+
+- **Фикс: пункт [3] adb logcat — live снова виден в меню «Логи»** — в `Show-Logs` две строки опций (`[2] snapshot` и `[3] live`) случайно склеились на одну строку исходника; PowerShell видела один вызов `Write-Host` с двумя литералами, `ForegroundColor` биндился дважды и рантайм на PS 5.1 ронял экран выбора(`ParameterAlreadyBound`), скрывая live-режим от пользователя. Разделено на два `Write-Host`; поймано вживую на скриншоте пользователя, подтверждено парсером (syntax OK) и PSA (0 findings).
+- **Version bump**: `$scriptVer` in `mumu-menu.ps1`, `relnotes.md`, `README.md` and `.version` synchronized to `1.22.64`.
+
+**EN summary:** Fix — the `[3] adb logcat — live` option is visible again in the Logs menu: two option lines in `Show-Logs` were accidentally glued onto one source line; PowerShell saw a single `Write-Host` call with two string literals, bound `-ForegroundColor` twice and the runtime failed on PS 5.1 (`ParameterAlreadyBound`), hiding live mode. Split into two `Write-Host` statements; caught live from a user screenshot, verified with the parser (syntax OK) and PSA (0 findings). Pester suite: 261 tests.
+
+---
+
 ## v1.22.63 (11.10.2026)
 
 - **Фикс синтаксиса вызовов adb через MuMuManager** — все вызовы `adb -v $Index -c '...'` переведены на официальный контракт CLI `adb --vmindex $Index --cmd '...'` (live logcat, snapshot, SIM-auto-apply, shell/push/pull/screencap и другие). Прежняя форма принималась без ошибки, но stdout не возвращался — live-логкат в `[G]` не печатал строки.
@@ -11,7 +20,7 @@
 - **PSScriptAnalyzer** — исключение `PSAvoidUsingPositionalParameters` в `PSScriptAnalyzerSettings.psd1`, чтобы соответствовать устоявшемуся стилю репо (там уже исключён `PSAvoidUsingWriteHost`); локальный PSA-прогон: 0 findings.
 - **Version bump**: `$scriptVer` in `mumu-menu.ps1`, `relnotes.md`, `README.md` and `.version` synchronized to `1.22.63`.
 
-**EN summary:** adb call syntax fix — every `adb -v $Index -c '...'` invocation through MuMuManager now uses the official CLI contract `adb --vmindex $Index --cmd '...'` (live logcat, snapshot, SIM-auto-apply, shell/push/pull/screencap and others). The old form was accepted silently but returned no stdout, so the `[G]` live logcat printed no lines. [G] live adb logcat now stops cleanly on exit — the live stream is captured and closed through a new `Stop-Logcat` helper (sends `logcat -c`), so leaving the live view stops logcat instead of abandoning it; prompt changed from `Ctrl+C to stop` to `Ctrl+C/Exit to stop`; read-only by construction (only the documented no-op `logcat -c` plus `Write-Debug` diagnostics). PSScriptAnalyzer: `PSAvoidUsingPositionalParameters` excluded in `PSScriptAnalyzerSettings.psd1` to match the established repo style (`PSAvoidUsingWriteHost` was already excluded there); local PSA run reports 0 findings. Pester suite: 261 tests.
+**EN summary (v1.22.63):** adb call syntax fix — every `adb -v $Index -c '...'` invocation through MuMuManager now uses the official CLI contract `adb --vmindex $Index --cmd '...'` (live logcat, snapshot, SIM-auto-apply, shell/push/pull/screencap and others). The old form was accepted silently but returned no stdout, so the `[G]` live logcat printed no lines. [G] live adb logcat now stops cleanly on exit — the live stream is captured and closed through a new `Stop-Logcat` helper (sends `logcat -c`), so leaving the live view stops logcat instead of abandoning it; prompt changed from `Ctrl+C to stop` to `Ctrl+C/Exit to stop`; read-only by construction (only the documented no-op `logcat -c` plus `Write-Debug` diagnostics). PSScriptAnalyzer: `PSAvoidUsingPositionalParameters` excluded in `PSScriptAnalyzerSettings.psd1` to match the established repo style (`PSAvoidUsingWriteHost` was already excluded there); local PSA run reports 0 findings. Pester suite: 261 tests.
 
 ---
 

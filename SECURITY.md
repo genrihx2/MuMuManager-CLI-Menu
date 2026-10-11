@@ -6,7 +6,7 @@
 
 ## Русский
 
-> Актуально для **v1.22.63** (обновлено 2026-10-11).
+> Актуально для **v1.22.64** (обновлено 2026-10-11).
 
 ### Поддерживаемые версии
 
@@ -17,6 +17,11 @@
 | актуальный релиз ([Releases/latest](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest)) | ✅ |
 | предыдущие версии | ❌ |
 
+
+### v1.22.64 (2026-10-11)
+
+- Фикс: в `Show-Logs` две строки опций меню «Логи» ([2] snapshot / [3] live) были склеены на одну строку исходника; PowerShell видела один вызов `Write-Host` с двумя литералами, а `-ForegroundColor` биндился дважды → рантайм-ошибка `ParameterAlreadyBound` на PS 5.1, live-режим не показывался. Разделено на два `Write-Host`; данные не раскрываются, правка только возвращает видимость пункта меню.
+- PSA: локальный прогон на исправленном дереве — 0 findings; Pester 261/0/0.
 
 ### v1.22.63 (2026-10-11)
 
@@ -374,7 +379,7 @@ The script uses Invoke-WebRequest/curl only to access GitHub API for auto-update
 
 ## English
 
-> Current for **v1.22.63** (updated 2026-10-11).
+> Current for **v1.22.64** (updated 2026-10-11).
 
 ### Supported Versions
 
@@ -384,6 +389,10 @@ Security fixes are released only for the latest release.
 | --- | --- |
 | latest release ([Releases/latest](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest)) | ✅ |
 | older | ❌ |
+
+### v1.22.64 (2026-10-11)
+
+- Fixed: in `Show-Logs` the two Logs-menu option lines ([2] snapshot / [3] live) were glued onto a single source line; PowerShell parsed them as one `Write-Host` call with two string literals and `-ForegroundColor` bound twice → runtime `ParameterAlreadyBound` on PS 5.1, hiding live mode. Split into two `Write-Host` statements; no data exposure, menu-visibility fix only.
 
 ### v1.22.63 (2026-10-11)
 

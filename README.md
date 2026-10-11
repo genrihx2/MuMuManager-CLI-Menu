@@ -503,6 +503,13 @@ Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
 
 ## Что нового
 
+### v1.22.64 (11.10.2026)
+
+- **Фикс: пункт [3] adb logcat — live снова виден в меню «Логи»** — в `Show-Logs` две строки опций (`[2] snapshot` и `[3] live`) случайно склеились на одну строку исходника; PowerShell видела один вызов `Write-Host` с двумя литералами, `-ForegroundColor` биндился дважды и рантайм на PS 5.1 ронял экран выбора (`ParameterAlreadyBound`), скрывая live-режим. Разделено на два `Write-Host`; поймано вживую, подтверждено парсером и PSA.
+- **Version bump**: `$scriptVer` in `mumu-menu.ps1`, `relnotes.md`, `README.md` and `.version` synchronized to `1.22.64`.
+
+**EN summary (v1.22.64):** Fix — the `[3] adb logcat — live` option is visible again in the Logs menu: two option lines in `Show-Logs` were accidentally glued onto one source line; PowerShell saw a single `Write-Host` call with two string literals, bound `-ForegroundColor` twice and the runtime failed on PS 5.1 (`ParameterAlreadyBound`), hiding live mode. Split into two `Write-Host` statements; caught live from a user screenshot, verified with the parser and PSA (0 findings). Pester suite: 261 tests.
+
 ### v1.22.63 (11.10.2026)
 
 - **Фикс синтаксиса вызовов adb через MuMuManager** — все вызовы `adb -v $Index -c '...'` переведены на официальный контракт CLI `adb --vmindex $Index --cmd '...'` (live logcat, snapshot, SIM-auto-apply, shell/push/pull/screencap и другие). Прежняя форма принималась без ошибки, но stdout не возвращался — live-логкат в `[G]` не печатал строки.
@@ -1048,6 +1055,7 @@ Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.64 | 11.10.2026 | Fix: в `Show-Logs` две строки опций ([2] snapshot / [3] live) склеились на одну строку исходника — один `Write-Host` с двумя литералами и двойной `-ForegroundColor` ронял экран выбора на PS 5.1 (`ParameterAlreadyBound`) и скрывал live-режим; разделено на два `Write-Host`, [3] снова виден |
 | v1.22.63 | 11.10.2026 | Fix: все вызовы adb через MuMuManager переведены на официальный контракт `--vmindex`/`--cmd` (live logcat, snapshot, SIM-auto-apply, shell/push/pull/screencap) — прежняя форма принималась молча, но stdout не возвращался; Feature: [G] live adb logcat закрывается через `Stop-Logcat` (`logcat -c`) при выходе, prompt «Ctrl+C/Exit to stop»; Chore: PSA-исключение `PSAvoidUsingPositionalParameters` под стиль репо; Pester 261/261 |
 | v1.22.62 | 09.10.2026 | Feature: [DIAG] read-only отчёт об осиротевших папках инстансов — блок `Get-MuMuOrphanInstanceDirs` классифицирует папки в `vms` как stale/orphan/unknown с временем записи и рекурсивным размером, «ничего не удалено — удаление — ручное решение», старт не делает дорогую рекурсию; каждая orphan-строка — info-находка в Get-ProblemFindings; вживую скан Netease1 за 393 мс вернул одну запись `MuMuPlayer-12.0-0, 113 MB, stale`; Pester 258/258 |
 > Pushed on main before tagging: the `[G]` live logcat fix (Stop-Logcat `2d3fe44`, adb `--vmindex`/`--cmd` `58f5d23`, PSA `c400b5a`) shipped on top of v1.22.62 and is tagged as **v1.22.63**. |
