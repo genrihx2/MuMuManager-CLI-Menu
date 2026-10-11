@@ -7992,7 +7992,8 @@ function Show-Logs {
     Write-Host ''
     Write-Host '    Actions:' -ForegroundColor DarkGray
     Write-Host '      [1] Static log files (api.log, etc.)' -ForegroundColor White
-    Write-Host '      [2] adb logcat — snapshot (last 200 lines)' -ForegroundColor White            Write-Host '      [3] adb logcat — live (Ctrl+C/Exit to stop)' -ForegroundColor White
+    Write-Host '      [2] adb logcat — snapshot (last 200 lines)' -ForegroundColor White
+    Write-Host '      [3] adb logcat — live (Ctrl+C/Exit to stop)' -ForegroundColor White
     Write-Host '      [0] Cancel' -ForegroundColor DarkGray
     $mode = Read-Host '    Select'
 
