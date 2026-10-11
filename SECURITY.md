@@ -6,7 +6,7 @@
 
 ## Русский
 
-> Актуально для **v1.22.62** (обновлено 2026-10-09).
+> Актуально для **v1.22.63** (обновлено 2026-10-11).
 
 ### Поддерживаемые версии
 
@@ -18,11 +18,11 @@
 | предыдущие версии | ❌ |
 
 
-### v1.22.62 (2026-10-09) — live note
+### v1.22.63 (2026-10-11)
 
-- Добавлено: хелпер `Stop-Logcat` — live-стрим `adb logcat` теперь закрывается при выходе (`logcat -c`), поэтому выход из live-текста останавливает logcat, а не обрывает поток; prompt в `[G]` изменён с `Ctrl+C to stop` на `Ctrl+C/Exit to stop`. По контрукции read-only: новая функция выполняет только документированный no-op `logcat -c` и пишет диагностику через `Write-Debug`.
-
-- Эта правка вышла отдельным feat-коммитом поверх v1.22.62 на `main` (ещё не тег релиза): `2d3fe44`.
+- Добавлено: хелпер `Stop-Logcat` — live-стрим `adb logcat` теперь закрывается при выходе (`logcat -c`), поэтому выход из live-текста останавливает logcat, а не обрывает поток; prompt в `[G]` изменён с `Ctrl+C to stop` на `Ctrl+C/Exit to stop`. По контрукции read-only: функция выполняет только документированный no-op `logcat -c` и пишет диагностику через `Write-Debug`.
+- Фикс: все вызовы adb через MuMuManager переведены на официальный контракт `--vmindex`/`--cmd`; прежняя форма принималась молча, но stdout не возвращался.
+- PSA: исключение `PSAvoidUsingPositionalParameters` в настройках под стиль репо (0 findings локально); релиз подписан/собран CI из тега. Правка вошла в тег `v1.22.63`.
 
 ### Как сообщить об уязвимости
 
@@ -374,7 +374,7 @@ The script uses Invoke-WebRequest/curl only to access GitHub API for auto-update
 
 ## English
 
-> Current for **v1.22.62** (updated 2026-10-09).
+> Current for **v1.22.63** (updated 2026-10-11).
 
 ### Supported Versions
 
@@ -385,10 +385,11 @@ Security fixes are released only for the latest release.
 | latest release ([Releases/latest](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest)) | ✅ |
 | older | ❌ |
 
-### v1.22.62 (2026-10-09) — live note
+### v1.22.63 (2026-10-11)
 
-- Added: `Stop-Logcat` helper — live `adb logcat` stream is captured and closed on exit (`logcat -c`), so leaving the live view stops logcat instead of abandoning it; the `[G]` live prompt was updated from `Ctrl+C to stop` to `Ctrl+C/Exit to stop`. Read-only by construction: the new function only runs the documented adb logcat `-c` no-op and writes diagnostics via `Write-Debug`.
-- This change shipped as a post-v1.22.62 feat commit on `main` (not a release tag yet): `2d3fe44`.
+- Added: `Stop-Logcat` helper — live `adb logcat` stream is captured and closed on exit (`logcat -c`), so leaving the live view stops logcat instead of abandoning it; the `[G]` live prompt was updated from `Ctrl+C to stop` to `Ctrl+C/Exit to stop`. Read-only by construction: the function only runs the documented adb logcat `-c` no-op and writes diagnostics via `Write-Debug`.
+- Fixed: every adb invocation through MuMuManager now uses the official `--vmindex`/`--cmd` contract; the old form was accepted silently but returned no stdout.
+- PSA: `PSAvoidUsingPositionalParameters` excluded in the settings to match repo style (0 findings locally); the release is built/signed by CI from the tag. Shipped in the `v1.22.63` tag.
 
 ### Reporting a Vulnerability
 

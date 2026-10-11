@@ -4,6 +4,17 @@
 
 ---
 
+## v1.22.63 (11.10.2026)
+
+- **Фикс синтаксиса вызовов adb через MuMuManager** — все вызовы `adb -v $Index -c '...'` переведены на официальный контракт CLI `adb --vmindex $Index --cmd '...'` (live logcat, snapshot, SIM-auto-apply, shell/push/pull/screencap и другие). Прежняя форма принималась без ошибки, но stdout не возвращался — live-логкат в `[G]` не печатал строки.
+- **[G] live adb logcat корректно останавливается при выходе** — live-стрим захватывается и закрывается через новый хелпер `Stop-Logcat` (отправляет `logcat -c`), поэтому выход из live-просмотра останавливает logcat, а не бросает поток; prompt в `[G]` изменён с `Ctrl+C to stop` на `Ctrl+C/Exit to stop`. По конструкции read-only: функция выполняет только документированный no-op `logcat -c` и пишет диагностику через `Write-Debug`.
+- **PSScriptAnalyzer** — исключение `PSAvoidUsingPositionalParameters` в `PSScriptAnalyzerSettings.psd1`, чтобы соответствовать устоявшемуся стилю репо (там уже исключён `PSAvoidUsingWriteHost`); локальный PSA-прогон: 0 findings.
+- **Version bump**: `$scriptVer` in `mumu-menu.ps1`, `relnotes.md`, `README.md` and `.version` synchronized to `1.22.63`.
+
+**EN summary:** adb call syntax fix — every `adb -v $Index -c '...'` invocation through MuMuManager now uses the official CLI contract `adb --vmindex $Index --cmd '...'` (live logcat, snapshot, SIM-auto-apply, shell/push/pull/screencap and others). The old form was accepted silently but returned no stdout, so the `[G]` live logcat printed no lines. [G] live adb logcat now stops cleanly on exit — the live stream is captured and closed through a new `Stop-Logcat` helper (sends `logcat -c`), so leaving the live view stops logcat instead of abandoning it; prompt changed from `Ctrl+C to stop` to `Ctrl+C/Exit to stop`; read-only by construction (only the documented no-op `logcat -c` plus `Write-Debug` diagnostics). PSScriptAnalyzer: `PSAvoidUsingPositionalParameters` excluded in `PSScriptAnalyzerSettings.psd1` to match the established repo style (`PSAvoidUsingWriteHost` was already excluded there); local PSA run reports 0 findings. Pester suite: 261 tests.
+
+---
+
 ## v1.22.62 (09.10.2026)
 
 - **[DIAG]: read-only отчёт об осиротевших папках инстансов** — новый блок после drift-отчёта v1.22.60. Функция `Get-MuMuOrphanInstanceDirs` (только чтение, `Get-ChildItem`/`Measure-Object`) открывает `vms` активной установки и сортирует каждую папку `<префикс>-<версия Android>-<индекс>` по трём классам: **stale** — живой индекс, но папка от старой версии Android (остаток обновления, например `MuMuPlayer-12.0-0` рядом с живым `15.0-0`); **orphan** — индекс, которого менеджер не знает (удалённый инстанс или папка чужой/удалённой установки); **unknown** — имя, не похожее на папку инстанса. Каждая строка несёт время последней записи и рекурсивный размер (МБ) и число файлов, чтобы решить, что удалять. В [DIAG] экран печатает таблицу и строку «ничего не удалено — удаление папки — ручное решение»; стартовый авто-диаг **не** делает дорогую рекурсивную пробежку (быстрый старт), orphan-отчёт тут не появляется. Каждая orphan-строка становится info-находкой в `Get-ProblemFindings` (info не ломает Status: healthy). Проверено вживую: скан активной установки Netease1 (vms) за 393 мс вернул одну запись `MuMuPlayer-12.0-0, idx 0, 113 MB, stale` — текущие `15.0-0`/`15.0-2` в отчёт не попали.
