@@ -8205,9 +8205,12 @@ function Show-Logs {
             Write-Host ''
             try {
                 $counter = @{ hidden = 0; matchCount = 0 }
-                $stream = & $MumuPath adb --vmindex $index --cmd "logcat -v time $filter" 2>&1
+                # Stream directly into the loop: assigning 'cmd | stream' first
+                # would block on collection forever (logcat never exits),
+                # leaving the LIVE header printed with zero lines.
                 try {
-                    $stream | ForEach-Object {
+                    & $MumuPath adb --vmindex $index --cmd "logcat -v time $filter" 2>&1 |
+                        ForEach-Object {
                         $s = [string]$_
                         if ($quiet -and $s -match $noiseRx) { $counter.hidden++; return }
                         if ($searchNeedle -and $s.IndexOf($searchNeedle, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
