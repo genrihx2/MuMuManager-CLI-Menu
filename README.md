@@ -365,7 +365,7 @@ Select option: V
 
 === MuMu Manager CLI Menu ===
 
-Script version: 1.22.64
+Script version: 1.22.65
 MuMu version: 6.7.1
 PowerShell: 5.1.28000.2704
 OS: Windows 10.0
@@ -502,6 +502,13 @@ Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
 **EN summary:** Manual ZIP extraction via Windows Explorer propagates Mark-of-the-Web (NTFS `Zone.Identifier`) to every file, and `RemoteSigned` then blocks unsigned "internet" files. Fix: prefer `[U]`/bootstrap (they download, unblock and sign automatically); or `Get-ChildItem <dir> -Recurse -File | Unblock-File`; or extract with `tar -xf`/7-Zip, which do not propagate the mark. MotW is a local trust mechanism only — release content is CI-verified byte-for-byte against the tag.
 
 ## Что нового
+
+### v1.22.65 (12.10.2026)
+
+- **Фикс зависания [3] adb logcat — live** — ветка live в `Show-Logs` сначала присваивала пайплайн переменной (`$stream = & ...`), и PowerShell блокировался на присваивании до выхода процесса, а логкат не завершается никогда: заголовок LIVE печатался, меню висело без строк. Потоковая команда теперь идёт прямо в `ForEach-Object` — строки печатаются по мере поступления; `Stop-Logcat` в `finally` и фильтры не изменились. Поймано вживую.
+- **Version bump**: `$scriptVer` in `mumu-menu.ps1`, `relnotes.md`, `README.md` and `.version` synchronized to `1.22.65`.
+
+**EN summary (v1.22.65):** Fix — live adb logcat hang: the LIVE branch of `Show-Logs` assigned the logcat pipeline to `$stream` first and PowerShell blocks on that assignment until the process exits, which never happens for logcat — the LIVE header printed and the menu hung with zero lines. The streaming command is now piped directly into `ForEach-Object`, printing lines as they arrive; `Stop-Logcat` cleanup and filters unchanged. Caught live. Pester suite: 261 tests.
 
 ### v1.22.64 (11.10.2026)
 
@@ -1055,6 +1062,7 @@ Get-Item .\mumu-menu.ps1 -Stream Zone.Identifier -ErrorAction SilentlyContinue
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v1.22.65 | 12.10.2026 | Fix: ветка live в `Show-Logs` присваивала пайплайн переменной — PowerShell блокировался на присваивании навсегда (логкат не завершается), заголовок LIVE печатался, меню висело без строк; потоковая команда теперь идёт прямо в `ForEach-Object`, строки печатаются по мере поступления |
 | v1.22.64 | 11.10.2026 | Fix: в `Show-Logs` две строки опций ([2] snapshot / [3] live) склеились на одну строку исходника — один `Write-Host` с двумя литералами и двойной `-ForegroundColor` ронял экран выбора на PS 5.1 (`ParameterAlreadyBound`) и скрывал live-режим; разделено на два `Write-Host`, [3] снова виден |
 | v1.22.63 | 11.10.2026 | Fix: все вызовы adb через MuMuManager переведены на официальный контракт `--vmindex`/`--cmd` (live logcat, snapshot, SIM-auto-apply, shell/push/pull/screencap) — прежняя форма принималась молча, но stdout не возвращался; Feature: [G] live adb logcat закрывается через `Stop-Logcat` (`logcat -c`) при выходе, prompt «Ctrl+C/Exit to stop»; Chore: PSA-исключение `PSAvoidUsingPositionalParameters` под стиль репо; Pester 261/261 |
 | v1.22.62 | 09.10.2026 | Feature: [DIAG] read-only отчёт об осиротевших папках инстансов — блок `Get-MuMuOrphanInstanceDirs` классифицирует папки в `vms` как stale/orphan/unknown с временем записи и рекурсивным размером, «ничего не удалено — удаление — ручное решение», старт не делает дорогую рекурсию; каждая orphan-строка — info-находка в Get-ProblemFindings; вживую скан Netease1 за 393 мс вернул одну запись `MuMuPlayer-12.0-0, 113 MB, stale`; Pester 258/258 |

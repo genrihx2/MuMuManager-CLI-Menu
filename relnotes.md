@@ -4,6 +4,15 @@
 
 ---
 
+## v1.22.65 (12.10.2026)
+
+- **Фикс зависания [3] adb logcat — live** — ветка live в `Show-Logs` сначала присваивала пайплайн переменной `$stream = & $MumuPath adb ...`, и только потом итерировала её. PowerShell блокируется на таком присваивании до выхода процесса, а логкат не завершается никогда — заголовок LIVE печатался, а меню висело без единой строки. Теперь потоковая команда передаётся прямо в `ForEach-Object`, строки печатаются по мере поступления; очистка через `Stop-Logcat` в `finally`, фильтры/поиск/сводки не изменились. Поймано вживую пользователем, причина найдена конструированием и подтверждена правкой.
+- **Version bump**: `$scriptVer` in `mumu-menu.ps1`, `relnotes.md`, `README.md` and `.version` synchronized to `1.22.65`.
+
+**EN summary:** Fix — live adb logcat hang in [G]. The LIVE branch of `Show-Logs` assigned the logcat pipeline to `$stream = & $MumuPath adb ...` before iterating; PowerShell blocks on that assignment until the process exits and logcat never exits, so the LIVE header printed and the menu hung with zero lines. The streaming command is now piped directly into `ForEach-Object`, printing lines as they arrive; `Stop-Logcat` cleanup in `finally`, filters, search and footers unchanged. Caught live from a user session, root cause identified by construction and confirmed by the fix. Pester suite: 261 tests.
+
+---
+
 ## v1.22.64 (11.10.2026)
 
 - **Фикс: пункт [3] adb logcat — live снова виден в меню «Логи»** — в `Show-Logs` две строки опций (`[2] snapshot` и `[3] live`) случайно склеились на одну строку исходника; PowerShell видела один вызов `Write-Host` с двумя литералами, `ForegroundColor` биндился дважды и рантайм на PS 5.1 ронял экран выбора(`ParameterAlreadyBound`), скрывая live-режим от пользователя. Разделено на два `Write-Host`; поймано вживую на скриншоте пользователя, подтверждено парсером (syntax OK) и PSA (0 findings).
