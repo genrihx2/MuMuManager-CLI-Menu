@@ -3,6 +3,7 @@
 [![Code Scanning](https://github.com/genrihx2/MuMuManager-CLI-Menu/actions/workflows/security-scan.yml/badge.svg)](https://github.com/genrihx2/MuMuManager-CLI-Menu/actions/workflows/security-scan.yml)
 [![Latest Release](https://img.shields.io/github/v/release/genrihx2/MuMuManager-CLI-Menu?label=latest)](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest)
 [![Release Date](https://img.shields.io/github/release-date/genrihx2/MuMuManager-CLI-Menu)](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases)
+[![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/genrihx2/MuMuManager-CLI-Menu?utm_source=oss&utm_medium=github&utm_campaign=genrihx2%2FMuMuManager-CLI-Menu&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)](https://coderabbit.ai)
 
 > **Открытый исходный код.** Скрипт предназначен исключительно для управления 
 > локальными инстансами MuMu Emulator на вашем компьютере. Функции приватности — 
@@ -97,7 +98,7 @@ cd MuMuManager-CLI-Menu
 
 4. **CDN-зеркало jsDelivr** (если браузер или провайдер блокирует raw-ссылки):
 ```powershell
-curl.exe -sSL -o $env:TEMP\mumu-menu.ps1 https://cdn.jsdelivr.net/gh/genrihx2/MuMuManager-CLI-Menu@v1.22.15/mumu-menu.ps1; & $env:TEMP\mumu-menu.ps1
+curl.exe -sSL -o $env:TEMP\mumu-menu.ps1 https://cdn.jsdelivr.net/gh/genrihx2/MuMuManager-CLI-Menu@main/mumu-menu.ps1; & $env:TEMP\mumu-menu.ps1
 ```
 
 > **Браузер предупреждает «mumu-menu.ps1 может навредить вашему устройству»?** Это срабатывание по **типу файла** (`.ps1` = исполняемый скрипт PowerShell), а не по содержимому: URL-сканеры и Safe Browsing не анализируют скрипты, но блокируют скачивание исполняемых типов по шаблону. Файл чист — все релизы проходят CI-скан VirusTotal (вердикты в теле каждого релиза, см. «URL-репутация» ниже). Скачивайте из официального релиза или через jsDelivr, сверяйте SHA-256 (`[F]` после установки), не берите скрипт из сторонних ссылок.
