@@ -1,911 +1,255 @@
 # MuMuManager CLI Menu
 
-Интерактивное PowerShell-меню для управления MuMu Emulator через официальный `MuMuManager.exe`.
+Interactive PowerShell menu for managing MuMu Emulator instances through the official `MuMuManager.exe`.
+
+This file contains a cleaner release history for the project, focusing on the most important updates and major milestones.
 
 ---
 
-## v1.22.65 (12.10.2026)
+## Latest release
 
-- **Фикс зависания [3] adb logcat — live** — ветка live в `Show-Logs` сначала присваивала пайплайн переменной `$stream = & $MumuPath adb ...`, и только потом итерировала её. PowerShell блокируется на таком присваивании до выхода процесса, а логкат не завершается никогда — заголовок LIVE печатался, а меню висело без единой строки. Теперь потоковая команда передаётся прямо в `ForEach-Object`, строки печатаются по мере поступления; очистка через `Stop-Logcat` в `finally`, фильтры/поиск/сводки не изменились. Поймано вживую пользователем, причина найдена конструированием и подтверждена правкой.
-- **Version bump**: `$scriptVer` in `mumu-menu.ps1`, `relnotes.md`, `README.md` and `.version` synchronized to `1.22.65`.
+### v1.22.65 (12.10.2026)
+- Fixed a hang in the live `[G] adb logcat` view.
+- The live logcat branch was assigning the output pipeline before iteration, which blocked PowerShell until the process ended.
+- Synchronized version markers in `mumu-menu.ps1`, `relnotes.md`, `README.md`, and `.version`.
 
-**EN summary:** Fix — live adb logcat hang in [G]. The LIVE branch of `Show-Logs` assigned the logcat pipeline to `$stream = & $MumuPath adb ...` before iterating; PowerShell blocks on that assignment until the process exits and logcat never exits, so the LIVE header printed and the menu hung with zero lines. The streaming command is now piped directly into `ForEach-Object`, printing lines as they arrive; `Stop-Logcat` cleanup in `finally`, filters, search and footers unchanged. Caught live from a user session, root cause identified by construction and confirmed by the fix. Pester suite: 261 tests.
-
----
-
-## v1.22.64 (11.10.2026)
-
-- **Фикс: пункт [3] adb logcat — live снова виден в меню «Логи»** — в `Show-Logs` две строки опций (`[2] snapshot` и `[3] live`) случайно склеились на одну строку исходника; PowerShell видела один вызов `Write-Host` с двумя литералами, `ForegroundColor` биндился дважды и рантайм на PS 5.1 ронял экран выбора(`ParameterAlreadyBound`), скрывая live-режим от пользователя. Разделено на два `Write-Host`; поймано вживую на скриншоте пользователя, подтверждено парсером (syntax OK) и PSA (0 findings).
-- **Version bump**: `$scriptVer` in `mumu-menu.ps1`, `relnotes.md`, `README.md` and `.version` synchronized to `1.22.64`.
-
-**EN summary:** Fix — the `[3] adb logcat — live` option is visible again in the Logs menu: two option lines in `Show-Logs` were accidentally glued onto one source line; PowerShell saw a single `Write-Host` call with two string literals, bound `-ForegroundColor` twice and the runtime failed on PS 5.1 (`ParameterAlreadyBound`), hiding live mode. Split into two `Write-Host` statements; caught live from a user screenshot, verified with the parser (syntax OK) and PSA (0 findings). Pester suite: 261 tests.
+**EN summary:** Fixed the live `adb logcat` hang in `[G]`. The live branch assigned the pipeline before consuming it, which caused PowerShell to block until the process exited. Version markers were synchronized across the project.
 
 ---
 
-## v1.22.63 (11.10.2026)
+## Recent highlights
 
-- **Фикс синтаксиса вызовов adb через MuMuManager** — все вызовы `adb -v $Index -c '...'` переведены на официальный контракт CLI `adb --vmindex $Index --cmd '...'` (live logcat, snapshot, SIM-auto-apply, shell/push/pull/screencap и другие). Прежняя форма принималась без ошибки, но stdout не возвращался — live-логкат в `[G]` не печатал строки.
-- **[G] live adb logcat корректно останавливается при выходе** — live-стрим захватывается и закрывается через новый хелпер `Stop-Logcat` (отправляет `logcat -c`), поэтому выход из live-просмотра останавливает logcat, а не бросает поток; prompt в `[G]` изменён с `Ctrl+C to stop` на `Ctrl+C/Exit to stop`. По конструкции read-only: функция выполняет только документированный no-op `logcat -c` и пишет диагностику через `Write-Debug`.
-- **PSScriptAnalyzer** — исключение `PSAvoidUsingPositionalParameters` в `PSScriptAnalyzerSettings.psd1`, чтобы соответствовать устоявшемуся стилю репо (там уже исключён `PSAvoidUsingWriteHost`); локальный PSA-прогон: 0 findings.
-- **Version bump**: `$scriptVer` in `mumu-menu.ps1`, `relnotes.md`, `README.md` and `.version` synchronized to `1.22.63`.
+### v1.22.64 (11.10.2026)
+- Restored the `[3] adb logcat — live` entry in the Logs menu.
+- Fixed a formatting issue where two menu lines were accidentally merged into one.
 
-**EN summary (v1.22.63):** adb call syntax fix — every `adb -v $Index -c '...'` invocation through MuMuManager now uses the official CLI contract `adb --vmindex $Index --cmd '...'` (live logcat, snapshot, SIM-auto-apply, shell/push/pull/screencap and others). The old form was accepted silently but returned no stdout, so the `[G]` live logcat printed no lines. [G] live adb logcat now stops cleanly on exit — the live stream is captured and closed through a new `Stop-Logcat` helper (sends `logcat -c`), so leaving the live view stops logcat instead of abandoning it; prompt changed from `Ctrl+C to stop` to `Ctrl+C/Exit to stop`; read-only by construction (only the documented no-op `logcat -c` plus `Write-Debug` diagnostics). PSScriptAnalyzer: `PSAvoidUsingPositionalParameters` excluded in `PSScriptAnalyzerSettings.psd1` to match the established repo style (`PSAvoidUsingWriteHost` was already excluded there); local PSA run reports 0 findings. Pester suite: 261 tests.
+### v1.22.63 (11.10.2026)
+- Fixed `adb` invocation syntax through MuMuManager.
+- Live logcat stops cleanly when leaving the view.
+- Updated PSScriptAnalyzer settings for repository style consistency.
 
----
+### v1.22.62 (09.10.2026)
+- Added readonly diagnostics for orphaned MuMu instance folders.
+- Improved live logcat exit handling.
 
-## v1.22.62 (09.10.2026)
+### v1.22.61 (06.10.2026)
+- Added a quick-switch path in `[DIAG]` for installs with a running MuMu instance.
+- Fixed a false warning in diagnostics related to script version detection.
 
-- **[DIAG]: read-only отчёт об осиротевших папках инстансов** — новый блок после drift-отчёта v1.22.60. Функция `Get-MuMuOrphanInstanceDirs` (только чтение, `Get-ChildItem`/`Measure-Object`) открывает `vms` активной установки и сортирует каждую папку `<префикс>-<версия Android>-<индекс>` по трём классам: **stale** — живой индекс, но папка от старой версии Android (остаток обновления, например `MuMuPlayer-12.0-0` рядом с живым `15.0-0`); **orphan** — индекс, которого менеджер не знает (удалённый инстанс или папка чужой/удалённой установки); **unknown** — имя, не похожее на папку инстанса. Каждая строка несёт время последней записи и рекурсивный размер (МБ) и число файлов, чтобы решить, что удалять. В [DIAG] экран печатает таблицу и строку «ничего не удалено — удаление папки — ручное решение»; стартовый авто-диаг **не** делает дорогую рекурсивную пробежку (быстрый старт), orphan-отчёт тут не появляется. Каждая orphan-строка становится info-находкой в `Get-ProblemFindings` (info не ломает Status: healthy). Проверено вживую: скан активной установки Netease1 (vms) за 393 мс вернул одну запись `MuMuPlayer-12.0-0, idx 0, 113 MB, stale` — текущие `15.0-0`/`15.0-2` в отчёт не попали.
-- **Version bump**: `$scriptVer` in `mumu-menu.ps1`, `relnotes.md`, `README.md` and `.version` synchronized to `1.22.62`.
+### v1.22.60 (06.10.2026)
+- Added a multi-install drift report for machines with side-by-side MuMu installations.
+- Improved diagnostics for install mismatch detection and active-install awareness.
 
----
+### v1.22.59 (06.10.2026)
+- Added multi-install detection and active installation selection.
+- Fixed instance selection so a healthy live instance is preferred over stale folders.
 
-## v1.22.61 (06.10.2026)
+### v1.22.58 (05.10.2026)
+- Added Resource Monitor v2 with pause, session peaks, sparkline, exports, and RAM delta tracking.
 
-- **[DIAG]: быстрое переключение на установку с работающим эмулятором** — завершение drift-отчёта v1.22.60. Когда диагностика показывает предупреждение «a running Android instance belongs to another installation», экран теперь предлагает действие сразу: `Switch to Netease1\MuMu now? (y/N)`. На `y` выполняется то же переключение, что и в [IN]: новый общий `Switch-MuMuActiveInstall` переписывает `$MumuPath` (все команды читают его в момент вызова — перезапуск не нужен), метку статус-строки, пин `.mumu-install`, пишет `install-switch` в журнал и перечитывает версию/инстансы (баннер: активная установка, версия, число видимых инстансов, предупреждение при версии ниже минимума). Enter/N — ничего не меняет. Параметр `-Quiet` позволяет использовать функцию без баннера, `-VersionJson`/`-InfoJson` — офлайн-швы для тестов. Сам [IN] переведён на эту же функцию: логика переключения теперь существует в единственном экземпляре, дубликат удалён.
-- **Исправлен ложный warning в [DIAG] «could not read the script version»** — пойман живым прогоном сразу после добавления drift-блока. Коллектор проблем читал только первые 260 строк `mumu-menu.ps1` (`-TotalCount 260`) в поиске собственного `$scriptVer`, а после появления мульти-установочного блока объявление уехало на строку 272. Результат: каждая здоровая установка получала `could not read the script version from mumu-menu.ps1` и — хуже — теряла детектор клина (сравнение marker vs content не выполнялось вовсе, значит клин «marker AHEAD of content» был бы пропущен). Голова чтения увеличена до 400 строк с комментарием о причине; живой [DIAG] снова «Status: healthy (3 info note(s))», маркерное сравнение работает. Фикстурные тесты клина не менялись — реальный кейс остаётся обнаружимым.
-- Проверено вживую: быстрый прогон [DIAG] на реальной машине с двумя установками и закрытым эмулятором даёт `Status: healthy` и корректно НЕ предлагает переключение (пока некуда); общий `Switch-MuMuActiveInstall` офлайн-прогоном подтверждён (пин BOM-less, журнал `install-switch`, state ok=True, кэш статус-строки сброшен).
-- **Version bump**: `$scriptVer` in `mumu-menu.ps1`, `relnotes.md`, `README.md` and `.version` synchronized to `1.22.61`.
+### v1.22.57 (05.10.2026)
+- Added `[CMP] Compare instance settings`.
+- Improved resource monitor instance mapping via `MuMuManager info -v all`.
 
----
+### v1.22.56 (05.10.2026)
+- Added `[RM] Resource monitor (CPU/RAM, live)`.
+- Documented additional Sigma/YARA exclusions and updated security notes.
 
-## v1.22.60 (06.10.2026)
-
-- **[DIAG]: отчёт о расхождении установок MuMu** — новый read-only блок для машин с несколькими параллельными копиями. Контекст: после [IN] (v1.22.59) меню умеет управлять любой из установок, но они НЕ взаимозаменяемы — на этой машине параллельно стоят domestic-сборка (подписант `NetEase (Hangzhou) Network Co., Ltd`, апдейтер от 2026-09-29) и глобальная (`Netease Interactive Entertainment Pte. Ltd.`, Сингапур, апдейтер от 2026-09-23), у обеих подпись Valid. Новый `Get-MuMuInstallDrift` — чистая функция с тестовыми швами (`-Installs` — готовый список установок, `-StateProbe` — проба running-состояния) — добавляет в коллектор проблем (`Get-ProblemFindings` через новый параметр `-DriftFindings`):
-  - **info** на каждую НЕактивную установку: сколько инстансов запущено (`1/2 instance(s) running`), дата сборки апдейтера, а в экране [DIAG] — ещё версия (`MuMu 6.8.2.0`) и подписант; активная установка уже видна в статус-строке, поэтому не дублируется;
-  - **warn** — главный улов: «запущенный Android-инстанс принадлежит ДРУГОЙ установке, а это меню смотрит на пустую» (`a running Android instance belongs to another installation (Netease1\MuMu (1 running)) while this menu drives Netease\MuMuPlayer (0 running) - switch with [IN]`). Поймано вживую в первый же прогон: меню по умолчанию осталось на пустой установке, а работающий эмулятор жил в Netease1 — все команды попадали бы не в ту копию;
-  - **info** о разных сертификатах подписи между установками — это ожидаемо для domestic/global-дистрибуций, но теперь видно сразу, а не выясняется вручную;
-  - **warn** при невалидной или отсутствующей подписи бинарника апдейтера (`unsigned` / `invalid signature`) — только в экране [DIAG].
-  Экран [DIAG] печатает сравнительную таблицу установок (`*` у активной: состояние, версия, сборка апдейтера, подписант). Производительность: медленные проверки (Authenticode `Get-AuthenticodeSignerName`, запросы версий) живут ТОЛЬКО в экране [DIAG] — стартовый авто-диаг идёт по быстрому пути: сессионный кэш списка установок (`$script:MuMuInstallsCache`, заполняется при разрешении пути на старте), без подписей и запросов версий; проба running-состояний делается только когда установок ≥ 2, поэтому машина с одной копией не получает ни проб, ни findings. Извлечение подписанта честно деградирует: `unsigned` / `invalid signature (…)` / `signature unavailable`, на отсутствующем файле — пустая строка без исключения. Вывод — ASCII: юникод-стрелки на CP866 деградируют в `?`.
-- Проверено вживую: `Get-MuMuInstallDrift` на реальной машине за 0,8 с (быстрый путь) находит обе установки и поднимает warn о чужом запущенном инстансе; с подписями и версиями — 2,1 с (экран [DIAG]); стартовый авто-диаг поднялся с 1 до 2 warnings и честно называет установку, где реально работает эмулятор.
-- **Version bump**: `$scriptVer` in `mumu-menu.ps1`, `relnotes.md`, `README.md` and `.version` synchronized to `1.22.60`.
-
----
-
-## v1.22.59 (06.10.2026)
-
-- **[IN] Мульти-установочность: меню видит и выбирает установку MuMu** — новая функция. Автопоиск держал жёсткий список из семи путей `Netease\MuMuPlayer`, поэтому раскладка MuMu 15 (`Netease\MuMu\nx_main` + движок устройства в `nx_device\<версия>\shell`) и параллельная вторая установка (`Netease1\MuMu`) в него не попадали — их видел только медленный скан всех дисков. Новые функции: `Get-MuMuInstallCandidateDirs` (фикс-раскладки, затем одноуровневый обход каталогов `*Netease*`/`*MuMu*` под Program Files / Program Files (x86) / LOCALAPPDATA с пробами `nx_main | shell | nx_device\<версия>\shell`, затем реестр; в список попадают только каталоги, где реально есть `MuMuManager.exe`), `Get-MuMuInstalls` (единый дескриптор установки: корень, менеджер, device shell, раскладка, дата сборки, при `-QueryVersion` — версия и число инстансов, метка активной; `MuMuPlayerGlobal-*` и `MuMuPlayer-*` одинаково годятся), `Get-MuMuInstallLabel`, `Get-MuMuActiveManagerPath`, `Resolve-MuMuInstall` (приоритет: пин пользователя → первая найденная), `Read-MuMuInstallChoice` / `Save-MuMuInstallChoice` (пин в `.mumu-install`, UTF-8 **без BOM** — BOM сломал бы `Test-Path` при чтении; файл в `.gitignore`), `Update-MumuInstallState` (перечитывает версию и список инстансов, обновляет `$InstalledVersion` и сбрасывает кэш статус-строки) и экран `Show-MuMuInstalls` за пунктом `[IN]`. Переключение мгновенное: все команды читают `$MumuPath` в момент вызова, поэтому переназначение `$MumuPath` переводит на другую копию весь меню целиком. После переключения показываются реальные версия и число инстансов новой установки, предупреждение при версии ниже минимума и запись `install-switch` в журнал обновлений. Пустой, битый или устаревший (указывающий на удалённый файл) пин молча игнорируется — старт не падает. Значение по умолчанию не изменилось: без пина первой выбирается классическая `Netease\MuMuPlayer`. Проверено вживую: за 300 мс найдены обе установки (6.8.0.0 / 3 инстанса и 6.8.2.0 / 2 инстанса), переключение на `Netease1` переживает перезапуск скрипта, статус-строка показывает `MuMu 6.8.2.0 | Netease1\MuMu | 1/2 running`.
-- **Исправлен выбор папки инстанса: осиротевший `12.0-0` больше не выигрывает у живого `15.0-0`** — поймано на живой машине, где в одном `vms` лежат `MuMuPlayer-12.0-0` и `MuMuPlayer-15.0-0` (оба — индекс 0), а в активной установке папки называются `MuMuPlayerGlobal-<версия>-<индекс>`. Старый код брал папку по регулярке `-(\d+)$` и при `[G]`/`[FPS]` даже не спрашивал пользователя (`Select-Object -First 1`) — то есть логи мог показываться из удалённого 12.0-инстанса. Новый `Get-MuMuInstanceDir` спрашивает у менеджера `android_version` для индекса (`Get-MuMuInstanceAndroidVersion`, ключ `android_version` в `info -v N`), ставит совпадающую папку первой, остальные ранжирует новейшими; поддержаны старые имена без версии (`MuMuPlayer-0`), каталоги `...-base` не выдаются за инстансы, неизвестный индекс и отсутствующий `vms` дают пустой список без исключения. На резолвер переведены `[BA]` (бэкап), `[RE]` (восстановление), `[G]` (логи), `[FPS]` (обзор теперь строится по списку инстансов менеджера, а не по обходу папок, поэтому осиротевшие каталоги не показываются как живые) и `[DI]` (поиск `simulation.json` — сканирование всех папок сохранено намеренно, значения могли остаться в папке прежней версии). Корень `vms` берётся из активной установки (`Get-MuMuVmsRoot`), жёстких предположений о пути больше нет.
-- **Version bump**: `$scriptVer` in `mumu-menu.ps1`, `relnotes.md`, `README.md` and `.version` synchronized to `1.22.59`.
+### v1.22.55 (02.10.2026)
+- Added a verified false-positive section to `SECURITY.md`.
+- Softened AV heuristic language in the docs without changing functionality.
+- Updated workflow permissions and CI security behavior.
 
 ---
 
-## v1.22.58 (05.10.2026)
+## Earlier major releases
 
-- **[RM] v2: настоящая пауза, сессионные пики, спарклайн, экспорт, дельта RAM** — четыре улучшения монитора ресурсов (все read-only, кроме явного экспорта). **[P] пауза** — теперь настоящий «замороженный кадр»: гейт стоит ДО сэмплирования, опрос процессов и обновление статистики останавливаются полностью, работают только выход и P-резюм; первый кадр после паузы пересчитывает базовую линию, поэтому CPU% после паузы не врёт (первая версия только писала «PAUSED» в шапке, продолжая перерисовку за ней — поймано финальной проверкой перед релизом). **Сессионная статистика** ([R] — сброс): peak/avg CPU% по каждому процессу, peak RAM и RAM-пол (для дельт), пик тотала; тики без базовой линии (первый кадр, смена сортировки/интервала) не вносят фейковые нули в среднее; переиспользованный PID следует за новым именем процесса. **Спарклайн** тотала CPU (#-бары, ring-buffer 60 тиков) в шапке рядом с пиком. **[E] экспорт**: MD/CSV/JSON в `output\` рядом со скриптом (каталог создаётся по требованию), UTF-8 BOM по правилу репо (alert #535), инвариантные decimals — в ru-RU текущая культура давала бы `3,1` и фантомную колонку CSV (числа как строки через ToString(invariant)); CSV-квотинг имён/инстансов, JSON полностью round-trip. Запись живёт только в `Export-ResourceSnapshot` — живой цикл остаётся read-only по AST-инварианту (тест запрещает Set-Content/Add-Content/Out-File в функциях цикла). **Колонка «RAM d»** — изменение памяти процесса с прошлого тика со знаками `+/=/-` (ASCII: юникод-стрелки деградируют в `?` на CP866), честно `-` на первом кадре.
-- **Docs: README/SECURITY — отчёт VT v1.22.57** — таблица вердиктов переведена на v1.22.57 (ZIP `f12e08215b8f…0661`, mumu-menu.ps1 `1563048a2582…b570`, SKILL.md `b3e23bb1aa0c…bac9` — все 0 malicious / 0 suspicious, scan run 37269423200), v1.22.56 — в «предыдущий скан»; строки актуальности SECURITY.md: v1.22.55 → v1.22.57 (RU + EN).
-- **Version bump**: `$scriptVer` in `mumu-menu.ps1`, `relnotes.md`, `README.md` and `.version` synchronized to `1.22.58`.
+### v1.22.54 (30.09.2026)
+- Improved tunnel owner detection in `Test-MumuTunnelAB`.
 
-## v1.22.57 (05.10.2026)
+### v1.22.53 (29.09.2026)
+- Startup/version output now shows only the active MuMu installation.
 
-- **[CMP] Compare instance settings** — новый read-only пункт меню рядом с [7]: сравнение записываемых настроек двух инстансов бок-о-бок. Сборщик `Get-InstanceWritableSettings` читает `MuMuManager setting -v N --all_writable` (плоский JSON, строковые значения) — работает и для **остановленных** инстансов: настройки живут в конфиге инстанса, а не в VM. Чистый дифф `Compare-Settings` по объединению ключей: различающиеся первыми, `<missing>` для ключей с одной стороны, пустые значения честно `(empty)`, длинные обрезаются с `~` (`Format-CompareValue`), колонки не слипаются. Итог «Keys compared / differ / identical», «+N identical key(s) not listed» и подсказка где править: `[7]/[FPS]/[RT]/[DM]` либо точная команда `MuMuManager.exe setting -v N --key <key> --value <value>`. Повторный выбор того же инстанса отклоняется; недоступность настроек инстанса называется по имени ошибки (`not supported` / `not JSON` / `empty output` / `not found`). Инвариант read-only закреплён Pester-тестом: ни одна строка кода не может одновременно вызывать команду и нести флаг записи `--value`; тест-хуки `-SettingsJson`/`-MumuPathOverride` позволяют гонять всё офлайн.
-- **[RM]: колонка Instance** — монитор ресурсов теперь сопоставляет PID процессов с инстансами через `MuMuManager info -v all`: у запущенного инстанса есть ключ `pid`, и колонка «#N Имя» печатается для каждого процесса, обновляясь каждый тик (`Get-InstanceProcessMap`); остановленные инстансы (без `pid`) честно пропускаются, отсутствие MuMuManager или битый JSON дают пустую карту без падения. Заодно исправлена вёрстка: реальные имена процессов по 22 символа (`MuMuPlayerRemoteBackend`) заполняли колонку Name впритык и слипались с новой колонкой — теперь Name обрезается до 21 + `~`. Живой прогон: PID 26200 корректно привязался к «#0 Android Device», сервисы фреймворка показывают «-».
-- **Version bump**: `$scriptVer` in `mumu-menu.ps1`, `relnotes.md`, `README.md` and `.version` synchronized to `1.22.57`.
+### v1.22.52 (29.09.2026)
+- Fixed strict `pwsh` startup issues.
+- Restricted EXE-version reporting to the active MuMu installation.
 
-## v1.22.56 (05.10.2026)
+### v1.22.51 (29.09.2026)
+- Added automatic detection of MuMu install roots on any drive.
+- Improved version reporting with real full paths.
 
-- **[RM] Resource monitor (CPU/RAM, live)** — новый пункт меню (секция Info, рядом с [WN]): панель всех процессов `MuMu*` с автообновлением каждые 2 с (настраивается 1–30 с). CPU% каждого процесса считается по дельте TotalProcessorTime между тиками, нормируется на логические ядра и зажимается в 0–100%; первый кадр — без базовой линии, CPU% честно показывается как «-», а не фейковые нули. Показываются: RAM (working set) и private bytes в МБ, аптайм процесса, тоталы по всем процессам; подсветка строк: ≥50% — красный, ≥25% — жёлтый. Клавиши: [S] сортировка CPU%/RAM/PID, [+] / [-] интервал обновления, Q/Esc/Ctrl+C — выход. Только чтение: ни сети, ни записей (инвариант закреплён Pester-тестом через AST — внутри трёх функций монитора нет curl/Invoke-WebRequest/Set-Content/Add-Content/New-Item). Перенаправленный stdin (CI, пайпы) — один кадр вместо бесконечного цикла. Формат аптайма использует компоненты TimeSpan (Days/Hours/Minutes), а не приведение Total* — тесты поймали баг округления до релиза: [int]$span.TotalHours даёт [int]1.5ч → 2ч, и 91-минутный аптайм показывался как «2h 30m». Pester: +11 тестов (186 всего), PSSA 0 warnings.
-- **Docs: SIGMA RULE EXCLUSIONS** — в шапке mumu-menu.ps1 задокументированы 4 новых generic-срабатывания YARA/Sigma из отчёта VT v1.22.55: InQuest `Windows_API_Function`, ditekSHen `INDICATOR_SUSPICIOUS_PWSH_B64Encoded_Concatenated_FileEXEC`, Sigma `Suspicious Process Discovery With Get-Process`, Nishang/Commandlets ScriptBlock — все не являются вердиктами антивирусов.
-- **Docs: SECURITY.md / README — отчёт VT v1.22.55** — таблица вердиктов (релизный ZIP `c87f7a3016f8…dc05`, mumu-menu.ps1 `cdabc5965c70…134f`, SKILL.md `b3e23bb1aa0c…bac9` — все 0 malicious / 0 suspicious, ссылки на отчёты), в «Известные ошибочные срабатывания (проверено)» добавлен кейс 3, правило Sigma #15 Get-Process (RU + EN).
-- **Version bump**: `$scriptVer` in `mumu-menu.ps1`, `relnotes.md`, `README.md` and `.version` synchronized to `1.22.56`.
+### v1.22.50 (29.09.2026)
+- Added automatic MuMu EXE version display at startup.
 
-## v1.22.55 (02.10.2026)
+### v1.22.49 (29.09.2026)
+- Added a Mark-of-the-Web troubleshooting section in the README.
+- Hardened release ZIP validation logic.
 
-- **SECURITY.md: новый раздел «Известные ошибочные срабатывания (проверено)» (RU + EN)** — заведён список закрытых кейсов ошибочных срабатываний с доказательствами. Кейс 1 — Microsoft Defender: обращение закрыто с формулировкой «Our scanners show no positive detection — submission closed with no further action pending» (Submission ID `e7863737-b31e-4a0b-a4ae-6b8316ea00c8`, definitions v1.459.282.0 — файл чистый). Кейс 2 — Malwarebytes Browser Guard v3.3.6: страница репозитория `github.com/genrihx2/MuMuManager-CLI-Menu` блокировалась текстовой эвристикой «Heuristics: suspicious pattern | ID: 32228130» (2026-10-01) — срабатывание по тексту отрисованной страницы, а не по файлам (вердикты VirusTotal релиза v1.22.54: 0 вредоносных / 0 подозрительных). Тикет в Malwarebytes Support закрыт подтверждением ошибочного срабатывания (ответ от 2026-10-01): детект исправлен в обновлении базы, раскатка ~1–2 ч; если блокировка ещё видна — значок **M** → три точки → «Поддержка и диагностика» → «Проверить обновления базы данных»; аварийный обход — галочка «Не блокировать этот веб-сайт в дальнейшем» в диалоге блока (сайт попадает в локальный allowlist Browser Guard).
-- **README: смягчение формулировок для AV-эвристик (16 строк, только рукописные зоны)** — причина: Browser Guard анализирует плотность ключевых слов в тексте страницы, а не файлы. Перефразированы: цитата на первом экране (функции приватности — замена модели устройства и случайные IMEI / Android ID / MAC, работают только на собственных инстансах и требуют подтверждения «OK»), примечание для AV-аналитиков, вердикты VT в разделе безопасности («0 вредоносных / 0 подозрительных»), блок ключевых фактов и английское резюме (SmartScreen блокирует по репутации URL и расширению файла, а не по анализу содержимого). Блок `<!-- MENU:AUTO -->`, история changelog и команды установки (`-ExecutionPolicy Bypass`) не тронуты. Плотность триггеров после правки: «spoof» — только 2 строки в автоматически генерируемом блоке меню; «malicious/suspicious» — только вердикты VT в исторических записях changelog; «malware» — 0.
-- **CI**: пуш-диспатч VT-guard снова работает (добавлено разрешение `actions:write`); тест DevSkim T3 собирает fake-токен из частей вместо литерала `ghp_` и глушит DS173237; зависимости Actions: `github/codeql-action` v4.38.1 → v4.38.2 во всех трёх workflow (codeql.yml, devskim.yml, security-scan.yml), полные SHA-пины сохранены (PR #58).
-- **Version bump**: `$scriptVer` in `mumu-menu.ps1`, `relnotes.md`, `README.md` and `.version` synchronized to `1.22.55`. Функциональных изменений `mumu-menu.ps1` нет — только строка версии.
+### v1.22.48 (28.09.2026)
+- Restored a complete self-update package.
+- Added `[WN] Watch MuMu network + updater` diagnostics screen.
 
-## v1.22.54 (30.09.2026)
+### v1.22.47 (27.09.2026)
+- Version sync release; no functional script changes.
 
-- **Test-MumuTunnelAB: определение владельца Wintun-туннеля (read-only)** — каждый снапшот теперь находит Up-адаптер `*Wintun*`, резолвит владельцев классических портов прокси-ядер (SOCKS 10808/10809, mihomo 7890–7893) через `Get-NetTCPConnection -State Listen`, поднимается по цепочке родителей каждого владельца (до 6 звеньев) и записывает в снапшот путь, командную строку и цепочку. Если ни один владелец не `MuMu*` — снапшот печатает предупреждение: тумблер туннеля в MuMu на этот адаптер не влияет, управлять надо из интерфейса владельца. Мотивация — полевой случай: системный TUN-туннель `wwan99` (fake-IP `198.18.0.0/16`) оказался прокси INCY (порт 10808), а не MuMu — часы диагностики ушли на исключение MuMu-процессов и сервисов. Новый ключ `-NoOwnerLookup` пропускает поиск (быстрые циклы снапшотов). Как и раньше, ничего не убивается и не меняется.
-- **Version bump**: `$scriptVer` in `mumu-menu.ps1`, `relnotes.md`, `README.md` and `.version` synchronized to `1.22.54`.
+### v1.22.46 (27.09.2026)
+- Added the diagnostics trio to the release ZIP.
+- Updated the release file-set contract to 8 files.
 
-## v1.22.53 (29.09.2026)
+### v1.22.45 (26.09.2026)
+- Added deployed-layout CI coverage.
+- Improved release gate audit checks and Pester matrix validation.
 
-- **[V] startup/version block now lists the active install only** - `Show-MumuExeVersions` resolves the directory containing the `MuMuManager.exe` the startup check resolved and skips any parallel second install (e.g. a leftover `Netease1\MuMu`), so the startup block prints a single install's `MuMuPlayer.exe`/`MuMuNxMain.exe`/`MuMuNxUpdater.exe` versions with the auto-read version and a build-date stamp (full discovery via `Get-MumuInstallRoots` remains the fallback when `MuMuManager` itself was not found).
-- **Version bump**: `$scriptVer` in `mumu-menu.ps1`, `relnotes.md`, `README.md` and `.version` synchronized to `1.22.53`.
+### v1.22.44 (25.09.2026)
+- Fixed a persisted rejected GitHub token issue.
 
+### v1.22.43 (25.09.2026)
+- Made the release gate self-sufficient.
+- Added weekly ZIP verification in the release guard workflow.
 
+### v1.22.42 (25.09.2026)
+- Added a Pester CI matrix for both PowerShell 5.1 and pwsh 7.
+- Fixed `Get-ReleaseInfo.PublishedAt` compatibility across runtimes.
 
-## v1.22.52 (29.09.2026)
+### v1.22.41 (25.09.2026)
+- Fixed dead `Get-ReleaseInfo` headers and clearer update failure handling.
 
-- **Фикс запуска под строгим pwsh-хостом** — если в `$PROFILE` pwsh 7 задан `Set-StrictMode -Version Latest`, запуск меню падал: чтение ещё не созданных сессионных таблиц (`$script:EtagCache`/`$script:EtagTags`) стало терминирующей ошибкой, а нестрогий `catch` блока проверки версии печатал «Could not check MuMu version». Таблицы теперь декларируются в script-scope сразу; заодно найден и исправлен второй strict-путь: чтение `$key.DisplayName` без проверки существования у части Uninstall-ключей реестра (выбрасывало `PropertyNotFoundException`, скрывая блок версий EXE).
-- **Блок версий EXE — только активная установка** — `Show-MumuExeVersions` печатал все обнаруженные корни, из-за чего при параллельной второй инсталляции (например, остаточной `Netease1\MuMu`) дублировались строки чужой копии. Теперь показывается единственная установка, которой меню управляет (каталог найденного `MuMuManager.exe`); полное обнаружение осталось как fallback, когда MuMuManager сам не найден.
-- **CI: пост-публикационный аудит** — `release.yml` сразу после `gh release create` диспетчеризует release-guard: свежий релиз проверяется (assets, sidecar, VT-вердикты, version consistency, ZIP-vs-tag) за минуты, а не по понедельническому расписанию. Сбой dispatch не валит релиз (::warning::).
+### v1.22.40 (24.09.2026)
+- Added `Get-ReleaseInfo` helpers for structured release metadata.
+- Reworked GitHub release fetch logic around the new helper.
 
-## v1.22.51 (29.09.2026)
+### v1.22.39 (22.09.2026)
+- Improved log stack collapsing in `[G] View logs`.
+- Corrected release-date documentation in README and relnotes.
 
-- **Поиск корней MuMu на любом диске** — новая `Get-MumuInstallRoots` заменяет жёстко прописанные C-пути: каталог MuMuManager, пути живых процессов `MuMu*`, реестровые Uninstall-записи (HKLM/HKLM-WOW64/HKCU, `InstallLocation`/`DisplayIcon`, фильтр `MuMu`), ярлыки «Пуска» `*MuMu*.lnk`; и лишь если все быстрые источники пусты — ограниченный спул по всем фиксированным дискам (папки с именем `*Netease*`/`*MuMu*`, до трёх уровней, признак — `nx_main` или целевой EXE). Любая буква диска и пользовательская папка теперь работают.
-- **[V] показывает реальные полные пути** — блок «MuMu EXE versions» печатает обнаруженный путь каждого `MuMuPlayer.exe`/`MuMuNxMain.exe`/`MuMuNxUpdater.exe` с авто-версией (каскад `FileVersion` → `ProductVersion` → версия продукта → `unknown`) и штампом сборки; ссылка на официальные release notes (`mumuplayer.com/update`) — на месте.
+### v1.22.38 (22.09.2026)
+- Fixed `Write-Debug` usage in emulator creation.
 
-## v1.22.50 (29.09.2026)
+### v1.22.37 (22.09.2026)
+- Redesigned the instance creation screen.
 
-- **Автоверсии MuMu-EXE при запуске** — новая `Show-MumuExeVersions` сразу после проверки версии MuMu автоматически находит `MuMuPlayer.exe`/`MuMuNxMain.exe` и `MuMuNxUpdater.exe` (каталог MuMuManager, обе известные корневые установки, пути работающих процессов) и печатает версию каждого файла со штампом сборки — ничего не вводится вручную. Нюанс, который пришлось решить: MuMu 6.x не штампует FileVersion/ProductVersion на этих EXE, поэтому каскад: ресурс версии → ProductVersion → версия продукта из `MuMuManager version` (с пометкой источника) → `unknown`; штамп сборки (LastWriteTime) различает копии.
+### v1.22.36 (21.09.2026)
+- Added case-insensitive search in log view.
 
-## v1.22.49 (29.09.2026)
+### v1.22.35 (21.09.2026)
+- Switched log snapshot default to errors-only when empty input is entered.
 
-- **README: раздел про Mark-of-the-Web** — почему ручная распаковка релизного ZIP Проводником блокирует скрипты (`not digitally signed` при `RemoteSigned`): браузер вешает NTFS-поток `Zone.Identifier` на скачивание, Проводник копирует метку на каждый файл, а подписи Authenticode в ZIP нет by design (её ставит только bootstrap на инсталляции). Три способа лечения по порядку предпочтения: `[U]`/bootstrap (сами скачивают, снимают метки и подписывают), `Unblock-File` по каталогу, распаковка `tar -xf`/7-Zip (не наследуют метку). Плюс строка-симптом в таблицу восстановления.
-- **CI: CodeQL Advanced** — новый `.github/workflows/codeql.yml` (язык `actions` — анализ файлов воркфлоу; у CodeQL нет PowerShell-экстрактора, `.ps1`-код по-прежнему под DevSkim + PSScriptAnalyzer). Пин по SHA (checkout v7.0.1, codeql-action v4.38.1), weekly-расписание; Default setup для code scanning — `not-configured`, конфликта нет.
-- **Харденинг Test-ReleaseZip (оба апдейтера)** — контракт «никогда не бросает»: чтение повреждённого архива (битый local file header / central directory) раньше выпадало терминирующим исключением (`InvalidDataException: A local file header is corrupt`) из `[F]`/`-VerifyZip` вместо штатного результата `Ok=$false`; теперь любое повреждение даёт строку проверки `archive: corrupt (...)` и честный отказ. Ловится новым Pester-тестом; заодно фикс-тест tampered ZIP перестал быть недетерминированным (переворачиваемый байт раньше мог попасть в заголовок записи из-за непостоянного порядка записей в фикстуре).
-- **Документация Diag-MumuNx**: pre-flight elevation (v1.22.47) и uint32-фикс сокет-секций (v1.22.48) задокументированы в relnotes; `.version`/`scriptVer` подняты синхронно.
+### v1.22.34 (21.09.2026)
+- Added quiet-mode log filtering to reduce known noisy entries.
 
-## v1.22.48 (28.09.2026)
+### v1.22.33 (21.09.2026)
+- Redesigned shutdown and restart screens with clearer guards and final status.
 
-- **Фикс self-update: [U] снова доставляет полный комплект** — список загрузки в `Update-FromGitHub` остался на до-троичном составе из 4 файлов (v1.22.46 расширила ZIP до 8, но `[U]` — нет), поэтому файлы, добавленные после v1.22.45, не доходили до существующих инсталляций через `[U]`. Список приведён к контракту 8 файлов (7 + `.version`, который апдейтер пишет сам после проверенной загрузки); дефолты rollback-функций (`Build-RollbackPlan`/`Invoke-Rollback`) расширены до того же сета — валидация бэкапов требует полный состав и честно перечисляет недостающие файлы старых бэкапов. Новый Pester-тест фиксирует список `[U]` на контракте и отсутствие устаревших 4-файловых дефолтов.
-- **[WN] Watch MuMu network + updater** — новый read-only пункт меню (секция Info): каждые 5 с логирует НОВЫЕ внешние TCP :443 подключения MuMu*-процессов (вайлкард покрывает MuMuPlayer/MuMuNxMain/MuMuNxUpdater и варианты имён), запуски MuMuNxUpdater (время, PID, имя), смену EXE-идентичности апдейтера (FileVersion / ProductVersion / LastWriteTime / полный путь) и его удалённые IP во время обновления; дедуп по PID+локальный порт+удалённый кортеж; лог `C:\test\mumu-network-update.txt`; выход по Q/Ctrl+C, устойчив к перенаправленному stdin. Ничего не меняет: ни firewall, ни прокси, ни DNS, ни маршруты.
-- **Фикс Diag-MumuNx (uint32)** — разделы «Listening endpoints / TCP connections / UDP endpoints» всегда были пустыми при работающем MuMu: ключи `$procRows` строились из `[int]` PID (`Get-Process`), а `OwningProcess` из `Get-NetTCPConnection`/`Get-NetUDPEndpoint` — `[uint32]`, и хэш-таблица молча не совпадала по типу ключа. Ключи приводятся к `[uint32]` при построении; подтверждено живым elevated-снимком с запущенным инстансом (11 слушателей вместо «(none)», ADB — только loopback 5555/7555/16384).
-- **Дружелюбный pre-flight в Diag-MumuNx** — вместо жёсткого `#requires -RunAsAdministrator` (движок завершает скрипт до выполнения любого кода, поймать нельзя) — runtime-проверка после `param()` с понятным объяснением и готовой командой запуска от администратора.
+### v1.22.32 (21.09.2026)
+- Redesigned log viewer with state indication and colorized log levels.
 
-## v1.22.47 (27.09.2026)
+### v1.22.31 (21.09.2026)
+- Redesigned launch flow with better status reporting and guards.
 
-- **Version bump**: `$scriptVer` in `mumu-menu.ps1`, `.version`, README and relnotes synchronized to `1.22.47`.
-- **No code changes**: this release only synchronizes the version markers after v1.22.46.
+### v1.22.30 (21.09.2026)
+- Added DevSkim security linting.
+- Updated project documentation and menu coverage.
 
-## v1.22.46 (27.09.2026)
+### v1.22.29 (21.09.2026)
+- Fixed `[TN]` tag extraction logic.
 
-- **Диагностическая троица в комплекте**: release ZIP теперь несёт 8 файлов — добавлены read-only инструменты сетевой диагностики MuMu. `Watch-MumuConnections.ps1` — опрос TCP-таблицы раз в 5 с, в лог только НОВЫЕ установленные подключения MuMu*-процессов (дедуп по 5-tuple+PID). `Test-MumuTunnelAB.ps1` — снимки сети A/B с diff (подключения, source-адреса, default/fake-IP маршруты, route-lookup, адаптеры, прокси) и режим `-Watch`: сам ловит переключение туннеля (исчезновение/появление маршрутов `198.18.*`, дебаунс 2 опроса) и снимает B + отчёт без ручного вызова. `Diag-MumuNx.ps1` — от администратора: сервисы и процессы MuMu с командными строками, слушатели, TCP/UDP с DNS-резолвингом адресатов, firewall-правила MuMu → лог `MuMuNx-*.txt`. Ни один скрипт не меняет VPN, маршрутизацию или прокси.
-- **Контракт файла-сета: 5 → 8 файлов** — синхронно обновлены `Test-ReleaseZip` в обоих апдейтерах (строгая missing/extras-проверка), списки самобновления `[U]`/bootstrap-update (новые файлы доставляются на существующие инсталляции; старые инсталляции со списком из 5 обновляются как раньше — их список является подмножеством), fixture deployed-layout ноги CI, недельный zipcheck в release-guard (`EXPECTED_COUNT=8`), T7/T8 тесты.
-- **Проверено на живой системе**: вотчер задокументировал фон MuMuPlayer 6.8.0 «Network error» — циклический рестарт MuMuNxUpdater, fake-IP туннель (198.18.0.1, Wintun) и периодические 10-секундные ступоры HTTPS до `api.mumuglobal.com` при живом хосте; elevated-снимок выявил две параллельные инсталляции MuMu (`Netease\MuMuPlayer` + `Netease1\MuMu`) и отсутствие `MuMuNxService.exe`.
+### v1.22.28 (21.09.2026)
+- Added CDN mirror freshness checks.
+- Added `cdn-sync` automation for jsDelivr mirror updates.
 
-## v1.22.45 (26.09.2026)
+### v1.22.27 (21.09.2026)
+- Added SmartScreen and Mark-of-the-Web guidance for browser-extracted ZIP files.
 
-- **Deployed-layout CI leg**: Pester suite runs inside a temp fixture holding ONLY the deployed file set (mumu-menu.ps1, bootstrap-update.ps1, README.md, SKILL.md, .version); repo-only files excluded (relnotes.md, RELEASE-RUNBOOK.md, update-readme.ps1, tests/). Tests tagged RepoFiles are excluded (172 of 173). Both engines — Windows PowerShell 5.1 and pwsh 7 — against the SAME copy (tests/test-deployed-layout.ps1).
-- **Release gate audits every Tests leg by exact name**: the check-run audit walks an explicit REQUIRED_LEGS list (all 5 job names, incl. the deployed-layout leg) instead of a prefix filter — a removed or renamed leg now closes the release (fail-closed "missing"). Last-row-wins re-run semantics kept (red→green unblocks, green→red blocks). Verified by replaying the extracted audit block over the d73ea76 check-runs: absent/renamed/red leg → blocked; all-green → allowed.
-- **PSSA**: присваивание сплат-переменной `$args` в `tests/test-deployed-layout.ps1` переименовано в `$exeArgs` (PSAvoidAssignmentToAutomaticVariable, code-scanning #590/#591) — поведение идентично
-- **SKILL.md**: задокументирована deployed-layout нога — дерево `tests/` (`test-deployed-layout.ps1`, тег `RepoFiles` в сьюте), состав матрицы `tests.yml` (включая fixture-ногу) и локальный прогон через `tests/run-matrix.ps1` / `tests/test-deployed-layout.ps1`
+### v1.22.26 (21.09.2026)
+- Improved stale-failure handling in diagnostics.
 
-## v1.22.44 (25.09.2026)
+### v1.22.25 (21.09.2026)
+- Fixed false drift warnings on re-signed installs.
 
-### Fixed
+### v1.22.24 (21.09.2026)
+- Stabilized release tagging and tag-backed fixes after recent mainline changes.
 
-- **«Token rejected — retrying without auth...» на каждый запрос** (репорт с живой установки v1.22.42): отклонённый GitHub'ом сохранённый DPAPI-токен оставался активным до конца сессии, и каждый следующий запрос заново проходил цикл «запрос с токеном → 401 Bad credentials → повтор без авторизации» — простыня одинаковых строк на каждый файл/запрос. Теперь токен отключается **один раз** на уровне script-scope (`$script:GitHubToken = ''` / `$script:token = $null`) с однократной подсказкой «re-save via menu [K]» (или `-NoAuth` в bootstrap); весь остальной запуск идёт анонимно — репозиторий публичный, этого достаточно. Три места в меню (`Invoke-GitHubGet` с ETag-кэшем, загрузчик `[U]`/`[UP]`, и **новый** централизованный guard в `Invoke-GitHubApiGet`, через который ходят releases/branches/tags/compare и который раньше вообще не различал Bad credentials) + два в bootstrap (`Invoke-CurlGet`, `Download-File`). Бонус-багbootstrap: прежнее `$token = $null` внутри функции лишь создавало локальную переменную-тень и никогда не отключало токен — теперь пишется явно в script-scope
+### v1.22.23 (20.09.2026)
+- Added `[FPS]` frame-rate presets and overview.
+- Improved `[RT]` UI and `[VE]` validation behavior.
 
-### Tests
+### v1.22.22 (20.09.2026)
+- Added network speed tests and better update retries.
 
-- 173 Pester-теста: новый поведенческий тест (мок curl: 1-й вызов с токеном отдаёт Bad credentials, анонимный — контент; токен очищается ровно один раз, второй запрос идёт анонимно) + wiring-тесты на script-scope присваивания и отсутствие затеняющих; T15 в bootstrap-наборе (script-scope сброс в обоих функциях, отсутствие bare-присваиваний, подсказка о восстановлении); зелёный на PS 5.1 и pwsh 7 с Pester 5.7.1
+### v1.22.21 (18.09.2026)
+- Added auto-resigning after update when a valid certificate is available.
 
-## v1.22.43 (25.09.2026)
+### v1.22.20 (18.09.2026)
+- Fixed virtual environment validation logic.
 
-### Added
+### v1.22.19 (18.09.2026)
+- Added `[VE]` Virtual Environment support.
 
-- **Release-гейт стал самодостаточным (`.github/workflows/release.yml`)**: перед публикацией релиза workflow **сам запускает** Tests-матрицу на SHA тега — переиспользует уже идущий run (версионный пуш в main запускает Tests сразу), иначе диспетчеризует `tests.yml` по `--ref <тег>` (workflow-файл берётся с коммита тега, `head_sha` = SHA тега) и ждёт его до 25 минут; после зелёного рана — аудит чек-ранов по ногам (`bootstrap-detector` + все `pester-unit`), fail-closed на red/missing/timeout. Разрешения расширены (`checks: read`, `actions: write`), таймаут job'а 10 → 35 минут
-- **Еженедельная ZIP-проверка в release-guard (`.github/workflows/release-guard.yml`)**: аудит теперь скачивает ZIP последнего релиза, проверяет `.sha256`-sidecar и сверяет SHA256 каждого из 5 файлов (`mumu-menu.ps1`, `bootstrap-update.ps1`, `README.md`, `SKILL.md`, `.version`) с `git show <tag>:<file>` — ловит подмену, обрезку или недозагрузку ассета даже после успешной публикации; violations попадают в тот же marker-scoped issue, на PR-ветках шаг пропущен, на диспетчеризациях с веток ZIP-секция пустая и issue не открывается
+### v1.22.18 (18.09.2026)
+- Fixed root toggle validation and state-read consistency.
 
-### Fixed
+### v1.22.17 (18.09.2026)
+- Added `[RT]` root toggle support for individual instances.
 
-- **Гейт релиза — якорный regex отсекал ноги матрицы** (найдено репетицией гейта на живом теге): фильтр чек-ранов `test("^(bootstrap-detector|pester-unit)$")` не совпадал с именами вида `pester-unit (5.7.1 / powershell)` — гейт видел только `bootstrap-detector`, объявлял `pester-unit` missing и блокировал бы **каждый** следующий релиз (v1.22.42 выходил по прежней версии workflow, где шаг ещё не существовал). Заменено на префиксное совпадение `^(bootstrap-detector|pester-unit)`; проверено на живом SHA v1.22.42: старый фильтр → 1 имя, новый → все 4 ноги + detector, вердикт ALLOW
-- **Дедупликация чек-ранов в гейте**: прежний `sort -u -k1,1` оставлял алфавитно-первую строку на имя (`failure` вместо `success`) — тег, покрасневший и позеленевший на re-run, блокировался бы ложно; теперь map-агрегация оставляет последнюю строку на имя
+### v1.22.16 (18.09.2026)
+- Fixed BOM handling and UTF-8 output for `.version` and update scripts.
 
-### Tests
+### v1.22.15 (18.09.2026)
+- Added jsDelivr fallback for update downloads.
 
-- Репетиция нового гейта на живом теге v1.22.42: dispatch `tests.yml --ref v1.22.42` — полная матрица зелёная (4 ноги), аудит чек-ранов по новой логике — ALLOW; zipcheck-логика dry-run'ом на реальном ZIP v1.22.42: sidecar OK, все 5 файлов совпали с тегом
+### v1.22.14 (17.09.2026)
+- Corrected YAML frontmatter escaping in `SKILL.md`.
 
-## v1.22.42 (25.09.2026)
+### v1.22.13 (17.09.2026)
+- Hardened update pinning to immutable commit SHAs.
 
-### Added
+### v1.22.12 (17.09.2026)
+- Removed stale `bootstrap-update.ps1.old` leftovers after updater refresh.
 
-- **CI-матрица Pester (`tests.yml` + `.github/actions/pester-unit`)**: сьют Pester теперь прогоняется на ОБОИХ движках — Windows PowerShell 5.1 и pwsh 7 — на закреплённом Pester 5.7.1, плюс «канареечная» нога на предустановленном в раннере Pester (сегодня 6.x). Мотивация: CI гонял только предустановленный Pester на pwsh, разработчики — Pester 5 на PS 5.1, и сьют мог быть зелёным в одном месте и красным в другом (v1.22.41: Mock несуществующей команды проходил на 5 и падал на 6). Композитный экшен резолвит движок в exec-форме (`powershell.exe` / `pwsh.exe`) и ставит приватную копию Pester через PSResourceGet; пути-фильтры tests.yml расширены на `.github/actions/**`
-- **`tests/run-pester.ps1`: параметры `-PesterVersion` / `-ModuleDir`** — CI и локальный прогон используют один и тот же скрипт; приватная копия Pester препендится к `PSModulePath`, так что предустановленный Pester не выигрывает резолв; установка движко-осведомлённая (PSResourceGet на Core, PowerShellGet + NuGet-провайдер на 5.1), пин проверяется после загрузки модуля
+### v1.22.11 (17.09.2026)
+- Removed BOM from README and SKILL.md and hardened the writer logic.
 
-### Fixed
+### v1.22.10 (17.09.2026)
+- Added repair option for missing `.ps1` BOM files in `[UW]`.
 
-- **`Get-ReleaseInfo.PublishedAt` — движко-зависимый тип** (поймано матрицей на первом же прогоне): PS 5.1 `ConvertFrom-Json` оставляет ISO-даты строками, pwsh 7 конвертирует их в `[datetime]` — на 5.1 свойство было бы сырым string, а тест `-BeOfType [datetime]` красным. Явный каст `[datetime]$rel.published_at` в хелпере закрепляет контракт для обоих движков; потребитель в `Update-FromGitHub` и так терпел оба вида, теперь контракт гарантирован
+### v1.22.9 (17.09.2026)
+- Improved BOM diagnostics and safety checks for fix mode.
 
-### Tests
+### v1.22.8 (17.09.2026)
+- Added `[UP] Update plan (dry-run)`.
 
-- Шапка `tests/mumu-menu.Tests.ps1` документирует матрицу и локальный запуск через `run-pester.ps1`; проверено локально: 170/170 на PS 5.1 и на pwsh 7.6.6 с Pester 5.7.1
+### v1.22.7 (17.09.2026)
+- Added `bootstrap-update.ps1 -WhatIf` dry-run support.
 
-## v1.22.41 (25.09.2026)
+### v1.22.6 (16.09.2026)
+- Improved diagnostics to separate info-only findings from real problems.
 
-### Fixed
+### v1.22.5 (16.09.2026)
+- Fixed false `ADB bridge not ready` warnings on healthy installations.
 
-- **`Get-ReleaseInfo` — мёртвые заголовки**: функция собирала `$headers` (`Accept` / `User-Agent` / `Authorization`), но транспорт `Invoke-GitHubGet` принимает только URL и таймаут — `Accept` он выбирает сам по форме URL, токен подставляет сам. Таблица создавалась и молча игнорировалась: удалена, тест закрепляет, что хелпер не строит заголовков и не трогает токен
-- **`Update-FromGitHub` — сбои получения релиза снова различимы**: проверка `$relInfo -is [pscustomobject] -and $relInfo.Tag -eq $null` стояла внутри `if (-not $relInfo)` и не могла сработать — ветка «No releases found on remote» была недостижима, а rate limit, тело ошибки API и сетевой сбой схлопывались в одну строку. Причину сбоя `Get-ReleaseInfo` отдаёт через опциональный `[ref]$Failure` (`no-release` / `rate-limit` / `api` / `transport`), а `Show-ReleaseFetchFailure` рендерит прежние сообщения: подсказки по rate limit (отдельно для случая с токеном и без), `GitHub API: <текст>`, «No releases found on remote» и «Update check failed: <текст>»; 403 из транспорта, как и раньше, ведёт к подсказкам по лимиту
+### v1.22.4 (16.09.2026)
+- Hardened curl usage and removed string-based `cmd /c` wrappers.
 
-### Tests
+### v1.22.3 (16.09.2026)
+- Fixed valid GitHub token checks reporting as invalid.
 
-- **Pester**: контракт `-Failure` (все четыре вида сбоя), функциональная проверка рендера каждого вида (запуск, а не сопоставление текста) и AST-пины делегирования fetch'а из `Update-FromGitHub` с закреплением отсутствия мёртвой проверки
-- **Локальный прогон**: фикстура раздела Problem diagnostics больше не запускает текстовый `MuMuManager.exe` — загрузчик Windows отвечал модальным диалогом «несовместимо с 64-разрядной версией Windows», и прогон стоял до нажатия OK (один тест — 250+ с; теперь весь набор ~30 с)
+### v1.22.2 (16.09.2026)
+- Improved honest rate-limit reporting and update verification behavior.
 
-## v1.22.40 (24.09.2026)
+### v1.22.1 (16.09.2026)
+- Fixed ETag cache population issues.
 
-### Added
+### v1.22.0 (16.09.2026)
+- Added persistent ETag cache and cache-aware status output.
 
-- **Функция `Get-ReleaseInfo`** — структурированные данные последнего GitHub-релиза в одном вызове: тег, `$scriptVer` релизного блоба (regex-извлечение), дата публикации, автор, тело notes, список ассетов с размерами и URL скачивания (`DownloadUrl`, `AssetFilenames`). Устойчива к ошибкам сети — при сбое возвращает `$null`, ошибки уходят в `Write-Debug`, а причина сбоя доступна вызывающему через `-Failure` (`no-release` / `rate-limit` / `api` / `transport`)
-
-### Changed
-
-- **`Update-FromGitHub` — рефакторинг получения релиза**: инлайн-логика fetch'а `releases/latest` (~34 строки) заменена вызовом `Get-ReleaseInfo`; обработка ошибок (rate limit / нет релизов / сетевой сбой) сохранена 1-в-1. Функция переиспользуема из UI меню и других вызовов
-
-### Infrastructure
-
-- **Dependabot**: убран несуществующий лейбл `dependencies` из `dependabot.yml` (ошибка «labels could not be found»); лейбл создан в настройках репозитория
-- **CI**: `github/codeql-action/upload-sarif` обновлён до v4.38.1 в `devskim.yml` и `security-scan.yml` (per-language CodeQL bundles — быстрее и меньше трафика на раннерах)
-
-
-## v1.22.39 (22.09.2026)
-
-### Added
-
-- **[G] View logs: свёртка стек-логгера** — повторяющиеся стек-фреймы Lua-логгера (`Name:Method(Type)`) и пустые продолжения того же тега больше не дублицируют каждую ошибку: сообщение печатается одной строкой, в конце выводится `[stack] collapsed N stack line(s)`; фильтры quiet и поиска работают как раньше
-
-### Fixed
-
-- **Документация**: дата релиза v1.22.37 в README и relnotes приведена к фактическому `published_at` релиза на GitHub (22.09.2026 — релиз пересёк полночь UTC)
-
-
-## v1.22.38 (22.09.2026)
-
-### Fixed
-
-- **Меню [5] Create instance — вызовы `Write-Debug`**: два debug-вызова в `New-Emulator` были склеены из нескольких строковых сегментов (`'...'$($sub)''`), из-за чего PSSA читал их как позиционные параметры (алерты PSSA #587/#588 в Security tab). Заменены на одну интерполированную строку — как в остальных catch-блоках
-
-## v1.22.37 (22.09.2026)
-
-### Changed
-
-- **[5] Create instance — панельный редизайн**: экран создания в едином стиле [2]/[3]/[4] — рамка с выбранной версией Android, статус `● Creating instance...`, честный итог: новый индекс определяется диффом `info -v all` до/после create (не слепое «Done!») — `✓ Instance N created` либо `✗ No new instance appeared`. В списке инстансов новая строка помечена `<-- new`, в конце подсказка `[2] launch it, or [R] delete if unwanted`
-
-## v1.22.36 (21.09.2026)
-
-### Added
-
-- **[G] View logs — поиск [6]**: регистронезависимый поиск подстроки в logcat (snapshot и live) — совпадения подсвечиваются (cyan на чёрном, все вхождения в строке), несовпадающие строки остаются видимыми приглушёнными для контекста, в конце — сводка `[search] 'строка': N matching line(s)`. Комбинируется с quiet-фильтром [5]
-
-## v1.22.35 (21.09.2026)
-
-### Changed
-
-- **[G] View logs — snapshot-дефолт errors-only (E)**: пустой Enter в snapshot-режиме теперь фильтр `*:E` вместо `*:*` — типовой вопрос отладки «что сломалось?»; live-режим сохраняет полный поток на пустой Enter; в промпте фильтра отображается фактический дефолт режима (`Enter = errors only (E)` / `Enter = all`)
-
-## v1.22.34 (21.09.2026)
-
-### Added
-
-- **[G] View logs — фильтр тишины [5]**: режим «Quiet» скрывает известные шумные теги логката (Choreographer, Finsky, android.vending, HWUI, OomAdjuster, nativeloader, binder/GC-шум) в snapshot и live; в конце — счётчик скрытых строк (`[quiet] hidden N noisy line(s)`). Работает поверх раскраски уровней. Регрессия поймана до релиза: regex дважды экранировался в исходнике (`\\s` → `\s`), живой прогон подтвердил 0 просочившихся шумных строк
-
-## v1.22.33 (21.09.2026)
-
-### Added
-
-- **[3] Shutdown — редизайн экрана**: панель в стиле [RT]/[VE]/[2]/[G]; guard «ALREADY STOPPED ○» (shutdown больше не отправляется в остановленный инстанс); после выключения состояние перечитывается и итог верифицируется (`✓ Instance is shut down` / `✗ still reports running`) вместо слепого «Emulator shut down!»; fallback `control → api` сохранён, вывод API с отступом
-- **[4] Restart — редизайн экрана**: панель со статус-линией по факту состояния (`RUNNING ✓ - restarting...` / `STOPPED ○ - starting...` — раньше всегда печаталось «Restarting...»); результат Wait-Boot теперь управляет итогом (`✓ Instance is running` / `✗ Boot did not complete`) вместо выброса через `Out-Null`;
-
-## v1.22.32 (21.09.2026)
-
-### Added
-
-- **[G] View logs — редизайн экрана**: панель-рамка с именем инстанса и живой строкой состояния (`● RUNNING ✓` / `● STOPPED ○`); guard для logcat — режимы [2]/[3] на остановленном инстансе отклоняются с подсказкой вместо молчаливой пустоты; **раскраска logcat по уровню** (E/F красный, W жёлтый, D/V тёмно-серый; регрессия поймана живым прогоном: в `-v time` уровень стоит сразу после времени, а не после pid/tid); tail статических логов предлагает открыть полный файл в notepad
-- **Тесты**: UTF-8 BOM в mumu-menu.Tests.ps1 (PSSA #586 — не-ASCII глифы ✓/○ в утверждениях ломались бы под Windows PowerShell 5.1)
-
-## v1.22.31 (21.09.2026)
-
-### Added
-
-- **[2] Launch emulator — редизайн экрана**: панель-рамка в стиле [RT]/[VE] с именем инстанса, guard «ALREADY RUNNING ✓» (живое чтение состояния до запуска — launch_player больше не отправляется в работающий инстанс), честный итог загрузки (`✓ Instance is running` / `✗ Boot did not complete` — раньше результат Wait-Boot выбрасывался), вывод API с отступом и подсказки `[6]/[7]/[S]/[RT]` после старта
-
-## v1.22.30 (21.09.2026)
-
-### Added
-
-- **CI: DevSkim security linter** (`devskim.yml`) — SARIF-скан скриптов в GitHub Security tab (push/PR + еженедельно); экшены запинены по конвенции репо, DevSkim-Action на v1.0.16 (v1.0.11 сломан апстримом: Docker build падает на NU1202)
-- **SKILL.md обновлён** до актуального состояния: реальное дерево проекта, все 60+ команд меню, 10 воркфлоу, современное описание транспорта обновлений и troubleshooting
-
-## v1.22.29 (21.09.2026)
-
-### Fixed
-
-- **[TN] шаг [5]**: hotfix интерполяции — `.tag_name` выносился за пределы `$( )` подвыражения, из-за чего в `$apiVer` попадало строковое представление всего объекта релиза (поймано живым прогоном v1.22.28: ветка Partial вместо Fresh). Закреплено регрессионным тестом на форму извлечения
-
-## v1.22.28 (21.09.2026)
-
-### Added
-
-- **[TN] шаг [5] CDN mirror freshness (host-side)** — сравнивает `.version` с зеркала `cdn.jsdelivr.net/gh/...@main` с тегом последнего релиза через api.github.com: Fresh (совпадают), STALE (зеркало отстало — подсказка ожидания cdn-sync-пуржа или ручного purge), Main ahead (main впереди релиза — бамп в полёте, зеркало актуально), N/A (обе стороны недоступны). Парсинг версий отказоустойчив: непарсable значения честно показываются как Partial
-
-### Changed
-
-- **CI**: новый воркфлоу `cdn-sync` — авто-пурж кеша зеркала jsDelivr после каждого пуша в main (5 файлов), еженедельный страховочный пурж, ручной запуск; механизм описан в RELEASE-RUNBOOK.md
-
-## v1.22.27 (21.09.2026)
-
-### Docs
-
-- **README: SmartScreen-инструкция по браузерам и MOTW** — пошаговые обходы предупреждения для Chrome («Подробнее» → «Сохранить в любом случае») и Edge («Показать ещё» → «Все равно сохранить»); раздел разблокировки Mark-of-the-Web: Свойства → «Разблокировать», `Unblock-File`, проверка `Zone.Identifier`; EN-сводка зеркально дополнена
-
-## v1.22.26 (21.09.2026)
-
-### Improved
-
-- **[DIAG] классификация stale fail-записей журнала** — update-fail, перекрытый последующим успехом (update-ok / self-apply / zip-verify-ok), больше не поднимает actionable warning: [DIAG] помечает его как historical info и называет перекрывший успех. Fail без последующего успеха остаётся warning
-
-## v1.22.25 (21.09.2026)
-
-### Fixed
-
-- **[F] false DRIFT on re-signed install** — авто-переподпись (v1.22.21) добавляет Authenticode-блок в mumu-menu.ps1, а Get-ContentHash хешировал файл целиком: верификация [F] вечно показывала DRIFT на переподписанной установке. Теперь trailing signature block срезается перед хешированием (безопасно: маркер-строка + перевод строки встречается только в реальном блоке; обычный текст, упоминающий фразу, не трогается). Регрессионные тесты: block stripped / prose untouched
-
-## v1.22.24 (21.09.2026)
-
-### Maintenance
-
-- **Tagged snapshot** — релиз закрепляет в теге все post-v1.22.23 исправления из main: [VE] regex/UTF-8/settle delay, [K] ephemeral token + дедупликация `Set-EphemeralToken`, trailing whitespace cleanup. Установки, обновляющиеся через [U]/bootstrap/[F], теперь верифицируются против полного снимка, а не против тега, отставшего от main
-
-## v1.22.23 (20.09.2026)
-
-### Features
-
-- **[FPS] Set frame rate** — новый пункт меню для быстрой смены FPS инстанса. Читает и записывает `desired_framerate` в `customer_config.json`. Пресеты: 12, 15, 20, 30, 60, 90, 120, 144, 240, uncapped (999) + кастомное значение. После записи делает read-back через 2 секунды (бегущий игрок может откатить значение). Предлагает перезапуск инстанса для применения. Live-тест: запись=read-back=перезапуск, FPS меняется без перезапуска GUI эмулятора
-
-- **[FPS] Обзор всех инстансов** — при входе в [FPS] показывается таблица с ID, именем, текущим FPS и состоянием всех инстансов
-
-- **[RT] Улучшение UX** — новый дизайн с рамкой, индикаторами ●/○, структурированным меню и progress-индикатором
-
-- **[K] Ephemeral token** — новая опция [E] для использования токена только в текущей сессии без сохранения на диск
-
-### Fixed
-
-- **[VE] Regex fix** — исправлено регулярное выражение для определения состояния пользователя. ADB отдаёт `UserInfo{10:test:1030}`, а не `UserInfo{10}`. Теперь enable/disable корректно определяют состояние
-
-- **[VE] UTF-8 encoding** — кириллица в именах пользователей (Владелец) теперь отображается корректно через установку `OutputEncoding = UTF8`
-
-- **[VE] Settle delay** — добавлена пауза 2 сек после `am start-user`/`am stop-user` перед проверкой состояния
-
-- **Trailing whitespace** — исправлено 7 строк с trailing whitespace (PSScriptAnalyzer #548-#554)
-
-## v1.22.22 (20.09.2026)
-
-### Features
-
-- **[TS] Network speed test** — новый пункт меню для проверки скорости подключения к GitHub API и CDN. Измеряет задержку и пропускную способность до api.github.com, cdn.jsdelivr.net и raw.githubusercontent.com. Плюс проверка rate limit剩余 (оставшихся запросов) с отображением времени сброса. Помогает диагностировать медленные обновления и проблемы с rate limit
-
-- **Exponential backoff retry** — улучшена обработка rate limit в [U]: теперь при ошибке скачивания автоматически применяется экспоненциальная задержка (2s, 4s, 8s) между попытками. Сначала пробуется с токеном, затем без токена, затем CDN fallback. Максимум 3 попытки вместо одной
-
-- **Version gap display** — в [U] теперь отображается разница версий: "Version gap: 3 release(s) behind (v1.22.19 -> v1.22.22)". Помогает понять, сколько обновлений было пропущено
-
-## v1.22.21 (18.09.2026)
-
-### Features
-
-- **Авто-переподпись после обновления** — закрыт наход Security-чеклиста (П3): обновление приносит неподписанный `mumu-menu.ps1`, из-за чего Authenticode-статус после апдейта падал в `NotSigned`. Теперь и bootstrap, и [U] после успешного применения ищут сертификат `[CRT]` (FriendlyName `MuMuManager-CLI-Menu-Token`, не истёкший) и, если он есть, переподписывают скрипт (SHA-256 + timestamp digicert, статус гейтится по `Valid`). Best-effort: без сертификата — тихо, неудача подписи никогда не блокирует обновление. Pester wiring-тест на оба скрипта
-
-## v1.22.20 (18.09.2026)
-
-### Fixed
-
-- **[VE]: вердикт по состоянию, а не по тексту ответа** — живой тест выявил: `am stop-user` при успехе печатает пустую строку (без «Success»), из-за чего меню говорило «Failed» при реально остановленном пользователе. Enable/disable теперь проверяются свежим `pm list users` (есть ли `running` у пользователя), а не парсингом текста команды
-
-## v1.22.19 (18.09.2026)
-
-### Features
-
-- **[VE] Virtual environment** — изолированное приложение-пространство внутри инстанса (стиль Island/Shelter): вторичный Android-пользователь со своим списком приложений и данными. Enable = запуск пользователя, disable = остановка (данные сохраняются), remove = удаление пользователя со ВСЕМИ данными (подтверждение YES). Транспорт — adb `pm list users / create-user / remove-user` + `am start-user / stop-user` через официальный adb-канал MuMuManager; создаётся по запросу с именем (по умолчанию VirtualEnv). Живой цикл проверен: create → id 10, start → running, stop → stopped, remove → чисто
-
-## v1.22.18 (18.09.2026)
-
-### Fixed
-
-- **[RT]: вердикт по стабильному состоянию, а не по echo записи** — живой тест выявил гонку: работающий плеер периодически сбрасывает свои настройки и может откатить только что записанный `root_permission` (echo сказал «false», независимое чтение через секунду — «true»). Теперь после записи [RT] выдерживает паузу 3 с, перечитывает ключ свежим вызовом CLI и по нему формирует вердикт; при откате — жёлтая подсказка «перепримените на остановленном инстансе». Проверено живьём: root OFF держится 40+ с, в гостевом Android `id` = `uid=2000(shell)`, su-бинарник отсутствует
-
-## v1.22.17 (18.09.2026)
-
-### Features
-
-- **[RT] Enable / disable root для инстанса** — переключатель `root_permission` через официальный CLI (`setting --key root_permission --value true|false`): показывает текущее состояние, Enter применяет противоположное, каждое изменение верифицируется read-back ответа CLI (без «тихих» отказов). Не требует перезапуска эмулятора
-
-## v1.22.16 (18.09.2026)
-
-### Fixed
-
-- **`.version` больше не пишется с BOM** — оба обновлятора ([U] и bootstrap) писали маркер версии через `Set-Content -Encoding UTF8`, что в PowerShell 5.1 означает UTF-8 **с BOM**; сканер [UW] после каждого обновления снова видел «UTF-8 BOM (OK — safe to strip)» и чинил его бесконечно. Теперь запись идёт через `WriteAllText` с `UTF8Encoding($false)` (BOM-less) — той же конвенцией, что уже применялась для heal-маркера. Регрессионные тесты: Pester wiring (оба писца) + bootstrap-harness T14 (запрет legacy-писца)
-
-## v1.22.15 (18.09.2026)
-
-### Security
-
-- **CDN-фолбэк обновлений: cdn.jsdelivr.net как запасной транспорт** — при отказе `api.github.com` (rate limit, network) скачивание повторяется один раз через зеркало `cdn.jsdelivr.net/gh/<repo>@<pinned-commit>/<file>` того же immutable pinned-коммита: stale-подмена невозможна по построению, токен никогда не прикладывается к зеркалу, без следования редиректам (301 → raw-домен исключён), каждый байт проходит тот же SHA-256-гейт (issue #20). Тело зеркала сверено с contents API байт-в-байт. Выбор зеркала: `raw.githack.com` проверен и отвергнут — `.ps1` отдаётся только 301-редиректом на `raw.githubusercontent.com` (фактический источник — тот самый raw-домен, инвариант v1.13.3). Bootstrap: новый флаг `-NoAuth` (токен не читается вовсе — анонимный запуск). [UP]-план и Sources-строки обновлены. Pester wiring-тесты: CDN-URL строится только из contents-API URL с ref, без `-L` на зеркальной попытке, без токена, честность формулировок плана
-
-## v1.22.14 (17.09.2026)
-
-### Fixed
-
-- **SKILL.md: description во фронтматтере закавычен** — strict YAML-лоадеры (Claude Code, Cursor и пр.) падали с «mapping values are not allowed in this context at line 2 column 108»: второе двоеточие внутри plain-скаляра (`Features:`) читалось как начало вложенного mapping. Значение обёрнуто в двойные кавычки, текст не изменён. Регрессионный Pester-тест: `description:` обязан начинаться и заканчиваться кавычкой
-
-## v1.22.13 (17.09.2026)
-
-### Security
-
-- **Stale-CDN hardening для [U]: тег пинится на commit SHA** — последний незакрытый пробел схемы (пиннинг уже был в [F], heal-пути и bootstrap). Теперь и отпечатки SHA-256 для подтверждения, и сами скачивания идут через запиненный immutable-коммит: lagging CDN edge физически не может подсунуть блоб предыдущего релиза под именем нового тега (живой кейс v1.20.3/v1.20.4). Graceful fallback: если резолв не удался, обновление идёт по тегу как раньше — пиннинг оптимизация, не предусловие; `$tag` сохраняет человекочитаемое имя для семантического `.version` и журнала (урок v1.21.0). Формулировка [UP]-плана приведена в соответствие: «tag pinned to its commit SHA (immutable)». Pester wiring-тесты: pin-resolution + оба потребителя через `$pinnedRef` + запрет `ref=$tag` в fetch-URL + честность плана
-
-## v1.22.12 (17.09.2026)
-
-### Fixed
-
-- **Убран вечный мусор `bootstrap-update.ps1.old` после саморефреша апдейтера** (живая находка в установке пользователя): `Apply-PendingUpdater` в bootstrap держал страховочную копию `.old` «до успешного применения», но после успеха сам её не удалял, а старт-свип меню чистил только `mumu-menu.ps1.old` — копия жила вечно. Теперь: bootstrap удаляет `.old` сразу после успешного применения (best-effort — если файл под локом антивируса, его подберёт следующий свип), а меню на старте чистит **оба** `.old`-бэкапа. Диагностика `Get-DiagSummary` сообщает о leftover любого из двух файлов. Тесты: функциональный ассерт в bootstrap-регрессии + wiring (cleanup между применением `.new` и записью в журнал), Pester-тест свипа в меню
-
-## v1.22.11 (17.09.2026)
-
-### Fixed
-
-- **README.md и SKILL.md теперь UTF-8 без BOM** (живая находка из [UW]-скана пользователя): не-скрипты не должны нести BOM — для них это тот самый «safe to strip» класс, который честно помечает [UW]. BOM убран из файлов и из писателя `update-readme.ps1` (`UTF8Encoding::new($true)` → `($false)`), иначе CI-синк возвращал бы BOM при каждом прогоне. Hygiene-тест в Pester-наборе закрепляет: релизные/docs-файлы — без BOM, PowerShell-скрипты — с BOM (обязателен для PS 5.1), писатель синка не реинтродуцирует BOM
-
-## v1.22.10 (17.09.2026)
-
-### Added
-
-- **`[UW]` опция 5 — «Add missing BOM to .ps1 files (PowerShell 5.1 repair)»**: лечение обратного случая после v1.22.9. Сканер чужих сломанных скриптов: рекурсивный обход папки (Enter = папка установки), кандидаты на ремонт — `.ps1` без UTF-8 BOM, без UTF-16 BOM, без NUL-байтов (BOM-less UTF-16) и с хотя бы одним байтом >127 — ровно те файлы, которые PowerShell 5.1 читает в системной ANSI-кодировке и портит не-ASCII литералы. Список кандидатов, подтверждение (y/N), затем явная запись трёх байтов `EF BB BF` в начало каждого файла (без перекодирования содержимого — побайтовая префиксация). Устойчиво к исключениям записи, с подсказкой перепроверить результат опцией 1. Попутно: в опции 4 убран второй экземпляр бага с невалидным 3-аргументным конструктором strict UTF-8-декодера (первый был устранён в v1.22.9). Wiring-тест опции 5 в Pester-наборе
-
-## v1.22.9 (17.09.2026)
-
-### Fixed
-
-- **`[UW]`: честные вердикты для BOM и предохранители fix-режима (живая находка)**. Скан (опция 1) помечал обязательный для проекта UTF-8 BOM у `.ps1` жёлтым «OK but BOM present» — прямое приглашение его снять, хотя PowerShell 5.1 читает BOM-less скрипты в системной ANSI-кодировке и портит не-ASCII литералы (псевдографика, кириллица). Теперь: `.ps1` с BOM — серое «UTF-8 BOM (required for PowerShell 5.1)», считается OK, в подвале — пояснение; BOM у не-скриптов (md/yml/json/txt) — по-прежнему жёлтый «OK - safe to strip»; `update-journal.log` — рантайм-данные с произвольными фрагментами текста, из аудита исключён. Fix (опция 2): `.ps1` больше не трогаются никогда; перед конвертацией — подтверждение (y/N); файлы «ANSI/other» декодируются в системной кодировке (раньше дефолтное UTF-8-чтение молча заменяло все не-ASCII символы на U+FFFD); убран невалидный третий аргумент конструктора strict UTF-8-декодера. Wiring-тесты в Pester-наборе
-
-## v1.22.8 (17.09.2026)
-
-### Added
-
-- **`[UP] Update plan (dry-run)` в меню**: полный план того, что сделает [U] — действие (`update X → Y`), файлы, охват (`replaces N existing file(s), ~N KB touched` либо «fresh install»), свободное место на диске, источник с SHA-256-верификацией каждого файла по тегу, будущий бэкап (последние 5), условная запись `.version`, single-flight lock, событие журнала и статус API-квоты — и ни одной мутации. Реализовано параметром `-Plan` в `Update-FromGitHub`: весь поток [U] (версия, heal-путь маркера, панели релизов/тегов) работает как обычно, но перед гейтом подтверждения рендерится план и происходит выход; клин маркера лечится даже в dry-run — контент уже на диске, и план честно помечает это. Рендерер вынесен в чистую функцию `Show-UpdatePlan` — 4 Pester-теста (128-я серия)
-
-## v1.22.7 (17.09.2026)
-
-### Added
-
-- **`bootstrap-update.ps1 -WhatIf` (dry-run)**: печатает план обновления и выходит — без скачивания, лока, бэкапа и любых записей. План называет действие (свежая установка / апгрейд `X → Y` / принудительная перекачка текущей версии с `-Force`), целевую папку, список файлов, источник (contents API с пином тега на неизменяемый SHA), статус верификации SHA-256 (и исключение `-NoVerify`), будущий бэкап в `backup\<timestamp>`, условную запись `.version` (только при успехе всех файлов) и самоприменение обновлятора; отдельный честный случай «remote-версия неизвестна — план построить нельзя» (exit 1). Блок стоит после remote-чека (план знает целевую версию) и до первой мутации; два read-only запроса API — это обычная проверка версии. T13 в bootstrap-наборе фиксирует проводку, позицию и формулировки плана
-
-## v1.22.6 (16.09.2026)
-
-### Improved
-
-- **[DIAG] info-находки больше не выглядят как проблемы**. Живой отчёт: полностью здоровая установка печатала «Problems found: 1 (0 error(s), 0 warning(s), 1 info)» — из-за единственной info-заметки «1 of 1 instance(s) running». Вердикт теперь собирает общая функция `Get-DiagSummary`: чистые/info-only установки получают зелёное «Status: healthy (1 info note(s) - nothing to fix)», а «Problems found: N error(s), M warning(s)» (красный/жёлтый) остаётся для настоящих проблем — с честными счётчиками по severity, включая info. Паритетный вердикт в `bootstrap-update.ps1 -Diagnose`.
-- **Позитивный статус ADB-моста в [DIAG]**: info-строка о запущенных инстансах сообщает и о мосте — «1 of 1 instance(s) running, ADB bridge ready» (или «NOT ready»; предупреждение остаётся отдельной находкой). Раньше экран молчал о мосте, пока тот не падал.
-- Регрессионные тесты (124-я серия): классификация healthy/problems/warn-only, суффикс info, проводка рендера [DIAG] через `Get-DiagSummary`, статус моста в обеих формулировках, паритет bootstrap.
-
-## v1.22.5 (16.09.2026)
-
-### Fixed
-
-- **[DIAG] «ADB bridge not ready» на здоровом эмуляторе — вечный ложный warning, пойман вживую**. Две реальные причины: (1) мост MuMu **слушает** порт, но adb не подключается к нему сам — голый `adb devices` остаётся пустым до явного `adb connect`; (2) реальный `adb.exe` лежит **рядом с MuMuManager.exe** (`nx_main\adb.exe`), а проба искала только `<root>\shell\adb.exe` и PATH. Теперь проба делает явный идемпотентный `adb connect 127.0.0.1:<port>` перед чтением списка устройств, ищет adb по 5 кандидатам (`<dir>\adb.exe/.cmd`, `<root>\shell\adb.exe/.cmd`, PATH) и сообщает, какой именно adb использован (новое поле `adbExeUsed`).
-- **Бонус из отладки: зависание меню при холодном adb-сервере**. In-band поднятие демона adb может блокировать вызов на десятки секунд — теперь **все** внешние вызовы пробы (`MuMuManager info`, adb connect/devices) идут через kill-on-timeout обёртку (`Invoke-Quick`, 5–10 с, kill по превышению). Зависший MuMu RPC или adb больше не замораживают меню; зависание честно деградирует в `adbReady=false`/`error`.
-- Регрессионные тесты (119-я серия): connect-файл пишется стабом до проверки устройств, порядок кандидатов (`nx_main` побеждает `shell`), зависший adb-стаб убивается таймаутом за <15 с.
-
-## v1.22.4 (16.09.2026)
-
-### Security / hardening
-
-- **Аудит всех curl-вызовов: строковая сборка через `cmd /c` полностью убрана**. Все 18 оставшихся вызовов в `mumu-menu.ps1` (загрузка релизов/файлов/ZIP, ветки, список файлов, PATCH/POST релизов, `-D`-проверка токена) и 2 в `bootstrap-update.ps1` (`Invoke-CurlGet` с auth-fallback, `Download-File`) переведены на **массивы аргументов** PowerShell. Это устраняет класс рисков раз и навсегда: токен больше не попадает в командную строку `cmd.exe` (был виден в `wmic`/мониторах процессов), спецсимволы в путях (`&`, `!`, `%`, скобки) не ломают кавычки, PS 5.1 не склеивает опции в один аргумент (первопричина бага v1.22.3). Три оставшихся честных исключения: `--config`-файлы VT (ключ не в cmdline), ADB-диагностика (не curl), wget/busybox внутри гостевого Android (другой хост).
-- Регрессионные тесты (116-я серия): в обоих скриптах запрещены `cmd /c` + строковые билдеры `$curlCmd/$dlCmd/...`, каждый запуск curl обязан идти через splat `@`, интерполяция retry-строк в прямых вызовах запрещена.
-
-## v1.22.3 (16.09.2026)
-
-### Fixed
-
-- **[K] «Token invalid!» при валидном токене**: прямые вызовы `curl.exe -s$CurlRetryStr` склеивали `-s` и retry-опции в один аргумент (PS 5.1) — curl отвечал exit 2, ответа не было, и меню объявляло токен недействительным. Все 5 прямых вызовов переведены на `Invoke-GitHubApiGet` (массив аргументов), пустой ответ теперь честно сообщает о проблеме сети, а rejection от GitHub различает «Bad credentials» и неожиданный ответ. Проба retry-capability стабилизирована (exit 2 = нет поддержки; стабильный URL).
-
-## v1.22.2 (16.09.2026)
-
-- **Honest rate-limit verdicts (from the E2E drill)**: when the update check fails because GitHub rate-limits the IP, both update paths now say so instead of a bare "Could not check releases" / "Update check failed". `bootstrap-update.ps1` parses the API error body and explains: no token → 60 requests/hour per IP (shared networks exhaust it fast), fix = save a token via menu [K] (DPAPI-encrypted, bootstrap picks it up automatically) or wait for the hourly reset; with a token → quota exhausted or token invalid, re-save via [K]. The `[U]` catch and the rate-limit message path got the same token-aware wording, and `[V]` now distinguishes "rate limit" from "cannot check". T12 in the bootstrap suite pins the verdict wiring.
-
-## v1.22.1 (16.09.2026)
-- **Fixed: the ETag cache never populated (caught by the E2E drill)**. GitHub sends the header as `ETag:` with a capital E, but the response parser matched only lowercase `^etag:` - so `$r1.ETag` was always empty, the #22 304-replay never fired and the new #28 file store stayed empty. The pattern is now case-insensitive (`(?im)^etag:`), with a regression test pinning both spellings. Symptom before the fix: `ETag cache: empty` forever and every deep check re-downloading all bodies.
-
-## v1.22.0 (16.09.2026)
-- **Persistent ETag cache (issue #28)**: the session ETag cache now survives menu restarts - `.etag-cache.json` next to `.version` stores url → {etag, body, sha256, timestamp}. On load every body is validated against its stored hash (a tampered/truncated entry is dropped, not trusted); a missing/corrupt/schema-invalid file degrades to plain fetches, never an error. Only real content is persisted (the #22 rule - API error bodies are never cached), saves are best-effort. `-Force` suppresses the cache file so repair runs always fetch fresh content over the wire.
-- **[ST] session drift cache (issue #28)**: a repeat `d` in the same session replays the cached deep-check verdict instantly with an age note ("from session cache, age N min"), invalidated when the version marker changes. Fresh `d` on first use or after invalidation.
-- **[ST] cache-state line**: `ETag cache: N URL(s), last entry HH:MM` under the screen header - the #25 mockup line, now real. `empty` when no entries yet.
-- 6 new Pester tests (107 total): file round-trip, tampered-entry drop, corrupt/missing/schema-invalid degradation, state line, `-Force` suppression, session-cache wiring.
-
-## v1.21.10 (16.09.2026)
-- **Startup auto-diag (issue #30)**: the menu now runs the `[DIAG]` findings collector once per process, silently, at startup and surfaces ONE line under the status bar only when errors or warnings exist: `[auto-diag] Problems found: N error(s), M warning(s) - details: [DIAG]`. Info findings ("no .version marker yet", emulator idle states) never nag - they stay in `[DIAG]`. Healthy installs render nothing. `MUMU_MENU_NO_AUTODIAG=1` suppresses the check; the collector is guarded by try/catch so diagnostics can never block startup, and the verdict is collected once (cached for every menu redraw). 8 new Pester tests: formatter severity filter, info suppression, cache behavior, real-fixture wiring, env opt-out.
-
-## v1.21.9 (16.09.2026)
-- **Retry hardening for flaky networks (fixes "Update check failed: Request failed (exit 35)")**: curl's built-in `--retry` never retries TLS handshake failures (exit 35) - one flaky-network reset killed the whole update check. All GitHub fetches now carry `--retry-all-errors` (probed once per run: the option exists since curl 7.71, older builds degrade to plain `--retry` instead of aborting on an unknown option), the menu's ETag fetch has a PS-level second attempt for every transport failure, `[V]` does 2 attempts, and the bootstrap reports the curl exit code on each retry. Stub-based Pester tests pin the exit-code classification (35 = capable, 2 = not, 0 = capable, no curl = degrade).
-- **Hardened the diagnostics probes under `ErrorActionPreference = Stop`**: a stderr write from the real `adb` ("daemon not running") or from curl surfaced as a terminating error inside `Invoke-MumuManagerProbe`/`_Fetch` under Pester and strict hosts; both are now caught and treated as an empty attempt (caught live in the test run).
-
-## v1.21.8 (15.09.2026)
-- **`[RB]` Rollback from backup (issue #27)**: list `backup\YYYYMMDD_HHMMSS` folders (newest first, size + date + completeness), pick one, confirm with `ROLLBACK`, restore the 4 files. The `.version` marker is **earned from the restored content's own `$scriptVer`** - never guessed (backups carry no marker; guard principle of v1.20.5). Journals `rollback` (from = marker before, to = restored claim) or `rollback-fail`; offers `[F]` verification after. Pure helpers (`Get-BackupFolders`, `Build-RollbackPlan`, `Invoke-Rollback`) covered by 5 Pester tests incl. journal assertions.
-- **`bootstrap-update.ps1 -Diagnose` (issue #29)**: the menu-free diagnostics entry point for installs where `mumu-menu.ps1` will not start. Prints the `[DIAG]`-style findings report (marker vs the scriptVer parsed from raw - possibly broken - menu text, lock states, journal health, MuMu path, disk) with **no network and no mutations**; exit 0 when clean, exit 1 on error/warn findings (scriptable for support). T11 in the bootstrap suite asserts the parse-from-broken-file behavior and the wiring.
-- **Fixed a false positive in the ADB-bridge readiness check (caught on a real machine)**: some MuMu builds never report `adb_version` in `info -v all`, so v1.21.7 warned "ADB bridge not ready" forever. The probe now falls back to asking ADB itself - `adb devices` against the instance's `adb_port` (local socket only), resolved from the MuMu `shell\adb.exe`, with a cold-daemon retry. Regression-tested with an injected stub adb.
-
-## v1.21.7 (15.09.2026)
-- **Emulator diagnostics in `[DIAG]` (issue #32)**: one `MuMuManager info -v all` query adds the emulator side to the problem screen - instance count, running state, and ADB-bridge readiness. No instances / none running are info (create/launch hints), a running instance with no ready ADB bridge is a warning (the exact state that made in-emulator commands like `curl` fail with "inaccessible or not found"), and a MuMuManager that does not answer cleanly warns without breaking the diagnostics. Live catch fixed before ship: the real binary emits pretty-printed multi-line JSON, which pwsh 7 parses line-by-line in a pipeline - the probe now joins lines before parsing (regression-tested). 9 new Pester tests with a real-child-process `.cmd` stub; suite 81 green on PS 5.1 and pwsh 7.
-
-## v1.21.6 (15.09.2026)
-- Release carrying the `[ST]` deep-check false-DRIFT fix (`07f30fa`): `Get-IntegrityVerdict` classifies the integrity report by its own `summary|` verdict, so metadata lines can never masquerade as drift. Suite 73 green.
-
-## v1.21.5 (15.09.2026)
-- **Fix `[ST]` deep-check false DRIFT (caught live minutes after ship)**: the drift-check wrapper treated the integrity report's informational lines (`verify-start|`, `ref-pin|`, even `summary|ok|`) as drift because they don't start with `OK` - a fully healthy install self-reported DRIFT. Now a dedicated `Get-IntegrityVerdict` classifies the report by its own verdict line (`summary|ok|` / `summary|drift|<files>` / `summary|partial|` / `error|`), so metadata never masquerades as drift; a rate-limited check still degrades honestly to "unknown". 4 Pester tests incl. the exact regression report from the live catch; suite 73 green.
-- **Install status screen `[ST]` (issue #25)**: one read-only screen answering "what am I on and am I OK?" - script version, local marker, latest release, version state, drift check, last ZIP verification (from the journal), and a journal summary. Fast path (Enter) is fully offline with honest unknown states; `d` in the menu adds the release comparison and the full drift check vs the tag. Status is built by a testable `Get-InstallStatus` collector with injected network/drift sources (6 Pester tests: fast path, release compare ok/behind/ahead, drift OK/DRIFT/failure, missing journal, FAILED zip verdict surfaced, menu wiring); suite 69 green. The key `[S]` stays with screenshots; status is `[ST]`.
-- **README recovery section (issue #26)**: "Восстановление после сбоя обновления / Recovering from a failed update" - the four scenarios (HASH MISMATCH, wedged marker, broken files/backup restore, lock refusal) with a symptom-cause-action table covering all updater verdicts, plus an English summary. Diagnosis-first principle: `[ST]`/`[DIAG]`/`[F]`/`[J]` before any action.
-- This closes the v1.21.0 milestone "Drift Hardening & Journal Tooling" (#22 ETag/pinning, #23 journal export, #24 single-flight lock, #25 status screen, #26 recovery docs).
-
-## v1.21.4 (15.09.2026)
-- **Problem diagnostics `[DIAG]`**: new read-only, local-only screen that answers "is anything wrong with this install?" in one view. Checks: install layout (menu script present), version marker vs the script's own `$scriptVer` - a marker AHEAD of content is reported as the wedge error (the v1.20.5 heal-bug class that makes the updater say "Up to date" forever), content ahead of marker warns about an interrupted update; pending `.new`/`.old` files; update lock (held right now = warning with the owner PID, stale = info about the auto-break, claim residue = info); journal health (malformed lines, fail events, `update-skipped` count, rotation size); MuMu environment (missing `MuMuManager.exe` = error, version below minimum = warning) and low disk space.
-- Findings are collected by a pure, path-parameterized `Get-ProblemFindings` (9 new Pester tests over fixture installs: healthy/zero, wedge, interrupted, missing files, lock states, journal health, MuMu, pending files, menu wiring); suite 63 green on PowerShell 5.1 and pwsh 7. Nothing on screen is ever mutated, and no network calls are made (the online comparison stays in `[F]`).
-
-## v1.21.3 (15.09.2026)
-- **`[J]` journal export (issue #23)**: new `[J] -> 5 Export` writes the selected events to Markdown (issue-ready table, pipes escaped), RFC-4180 CSV (header + quoting for comma/quote/newline cells) or JSON (top-level object with `generator`/`count`/`events`, fields verbatim). Format -> range (last 20 / full / errors-only, same as the viewer) -> path (Enter = `update-journal-YYYYMMDD-HHMMSS.<ext>` next to the journal). Output is UTF-8 with BOM (repo rule from alert #535), the journal itself is never modified, and repeat exports are byte-identical.
-- JSON is a top-level object rather than a bare array: top-level arrays hit inconsistent parse shapes in some PowerShell 5.1 consumers (verified live - python parsed the same artifact as 3 elements while 5.1's pipeline form wrapped it); an object property parses uniformly in PS 5.1/7, jq and Python. JSON is compact single-line; MD/CSV are the human formats.
-- Tests: 6 golden Pester tests (MD header/escaping, CSV quoting, JSON round-trip, BOM + idempotency + untouched journal, errors-only range, unknown-format error); suite 54 green on PowerShell 5.1 and pwsh 7.
-
-## v1.21.2 (15.09.2026)
-- **Single-flight update lock (issue #24)**: `[U]` and `bootstrap-update.ps1` now claim a `.update-lock` file (PID + timestamp) with an atomic `CreateNew` open before touching any install file - two concurrent updaters (menu in two windows, menu + bootstrap) can no longer corrupt `.version`/scripts/journal or double-apply an update. A refused run prints the holder's PID and the lock's age, journals `update-skipped`, and exits without changing anything. A lock older than 10 minutes is treated as the leftover of a crashed updater and is broken safely (create-then-break claim file closes the break/recreate race). The lock is always released in `finally`, including Ctrl+C mid-download.
-- `[J]` viewer: `update-skipped` renders yellow (a skip is not an error), and the "errors only" mode's all-clear message now counts skips as successes.
-- Tests: 6 new Pester tests (atomic acquire + payload, concurrent refusal + `update-skipped` journaling, staleness threshold, stale-break re-acquire, refusal message, claim-file cleanup) and a T10 block in the bootstrap regression suite (including the cross-script wiring assertions); suite 48 green; live-verified (same-process refusal, cross-process refusal via a child PowerShell, stale break, re-acquire after release).
-
-## v1.21.1 (15.09.2026)
-- **Fix a v1.21.0 regression in `[F]`**: the tag-pin overwrote `$Tag` with the commit SHA, silently disabling the semantic `.version` comparison - a healthy marker was reported as DRIFT on every check (caught live on the `C:\test` install right after v1.21.0 shipped). `$Tag` now stays the human-readable tag for the semantic compare, while content fetches go through a separate pinned `$FetchRef`. A Pester regression guard asserts the tag/SHA split in the function text.
-
-## v1.21.0 (15.09.2026)
-- **Tag→commit-SHA pinning everywhere (issue #22)**: every `?ref=<tag>` contents fetch in `[U]`, `[F]`, the heal and the bootstrap is rewritten to `?ref=<commit sha>`. The contents API resolves a ref at fetch time, so a CDN edge can serve the previous commit's blob minutes after a tag push - the bug class behind the v1.20.3-v1.20.6 incident fixes. A commit SHA is immutable; a stale read is impossible by construction. If resolution fails, the plain tag URL is used and SHA-256 verification still covers every byte.
-- **ETag cache with 304 replay** in `Invoke-GitHubGet`: repeat fetches of the same URL within one menu session send `If-None-Match` and replay the cached body on `304 Not Modified` without transferring it. Only real content bodies are cached - API error responses (rate limits) stay retryable and never anchor an ETag.
-- **`bootstrap-update.ps1` pins its tag too**: in reference-hash collection and the download loop, with the post-download SHA-256 verification as the always-on fallback.
-- **Fixed the dead `[U]` heal**: the version-fix block referenced `$localText`/`$remoteText` that were never assigned - the heal could never fire. Local text is now read, and the fetched reference is commit-pinned before comparing.
-- **Honest retreat on "cheap hashes"**: the `application/vnd.github.sha` media type is not supported by the contents endpoint (verified live) - reference hashes still come from bodies; repeat fetches got cheaper via the ETag cache instead.
-- Tests: 6 new Pester tests (304 replay, error-not-cached, pinning call order, annotated-tag deref, unresolvable-ref null), extended bootstrap regression suite (40-hex gate, pinned ref resolution); suite 41 green; live-verified against the real API (resolve → pinned fetch → sha-vs-tag equality → repeat fetch).
-
-## v1.20.6 (15.09.2026)
-- **`[J]` journal viewer polish**: an empty `from` field renders as `(new) -> vX.Y.Z` (first-ever event on a fresh install, marker file absent), and consecutive events from the same run (identical timestamp + actor, e.g. `update-ok` + `updater-refresh`) are grouped - continuations print with an ASCII `- ` marker instead of repeating the timestamp/actor columns. No box-drawing glyphs: they are not in OEM console codepages.
-
-## v1.20.5 (15.09.2026)
-- **Fix the startup `.version` heal**: fetched content must claim the tag's own `scriptVer` or the heal is skipped - a stale CDN blob of the *previous* release can no longer raise the marker to a tag whose content never arrived (seen live on v1.20.4: the install wedged on "Up to date" with v1.20.3 content under a v1.20.4 marker).
-
-## v1.20.4 (15.09.2026)
-- **`[F]` Verify installation**: the `.version` marker is now compared **semantically** - a local marker equal to or newer than the tag's lagged marker (the sync-version bot lands after the tag) is no longer false DRIFT (seen live on v1.20.3).
-- **One re-fetch before declaring DRIFT**: a GitHub CDN edge can serve a stale blob for minutes after a tag push (seen live: `bootstrap-update.ps1` was byte-identical to the tag, yet the fetch returned old content). Genuine drift still drifts.
-- **`[F]` → ZIP verify: a missing archive is not tampering** - prints "No ZIP found ... nothing to verify" instead of the alarming "FAILED - do not install".
-
-## v1.20.3 (15.09.2026)
-- **Fix bootstrap post-download hash verification (regression of v1.20.2)**: reference content was fetched through a `cmd /c`-captured curl invocation, which decodes output in the console OEM codepage - Cyrillic in README/SKILL.md got mangled and every file false-alarmed `HASH MISMATCH` (caught live; the safety design worked - the update was aborted and journaled). Reference hashes now come from a byte-exact raw fetch (curl → temp file → UTF-8 decode), same as the menu. Regression test extended with a non-ASCII body.
-
-## v1.20.2 (15.09.2026)
-> [!WARNING]
-> **В bootstrap этого релиза есть баг пост-проверки хешей** (OEM-кодировка искажает эталонные SHA-256) — каждый файл даёт ложный `HASH MISMATCH`. Обновлятор отрабатывает fail-closed, вреда нет; исправлено в v1.20.3. Если вы на v1.20.2: запустите `bootstrap-update.ps1 -NoVerify` один раз.
-- **Post-download SHA-256 verification in `bootstrap-update.ps1` (parity with `[U]`)**: every downloaded file is re-hashed and compared with the expected hash from the release tag content - `OK (hash OK)` / `HASH MISMATCH`. A mismatch fails the update: `.version` is not advanced, the updater self-refresh is cancelled, and `update-fail` is journaled.
-- Same hashing contract as the menu (CR/BOM/symmetric TrimEnd) factored into `Get-ContentHash` / `Get-ExpectedHashes`; API JSON error bodies (rate limit) are never accepted as the reference.
-- `-NoVerify` opt-out; if expected hashes are unavailable the update proceeds and is marked `unverified` in the journal.
-- **Regression test T9**: SHA-256 vectors, symmetric trailing trim, rate-limit JSON skip, `-NoVerify` wiring.
-
-## v1.20.1 (15.09.2026)
-- **Fix `[U]` post-download hash verification (regression of v1.20.0)**: the local side was hashed without a trailing trim while expected hashes came from the TrimEnd-ed API response - any file ending with a newline false-alarmed `HASH MISMATCH` and aborted a legitimate update. The trim now lives inside `Get-ContentHash`, so every consumer is symmetric by construction. Regression test added to the Pester suite.
-
-## v1.20.0 (15.09.2026)
-- **SHA-256 в подтверждении обновления (issue #17)**: `[U]` показывает таблицу ожидаемых хешей всех файлов (парсится из VT-вердиктов релиза) и после загрузки сверяет каждый файл — при расхождении установка останавливается
-- **Pester-юнит-тесты (issue #20)**: 26+ тестов AST-извлечённых чистых функций в `tests/mumu-menu.Tests.ps1`, отдельный job `pester-unit` в CI; раннер `tests/run-pester.ps1` для PS 5.1
-- **Хелперы для тестируемости**: `Compare-ScriptVersion`, `Format-JournalEvent`, `ConvertTo-ShellSafe`, `Get-ExpectedFileHashes` вынесены как чистые функции
-
-## v1.19.6 (15.09.2026)
-- **Самопроверка релизного ZIP перед установкой (issue #19)**: `Test-ReleaseZip` — SHA-256 ZIP против `.sha256`-сайдкара, точный набор из 5 файлов, `$scriptVer` из архива против тега релиза; при несоответствии — «FAILED - do not install» и событие `zip-verify-fail` в журнале
-- **Как использовать**: `bootstrap-update.ps1 -VerifyZip <файл.zip>` или запрос после `[F] Verify installation`
-- **Регресс-тест T8**: 12 ассертов на реальных ZIP-фикстурах (подменённый байт, неверный сайдкар, несовпадение версий, неполный набор, отсутствие архива)
-
-## v1.19.5 (15.09.2026)
-- **DNS и HTTP-тесты через busybox-fallback**: в образах MuMu 12 нет `nslookup`/`curl`, но есть `/system/xbin/busybox` — тесты используют `busybox nslookup` и `busybox wget` (с `-q -O /dev/null --timeout`, код выхода решает), если нативных инструментов нет
-- **Живая проверка**: ping по ICMP фильтруется MuMu NAT — DNS ✓ / HTTP ✓ при FAILED-пингах означает рабочий интернет без ICMP
-
-## v1.19.4 (15.09.2026)
-- **Диагностика сети эмулятора честнее**: перед тестами определяется наличие инструментов в гостевой ОС (`ping`, `nslookup`/`getent`, `curl`) — отсутствие инструмента выводится как `N/A` с пояснением, а не как `FAILED` сети
-- **Парсер ping понимает toybox**: вывод Android toybox (`round-trip min/avg/max`, `2 packets received`) распознаётся наравне с busybox/iputils
-- **PowerShell 5.1**: stderr гостя больше не оборачивается в NativeCommandError — вместо красных блоков ошибок обычный текст
-
-## v1.19.3 (14.09.2026)
-
-### Что нового
-- **[F] Verify installation (issue #18)**: сверка локальных файлов с тегом релиза по SHA-256 — OK / DRIFT (с обоими хешами) / MISSING / N/A
-- Итог: «Installation matches vX.Y.Z» либо «Drift detected (files: ...)» — единственный способ заметить подмену/дрейф локального файла между релизами
-- Устаревший маркер `.version` при совпадающем контенте помечается отдельно (лечится через `[U]`)
-
-### Детали
-- Работает без токена для публичного репо; те же API-хелперы и нормализация (CRLF/BOM/концевые пробелы), что и путь обновления
-- Ответ API с ошибкой (rate limit) не принимается за контент — файл N/A, честный partial-итог вместо ложного drift
-- Регресс-тест T7: 14 hermetic-ассертов на функциях, извлечённых через AST (без сети)
+### v1.21.x and earlier
+- Added journal export, single-flight update locking, deep integrity verification, README recovery guidance, and many diagnostics and security improvements.
 
 ---
 
-## v1.19.2 (14.09.2026)
+## Notes
 
-### Что нового
-- **Самоновляемый обновлятор (#21)**: `bootstrap-update.ps1` больше не единственный файл, который обновление не может починить — теперь он обновляет сам себя при каждом обновлении
-- `[U]` скачивает обновлятор в общем списке файлов (перезапись напрямую: меню работает, обновлятор не запущен)
-- `bootstrap-update.ps1` кладёт свою новую копию в `bootstrap-update.ps1.new` и применяет её в конце успешного прогона; если файл занят — `.new` остаётся, и меню применит его при старте
+- Full historical details are available in the project GitHub releases and in `README.md`.
+- This file is intentionally kept concise and easy to scan for the most relevant release information.
 
-### Детали
-- Скачанный обновлятор проходит те же проверки (не пустой, не JSON-метаданные)
-- Журнал: события `updater-refresh` при применении `.new` (из bootstrap и из меню)
-- Регресс-тест T6: оба списка файлов содержат обновлятор; `Apply-PendingUpdater` меняет содержимое, удаляет `.new` и пишет событие
-- Миграция: инсталляции старше v1.18.10 получают рабочий обновлятор через сам `[U]`
-
----
-
-## v1.19.1 (14.09.2026)
-
-### Что нового
-- **Журнал обновлений [J]**: оба обновлятора — `[U]` и `bootstrap-update.ps1` — пишут события в общий `update-journal.log` рядом с установкой: успехи, частичные сбои, автовосстановление `.version`, самоприменение `.new`
-- **Просмотр в меню**: новый пункт `[J] Update journal` — последние 20 событий / весь журнал / только ошибки / открытие в блокноте
-- **-LogDir**: bootstrap-update принимает `-LogDir` для записи журнала в произвольный каталог (если каталог установки только для чтения)
-
-### Детали
-- Формат: UTF-8, таб-разделённый, `время\tактор\tсобытие\tверсия\tверсия\tдетали`; акторы `menu` и `bootstrap`
-- Санитизация: табы и переводы строк в деталях заменяются, чтобы строка журнала всегда оставалась однострочной
-- Ротация: при 256 KB журнал переименовывается в `update-journal.log.old`; запись журнала никогда не ломает само обновление
-
----
-
-## v1.19.0 (14.09.2026)
-
-### Milestone «Verification UX» — завершён
-- **VT-скан всех файлов релиза** (#14): CI сканирует ZIP, `mumu-menu.ps1` и `SKILL.md` из состава ZIP; известные VT объекты переиспользуются по SHA-256; таблица вердиктов в step summary
-- **Вердикты в описании релиза** (#15): маркерная секция «VirusTotal verdicts» — таблица с SHA-256 и пермалинками отчётов, статус CLEAN/DETECTIONS, ссылка на scan-run, блок самопроверки `sha256sum -c`; идемпотентно при перезапусках
-- **Автозапуск скана после CI-публикации** (#16): релиз публикуется с `RELEASE_PAT` (fallback на `GITHUB_TOKEN` — публикация никогда не ломается), чтобы триггер `on: release published` срабатывал; цепочка «бамп версии → тег → релиз → скан → вердикты в notes» работает без единого ручного действия
-
----
-
-## v1.18.10 (14.09.2026)
-
-### Сборка и безопасность
-- **bootstrap-update.ps1 в релизном ZIP**: обновлятор теперь входит в состав каждого релиза — установка всегда несёт актуальную версию обновлятора (урок v1.18.8: ZIP не содержал фикс JSON-детектора, и старые установки не могли сами починить обновлятор)
-- **VT-скан всех файлов релиза (issue #14)**: CI-скан расширен с ZIP на `mumu-menu.ps1` + `SKILL.md`, извлечённые из того же ZIP; известные VT объекты переиспользуются по SHA-256 (без повторной загрузки); в step summary — таблица вердиктов с пермалинками отчётов
-
----
-
-## v1.18.9 (14.09.2026)
-
-### Безопасность
-- **Sigma #8 (NTFS Alternate Data Stream)**: MIME-литерал в коде загрузки VT (многотомный multipart строился вручную) давал подстроку «-stream» в том же скриптблоке, где есть `Set-Content` — правило «NTFS Alternate Data Stream» срабатывало ложно
-- Загрузка VT переведена на `curl.exe` multipart (как в CI-workflow), MIME-литерал удалён из скрипта; поведение не изменилось (те же эндпоинты, тот же DPAPI-ключ)
-- Скрипт никогда не читал и не писал NTFS alternate data streams — задокументировано в SECURITY.md (#8) и в шапке скрипта
-
----
-
-## v1.18.8 (14.09.2026)
-
-### Исправления
-- **bootstrap-update.ps1**: JSON-детектор («Received JSON metadata instead of raw file») ложно срабатывал на собственном коде `mumu-menu.ps1` — raw-скрипт содержит литералы `"name":` и `_links` в своих API-проверках; теперь JSON-проверки применяются только когда тело ответа начинается с `{`
-- **[U] Check for updates**: та же защита в обновляторе меню (тот же класс ложного срабатывания)
-- **.version**: bootstrap-update обновляет `.version` только при успешной загрузке всех файлов — частичный сбой больше не оставляет `.version` впереди фактической версии скрипта
-
----
-
-## v1.18.7 (14.09.2026)
-
-### Сборка и безопасность
-- **Release pipeline**: tag-driven Release workflow — ZIP и SHA256 собираются строго из содержимого тега (`git archive`), проверка соответствия `$scriptVer` тегу, идемпотентные перезапуски
-- **VirusTotal в CI**: автоматический скан релизного ZIP после публикации (секрет `VT_API_KEY`); исправлен невалидный YAML в `virustotal.yml` (workflow не мог запуститься)
-- **CI lint**: actionlint + shellcheck по всем workflow (`lint.yml`); VT-вердикты v1.18.6 — 0 malicious / 0 suspicious (ZIP, ps1, SKILL.md); добавлен `RELEASE-RUNBOOK.md`
-
----
-
-## v1.18.6 (04.09.2026)
-
-### Исправления
-- **Auto-detect MuMuManager.exe path**: добавлены generic `shell\` пути (`$env:ProgramFiles\Netease\MuMuPlayer\shell\` и `$env:ProgramFiles(x86)\...`) для автоопределения; registry fallback теперь проверяет и `nx_main\`, и `shell\` поддиректории
-
----
-
-## v1.18.5 (04.09.2026)
-
-### Исправления
-- **Download helpers**: убраны проверки $LASTEXITCODE из _DlFile и _Fetch (stale exit code пропускал JSON-метаданные GitHub API); добавлена проверка длины токена
-
----
-
-## v1.18.4 (04.09.2026)
-
-### Исправления
-- **VT меню**: опция [2] Save API key выводила "Invalid selection" — PowerShell switch без break выполняет все совпавшие ветки, добавлен break
-
----
-
-## v1.18.3 (04.09.2026)
-
-### Исправления
-- **Update download**: исправлена ошибка — токен GitHub не передавался при скачивании файлов обновления, из-за чего запросы шли без аутентификации и упирались в лимит 60 запросов/час; добавлено определение rate limit с подсказкой обновить токен
-
----
-
-## v1.18.2 (04.09.2026)
-
-### Исправления
-- **SECURITY.md**: обновлена политика безопасности — добавлены [VF] VirusTotal Upload, VT API ключ (DPAPI), сетевые эндпоинты, модель угроз, sigma false positive #7
-
----
-
-## v1.18.1 (04.09.2026)
-
-### Что нового
-- **[VF] VirusTotal Upload file**: загрузка произвольного файла на VirusTotal через API с проверкой существующих результатов, поллингом анализа и отображением вердикта
-- **Сводная таблица изменений**: добавлена в README.md для быстрого обзора всех версий
-
-### Исправления
-- **PSScriptAnalyzer #534**: заменён пустой catch block в Upload-VirusTotal на Write-Debug
-
----
-
-## v1.18.0 (04.09.2026)
-
-### Что нового
-- **[SC] SIM check**: новая опция для просмотра всех SIM-свойств в одной группированной таблице с сводкой состояния
-- **debug.tracing.mcc/mnc**: SIM-спуфинг теперь также устанавливает внутренние MCC/MNC эмулятора
-- **ADB wait loop**: Set-SimOperator и Apply-SavedSim теперь ждут до 30с пока ADB будет онлайн перед установкой свойств
-- **Shell escaping**: символы &, ;, |, $ в именах операторов заменяются на _ для надёжной работы в shell
-
-### Исправления
-- **PSScriptAnalyzer**: подавлены предупреждения PSUseApprovedVerbs и PSUseDeclaredVarsMoreThanAssignments на уровне скрипта
-- **bootstrap-update.ps1**: добавлен Bad credentials fallback для API-запросов и скачивания файлов
-
----
-
-## v1.17.1 (03.09.2026)
-
-### Исправления
-- **PSScriptAnalyzer #532**: исправлены позиционные параметры в Write-Host в функции SIM Check
-
----
-
-## v1.17.0 (03.09.2026)
-
-### Что нового
-- **debug.tracing.mcc/mnc**: SIM-спуфинг теперь также устанавливает `debug.tracing.mcc` и `debug.tracing.mnc` — внутренние свойства эмулятора для сетевой трассировки. Это writable property, в отличие от `nemud.device.*` (которые не являются Android system properties и не доступны через setprop).
-
-### Исследование
-- `nemud.device.imsi`, `nemud.device.sim.serialno`, `nemud.device.line1num` — **НЕ** являются Android system properties, не доступны через `setprop`
-- `debug.tracing.mcc` — writable, контролирует внутренний MCC эмулятора (был 460, теперь ставится为目标 MCC)
-- `nemu-vcontrolmanager.dll` содержит захардкоженный список MCC/MNC (46000-46005) — бинарный патч невозможен
-
----
-
-## v1.16.0 (03.09.2026)
-
-### Что нового
-- **nemud.device.imsi**: SIM-спуфинг теперь также устанавливает `nemud.device.imsi` — свойство, которое читает `nemu-vcontrolmanager.dll` для предоставления данных SIM-карты Android-слою телефонии. Это может позволить DLL использовать подменённый IMSI вместо захардкоженных китайских MCC/MNC.
-
-### Исследование
-- **nemu-vcontrolmanager.dll**: найден захардкоженный список MCC/MNC (46000, 46002, 46007, 46001, 46006, 46003, 46005) и номеров телефонов Китая. DLL читает `nemud.device.imsi`, `nemud.device.sim.serialno`, `nemud.device.line1num`. Бинарный патч невозможен (разная длина строк 46000 vs 310260).
-
----
-
-## v1.15.1 (03.09.2026)
-
-### Исправления
-- **Self-update ошибка загрузки**: заменена вложенная функция _Dl-Retry на инлайн curl с перехватом вывода — теперь при ошибке скачивания отображается реальная причина вместо «Unknown error»
-
----
-
-## v1.15.0 (03.09.2026)
-
-### Что нового
-- **[AI] Set Android ID**: новая опция в меню для просмотра, установки или очистки Android ID для конкретного экземпляра эмулятора. Варианты: случайная генерация (16 hex), пользовательское значение, сброс к значению по умолчанию. Использует MuMuManager simulation. Включает верификацию и предложение перезапуска.
-
----
-
-## v1.14.5 (03.09.2026)
-
-### Улучшения
-- **Предупреждение о SIM-спуфинге**: после установки SIM-оператора отображается таблица с описанием того, что спуфинг покрывает (gsm.sim.*, persist.mumu.mccmnc, settings global) и что не покрывает (Android Settings → SIM cards, telephony registry, networkCountryIso)
-
----
-
-## v1.14.4 (03.09.2026)
-
-### Улучшения
-- **Производительность меню**: кэширование MuMuManager info на 5 секунд — убирает лаг при каждом отрисовке меню (особенно во время перезагрузки эмулятора)
-
----
-
-## v1.14.3 (03.09.2026)
-
-### Исправления
-- **SIM спецсимволы**: экранирование `&`, `;`, `|`, `$` в именах операторов перед передачей в ADB shell — исправляет ошибку «/system/bin/sh: T: inaccessible or not found» для AT&T и других операторов со спецсимволами
-
----
-
-## v1.14.2 (03.09.2026)
-
-### Исправления
-- **SIM config сохранение**: `Get-SimConfig` теперь возвращает hashtable вместо PSCustomObject — исправляет ошибку «Cannot find property 3» при сохранении конфигурации для инстансов с числовыми индексами
-
----
-
-## v1.14.1 (03.09.2026)
-
-### Исправления
-- **Self-update Bad credentials**: файл `[U]` теперь повторяет скачивание без токена при ошибке «Bad credentials» — исправляет ошибку «JSON metadata instead of raw file content» для .ps1 файлов
-
----
-
-## v1.14.0 (03.09.2026)
-
-### Что нового
-- **[SIM] Улучшенное меню выбора оператора**: поиск/фильтр по имени, CC, MCC или региону (NA/EU/EA/SEA/SA/ME/AF/LA/OC); диалог подтверждения с таблицей изменений перед применением
-- **[SIM+] Расширенное управление конфигурацией**: таблица с состоянием инстансов (running/stopped), новые опции — [A] применить сохранённую конфигурацию, [E] редактировать, [V] проверить текущие props
-
----
-
-## v1.13.33 (03.09.2026)
-
-### Исправления
-- **SIM меню зависание**: добавлен таймаут 10с на ADB getprop — меню больше не зависает когда ADB ещё не готов (состояние `start_finished`)
-
----
-
-## v1.13.32 (03.09.2026)
-
-### Исправления
-- **Bad credentials fallback**: если сохранённый GitHub-токен невалиден, проверка обновлений автоматически повторяет запрос без авторизации вместо ошибки «Bad credentials»
-
----
-
-## v1.13.31 (03.09.2026)
-
-### Что нового
-- **Расширены SIM-пресеты**: добавлены 21 новый оператор из 8 регионов (AT&T/Verizon US, Rogers CA, Telcel MX, TIM IT, Movistar ES, KPN NL, Play PL, AIS TH, Globe PH, Maxis MY, Singtel SG, Jazz PK, Grameenphone BD, STC SA, Etisalat AE, Vodafone EG, MTN NG, Telstra/Optus AU, Spark NZ) — всего 38 пресетов + кастом
-- **Организация пресетов по регионам**: пресеты сгруппированы с комментариями для удобства навигации
-
-### Исправления
-- **Save-SimConfig**: исправлена ошибка преобразования типов (PSCustomObject vs Hashtable) при сохранении SIM-конфигурации после настройки оператора
-- **SIM+ отображение**: удалён лишний символ 'n' в цикле отображения конфигурации SIM
-
----
-
-## v1.13.30 (02.09.2026)
-
-### Что нового
-- **SIM пресеты для Китая**: добавлены пресеты China Mobile (460/00), China Unicom (460/01) и China Telecom (460/03) — три основных оператора Китая для TikTok и других приложений
-
----
-
-## v1.13.28 (30.08.2026)
-
-### Что нового
-- **ADB управление**: `[AF]` передача файлов (push/pull/list), `[AS]` скриншоты и запись экрана, `[AH]` интерактивная ADB-сессия
-- **Улучшена загрузка репозитория**: `[5]` скачивание отдельного файла, показ доступных веток при git clone
-- **Быстрая проверка обновлений**: сравнение версий без скачивания скрипта (мгновенно)
-- **Исправлена ошибка скачивания**: пустой `Authorization` заголовок при отсутствии токена вызывал 401
-- **Видимость ошибок curl**: ошибки скачивания теперь отображаются подробно
-- **Исправлен пустой catch**: PSScriptAnalyzer #518 — `catch {}` теперь логирует ошибку
-
-### Исправления (позже)
-- **Download Repository fallback**: при отсутствии ZIP-ассета в релизе файлы скачиваются по одному через `api.github.com`
-- **Нет дублирования директорий**: git clone не создаёт `MuMuManager-CLI-Menu\MuMuManager-CLI-Menu`
-- **NativeCommandError**: stderr от `git clone` и `curl` больше не льётся в консоль
-- **Сетевой отказ**: скачивание переключается с `raw.githubusercontent.com` на `api.github.com`
-- **Bootstrap update**: полная перезапись — `curl.exe` вместо `Invoke-WebRequest`, токен DPAPI, retry, бэкап перед записью
-- **Security audit**: `git safe.directory` предотвращает ошибку "dubious ownership"
-- **PSScriptAnalyzer**: удалены неиспользуемые переменные (`$remoteMsg`, `$hasHighBytes`, `$startOffset`, `$androidVer`, `$vmName`)
-- **BOM**: все `.ps1` файлы имеют UTF-8 BOM
-
----
-
-## v1.13.27 (29.08.2026)
-
-### Что нового
-- **Исправлен `$scriptVer`**: переменная версии скрипта определена в глобальной области видимости — меню теперь корректно показывает версию в шапке
-- **Исправлен `$InstalledVersion`**: переменная версии MuMu теперь инициализируется до проверки — `Show-QuickStatus` не падает при ошибке `MuMuManager.exe version`
-- **Прогресс-бар загрузки `[U]`**: заменён молчаливый `WebClient` на `curl.exe -#` с отображением скорости, размера и прогресса
-- **Защита от краша при запуске**: проверка обновлений `Update-FromGitHub -Passive` обёрнута в `try/catch` — ошибки сети не убивают скрипт до появления меню
-
----
-
-## v1.13.26 (26.08.2026)
-
-### Что нового
-- **Consent-гейты для чувствительных операций**: `[O] Clear app data` и `[9] Uninstall app` теперь требуют явного ввода `YES` с описанием последствий
-- `[A] Run ADB command`: session-consent перед первым произвольным ADB-шеллом (команды выполняются только внутри собственной ВМ эмулятора, хост недоступен)
-- Ответ на AI-вердикт VirusTotal (NICS Lab): флагует назначение (dual-use спуфинг), а не поведение; опубликованы комментарий владельца и голос harmless на оба файла v1.13.25
-
----
-
-## Установка
-
-- **Через меню**: `[DL] Download repository` → выбор метода (git clone, release ZIP, отдельный файл)
-- **Bootstrap**: `powershell -ExecutionPolicy Bypass -File bootstrap-update.ps1`
-- **Вручную**: скачайте `mumu-menu.ps1` из [Releases](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest) и запустите
-
-## Проверено
-
-- **VirusTotal**: 0/75 (ps1), 0/75 (zip) — пермалинки в README, раздел «Безопасность»
-- **PSScriptAnalyzer**: 0 ошибок, 0 пустых catch-блоков
-- **E2E verification**: parse, BOM, download, token decryption, git safe.directory — всё пройдено
-
-**Требования:** Windows 10/11 · PowerShell 5.1+ · MuMu Emulator 6.x
+**Requirements:** Windows 10/11 · PowerShell 5.1+ · MuMu Emulator 6.x
