@@ -6,6 +6,16 @@ This file contains a concise release history for the project. For full commit-le
 
 ---
 
+## v1.22.65 (12.10.2026)
+
+- Fixed a hang in the live `[G] adb logcat` view.
+- The live logcat branch was assigning the output pipeline before iteration, which blocked PowerShell until the process ended.
+- Synchronized version markers in `mumu-menu.ps1`, `relnotes.md`, `README.md`, and `.version`.
+
+**EN summary:** Fixed the live `adb logcat` hang in `[G]`. The live branch assigned the pipeline before consuming it, which caused PowerShell to block until the process exited. Version markers were synchronized across the project.
+
+---
+
 ## Release
 
 - Major release: semantic-version bump to `v10.0.0` to mark a stable, production-ready milestone and unify public-facing versioning.
