@@ -6,7 +6,7 @@ This file contains a concise release history for the project. For full commit-le
 
 ---
 
-## v10.0.0 (2026-10-14)
+## Release
 
 - Major release: semantic-version bump to `v10.0.0` to mark a stable, production-ready milestone and unify public-facing versioning.
 - Documentation and release notes reorganized for clarity (relnotes.md and README.md).
@@ -21,7 +21,7 @@ This file contains a concise release history for the project. For full commit-le
 
 ## Latest release
 
-### v1.22.65 (12.10.2026)
+### Details
 - Fixed a hang in the live `[G] adb logcat` view.
 - The live logcat branch was assigning the output pipeline before iteration, which blocked PowerShell until the process ended.
 - Synchronized version markers in `mumu-menu.ps1`, `relnotes.md`, `README.md`, and `.version`.
@@ -32,24 +32,24 @@ This file contains a concise release history for the project. For full commit-le
 
 ## Recent highlights
 
-### v1.22.64 (11.10.2026)
+### Release note
 - Restored the `[3] adb logcat — live` entry in the Logs menu.
 - Fixed a formatting issue where two menu lines were accidentally merged into one.
 
-### v1.22.63 (11.10.2026)
+### Release note
 - Fixed `adb` invocation syntax through MuMuManager.
 - Live logcat stops cleanly when leaving the view.
 - Updated PSScriptAnalyzer settings for repository style consistency.
 
-### v1.22.62 (09.10.2026)
+### Release note
 - Added readonly diagnostics for orphaned MuMu instance folders.
 - Improved live logcat exit handling.
 
-### v1.22.61 (06.10.2026)
+### Release note
 - Added a quick-switch path in `[DIAG]` for installs with a running MuMu instance.
 - Fixed a false warning in diagnostics related to script version detection.
 
-### v1.22.60 (06.10.2026)
+### Release note
 - Added a multi-install drift report for machines with side-by-side MuMu installations.
 - Improved diagnostics for install mismatch detection and active-install awareness.
 
