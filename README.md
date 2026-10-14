@@ -55,6 +55,47 @@ irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-me
 
 Меню предоставляет удобный интерактивный интерфейс для выбора инстанса и выполнения операций (ADB, установка APK, бэкап/рестор, spoofing, просмотр логов и т.д.).
 
+## Порядок помощи
+
+Если что-то не работает, используйте такой порядок:
+
+1. Проверьте требования
+   - Windows 10/11
+   - PowerShell 5.1+ / 7+
+   - MuMu установлен и доступен
+   - Скрипт запущен из корректной папки
+
+2. Запустите меню и проверьте состояние
+   - `[V]` — версия и окружение
+   - `[IN]` — активная установка MuMu
+   - `[ST]` — статус установки
+   - `[DIAG]` — диагностика проблем
+
+3. Если меню не запускается
+   - Проверьте `Mark-of-the-Web` и `Unblock-File`
+   - Попробуйте запустить через PowerShell явно
+   - Убедитесь, что у вас нет блокировки по политике ExecutionPolicy
+
+4. Если есть проблема с MuMu
+   - Проверьте активную установку через `[IN]`
+   - Используйте `[DIAG]` для проверки установки
+   - Проверьте наличие запущенных инстансов и ADB-моста
+
+5. Если обновление не проходит
+   - Сначала `[F]` — проверить целостность файлов
+   - Затем `[ST]` — посмотреть общий статус
+   - Затем `[J]` — посмотреть журнал обновлений
+   - Если нужно, выполните восстановление из `backup\YYYYMMDD_HHMMSS`
+
+6. Если нужен полный список изменений
+   - `relnotes.md`
+   - GitHub Releases: https://github.com/genrihx2/MuMuManager-CLI-Menu/releases
+
+7. Если нужен быстрый ответ
+   - Проблема с запуском и файлами → `MotW / Unblock-File`
+   - Проблема с MuMu → `[DIAG]` и `[IN]`
+   - Проблема с обновлением → `[F]`, `[ST]`, `[J]`
+
 ## Автообновление и проверка целостности
 
 - Обновления берутся только из помеченных тегов релизов GitHub Releases.
@@ -78,3 +119,11 @@ irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-me
 English summary
 
 A compact interactive PowerShell menu to manage local Netease MuMu Emulator instances: start/stop/clone/delete instances, APK install/uninstall, ADB tooling, backups, device spoofing (model, IMEI, Android ID, MAC), screenshots/screenrecord, log viewing (adb logcat snapshot/live), GitHub token manager, self-update with SHA-256 verification and VirusTotal scans for releases. See Releases or relnotes.md for full changelog and security notes.
+
+Help flow:
+1. Check requirements.
+2. Launch the menu and inspect version/status.
+3. If startup fails, check Mark-of-the-Web / execution policy.
+4. If MuMu is not detected, use `[IN]` and `[DIAG]`.
+5. If updates fail, run `[F]`, `[ST]`, and `[J]` before restoring from backup.
+6. Use relnotes.md or GitHub Releases for full change history.
