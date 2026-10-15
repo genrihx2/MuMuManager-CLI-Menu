@@ -152,6 +152,98 @@ irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-me
 
 ---
 
+<!-- MENU:AUTO:START -->
+```
+======================================
+    MuMuManager CLI Menu
+======================================
+
+  --- Emulator Control ---
+  [1] Show emulator info
+  [2] Launch emulator
+  [3] Shutdown emulator
+  [4] Restart emulator
+  [5] Create new emulator (Android 12/15)
+  [C] Clone emulator
+  [X] Delete emulator
+  [N] Rename emulator
+
+  --- Apps and Settings ---
+  [6] List installed apps
+  [7] Show settings
+  [CMP] Compare instance settings
+  [RT] Enable / disable root (instance)
+  [VE] Virtual environment (enable/disable/remove)
+  [FPS] Set frame rate (30/60/90/120/144/240/uncapped)
+  [8] Install APK
+  [9] Uninstall app
+  [G] View logs
+
+  --- Batch ---
+  [B] Launch all instances
+  [D] Shutdown all instances
+  [R] Restart all instances
+  [I] Install APK to all
+
+  --- Window ---
+  [W] Show all windows
+  [H] Hide all windows
+  [L] Layout windows
+
+  --- Tools ---
+  [S] Take screenshot
+  [A] Run ADB command
+  [AF] ADB file transfer (push/pull/list)
+  [AS] ADB screen capture (screenshot/record)
+  [AH] ADB interactive shell
+  [O] Clear app data
+  [P] Force stop app
+  [T] Start app
+  [E] Export emulator data
+  [BA] Backup instance data
+  [RE] Restore from backup
+  [K] Update GitHub token
+  [VK] Set VirusTotal API key
+  [CRT] Create/sign certificate
+  [Z] Security audit (disabled)
+
+  --- Tests ---
+  [TC] Connection test
+  [TN] Network test
+  [TS] Network speed test
+  [TD] Dependencies test
+  [VT] VirusTotal scan
+  [VF] VirusTotal Upload file
+  [UW] Fix Unicode / encoding
+
+  --- Spoofing ---
+  [DM] Spoof device model
+  [SIM] Change SIM operator / country (MCC/MNC)
+  [SIM+] View / clear auto-apply SIM config
+  [SC] SIM check (all properties)
+  [AI] Set Android ID
+  [DI] Random device IDs
+
+  --- Info ---
+  [WN] Watch MuMu network + updater
+  [RM] Resource monitor (CPU/RAM, live)
+  [IN] MuMu installation (choose active)
+  [V] Version info
+  [U] Check for updates
+  [UP] Update plan (dry-run)
+  [F] Verify installation (files vs release tag)
+  [ST] Install status (read-only)
+  [J] Update journal
+  [DIAG] Problem diagnostics
+  [RB] Rollback from backup
+  [DL] Download repository
+  [CR] Create release
+  [FR] Fix release encoding
+  [0] Exit
+======================================
+```
+<!-- MENU:AUTO:END -->
+
 English summary
 
 A compact interactive PowerShell menu to manage local Netease MuMu Emulator instances: start/stop/clone/delete instances, APK install/uninstall, ADB tooling, backups, device spoofing (model, IMEI, Android ID, MAC), screenshots/screenrecord, log viewing (adb logcat snapshot/live), GitHub token manager, self-update with SHA-256 verification and VirusTotal scans for releases. See Releases or relnotes.md for full changelog and security notes.
