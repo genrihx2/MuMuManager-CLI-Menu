@@ -129,6 +129,23 @@ irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-me
 2. Выполнить `Get-ChildItem 'C:\\путь\\к\\MuMuManager-CLI-Menu' -Recurse -File | Unblock-File`.
 3. Распаковать ZIP с помощью `tar`/7-Zip вместо встроенного экстрактора Explorer.
 
+## Что нового
+
+### v10.0.0 (14.10.2026)
+
+- Major release: semantic-version bump to `v10.0.0` to mark a stable, production-ready milestone and unify public-facing versioning.
+- Documentation and release notes reorganized for clarity (relnotes.md and README.md).
+- No behavioral changes to the runtime scripts in this commit — this release primarily records the versioning milestone and documentation cleanups.
+- Pester suite: 260/261 passed (1 README changelog sync test pending the table update).
+
+**EN summary (v10.0.0):** Production-ready milestone at v10.0.0 with synchronized version markers across `mumu-menu.ps1`, `.version`, `relnotes.md` and `README.md`. Pester suite: 260/261 passing.
+
+---
+
+| Версия | Дата | Изменения |
+|--------|------|-----------|
+| v10.0.0 | 14.10.2026 | Major release: semantic-version bump to v10.0.0, documentation reorganized, Pester 260/261 |
+
 ## Где смотреть полные изменения (changelog)
 
 Полный список релизов и подробный changelog хранится в `relnotes.md` и в релизах GitHub: https://github.com/genrihx2/MuMuManager-CLI-Menu/releases
