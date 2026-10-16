@@ -12,6 +12,8 @@ This file contains the release note for the v10.0.0 milestone. All previous per-
 - Documentation and release notes reorganized for clarity (relnotes.md and README.md).
 - No behavioral changes to the runtime scripts in this commit — this release primarily records the versioning milestone and documentation cleanups.
 - If you plan to publish a GitHub Release for `v10.0.0`, create a signed tag and attach the official release ZIP (release automation will run CI checks and VirusTotal scans).
+- Token storage note: the repo’s DPAPI blob `.github-token.dpapi` is machine/user-scoped and not portable by hand. If the stored blob is unreadable (for example after moving the folder between machines/users, or if the blob got corrupted), do **not** try to decrypt it manually. Re-save the token through menu `[K]` so the script recreates `.github-token.dpapi` through the normal path (validate against `api.github.com/user`, then write via `ConvertFrom-SecureString`).
+- Caveat for manual troubleshooting: the file can legitimately have a UTF-8 BOM (that is why a BOM scan may call it “safe to strip”), but that is separate from whether the DPAPI blob is decryptable. A BOM does not make the blob plaintext, and a `TypeNotFound` on `[System.Security.Cryptography.ProtectedData]` is a runtime availability problem in the shell you ran it from, not proof that the blob is corrupted.
 
 **Notes for maintainers:**
 - Consider bumping `$scriptVer` in `mumu-menu.ps1` and `.version` to `10.0.0` (no leading `v`) so the changelog-sync workflow sees consistency.
