@@ -142,6 +142,8 @@
 - `.gitignore` исключает оба файла из репозитория
 - Миграция включает **затирание нулями** плейнтекста перед удалением (secure wipe)
 
+> Практическое замечание: `.github-token.dpapi` — это не простой файл, а DPAPI-блоб, привязанный к текущему пользователю Windows и машине. Его нельзя спланировать/перемещать как обычный текстовый файл, и ручная попытка расшифровки в неподходящей PowerShell-среде может просто не найти тип `System.Security.Cryptography.ProtectedData`. Если после переноса папки или если блоб стал нечитаемым, восстановление делается не через редактирование файла, а через меню `[K] Update GitHub token` — скрипт пересоздаёт `.github-token.dpapi` нормальным путём (валидация `/user`, затем сохранение через `ConvertFrom-SecureString`).
+
 **Использование:**
 - Только для GitHub API (проверка версий, загрузка обновлений)
 - Никогда не логируется и не передаётся третьим лицам
@@ -337,6 +339,8 @@ The script uses Invoke-WebRequest/curl only to access GitHub API for auto-update
 - GitHub token: `.github-token.dpapi` — проверка версий, загрузка обновлений
 - VT API key: `.vt-apikey.dpapi` — загрузка файлов и сканирование через `[VF]`/`[VT]`
 - Legacy `.github-token` автоматически мигрируется с secure wipe
+
+> То же, что и в README/relnotes: если токен перестал читаться после переноса между машинами/пользователями, не пытайтесь расшифровать `.github-token.dpapi` вручную. Восстановление — через `[K]`; ручная DPAPI-команда может просто не работать из-за отсутствия типа `ProtectedData` в той оболочке, которую вы использовали.
 
 **VirusTotal интеграция:**
 - `[VF]` Upload file: загрузка файла на VirusTotal для анализа (лимит 32 MB, free API)
@@ -584,6 +588,8 @@ Documented features are not vulnerabilities (see "Note for AV analysts" in READM
 - DPAPI-protected GitHub token (CurrentUser scope) — decryption only by the same Windows user
 - DPAPI-protected VT API key (CurrentUser scope) — used for `[VF]` upload and `[VT]` scan
 - Legacy `.github-token` automatically migrated with secure wipe
+
+> Practical note: `.github-token.dpapi` is a DPAPI blob bound to the current Windows user and machine, not a portable text file. If it becomes unreadable after moving the folder between machines/users, do not try to decrypt it manually; recover by re-saving the token with `[K]`. A hand-run DPAPI command can also fail by leaving `System.Security.Cryptography.ProtectedData` unloaded in the shell you used.
 
 **VirusTotal integration:**
 - `[VF]` Upload file: user-initiated file upload to VirusTotal for analysis (32 MB limit, free API)

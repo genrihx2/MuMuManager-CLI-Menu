@@ -34,6 +34,8 @@
 - 🔄 Массовые операции (все инстансы)
 - 📋 Просмотр логов (статические файлы + **adb logcat**: снапшот, live-стрим, фильтр по уровню/тегу)
 - 🛡️ Менеджер GitHub-токена (DPAPI-шифрование)
+
+> Хранилище токена — `.github-token.dpapi`, зашифрованный DPAPI-блоб (CurrentUser). Это не простая строка и не portable-файл: ручная попытка расшифровки в стороннем PowerShell может вообще не выполниться, если среда не загружает `System.Security.Cryptography.ProtectedData`, а сам блоб не читается после перемещения между машинами/пользователями. В таких случаях восстановление — через меню `[K]`, а не редактированием или ручным дешифрованием файла.
 - 📊 Информация о версиях
 - ⚡ Автообновление из GitHub
 - 🗄️ Загрузка репозитория (git clone, ZIP, отдельный файл)
@@ -54,6 +56,13 @@
 git clone https://github.com/genrihx2/MuMuManager-CLI-Menu.git
 cd MuMuManager-CLI-Menu
 .\mumu-menu.ps1
+```
+
+Запуск через Node (только из корня репозитория, обёртка делегирует в PowerShell):
+
+```powershell
+node mumu-menu.cjs
+npm run menu
 ```
 
 Быстрый запуск (скачивает и запускает временный файл):
@@ -115,6 +124,11 @@ irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-me
    - Проблема с MuMu → `[DIAG]` и `[IN]`
    - Проблема с обновлением → `[F]`, `[ST]`, `[J]`
 
+8. Если меню пишет «Cannot decrypt .github-token.dpapi» или token не работает
+   - Не пытайтесь расшифровать `.github-token.dpapi` вручную — это DPAPI blob (CurrentUser), он не переносится между машинами/пользователями и не поддаётся простому ручному раскладыванию.
+   - В меню выберите `[K]` Update GitHub token, введите токен заново, дождитесь проверки `api.github.com/user` и сохранения.
+   - Если вы работали в PowerShell, где нет загрузки `System.Security.Cryptography.ProtectedData`, то даже ручная попытка `[...ProtectedData]::Unprotect(...)` будет падать с `TypeNotFound` — это проблема среды, а не манифеста репозитория.
+
 ## Автообновление и проверка целостности
 
 - Обновления берутся только из помеченных тегов релизов GitHub Releases.
@@ -149,6 +163,14 @@ irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-me
 ## Где смотреть полные изменения (changelog)
 
 Полный список релизов и подробный changelog хранится в `relnotes.md` и в релизах GitHub: https://github.com/genrihx2/MuMuManager-CLI-Menu/releases
+
+## Wiki
+
+Расширенная документация — roadmap, статус проекта, гайды — живёт в wiki репозитория:
+
+- Главная страница: https://github.com/genrihx2/MuMuManager-CLI-Menu/wiki/Home
+- Содержание: требования и установка, обзор возможностей меню, карта документов (README / SECURITY / relnotes / RELEASE-RUNBOOK / SKILL), troubleshooting, безопасность и план развития.
+- Wiki — это git-репозиторий, страницы можно править локально: `git clone https://github.com/genrihx2/MuMuManager-CLI-Menu.wiki.git`
 
 ---
 
