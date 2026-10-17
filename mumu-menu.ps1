@@ -2863,7 +2863,7 @@ function Start-QuickStatusRefresh {
     } catch {
         # Background refresh is best-effort: the cache simply stays stale.
         Write-Debug "quick-status refresh kick failed: $($_.Exception.Message)"
-        try { if ($ps) { $ps.Dispose() } } catch { }
+        try { if ($ps) { $ps.Dispose() } } catch { Write-Debug "quick-status dispose failed: $($_.Exception.Message)" }
         $script:QuickStatusPipe = $null
     }
 }
@@ -2893,7 +2893,7 @@ function Update-QuickStatusCache {
     } catch {
         Write-Debug "quick-status refresh failed: $($_.Exception.Message)"
     } finally {
-        try { $p.PS.Dispose() } catch { }
+        try { $p.PS.Dispose() } catch { Write-Debug "quick-status dispose failed: $($_.Exception.Message)" }
     }
     return $false
 }
@@ -2928,7 +2928,7 @@ function Show-QuickStatus {
         $deadline = [datetime]::Now.AddMilliseconds(400)
         while ($script:QuickStatusPipe -and [datetime]::Now -lt $deadline) {
             Start-Sleep -Milliseconds 25
-            if ($null = Update-QuickStatusCache) { break }
+            if (Update-QuickStatusCache) { break }
         }
     }
     if ($script:QuickStatusCache) {
