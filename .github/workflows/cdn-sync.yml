@@ -74,7 +74,13 @@ jobs:
           # After the purge, cdn.jsdelivr.net must serve exactly what main
           # serves for a canary file. Compare a marker that changes with
           # every version bump: the $scriptVer assignment in mumu-menu.ps1.
-          cdn="$(curl -sSL --max-time 30 "https://cdn.jsdelivr.net/gh/${REPO}@main/mumu-menu.ps1" | grep -oP "(?<=scriptVer = ')1\.22\.\d+" | head -1)"
+          # Match whatever scriptVer currently is (was hardcoded to the OLD
+          # 1.22.x series, which stopped matching after the v10.0.0 bump and
+          # made this step fail: under `bash -e -o pipefail` a grep no-match
+          # aborts the assignment before ${cdn:-unknown} could soften it).
+          # `|| true` restores the designed behavior: empty result -> "unknown"
+          # -> warning below, never a hard failure.
+          cdn="$(curl -sSL --max-time 30 "https://cdn.jsdelivr.net/gh/${REPO}@main/mumu-menu.ps1" | grep -oP "(?<=scriptVer = ')[0-9][0-9.]*" | head -1 || true)"
           cdn="${cdn:-unknown}"
           # The fresh commit SHA is what the mirror should reflect; compare
           # the CDN copy against the tag-less HEAD blob from the checkout.
