@@ -2,7 +2,16 @@
 
 Interactive PowerShell menu for managing MuMu Emulator instances through the official `MuMuManager.exe`.
 
-This file contains the release note for the v10.0.0 milestone. All previous per-version blocks have been removed; only the v10.0.0 entry is kept as requested.
+This file contains the release notes for the v10.1.0 and v10.0.0 milestones. Older per-version blocks have been removed; only the two latest entries are kept as requested.
+
+---
+
+## v10.1.0 (2026-10-17)
+
+- New: menu item `[MU]` — read-only MuMu emulator update check. Compares the installed version (`MuMuManager.exe version`) with the newest entry on the official release-notes page (`mumuplayer.com/update`), prints a verdict (update available / up to date / ahead-of-public-channel / cannot check) and never downloads or installs anything — emulator upgrades go through NetEase's built-in MuMu updater.
+- Hardened: the menu window no longer dies on accidental input. Ctrl+C inside the menu is ignored (exit with `0`/`q`; closing the window still works), a script-level `trap` returns runtime errors to the menu instead of ending the script, and a redirected/piped stdin exits the menu cleanly instead of hanging on "Press any key". The Ctrl+C guard is released on every exit path, so an enclosing interactive shell keeps normal Ctrl+C behaviour.
+- Housekeeping: `.coderabbit.yaml` rewritten against the published CodeRabbit schema (`https://coderabbit.ai/integrations/schema.v2.json`) — the previous revision used keys that do not exist in the schema and was silently ignored in favor of UI settings/defaults.
+- Pester suite: 261/261 passed.
 
 ---
 

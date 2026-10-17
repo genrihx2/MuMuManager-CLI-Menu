@@ -280,7 +280,7 @@ function Initialize-TokenStorage {
     # the token via menu [K] so it is recreated through this code path.
 }
 
-$scriptVer = '10.0.0'
+$scriptVer = '10.1.0'
 $InstalledVersion = $null
 
 # --- [WN] MuMu network + updater watcher (read-only, opt-in) -----------------
@@ -1026,6 +1026,36 @@ if (-not (Test-Path -LiteralPath $MumuPath -PathType Leaf)) {
 }
 # Shown in the status line so it is always obvious which copy is active.
 $script:MumuInstallLabel = Get-MuMuInstallLabel -ManagerPath $MumuPath
+
+# ---------------------------------------------------------------------------
+# Keep the menu window alive: accidental-close guards
+# ---------------------------------------------------------------------------
+# Launched standalone, the console window closes the moment the script ends,
+# so a stray Ctrl+C - the reflex right after a mouse click/selection in the
+# console - used to kill the whole menu instantly, and any unhandled runtime
+# error did the same. Ctrl+C is now ignored (exit with 0/q; closing the
+# window still works), and a script-level trap prints the error and returns
+# to the menu instead of ending the script. Placed after the MuMu-probe
+# 'exit 1' above so every remaining exit path runs inside the main loop's
+# try/finally, which always releases this guard again (the menu can run
+# inside an existing shell, where a leftover handler would disable Ctrl+C
+# for that whole session).
+$script:NoCtrlCHandler = [System.ConsoleCancelEventHandler]{
+    param($src, $e)   # $src is unused: required delegate signature
+    $e.Cancel = $true   # Ctrl+C must never terminate the menu process
+}
+try {
+    [System.Console]::add_CancelKeyPress($script:NoCtrlCHandler)
+} catch {
+    Write-Debug "Ctrl+C guard unavailable: $($_.Exception.Message)"
+}
+
+trap {
+    Write-Host ''
+    Write-Host ("Error (the menu stays open): {0}" -f $_.Exception.Message) -ForegroundColor Red
+    Write-Host '  Pick a menu option to continue, or 0/q to exit.' -ForegroundColor DarkGray
+    continue
+}
 
 # Auto-update from GitHub
 function Get-ContentHash {
@@ -4206,6 +4236,7 @@ function Show-Menu {
     Write-Host '  [RM] Resource monitor (CPU/RAM, live)' -ForegroundColor Yellow
     Write-Host '  [IN] MuMu installation (choose active)' -ForegroundColor Yellow
     Write-Host '  [V] Version info' -ForegroundColor Yellow
+    Write-Host '  [MU] MuMu emulator update check (read-only)' -ForegroundColor Yellow
     Write-Host '  [U] Check for updates' -ForegroundColor Yellow
     Write-Host '  [UP] Update plan (dry-run)' -ForegroundColor Yellow
     Write-Host '  [F] Verify installation (files vs release tag)' -ForegroundColor Yellow
@@ -4217,6 +4248,7 @@ function Show-Menu {
     Write-Host '  [CR] Create release' -ForegroundColor Yellow
     Write-Host '  [FR] Fix release encoding' -ForegroundColor Yellow
     Write-Host '  [0] Exit' -ForegroundColor Yellow
+    Write-Host '  (Ctrl+C will not close this window - use 0 or q to exit)' -ForegroundColor DarkGray
     Write-Host ''
     Write-Host '======================================' -ForegroundColor Cyan
 }
@@ -9168,6 +9200,83 @@ function Uninstall-App {
     }
 }
 
+function Show-MumuUpdateCheck {
+    <#
+    .SYNOPSIS
+        Read-only check: does the installed MuMu emulator have a newer
+        official release?
+    .DESCRIPTION
+        Compares the version reported by `MuMuManager.exe version` against
+        the newest entry on the official release-notes page
+        (https://www.mumuplayer.com/update/). Prints a verdict and the
+        official link only - nothing is downloaded or installed; emulator
+        upgrades are done by NetEase's own MuMu updater.
+    .EXAMPLE
+        [MU] from the menu
+    #>
+    $page = 'https://www.mumuplayer.com/update/'
+
+    Write-Host ''
+    Write-Host '=== MuMu emulator update check (read-only) ===' -ForegroundColor Cyan
+    Write-Host ''
+
+    # Installed version - same source as the startup health check and [V].
+    $local = $null
+    $localRaw = ''
+    try {
+        $verJson = & $MumuPath version 2>$null | ConvertFrom-Json
+        if ($verJson.version) {
+            $localRaw = [string]$verJson.version
+            try { $local = [version]$localRaw } catch { $local = $null }
+        }
+    } catch { $local = $null }
+
+    if ($local) {
+        Write-Host "Installed MuMu: $localRaw" -ForegroundColor Green
+    } elseif ($localRaw) {
+        Write-Host "Installed MuMu: $localRaw (not parseable as a version)" -ForegroundColor Yellow
+    } else {
+        Write-Host 'Installed MuMu: unknown (MuMuManager.exe not reachable)' -ForegroundColor Yellow
+    }
+    if ($MinVersion) {
+        Write-Host "Minimum required by this menu: $MinVersion" -ForegroundColor DarkGray
+    }
+
+    # Latest official version - first Vx.y.z on the release-notes page
+    # (newest entry is listed first). 2 attempts mirrors Show-VersionInfo:
+    # a single TLS flake must not read as "Cannot check".
+    $latest = $null
+    for ($mAttempt = 1; $mAttempt -le 2 -and -not $latest; $mAttempt++) {
+        try {
+            $html = (Invoke-WebRequest -Uri $page -UseBasicParsing -TimeoutSec 10).Content
+            if ($html -match '\bV(\d+\.\d+(?:\.\d+){1,2})\b') {
+                try { $latest = [version]$Matches[1] } catch { $latest = $null }
+            }
+        } catch {
+            if ($mAttempt -lt 2) { Start-Sleep -Seconds 2 }
+        }
+    }
+
+    if (-not $latest) {
+        Write-Host 'Latest official: cannot check (offline or page layout changed)' -ForegroundColor DarkGray
+        Write-Host "  -> Check manually: $page" -ForegroundColor Cyan
+        return
+    }
+    Write-Host "Latest official: $latest ($page)" -ForegroundColor Green
+
+    if ($null -eq $local) {
+        Write-Host '  -> Cannot compare: installed version unknown' -ForegroundColor DarkGray
+    } elseif ($local -lt $latest) {
+        Write-Host "  -> Update available: MuMu $local -> $latest" -ForegroundColor Yellow
+        Write-Host '     Upgrade through the built-in MuMu updater (Settings -> About -> Check for updates).' -ForegroundColor DarkGray
+    } elseif ($local -gt $latest) {
+        Write-Host "  -> Installed MuMu $local is ahead of the latest public release $latest" -ForegroundColor DarkGray
+        Write-Host '     (local/beta build, or a different release channel than the global page)' -ForegroundColor DarkGray
+    } else {
+        Write-Host '  -> Installed MuMu is up to date' -ForegroundColor Green
+    }
+}
+
 function Show-VersionInfo {
     Write-Host ''
     Write-Host '=== MuMu Manager CLI Menu ===' -ForegroundColor Cyan
@@ -11100,6 +11209,7 @@ function Show-ResourceMonitor {
 }
 
 # Main loop
+try {
 do {
     Show-Menu
     $choice = Read-Host 'Select option (0/q = Exit)'
@@ -11157,6 +11267,7 @@ do {
         'l' { Set-WindowLayout }
         's' { Save-Screenshot }
         'v' { Show-VersionInfo }
+        'mu' { Show-MumuUpdateCheck }
         'u' { Update-FromGitHub }
         'up' { Update-FromGitHub -Plan }
         'f' { Show-InstallVerify }
@@ -11186,6 +11297,28 @@ do {
 
     Write-Host ''
     Write-Host 'Press any key to continue...' -ForegroundColor DarkGray
-    $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
+    # Piped/redirected stdin has no key to wait for: waiting would hang the
+    # automation forever, and there is no console to close either - leave
+    # the menu cleanly instead. A missing console handle takes the catch.
+    $stdinRedirected = $false
+    try { $stdinRedirected = [Console]::IsInputRedirected } catch { $stdinRedirected = $true }
+    if ($stdinRedirected) {
+        Write-Host 'No interactive input available - leaving the menu.' -ForegroundColor DarkGray
+        break
+    }
+    try { $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') } catch {
+        Write-Host 'No interactive input available - leaving the menu.' -ForegroundColor DarkGray
+        break
+    }
 
 } while ($true)
+} finally {
+    # Whatever way the script ends (q/0 exit, an exit inside a menu
+    # function, a fatal error), release the Ctrl+C guard so an enclosing
+    # interactive session keeps its normal Ctrl+C behaviour.
+    try {
+        [System.Console]::remove_CancelKeyPress($script:NoCtrlCHandler)
+    } catch {
+        Write-Debug "Ctrl+C guard detach failed: $($_.Exception.Message)"
+    }
+}

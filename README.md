@@ -145,6 +145,15 @@ irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-me
 
 ## Что нового
 
+### v10.1.0 (17.10.2026)
+
+- New: `[MU]` — read-only MuMu emulator update check (installed version vs the latest official release; nothing is downloaded).
+- Fixed: the menu window no longer dies on accidental input — Ctrl+C is ignored inside the menu, runtime errors return to the menu instead of closing it, and piped stdin exits cleanly instead of hanging.
+- Housekeeping: `.coderabbit.yaml` rewritten against the published CodeRabbit schema (the old file used non-existent keys and was silently ignored).
+- Pester suite: 261/261 passed.
+
+**EN summary (v10.1.0):** Read-only MuMu emulator update check `[MU]`, window-close guards (Ctrl+C / runtime errors / piped stdin), schema-valid CodeRabbit config.
+
 ### v10.0.0 (14.10.2026)
 
 - Major release: semantic-version bump to `v10.0.0` to mark a stable, production-ready milestone and unify public-facing versioning.
@@ -158,6 +167,7 @@ irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-me
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v10.1.0 | 17.10.2026 | New [MU] MuMu emulator update check, window-close guards (Ctrl+C / errors / EOF), schema-valid CodeRabbit config |
 | v10.0.0 | 14.10.2026 | Major release: semantic-version bump to v10.0.0, documentation reorganized, Pester 260/261 |
 
 ## Где смотреть полные изменения (changelog)
