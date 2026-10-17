@@ -6,7 +6,9 @@ name: Release guard
 # silent empty releases (v1.18.1-v1.18.6 shipped with zero assets for days).
 # The pipeline is tag-driven now, but nothing watched the outcome - this
 # workflow does, every Monday and on demand:
-#   - every release NEWER than v1.18.6 must ship the canonical asset set:
+#   - every release NEWER than BASELINE (v10.0.0 - the pre-v10 tag/release
+#     history was purged, so the original v1.18.6 anchor no longer exists)
+#     must ship the canonical asset set:
 #     the ZIP and its .sha256 sidecar;
 #   - every such release must carry the VirusTotal verdicts section
 #     (the "Status: CLEAN" marker) in its body;
@@ -56,7 +58,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          BASELINE: v1.18.6
+          BASELINE: v10.0.0
         run: |
           set -euo pipefail
 
@@ -283,7 +285,7 @@ jobs:
             echo "$MARKER"
             echo ""
             echo "The weekly release-guard audit found violations: releases newer"
-            echo "than v1.18.6 missing ZIP/.sha256/VT verdicts, the latest release"
+            echo "than v10.0.0 missing ZIP/.sha256/VT verdicts, the latest release"
             echo "tag drifting from .version on the default branch, or the latest"
             echo "release ZIP not matching its tag content."
             echo ""
@@ -318,7 +320,7 @@ jobs:
           NUMBER=$(gh issue list --repo "$REPO" --search "$MARKER in:body" --state open --json number --jq '.[0].number // ""')
           if [ -n "$NUMBER" ]; then
             gh issue close "$NUMBER" --repo "$REPO" \
-              --comment "The latest weekly audit is clean - all releases newer than v1.18.6 ship ZIP + SHA256 + VirusTotal verdicts, the latest release matches .version, and its ZIP matches the tag content. Closing."
+              --comment "The latest weekly audit is clean - all releases newer than v10.0.0 ship ZIP + SHA256 + VirusTotal verdicts, the latest release matches .version, and its ZIP matches the tag content. Closing."
             echo "Closed stale guard issue #$NUMBER"
           else
             echo "No open guard issue - nothing to close"
