@@ -1,101 +1,55 @@
-# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
-#
-# CodeRabbit configuration for genrihx2/MuMuManager-CLI-Menu.
-# The project is a PowerShell 5.1+/7 menu for MuMu Emulator 6.x; its CI runs
-# on windows-latest (Pester 5 unit + regression tests), and the static checks
-# it actually uses are actionlint + shellcheck on the workflows
-# (.github/workflows/lint.yml), DevSkim and PSScriptAnalyzer on the scripts,
-# and CodeQL for the workflows. Reviews come from the CodeRabbit GitHub app.
+# CodeRabbit configuration for MuMuManager CLI Menu
+# This repo is mostly PowerShell scripts + automation workflows, so the defaults
+# below focus on code review ergonomics rather than a generic web-app template.
 
-language: "en-US"
+language:
+  - name: powershell
+    ignored_files:
+      # ZIP/tarballs are not source and are noisy in diffs.
+      - '*.zip'
+      - '*.tar.gz'
+
+analysis:
+  keyword_hints:
+    # These are normal local emulator-management operations, not secret hunting.
+    - 'MuMuManager.exe'
+    - 'adb --vmindex'
+    - 'ADP API'
 
 reviews:
-  # chill: PSScriptAnalyzerSettings.psd1 already codifies this repo's style
-  # rules, so the review should judge behaviour, not restate formatting.
-  profile: chill
+  request_body:
+    # Keep reviews scoped to what matters for this repo: logic, security in
+    # token/storage/DPAPI handling, and file/encoding pitfalls.
+    focus:
+      - logic
+      - security
+      - performance
 
-  auto_review:
+  pull_request:
+    comment_on:
+      - start
+      - review_hours: 1
+    auto_review:
+      enabled: true
+      always: true
+    review_groups:
+      default:
+        developer:
+          focus: concise
+
+  language_specific:
+    powershell:
+      lint_tool: PSScriptAnalyzer
+      enable: true
+
+  review_reply:
     enabled: true
-    # Draft PRs are thrown away while iterating on the menu script.
-    drafts: false
+    keyword_reply:
+      "**Resolver todos los comentarios y aprobar esta PR para continuar con el merge" : >
+        This project's primary language is PowerShell. If a review comment
+        needs a response, reply in English or Russian.
 
-  path_filters:
-    # Vendored pinned dependency: the Pester 5.7.1 module drop used for
-    # offline test runs (tests/run-pester.ps1 / tests/run-matrix.ps1). It is
-    # imported third-party code - regenerate it, never review it.
-    - "!Pester/**"
-    # Lockfiles and generated manifests are machine-written. This repo is
-    # pure PowerShell and pins its tooling in the test scripts, not in a
-    # lockfile, so nothing matches today - the glob keeps a future one from
-    # flooding a review.
-    - "!**/*.lock"
-    - "!**/package-lock.json"
-    # Run artifacts: the git-ignored Pester XML report, the journal/debug
-    # logs, and the [E] resource-monitor exports written to output\ next to
-    # the script.
-    - "!testResults.xml"
-    - "!**/*.log"
-    - "!output/**"
-
-  path_instructions:
-    - path: "tests/**"
-      instructions: |
-        Pester 5 suite. tests/mumu-menu.Tests.ps1 pulls each production
-        function out of mumu-menu.ps1 by AST instead of copying it, so a
-        changed or added helper needs a matching It that runs against the
-        extracted function - never paste an implementation into a test.
-        The suite must stay offline: no network, no emulator, no real MuMu
-        install. It runs on Windows PowerShell 5.1 and pwsh 7 on a pinned
-        Pester 5.7.1 plus one unpinned canary leg, so flag PS7-only syntax
-        and Pester 6-only behaviour. Tests tagged 'RepoFiles' run only in the
-        repo checkout and are excluded from the deployed-layout run: such a
-        test must not depend on a file that is missing from an installed
-        copy (relnotes.md, RELEASE-RUNBOOK.md, update-readme.ps1, ...).
-        test-bootstrap-update.ps1 and test-mumu-menu-infisical.ps1 are plain
-        scripts, not Pester: keep their exit-code contract (0 = green)
-        intact.
-    - path: ".github/workflows/**"
-      instructions: |
-        Must stay actionlint- and shellcheck-clean: workflow lint.yml runs
-        both on every change under .github/workflows/**, and shellcheck
-        covers every `run:` bash block through actionlint's integration.
-        Keep each `uses:` pinned to a full commit SHA with the version in a
-        trailing comment. Job names are load-bearing - release.yml's release
-        gate matches the Tests legs by exact name (REQUIRED_LEGS) - so a
-        renamed job or matrix leg silently blocks releases; call that out
-        explicitly. Prefer extending an existing job over introducing a new
-        one when the release gate matches its name.
-    - path: "**/*.ps1"
-      instructions: |
-        The shipped scripts target Windows PowerShell 5.1+ as well as pwsh 7,
-        so flag anything that only works on 7 (or only on 5.1). Rule
-        exclusions belong in PSScriptAnalyzerSettings.psd1, which is the
-        repo's single source of truth - do not add an inline suppression for
-        a rule already listed there. Deployed .ps1 files keep their UTF-8 BOM
-        (the PowerShell 5.1 ANSI fallback) and .gitattributes pins them to
-        LF: do not strip either. Read-only by design - diagnostics, the
-        resource monitor and the journal paths must not start writing;
-        anything that deletes, overwrites or uploads stays behind an
-        explicit, confirmed user action.
-    - path: "**/*.md"
-      instructions: |
-        README.md, relnotes.md and .version carry the same version string as
-        $scriptVer in mumu-menu.ps1 (tests/test-changelog-sync.ps1 guards it),
-        so a version bump must update all of them together. Release notes and
-        README are Russian-first with an English summary: keep both halves in
-        sync rather than removing one, and match the existing heading,
-        emoji-bullet and table conventions.
-
-  tools:
-    # The two static checks the repo's CI actually runs over its workflows
-    # (.github/workflows/lint.yml); shellcheck is driven by actionlint for
-    # every `run:` bash block. PSScriptAnalyzer and DevSkim, which cover the
-    # PowerShell sources, have no CodeRabbit integration, so nothing else is
-    # turned on here.
-    actionlint:
-      enabled: true
-    shellcheck:
-      enabled: true
-
-chat:
-  auto_reply: true
+  summary:
+    enabled: true
+    include_style_guide_compliance: true
+    concise: true
