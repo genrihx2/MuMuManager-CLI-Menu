@@ -2833,22 +2833,12 @@ try {
 
 $script:QuickStatusCache = $null
 $script:QuickStatusTs = [datetime]::MinValue
+$script:QuickStatusPipe = $null
 
-function Show-QuickStatus {
-    # Show compact status line at the top of the menu
-    # Cache MuMuManager info for 5 seconds to avoid lag on every menu render
-    $muVer = if ($InstalledVersion) { "$InstalledVersion" } else { 'unknown' }
-    # Which install we drive (Netease\MuMuPlayer, Netease1\MuMu, ...) - the
-    # whole menu talks to exactly one MuMuManager.exe, so it is always shown.
-    $installTag = if ($script:MumuInstallLabel) { " | $($script:MumuInstallLabel)" } else { '' }
-    $now = [datetime]::Now
-    if ($script:QuickStatusCache -and ($now - $script:QuickStatusTs).TotalSeconds -lt 5) {
-        $total = $script:QuickStatusCache.total
-        $running = $script:QuickStatusCache.running
-        $script:QuickStatusTs = $now
-        Write-Host "  v$scriptVer | MuMu $muVer$installTag | $running/$total running" -ForegroundColor DarkGray
-        return
-    }
+function Get-QuickStatusCounts {
+    # One MuMuManager `info -v all` round-trip -> @{ total; running }, or
+    # $null when the manager is missing/answers garbage. Never throws -
+    # the status line degrades to the version-only form.
     try {
         $info = & $MumuPath info -v all 2>$null | ConvertFrom-Json
         $total = 0; $running = 0
@@ -2856,10 +2846,94 @@ function Show-QuickStatus {
             $total++
             if ($info.$key.player_state -and $info.$key.player_state -notmatch 'stopped| shutting') { $running++ }
         }
-        $script:QuickStatusCache = @{ total = $total; running = $running }
-        $script:QuickStatusTs = $now
-        Write-Host "  v$scriptVer | MuMu $muVer$installTag | $running/$total running" -ForegroundColor DarkGray
+        return @{ total = $total; running = $running }
+    } catch { return $null }
+}
+
+function Start-QuickStatusRefresh {
+    # Kick a BACKGROUND MuMuManager query in a light in-process runspace.
+    # Start-Job would spawn a whole powershell.exe (slower than the query
+    # itself); [powershell]::Create runs in this process. Only ever one
+    # query is in flight ($script:QuickStatusPipe is the guard).
+    if ($script:QuickStatusPipe) { return }
+    try {
+        $ps = [powershell]::Create()
+        $null = $ps.AddScript({ param($exe) & $exe info -v all 2>$null | Out-String }).AddArgument("$MumuPath")
+        $script:QuickStatusPipe = @{ PS = $ps; Handle = $ps.BeginInvoke() }
     } catch {
+        # Background refresh is best-effort: the cache simply stays stale.
+        Write-Debug "quick-status refresh kick failed: $($_.Exception.Message)"
+        try { if ($ps) { $ps.Dispose() } } catch { }
+        $script:QuickStatusPipe = $null
+    }
+}
+
+function Update-QuickStatusCache {
+    # Adopt a COMPLETED background query into the cache. Returns $true
+    # when new data landed. Safe to call every render: it only ever reads
+    # the handle and no-ops while the query is still running.
+    $p = $script:QuickStatusPipe
+    if (-not $p) { return $false }
+    if (-not $p.Handle.IsCompleted) { return $false }
+    $script:QuickStatusPipe = $null
+    try {
+        $out = $p.PS.EndInvoke($p.Handle)
+        $text = (@($out) -join "`n").Trim()
+        if ($text) {
+            $info = $text | ConvertFrom-Json
+            $total = 0; $running = 0
+            foreach ($key in $info.PSObject.Properties.Name) {
+                $total++
+                if ($info.$key.player_state -and $info.$key.player_state -notmatch 'stopped| shutting') { $running++ }
+            }
+            $script:QuickStatusCache = @{ total = $total; running = $running }
+            $script:QuickStatusTs = [datetime]::Now
+            return $true
+        }
+    } catch {
+        Write-Debug "quick-status refresh failed: $($_.Exception.Message)"
+    } finally {
+        try { $p.PS.Dispose() } catch { }
+    }
+    return $false
+}
+
+function Show-QuickStatus {
+    # Compact status line at the top of the menu.
+    # NEVER blocks the redraw on MuMuManager (the after-action lag fix):
+    # - fresh cache        -> render instantly, no manager call at all;
+    # - stale cache        -> render last known values IMMEDIATELY and
+    #   refresh in the background (Start-QuickStatusRefresh), with a short
+    #   bounded wait (400 ms) so a healthy manager still lands truthfully
+    #   on this render; a slow manager costs at most 400 ms, not seconds;
+    # - no cache (startup) -> one synchronous query so the first line is
+    #   truthful (runs once per process, before any action has run).
+    # The timestamp advances only when data is actually fetched (the old
+    # code also bumped it on cache HITS, which slid the window and made
+    # the cache expire right after any action - the exact lag seen after
+    # [2]/[3]/[4]).
+    $muVer = if ($InstalledVersion) { "$InstalledVersion" } else { 'unknown' }
+    # Which install we drive (Netease\MuMuPlayer, Netease1\MuMu, ...) - the
+    # whole menu talks to exactly one MuMuManager.exe, so it is always shown.
+    $installTag = if ($script:MumuInstallLabel) { " | $($script:MumuInstallLabel)" } else { '' }
+    $null = Update-QuickStatusCache
+    if (-not $script:QuickStatusCache) {
+        $first = Get-QuickStatusCounts
+        if ($first) {
+            $script:QuickStatusCache = $first
+            $script:QuickStatusTs = [datetime]::Now
+        }
+    } elseif (([datetime]::Now - $script:QuickStatusTs).TotalSeconds -ge 12) {
+        Start-QuickStatusRefresh
+        $deadline = [datetime]::Now.AddMilliseconds(400)
+        while ($script:QuickStatusPipe -and [datetime]::Now -lt $deadline) {
+            Start-Sleep -Milliseconds 25
+            if ($null = Update-QuickStatusCache) { break }
+        }
+    }
+    if ($script:QuickStatusCache) {
+        Write-Host ("  v$scriptVer | MuMu $muVer$installTag | {0}/{1} running" -f $script:QuickStatusCache.running, $script:QuickStatusCache.total) -ForegroundColor DarkGray
+    } else {
         Write-Host "  v$scriptVer | MuMu $muVer$installTag" -ForegroundColor DarkGray
     }
 }
