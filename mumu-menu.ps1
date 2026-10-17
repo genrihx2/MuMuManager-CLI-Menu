@@ -224,6 +224,9 @@ function ConvertFrom-SecureToken {
     finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
 }
 
+# =========================================================================
+# Менеджер GitHub-токена — чтение (DPAPI-шифрование)
+# =========================================================================
 function Get-GitHubToken {
     if (Test-Path -LiteralPath $DpapiTokenFile -PathType Leaf) {
         try {
@@ -232,6 +235,10 @@ function Get-GitHubToken {
             return (ConvertFrom-SecureToken $sec)
         } catch {
             Write-Warning "Cannot decrypt $DpapiTokenFile (moved between machines/users?). Re-save the token via menu option [K]."
+            # NOTE: the DPAPI blob is user/machine-scoped and not portable by hand. If the
+            # stored .github-token.dpapi becomes unreadable (e.g. moved between machines/users
+            # or corrupted), do not hand-edit or try to decrypt it outside the script; re-save
+            # the token via menu [K] so it is recreated through this code path.
             return ''
         }
     }
@@ -267,6 +274,10 @@ function Initialize-TokenStorage {
         Write-Warning "Could not migrate token to encrypted storage: $($_.Exception.Message)"
         Write-Warning 'The plaintext .github-token file was left untouched. Re-save via menu option [K].'
     }
+    # NOTE: the DPAPI blob is user/machine-scoped and not portable by hand. If the
+    # stored .github-token.dpapi becomes unreadable (e.g. moved between machines/users
+    # or corrupted), do not hand-edit or try to decrypt it outside the script; re-save
+    # the token via menu [K] so it is recreated through this code path.
 }
 
 $scriptVer = '10.0.0'
@@ -6567,6 +6578,10 @@ function Update-Token {
         # Sigma FP: "Unsigned Image Loaded Into LSASS" - This is NOT LSASS injection.
         # Uses standard .NET DPAPI via ConvertFrom-SecureString (ProtectedData CurrentUser scope).
         # No DLL/EXE loads into LSASS, no process injection. Credential is per-user encrypted.
+        # NOTE: the DPAPI blob is user/machine-scoped and not portable by hand. If the
+        # stored .github-token.dpapi becomes unreadable (e.g. moved between machines/users
+        # or corrupted), do not hand-edit or try to decrypt it outside the script; re-save
+        # the token via menu [K] so it is recreated through this code path.
         # Script is Authenticode-signed after [CRT] (see Get-AuthenticodeSignature).
         ConvertFrom-SecureString -SecureString $sec |
             Set-Content -LiteralPath $DpapiTokenFile -Force
