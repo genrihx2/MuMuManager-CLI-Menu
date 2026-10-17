@@ -261,6 +261,7 @@ irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-me
   [RM] Resource monitor (CPU/RAM, live)
   [IN] MuMu installation (choose active)
   [V] Version info
+  [MU] MuMu emulator update check (read-only)
   [U] Check for updates
   [UP] Update plan (dry-run)
   [F] Verify installation (files vs release tag)
