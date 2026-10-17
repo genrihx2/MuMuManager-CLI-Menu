@@ -1,55 +1,49 @@
 # CodeRabbit configuration for MuMuManager CLI Menu
-# This repo is mostly PowerShell scripts + automation workflows, so the defaults
+# This repo is mostly PowerShell scripts + automation workflows, so the settings
 # below focus on code review ergonomics rather than a generic web-app template.
+#
+# Validated against the published schema: https://coderabbit.ai/integrations/schema.v2.json
+# (an older revision of this file contained keys that never existed in the
+# schema - language: [..], analysis, reviews.request_body/pull_request/
+# language_specific/review_reply/summary - so the whole file was silently
+# ignored and UI settings/defaults won instead. Run @coderabbitai configuration
+# on a PR to see the resolved config and which source each value came from.)
+#
+# Priority: org/workspace global overrides > this file > central config >
+# repository UI settings > org UI settings > defaults.
 
-language:
-  - name: powershell
-    ignored_files:
-      # ZIP/tarballs are not source and are noisy in diffs.
-      - '*.zip'
-      - '*.tar.gz'
-
-analysis:
-  keyword_hints:
-    # These are normal local emulator-management operations, not secret hunting.
-    - 'MuMuManager.exe'
-    - 'adb --vmindex'
-    - 'ADP API'
+language: en-US   # reviews in English; the repo docs themselves are EN/RU
 
 reviews:
-  request_body:
-    # Keep reviews scoped to what matters for this repo: logic, security in
-    # token/storage/DPAPI handling, and file/encoding pitfalls.
-    focus:
-      - logic
-      - security
-      - performance
+  # ZIP/tarballs (release bundles) are not source and are noisy in diffs.
+  path_filters:
+    - '!**/*.zip'
+    - '!**/*.tar.gz'
 
-  pull_request:
-    comment_on:
-      - start
-      - review_hours: 1
-    auto_review:
-      enabled: true
-      always: true
-    review_groups:
-      default:
-        developer:
-          focus: concise
+  profile: chill   # balanced feedback: important issues inline, no nitpicks
 
-  language_specific:
-    powershell:
-      lint_tool: PSScriptAnalyzer
-      enable: true
+  # Keep reviews scoped to what matters for this repo: logic, security in
+  # token/storage/DPAPI handling, and file/encoding pitfalls.
+  path_instructions:
+    - path: 'mumu-menu.ps1'
+      instructions: |
+        Focus on logic and security: token/storage/DPAPI handling, update and
+        download integrity (hash/structure checks, tagged GitHub Releases only),
+        console/encoding pitfalls, and PowerShell 5.1 compatibility.
+    - path: 'bootstrap-update.ps1'
+      instructions: |
+        Focus on the self-update path: downloads from tagged GitHub Releases of
+        this repository only, SHA-256 verification, backup/restore semantics,
+        and PowerShell 5.1 compatibility.
+    - path: 'archil-token.ps1'
+      instructions: |
+        Focus on DPAPI token storage correctness: no plaintext secrets on disk,
+        correct store/rotate/remove behavior.
 
-  review_reply:
+  auto_review:
     enabled: true
-    keyword_reply:
-      "**Resolver todos los comentarios y aprobar esta PR para continuar con el merge" : >
-        This project's primary language is PowerShell. If a review comment
-        needs a response, reply in English or Russian.
+    incremental: true   # re-run on each push
 
-  summary:
-    enabled: true
-    include_style_guide_compliance: true
-    concise: true
+# Note: this project lints PowerShell with PSScriptAnalyzer in CI
+# (.github/workflows/security-scan.yml); CodeRabbit has no PSScriptAnalyzer
+# integration of its own, so its built-in review tools stay at defaults.
