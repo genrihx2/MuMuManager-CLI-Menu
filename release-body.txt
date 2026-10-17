@@ -1,0 +1,43 @@
+## MuMuManager CLI Menu v10.0.0
+
+Интерактивное PowerShell-меню для управления MuMu Emulator через `MuMuManager.exe`.
+
+### Что нового
+
+- Major release: semantic-version bump to `v10.0.0` to mark a stable, production-ready milestone and unify public-facing versioning.
+- Documentation and release notes reorganized for clarity (relnotes.md and README.md).
+- No behavioral changes to the runtime scripts in this commit — this release primarily records the versioning milestone and documentation cleanups.
+- Pester suite: 261/261 passing.
+
+**EN summary (v10.0.0):** Production-ready milestone at v10.0.0 with synchronized version markers across `mumu-menu.ps1`, `.version`, `relnotes.md` and `README.md`. Pester suite: 261/261 passing.
+
+### Установка
+
+**Быстрый запуск** (одна команда):
+```powershell
+irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-menu.ps1 -OutFile $env:TEMP\mumu-menu.ps1; & $env:TEMP\mumu-menu.ps1
+```
+
+**Git clone** (с автообновлением через `[U]`):
+```powershell
+git clone https://github.com/genrihx2/MuMuManager-CLI-Menu.git
+cd MuMuManager-CLI-Menu
+.\mumu-menu.ps1
+```
+
+### Верификация
+```powershell
+curl -sL https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/download/v10.0.0/MuMuManager-CLI-Menu-v10.0.0.zip.sha256 -o MuMuManager-CLI-Menu-v10.0.0.zip.sha256
+Get-FileHash MuMuManager-CLI-Menu-v10.0.0.zip -Algorithm SHA256 | Select -Expand Hash
+# Сравнить с содержимым MuMuManager-CLI-Menu-v10.0.0.zip.sha256
+```
+
+### Метрики
+
+| | |
+|---|---|
+| Размер ZIP | 160 KB |
+| Файлов | 8 |
+| SHA256 | `3a1f0fb57c1ddf44abe0cacfcbe15dd26919621d869ebfb7f3e25ec2626d509d` |
+
+**Требования:** Windows 10/11 · PowerShell 5.1+ · MuMu Emulator 6.x
