@@ -1,6 +1,14 @@
 # PowerShell
 *.ps1xml
 
+# Node (Archil disk SDK integration)
+node_modules/
+
+# Local environment files (Archil API key, region, disk id)
+.env
+.env.local
+.env.*.local
+
 # GitHub token
 .github-token
 .github-token.dpapi
@@ -26,6 +34,9 @@ Desktop.ini
 # Instance data backups (large files)
 backups/
 backup/
+
+# Archil experiment generated release artifact (machine-readable bundle notes)
+archil/release-notes.json
 
 # Temp update/sign files
 *.old

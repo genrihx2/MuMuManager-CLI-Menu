@@ -1,0 +1,27 @@
+{
+  "name": "@mumu-manager/archil-experiment",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Experimental Archil disk persistence integration next to the MuMuManager CLI Menu repo",
+  "main": "../archil-storage.mjs",
+  "files": [
+    "../archil-storage.mjs",
+    "../check-archil-persistence.mjs",
+    "../archil-token.ps1",
+    "package.json",
+    "README.md"
+  ],
+  "scripts": {
+    "check:archil": "node --check ../archil-storage.mjs && node --check ../check-archil-persistence.mjs",
+    "token:test": "pwsh -NoProfile -NoLogo -File archil-token.ps1 -Command if (Get-Command Test-ArchilTokenModule -ErrorAction SilentlyContinue) { $s = Test-ArchilTokenModule; if (-not $s[0]) { exit 1 } }",
+    "release:notes": "node archil/release-notes.cjs"
+  },
+  "keywords": [
+    "archil",
+    "disk",
+    "experiment",
+    "mumu-manager"
+  ],
+  "license": "MIT"
+}
