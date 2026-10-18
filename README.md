@@ -42,6 +42,8 @@
 
 Для полного списка функций и опций см. SKILL.md или запустите меню.
 
+- 📥 Offline-инсталляторы: пункт `[OI]` показывает все текущие официальные сборки (Windows .exe, macOS .dmg, Android APK) прямо из CDN NetEase — с именем файла, размером и бейджем целостности, когда заголовки его отдают. Без скачивания, только список. Источник: https://www.mumuplayer.com/ 
+
 ## Требования
 
 - Windows 10/11
@@ -145,6 +147,17 @@ irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-me
 
 ## Что нового
 
+### v10.2.0 (18.10.2026)
+
+- New: `[OI]` — offline installer listing (all platforms): the current official Windows `.exe`, macOS `.dmg` and Android APK variants resolved from the official release page and the telemetry-free CDN alias, with filename, size and an integrity badge when the CDN exposes it. Read-only, downloads nothing.
+- New: `[F]` auto-repairs the installation — when the integrity check reports DRIFT/MISSING files it offers to restore exactly those files from the pinned release commit (backup first, SHA-256-verified bytes, file-set whitelist, journaled `repair-ok`/`repair-fail`); the running script is staged as `mumu-menu.ps1.new` and applied at the next start (same contract as `[U]`).
+- Fixed: bootstrap-update.ps1 no longer redirects native stderr (`2>$null` is a terminating error under PowerShell 5.1 with `$ErrorActionPreference='Stop'`), and a rejected GitHub token is now actually detected — `--fail` suppresses the error body, so both API helpers retry once anonymously and disable the token for the run with a re-save hint.
+- Fixed: the release page's verification snippet works on Windows PowerShell 5.1 — the generator emits `curl.exe` (bare `curl` is an `Invoke-WebRequest` alias there and rejects `-sL`/`-o`) and the snippet downloads both artifacts and compares the hashes itself instead of asking the reader to compare by eye.
+- Exit-code hygiene: the script ends with an explicit `exit 0`.
+- Pester suite: 270/270 passed.
+
+**EN summary (v10.2.0):** Offline-installer listing `[OI]`, `[F]` installation auto-repair from the pinned release, updater hardening (native stderr, rejected-token fallback) and a PowerShell 5.1-safe release verification snippet. Pester 270/270.
+
 ### v10.1.0 (17.10.2026)
 
 - New: `[MU]` — read-only MuMu emulator update check (installed version vs the latest official release; nothing is downloaded).
@@ -167,6 +180,7 @@ irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-me
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v10.2.0 | 18.10.2026 | New [OI] offline installers, [F] installation auto-repair, updater hardening (stderr/token fallback), PS 5.1-safe verification snippet |
 | v10.1.0 | 17.10.2026 | New [MU] MuMu emulator update check, window-close guards (Ctrl+C / errors / EOF), schema-valid CodeRabbit config |
 | v10.0.0 | 14.10.2026 | Major release: semantic-version bump to v10.0.0, documentation reorganized, Pester 260/261 |
 
@@ -262,6 +276,7 @@ irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-me
   [IN] MuMu installation (choose active)
   [V] Version info
   [MU] MuMu emulator update check (read-only)
+  [OI] Offline installers (all versions, read-only)
   [U] Check for updates
   [UP] Update plan (dry-run)
   [F] Verify installation (files vs release tag)

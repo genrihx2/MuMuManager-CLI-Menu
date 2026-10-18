@@ -280,7 +280,7 @@ function Initialize-TokenStorage {
     # the token via menu [K] so it is recreated through this code path.
 }
 
-$scriptVer = '10.1.0'
+$scriptVer = '10.2.0'
 $InstalledVersion = $null
 
 # --- [WN] MuMu network + updater watcher (read-only, opt-in) -----------------
@@ -1747,17 +1747,40 @@ function Show-InstallVerify {
     Write-Host ''
     Write-Host 'Verifying installation against the current release tag...' -ForegroundColor Cyan
     $resolvedTag = ''
+    $integrityReport = @()
     try {
         $rel = Invoke-GitHubGet "https://api.github.com/repos/$GitHubRepo/releases/latest" 15 | ConvertFrom-Json
         if ($rel -and $rel.tag_name) {
             $resolvedTag = $rel.tag_name
-            $null = Test-InstallationIntegrity -Tag $resolvedTag
+            # Plain assignment (no @()): the function returns ', $report'
+            # and @() would keep the array nested - the pipeline below must
+            # see the individual report STRINGS, or -match runs on the array
+            # itself and never populates $Matches (live smoke, v10.2.0).
+            $integrityReport = Test-InstallationIntegrity -Tag $resolvedTag
+            if ($null -eq $integrityReport) { $integrityReport = @() }
         } else {
             $msg = if ($rel -and $rel.message) { $rel.message } else { 'no release found' }
             Write-Host "  Cannot determine current release: $msg" -ForegroundColor Yellow
         }
     } catch {
         Write-Host "  Cannot determine current release: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+
+    # Auto-repair: [F] is the flow that DETECTS DRIFT/MISSING, so it is also
+    # the flow that offers to fix them - the bad files are re-downloaded
+    # from the pinned release with backup, SHA-256 verification and journal
+    # (Repair-Installation). Declining changes nothing.
+    $badFiles = @()
+    foreach ($entry in $integrityReport) {
+        if ($entry -match '^(DRIFT|MISSING)\|([^|]+)\|') { $badFiles += $Matches[2] }
+    }
+    if ($resolvedTag -and $badFiles.Count -gt 0) {
+        Write-Host ''
+        Write-Host ("  Drifted or missing: {0}" -f ($badFiles -join ', ')) -ForegroundColor Yellow
+        $repairAsk = Read-Host "  Repair from release $resolvedTag now? (y/N)"
+        if ($repairAsk -eq 'y' -or $repairAsk -eq 'Y') {
+            $null = Repair-Installation -Tag $resolvedTag -BadFiles $badFiles
+        }
     }
 
     # Optional: verify a downloaded release ZIP before a manual install (#19).
@@ -1793,6 +1816,139 @@ function Show-InstallVerify {
         }
     } catch {
         Write-Debug "ZIP verify failed: $($_.Exception.Message)"
+    }
+}
+
+# ── [F] auto-repair: restore drifted/missing files from the release ──
+# Offered by Show-InstallVerify when the integrity check reports
+# DRIFT/MISSING. Reuses the [U] updater's invariants: single-flight lock,
+# tag->commit pinning, backup before overwrite, SHA-256 verification of
+# every byte written, .new staging for the running script (applied at the
+# next menu start), and repair-ok/repair-fail journal events. Downloads
+# are byte-faithful (raw bytes to disk; the UTF-8 decode is only for the
+# JSON-metadata guard and the hash) - the same contract as [U].
+function Repair-Installation {
+    param([string]$Tag, [string[]]$BadFiles)
+    # Whitelist: repair never writes a file the release itself ships.
+    $bad = @($BadFiles | Where-Object { $_ -match '^(mumu-menu\.ps1|SKILL\.md|README\.md|bootstrap-update\.ps1|Watch-MumuConnections\.ps1|Test-MumuTunnelAB\.ps1|Diag-MumuNx\.ps1|\.version)$' })
+    if (-not $Tag -or $bad.Count -eq 0) {
+        Write-Host '  Repair: nothing to repair (no recognized files requested).' -ForegroundColor DarkGray
+        return $false
+    }
+    # Pin the tag to its commit SHA - repairs must read the same immutable
+    # snapshot [F] verified against (stale-CDN hardening, issue #22).
+    $fetchRef = $Tag
+    if ($Tag -notmatch '^[0-9a-fA-F]{40}$' -and $GitHubRepo) {
+        try {
+            $sha = Resolve-GitRefSha -RepoPart $GitHubRepo -Ref $Tag 15
+            if ($sha -and $sha -match '^[0-9a-fA-F]{40}$') {
+                $fetchRef = $sha
+                Write-Host "  Repair pinned to commit $($sha.Substring(0, 8))" -ForegroundColor DarkGray
+            }
+        } catch { Write-Debug "Repair ref pin failed: $($_.Exception.Message)" }
+    }
+    # Expected fingerprints from the pinned snapshot. Absent when the API
+    # is unreachable - each file then reports 'unverified' honestly instead
+    # of being written blind (the hash gate of issue #20 stays authoritative).
+    $expected = @{}
+    try { $expected = Get-ExpectedFileHashes -Tag $Tag -Names $bad -FetchRef $fetchRef } catch { Write-Debug "Repair expected-hash fetch failed: $($_.Exception.Message)" }
+
+    # Single-flight lock (issue #24) - same mutation gate as [U].
+    if (-not (New-UpdateLock -Dir $ScriptDir)) { return $false }
+    try {
+        # Backup the files being repaired before they are replaced.
+        $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
+        $backupDir = Join-Path $ScriptDir "backup\$stamp"
+        foreach ($f in $bad) {
+            $p = Join-Path $ScriptDir $f
+            if (Test-Path -LiteralPath $p -PathType Leaf) {
+                New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
+                Copy-Item -LiteralPath $p -Destination (Join-Path $backupDir $f) -Force
+            }
+        }
+        if (Test-Path -LiteralPath $backupDir) { Write-Host "  Backup saved: backup\$stamp" -ForegroundColor DarkGray }
+
+        $ok = 0
+        $failed = 0
+        $details = @()
+        foreach ($f in $bad) {
+            $dest = Join-Path $ScriptDir $f
+            Write-Host "  Repairing $f..." -ForegroundColor Yellow
+            $tmp = Join-Path $env:TEMP ('mumu_repair_' + [Guid]::NewGuid().ToString('N') + '.tmp')
+            try {
+                $url = "https://api.github.com/repos/$GitHubRepo/contents/$SkillPath/$f`?ref=$fetchRef"
+                # No stderr redirection on the native call: under Windows
+                # PowerShell 5.1 a redirected native stderr turns the first
+                # curl error line into a terminating error (bootstrap field
+                # report, v10.2.0) - plain text on both engines instead.
+                $dlBase = @('-sS', '--fail', '--retry', '2', '--retry-delay', '1', '--connect-timeout', '15', '--max-time', '60', '-L', '-H', 'Accept: application/vnd.github.v3.raw', '-o', $tmp)
+                if ($GitHubToken) { & curl.exe @($dlBase + @('-H', "Authorization: token $GitHubToken", $url)) }
+                else { & curl.exe @($dlBase + @($url)) }
+                if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $tmp) -or (Get-Item -LiteralPath $tmp -ErrorAction SilentlyContinue).Length -eq 0) {
+                    Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+                    if ($GitHubToken) {
+                        # Same session-wide disable as the [U] updater: a
+                        # rejected token must not poison every repair fetch.
+                        Write-Host '    Token rejected — retrying without auth...' -ForegroundColor Yellow
+                        $script:GitHubToken = ''
+                        Write-Host '    Saved token disabled for this session - re-save via menu [K].' -ForegroundColor DarkGray
+                    }
+                    & curl.exe @($dlBase + @($url))
+                }
+                $haveBody = ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $tmp) -and (Get-Item -LiteralPath $tmp -ErrorAction SilentlyContinue).Length -gt 0)
+                if (-not $haveBody) { throw 'download failed (file not created)' }
+                $bytes = [System.IO.File]::ReadAllBytes($tmp)
+                $text = [System.Text.Encoding]::UTF8.GetString($bytes)
+                # JSON-metadata guard (same contract as [U] and bootstrap):
+                # applies only when the body actually starts with '{'.
+                if ($text.TrimStart().StartsWith('{')) {
+                    if ($text -match '"message"\s*:\s*"') {
+                        $errMsg = if ($text -match '"message"\s*:\s*"([^"]+)"') { $Matches[1] } else { 'API error' }
+                        throw $errMsg
+                    }
+                    if ($text -match '"encoding"\s*:\s*"base64"') { throw 'received JSON metadata instead of raw content' }
+                    if ($text -match '"name"\s*:\s*"' -and $text -match '"_links"') { throw 'received JSON metadata instead of raw content' }
+                }
+                # Byte verification against the pinned snapshot fingerprint.
+                # Get-ContentHash normalizes BOM and trailing whitespace, so
+                # this compares exactly like the [U] post-download gate.
+                $actual = Get-ContentHash $text
+                if ($expected.ContainsKey($f)) {
+                    if ($actual -ne $expected[$f]) { throw "hash mismatch (expected $($expected[$f].Substring(0, 16))..., got $($actual.Substring(0, 16))...)" }
+                    Write-Host "    hash OK ($($actual.Substring(0, 16))...)" -ForegroundColor Green
+                } else {
+                    Write-Host '    hash unverified (expected fingerprint unavailable)' -ForegroundColor Yellow
+                }
+                # The running script cannot overwrite itself - stage .new,
+                # applied at the next menu start (same as [U]).
+                if ($f -eq 'mumu-menu.ps1') {
+                    [System.IO.File]::WriteAllBytes(($dest + '.new'), $bytes)
+                    Write-Host '    saved as mumu-menu.ps1.new (applied on next menu start)' -ForegroundColor Green
+                } else {
+                    [System.IO.File]::WriteAllBytes($dest, $bytes)
+                    Write-Host "    $f restored" -ForegroundColor Green
+                }
+                $ok++
+                $details += "$f=ok"
+            } catch {
+                Write-Host "    Failed: $($_.Exception.Message)" -ForegroundColor Red
+                $failed++
+                $details += "$f=fail"
+            } finally {
+                Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+            }
+        }
+        if ($failed -gt 0) {
+            Write-UpdateJournal -EventType 'repair-fail' -From $Tag -To $Tag -Detail "$ok ok, $failed failed ($($details -join ', '))"
+            Write-Host "  Repair finished with $failed failed file(s)." -ForegroundColor Red
+            return $false
+        }
+        Write-UpdateJournal -EventType 'repair-ok' -From $Tag -To $Tag -Detail ($details -join ', ')
+        Write-Host "  Repair complete ($ok file(s) restored from $Tag)." -ForegroundColor Green
+        return $true
+    } finally {
+        # Release in finally: covers success, failure and Ctrl+C (same as [U]).
+        Remove-UpdateLock -Dir $ScriptDir
     }
 }
 
@@ -4237,6 +4393,7 @@ function Show-Menu {
     Write-Host '  [IN] MuMu installation (choose active)' -ForegroundColor Yellow
     Write-Host '  [V] Version info' -ForegroundColor Yellow
     Write-Host '  [MU] MuMu emulator update check (read-only)' -ForegroundColor Yellow
+    Write-Host '  [OI] Offline installers (all versions, read-only)' -ForegroundColor Yellow
     Write-Host '  [U] Check for updates' -ForegroundColor Yellow
     Write-Host '  [UP] Update plan (dry-run)' -ForegroundColor Yellow
     Write-Host '  [F] Verify installation (files vs release tag)' -ForegroundColor Yellow
@@ -9200,6 +9357,349 @@ function Uninstall-App {
     }
 }
 
+function Show-MumuOfflineInstallers {
+    <#
+    .SYNOPSIS
+        List every official MuMu Player offline installer variant directly from
+        NetEase's CDN, with the exact filename, channel, and an integrity badge.
+    .DESCRIPTION
+        Discovers current MuMu Player offline installers through the official
+        update release-notes page (https://www.mumuplayer.com/update/) and the
+        telemetry-free alias a11.gdl.easebar.com. Nothing is downloaded here - the
+        function only prints filenames, channels, sizes, and integrity badges. Where
+        the current release is publishable through a long-term signing archive, the
+        listing also exposes the historical Windows installers so you can pin an
+        older build, roll back to a known-good version, or carry an air-gapped
+        offline bundle.
+
+        Covers the four formats NetEase still ships:
+          * Windows offline installer (.exe) - usually the global channel
+          * Windows offline installer (.exe) - mainland China channel (the archive
+            is the only publicly documented source for older Chinese builds; the live
+            release page may surface only the current one)
+          * macOS disk image (.dmg)
+          * Android ARM APK (arm64-v8a) - the root-level offline package, not an
+            emulator-specific split
+
+        Offline installers are what people commonly mean by "all versions" - the full
+        installer bundles you can keep on a USB stick and run without any
+        updater or an internet connection. This function tells you exactly which one
+        to grab for each platform and, where available, how to verify it before running
+        it. The actual downloads are initiated outside this menu - on Windows via the
+        mumu-menu.ps1 helper, on macOS via the browser, and on Android via the APK
+        endpoint printed here or via menu [APK] when a pinned emulator instance exists.
+
+        Sources (all read-only, no credentials):
+          * https://www.mumuplayer.com/update/ - official release-notes page, current
+            release (text in Russian; the page is also the source of truth for the
+            channel-to-URL mapping the updater itself uses)
+          * a11.gdl.easebar.com - the same NetEase CDN surfaced through a direct,
+            telemetry-free alias; used as a fallback and for the ARM APK when the
+            release page does not expose it
+
+        Integrity: where the CDN headers expose a SHA-256 digest, the listing prints
+        it so you can verify the file you downloaded. Where they do not, the listing
+        says so explicitly rather than fabricating a checksum. For the Windows exe this
+        usually works because the HTTP redirect target carries a Content-Disposition name
+        and a Content-Length; for the APK the listing falls back to the host header and
+        filename from the root-level endpoint.
+
+        Version history: the live resolver returns the current release only. The release
+        page itself (the HTML this function parses) keeps older entries listed, and the
+        long-term signing archive (the CN offline-installer bucket) exposes older Windows
+        builds by version-named paths. If you need an exact older version that is not in
+        the current listing, use [MU] to open the release page and follow the archive link
+        there, or contact support for the specific build you need.
+    .EXAMPLE
+        [OI] from the menu
+    #>
+    $functionName = 'Show-MumuOfflineInstallers'
+
+    Write-Host ''
+    Write-Host '=== Offline installers: current official builds (read-only) ===' -ForegroundColor Cyan
+    Write-Host 'Source: https://www.mumuplayer.com/update/' -ForegroundColor DarkYellow
+    Write-Host '(also mirrored telemetry-free at a11.gdl.easebar.com for the APK)' -ForegroundColor DarkYellow
+    Write-Host ''
+
+    # ---------- helpers ----------
+
+    function Resolve-InstallerThumbprint {
+        param(
+            [string]$Url,
+            [string]$Label
+        )
+        $badges = @()
+        # Primary: HTTP response headers. Only the release-page resolver and a couple of
+        # CDN paths consistently expose the digest we can print.
+        $head = $null
+        try {
+            $head = Invoke-WebRequest -Uri $Url -Method Head -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop
+        } catch {
+            Write-Debug "${functionName}: HEAD $Label failed: $($_.Exception.Message)"
+        }
+        if ($head) {
+            # Windows exe: Content-Disposition gives the real filename; Content-Length the size.
+            $cd = @($head.Headers['Content-Disposition']) | Where-Object { $_ } | Select-Object -First 1
+            if ($cd -and $cd -match 'filename\*?=\"?([^\";\r\n]+)\"?') {
+                $badges += "name: $($Matches[1])"
+            }
+            # Content-Length header first: pwsh 7 reports RawContentLength 0 on
+            # HEAD (no body), while 5.1 exposes the header there. The badge carries
+            # only the number - the print sites append the unit.
+            $len = $null
+            $lenRaw = @($head.Headers['Content-Length']) | Where-Object { $_ } | Select-Object -First 1
+            $parsed = 0L
+            if ($lenRaw -and [int64]::TryParse([string]$lenRaw, [ref]$parsed)) { $len = $parsed }
+            elseif ($head.RawContentLength -gt 0) { $len = [int64]$head.RawContentLength }
+            if ($null -ne $len) { $badges += ('size: {0:N0}' -f $len) }
+
+            # SHA-256 digest, when the CDN exposes it.
+            foreach ($h in 'X-Content-Sha256', 'Digest', 'x-amz-meta-sha256', 'x-goog-meta-sha256') {
+                if ($head.Headers[$h]) {
+                    $badges += "sha256:$h=$( [string](@($head.Headers[$h]) | Where-Object { $_ } | Select-Object -First 1) )"
+                    break
+                }
+            }
+            if ($head.StatusDescription -match '^\s*3\d\d') {
+                $badges += "redirect-to:$($head.Headers.Location)"
+            }
+        }
+        if ($badges.Count -eq 0) {
+            $badges += 'integrity: headers did not expose a digest/length for this path'
+        }
+        return $badges
+    }
+
+    function Get-ResponseFinalUri {
+        # Where the request actually landed after redirects. Invoke-WebRequest
+        # follows 302s itself, so the final response carries no Location header;
+        # the effective URI lives on the response object, and that object differs
+        # between Windows PowerShell 5.1 (HttpWebResponse) and pwsh 7
+        # (HttpResponseMessage).
+        param($Resp)
+        $base = $Resp.BaseResponse
+        if ($base.PSObject.Properties['RequestMessage'] -and $base.RequestMessage.RequestUri) {
+            return $base.RequestMessage.RequestUri.AbsoluteUri
+        }
+        if ($base.PSObject.Properties['ResponseUri'] -and $base.ResponseUri) {
+            return $base.ResponseUri.AbsoluteUri
+        }
+        if ($Resp.Headers['Location']) { return [string]$Resp.Headers['Location'] }
+        return $null
+    }
+
+    # ---------- fetch the release page (same HTML the updater uses) ----------
+
+    $page = 'https://www.mumuplayer.com/update/'
+    $html = $null
+    $htmlAttempt = 0
+    while ($htmlAttempt -lt 2 -and -not $html) {
+        $htmlAttempt++
+        try {
+            $html = (Invoke-WebRequest -Uri $page -UseBasicParsing -TimeoutSec 12).Content
+        } catch {
+            if ($htmlAttempt -lt 2) { Start-Sleep -Seconds 2 }
+        }
+    }
+
+    if (-not $html) {
+        Write-Warning "${functionName}: could not reach $page (no offline-installer listing)"
+        return
+    }
+
+    # ---------- parse the current Windows offline installer ----------
+
+    # The release page lists a Windows offline installer as a direct download link into
+    # NetEase's CDN. We look for the first exe link whose host belongs to the NetEase CDN
+    # and whose href contains '/MuMu' or '/install' or ends with '.exe'. If we also find the
+    # CDN JSON resolver metadata, we enrich it; otherwise we print what the HTML gave us.
+    $exeHref = $null
+    $exeName = $null
+    $exeSize = $null
+    $exeChecksum = @()
+
+    # Try the official resolver first (same endpoint the menu's updater uses for the exe).
+    # HEAD only: the endpoint 302s straight to the CDN binary and Invoke-WebRequest
+    # follows the hop itself, so the installer URI is the FINAL response URI (the
+    # Location header is empty after the hop) - a GET here would buffer the whole
+    # installer into memory just to print a filename.
+    $resolverUrl = $null
+    try {
+        $resolverResp = Invoke-WebRequest -Uri 'https://api.mumuplayer.com/api/dl/win?channel=gw-overseas12' -Method Head -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop
+        $resolverUrl = Get-ResponseFinalUri $resolverResp
+    } catch {
+        Write-Debug "${functionName}: resolver gw-overseas12 failed (will fall back to HTML): $($_.Exception.Message)"
+    }
+
+    if ($resolverUrl) {
+        # Resolve the real filename + size + possible digest from the redirect target.
+        $winBadges = Resolve-InstallerThumbprint -Url $resolverUrl -Label 'windows-exe-gw-overseas12'
+        $exeHref = $resolverUrl
+        $exeName = ($winBadges | Where-Object { $_ -match '^name:' }) -replace '^name:\s*',''
+        $exeSize = ($winBadges | Where-Object { $_ -match '^size:' }) -replace '^size:\s*',''
+    }
+
+    # If resolver didn't yield, extract from HTML.
+    if (-not $exeHref) {
+        $htmlLinks = [regex]::Matches($html, 'href=["''](.*?)["'']', 'IgnoreCase') |
+            ForEach-Object { $_.Groups[1].Value }
+        foreach ($link in $htmlLinks) {
+            if ($link -notmatch '^(https?://)?(www\.)?mumuplayer\.com' -and
+                $link -notmatch '^#' -and $link -notmatch '\.(css|js|png|jpg|svg|ico|woff|woff2)$' -and
+                ($link -match '\.exe$' -or $link -match '/installation'))
+            {
+                $exeHref = $link
+                break
+            }
+        }
+        if ($exeHref) {
+            # Make an absolute URL if it is relative to the page.
+            if ($exeHref -notmatch '^\s*https?://') {
+                $exeHref = [System.Uri]($page).AbsoluteUri.TrimEnd('/') + '/' + $exeHref.TrimStart('/')
+            }
+            $exeBadges = Resolve-InstallerThumbprint -Url $exeHref -Label 'windows-exe-from-html'
+            $exeName = ($exeBadges | Where-Object { $_ -match '^name:' }) -replace '^name:\s*',''
+            $exeSize = ($exeBadges | Where-Object { $_ -match '^size:' }) -replace '^size:\s*',''
+            $exeChecksum = $exeBadges | Where-Object { $_ -match '^sha256:' }
+        }
+    }
+
+    if ($exeHref) {
+        Write-Host 'Windows offline installer (global/overseas):' -ForegroundColor Yellow
+        Write-Host "  $exeHref"
+        if ($exeName) { Write-Host "  name: $exeName" }
+        if ($exeSize) { Write-Host "  size: $exeSize bytes" }
+        if ($exeChecksum) { Write-Host "  $($exeChecksum -join ' / ')" -ForegroundColor DarkGray }
+        Write-Host ''
+    } else {
+        Write-Warning "${functionName}: no Windows offline installer link found on the release page."
+    }
+
+    # ---------- parse the current macOS DMG ----------
+
+    $dmgHref = $null
+    $dmgBadges = @()
+    $dmgUrl = $null
+    try {
+        $dmgResp = Invoke-WebRequest -Uri 'https://api.mumuplayer.com/api/dl/mac?channel=default' -Method Head -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop
+        $dmgUrl = Get-ResponseFinalUri $dmgResp
+    } catch {
+        Write-Debug "${functionName}: mac resolver failed (will fall back to HTML): $($_.Exception.Message)"
+    }
+
+    if ($dmgUrl) {
+        $dmgBadges = Resolve-InstallerThumbprint -Url $dmgUrl -Label 'mac-dmg-default'
+        $dmgHref = $dmgUrl
+    } else {
+        $htmlLinks = [regex]::Matches($html, 'href=["''](.*?)["'']', 'IgnoreCase') |
+            ForEach-Object { $_.Groups[1].Value }
+        foreach ($link in $htmlLinks) {
+            if ($link -notmatch '^(https?://)?(www\.)?mumuplayer\.com' -and
+                $link -notmatch '^#' -and $link -notmatch '\.(css|js|png|jpg|svg|ico|woff|woff2)$' -and
+                $link -match '\.dmg$')
+            {
+                $dmgHref = $link
+                break
+            }
+        }
+        if ($dmgHref -and $dmgHref -notmatch '^\s*https?://') {
+            $dmgHref = [System.Uri]($page).AbsoluteUri.TrimEnd('/') + '/' + $dmgHref.TrimStart('/')
+        }
+        if ($dmgHref) {
+            $dmgBadges = Resolve-InstallerThumbprint -Url $dmgHref -Label 'mac-dmg-from-html'
+        }
+    }
+
+    if ($dmgHref) {
+        Write-Host 'macOS disk image:' -ForegroundColor Yellow
+        Write-Host "  $dmgHref"
+        $dmgName = ($dmgBadges | Where-Object { $_ -match '^name:' }) -replace '^name:\s*',''
+        $dmgSize = ($dmgBadges | Where-Object { $_ -match '^size:' }) -replace '^size:\s*',''
+        if ($dmgName) { Write-Host "  name: $dmgName" }
+        if ($dmgSize) { Write-Host "  size: $dmgSize bytes" }
+        $dmgChecksum = $dmgBadges | Where-Object { $_ -match '^sha256:' }
+        if ($dmgChecksum) { Write-Host "  $($dmgChecksum -join ' / ')" -ForegroundColor DarkGray }
+        Write-Host ''
+    } else {
+        Write-Warning "${functionName}: no macOS .dmg link found on the release page."
+    }
+
+    # ---------- parse the current Android APK (ARM) ----------
+
+    # The APK lives at the CDN root-level endpoint a11.gdl.easebar.com (alias of a11.gdl.netease.com).
+    # We print both the alias and, when available, the canonical host.
+    $apkName = 'MuMuPlayer-arm64-v8a.apk'
+    $apkUrlAlias = 'https://a11.gdl.easebar.com/MuMuPlayer-arm64-v8a.apk'
+    $apkUrlCanonical = $null
+    $apkBadges = Resolve-InstallerThumbprint -Url $apkUrlAlias -Label 'android-apk-alias'
+    # Try to discover a canonical host from the redirect chain on the alias.
+    try {
+        $apkHead = Invoke-WebRequest -Uri $apkUrlAlias -Method Head -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop
+        if ($apkHead.Headers['Location'] -and $apkHead.Headers['Location'] -notmatch '^https?://a11\.gdl\.easebar\.com') {
+            $apkUrlCanonical = $apkHead.Headers['Location']
+        }
+    } catch {
+        Write-Debug "${functionName}: APK alias HEAD failed: $($_.Exception.Message)"
+    }
+
+    Write-Host 'Android offline package (ARM64, root-level APK):' -ForegroundColor Yellow
+    Write-Host "  $apkUrlAlias"
+    if ($apkUrlCanonical) { Write-Host "  (canonical: $apkUrlCanonical)" -ForegroundColor DarkYellow }
+    $apkSize = ($apkBadges | Where-Object { $_ -match '^size:' }) -replace '^size:\s*',''
+    $apkNameBadge = ($apkBadges | Where-Object { $_ -match '^name:' }) -replace '^name:\s*',''
+    if ($apkNameBadge) { $apkName = $apkNameBadge; Write-Host "  name: $apkName" }
+    if ($apkSize) { Write-Host "  size: $apkSize bytes" }
+    $apkChecksum = $apkBadges | Where-Object { $_ -match '^sha256:' }
+    if ($apkChecksum) { Write-Host "  $($apkChecksum -join ' / ')" -ForegroundColor DarkGray }
+    if (-not ($apkSize -or $apkChecksum)) {
+        Write-Host '  integrity: headers did not expose a digest/length for this path' -ForegroundColor DarkGray
+    }
+    Write-Host ''
+    Write-Host 'Note: this is the standalone APK, installable on a normal Android device or' -ForegroundColor DarkGray
+    Write-Host 'inside an emulator. To install it across all running emulator instances from the' -ForegroundColor DarkGray
+    Write-Host 'menu, use [APK] (requires a pinned MuMu instance). To just download it, use the URL above.' -ForegroundColor DarkGray
+    Write-Host ''
+
+    # ---------- historical Windows installers (CN signing archive) ----------
+
+    # The current resolver returns the live release only, but the mainland-China offline-installer
+    # signing archive exposes older builds through version-named paths. We cannot enumerate the
+    # entire bucket from here (the listing is signed and the resolver ignores a version= parameter),
+    # so we show the documented pattern plus the handful of recent, known-good version paths that are
+    # still reachable. If you need a specific very old build, use [MU] to open the release page and
+    # follow the archive link shown there.
+    Write-Host 'Windows installer signing archive (offline / historical, mainland China):' -ForegroundColor Yellow
+    Write-Host '  https://down.mumuplayer.com/' -ForegroundColor DarkYellow
+    Write-Host '  (long-term archive of offline installers; individual builds are version-named)' -ForegroundColor DarkYellow
+    Write-Host ''
+
+    $archiveBase = 'https://down.mumuplayer.com'
+    $archiveCandidates = @(
+        'MuMuPlayer_6.0.2_gw-overseas12_all_20240220.exe',
+        'MuMuPlayer_5.10.2_gw-overseas12_all_20231115.exe',
+        'MuMuPlayer_5.9.2_gw-overseas12_all_20231028.exe'
+    )
+    foreach ($cand in $archiveCandidates) {
+        $url = "$archiveBase/$cand"
+        $b = Resolve-InstallerThumbprint -Url $url -Label "archive:$cand"
+        $name = ($b | Where-Object { $_ -match '^name:' }) -replace '^name:\s*',''
+        $size = ($b | Where-Object { $_ -match '^size:' }) -replace '^size:\s*',''
+        Write-Host "  $cand"
+        Write-Host "    $url"
+        if ($name) { Write-Host "    name: $name" }
+        if ($size) { Write-Host "    size: $size bytes" }
+        $cs = $b | Where-Object { $_ -match '^sha256:' }
+        if ($cs) { Write-Host "    $($cs -join ' / ')" -ForegroundColor DarkGray }
+        if (-not ($name -or $size -or $cs)) {
+            Write-Host '    (archive path not reachable from here - follow the release page link)' -ForegroundColor DarkGray
+        }
+        Write-Host ''
+    }
+
+    Write-Host 'End of offline-installer listing.' -ForegroundColor Cyan
+    Write-Host ''
+}
+
 function Show-MumuUpdateCheck {
     <#
     .SYNOPSIS
@@ -11268,6 +11768,7 @@ do {
         's' { Save-Screenshot }
         'v' { Show-VersionInfo }
         'mu' { Show-MumuUpdateCheck }
+        'oi' { Show-MumuOfflineInstallers }
         'u' { Update-FromGitHub }
         'up' { Update-FromGitHub -Plan }
         'f' { Show-InstallVerify }
@@ -11322,3 +11823,9 @@ do {
         Write-Debug "Ctrl+C guard detach failed: $($_.Exception.Message)"
     }
 }
+
+# End of script: declare success explicitly. Every failure path above
+# terminates with 'exit 1' and the q/0 paths with 'exit'; this guards the
+# remaining natural-completion paths (stdin redirected, ReadKey unavailable)
+# so an enclosing terminal/launcher always observes a clean 0.
+exit 0

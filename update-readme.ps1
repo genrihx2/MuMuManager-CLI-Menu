@@ -34,6 +34,11 @@ $verMatch = [regex]::Match($script, "(?m)^\s*\`$scriptVer\s*=\s*'(\d+(?:\.\d+){1
 if (-not $verMatch.Success) { throw 'Cannot find a valid numeric "Script version" in mumu-menu.ps1' }
 $version = if ($verMatch.Groups[1].Success) { $verMatch.Groups[1].Value } else { $verMatch.Groups[2].Value }
 
+# 1b. Offline-installer line: README advertises [OI] only when the script
+#     actually implements Show-MumuOfflineInstallers.
+$oiInScript = $script -match 'function\s+Show-MumuOfflineInstallers\s*\{'
+$oiReadmeLine = "- 📥 Offline-инсталляторы: пункт `[OI]` показывает все текущие официальные сборки (Windows .exe, macOS .dmg, Android APK) прямо из CDN NetEase — с именем файла, размером и бейджем целостности, когда заголовки его отдают. Без скачивания, только список. Источник: https://www.mumuplayer.com/ "
+
 # 2. Extract menu lines from Show-Menu body (function boundaries must be unique)
 $startIdx = $script.IndexOf('function Show-Menu')
 $endIdx = $script.IndexOf('function Get-InstanceIndex')
@@ -64,10 +69,25 @@ if ($found.Count -ne 1) { throw "Expected exactly one MENU:AUTO block in README.
 $replacement = $menuStart + $newline + $block + $newline + $menuEnd
 $updated = [regex]::Replace($readme, $pattern, $replacement)
 
-# 3. Sync version in examples (digits-only replacement value)
+# 3. Sync the [OI] offline-installer blurb: insert before the '## Требования'
+# first heading if the script implements Show-MumuOfflineInstallers, otherwise
+# remove any existing blurb line so documentation tracks the code.
+$reqAnchor = '## Требования'
+$oiPat = '(?m)^\s*' + [regex]::Escape($oiReadmeLine) + '\s*$'
+if ($oiInScript) {
+    $updated = $updated -replace $oiPat, $oiReadmeLine
+    if ($updated -notmatch '(?m)^\s*' + [regex]::Escape($oiReadmeLine) + '\s*$') {
+        # Not yet present - insert just before the requirements heading.
+        $updated = $updated -replace '(?s)((' + [regex]::Escape($reqAnchor) + '))', ($oiReadmeLine + $newline + '$1')
+    }
+} else {
+    $updated = [regex]::Replace($updated, $oiPat, '')
+}
+
+# 4. Sync version in examples (digits-only replacement value)
 $updated = [regex]::Replace($updated, '(Script version:\s*)[\d\.]+', ('${1}' + $version))
 
-# 4. Write only if changed (idempotent)
+# 5. Write only if changed (idempotent)
 if ($updated -ne $readme) {
     [System.IO.File]::WriteAllText($readmePath, $updated, $utf8)
     Write-Host "README.md updated (version $version)" -ForegroundColor Green

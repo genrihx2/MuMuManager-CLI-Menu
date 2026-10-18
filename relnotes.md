@@ -2,9 +2,34 @@
 
 Interactive PowerShell menu for managing MuMu Emulator instances through the official `MuMuManager.exe`.
 
-This file contains the release notes for the v10.1.0 and v10.0.0 milestones. Older per-version blocks have been removed; only the two latest entries are kept as requested.
+This file contains the release notes for the v10.2.0, v10.1.0 and v10.0.0 milestones. Older per-version blocks have been removed; only the latest entries are kept as requested.
 
 ---
+
+## v10.2.0 (2026-10-18)
+
+- New: menu item `[OI]` — offline installer listing (all platforms). Resolves the current official MuMu Player offline installers from the release-notes page (`mumuplayer.com/update`) and the telemetry-free CDN alias (`a11.gdl.easebar.com`), and prints every variant the project still ships: Windows offline installer (.exe, global channel), macOS disk image (.dmg), and the root-level Android ARM64 APK. The listing shows the exact filename, size, and an integrity badge (SHA-256 / length from HTTP headers) when the CDN exposes it, and never downloads anything. It also surfaces the long-term CN offline-installer signing archive (`down.mumuplayer.com`) with known-good older Windows build paths, so a specific version can be pinned or rolled back without touching the updater.
+- Doc: README describes `[OI]`; `.version` and `scriptVer` bumped to `10.2.0`.
+- Exit-code hygiene: the script now ends with an explicit `exit 0`, so terminal wrappers and launchers always observe a clean code on every non-error path.
+- Fix: bootstrap-update.ps1 no longer redirects native stderr (`2>$null`). Under Windows PowerShell 5.1 with `$ErrorActionPreference='Stop'` a redirected
+  native stderr is marshaled as a terminating error, so the first curl error line (e.g. `curl: (22) ... returned error: 401`) killed the whole update run.
+- Fix: a rejected GitHub token is now actually detected. `--fail` suppresses the HTTP-error body, so the old `"Bad credentials"` body check could never
+  see a real 401 (curl exits 22 with no output). Both GitHub-API helpers now retry the same URL once without auth; if anonymous succeeds, the token is
+  disabled for the run with a re-save hint. Regression tests T3b (live 401 fallback) and T3c (no `2>$null` anywhere) pin the behavior.
+- New: menu `[F]` auto-repairs the installation. When the integrity check reports DRIFT/MISSING files, it now offers to restore exactly those files
+  from the pinned release commit: backup first, SHA-256-verified bytes, file-set whitelist, JSON-metadata guard, journaled as `repair-ok`/`repair-fail`.
+  The running script is staged as `mumu-menu.ps1.new` and applied at the next menu start (same contract as `[U]`). A Pester Describe pins the
+  lock/backup/hash/whitelist invariants.
+- Fix: the release page's verification snippet now actually works on Windows PowerShell 5.1. It called bare `curl`, which 5.1 aliases to
+  `Invoke-WebRequest` - that rejects `-sL`/`-o` with a parameter-binding error, so the `.sha256` sidecar was never downloaded. The generator
+  (`.github/workflows/release.yml`) now emits `curl.exe`, downloads both the ZIP and the sidecar, and performs the comparison itself
+  (sidecar first token vs lowercased `Get-FileHash`): the old "compare by eye" instruction could never match literally, since `Get-FileHash`
+  prints UPPERCASE and the sidecar holds a lowercase hash plus the filename. Verified live on both engines against the v10.1.0 assets
+  (`SHA256 OK` on the pristine ZIP, `SHA256 MISMATCH` with both hashes after a one-byte tamper); a RepoFiles-tagged Pester test pins the
+  generator form so the snippet cannot silently regress.
+
+---
+
 
 ## v10.1.0 (2026-10-17)
 

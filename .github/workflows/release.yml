@@ -398,9 +398,18 @@ jobs:
             echo ""
             echo "### Верификация"
             echo '```powershell'
-            echo "curl -sL https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${ZIPNAME}.sha256 -o ${ZIPNAME}.sha256"
-            echo "Get-FileHash ${ZIPNAME} -Algorithm SHA256 | Select -Expand Hash"
-            echo "# Сравнить с содержимым ${ZIPNAME}.sha256"
+            # curl.exe, not curl: Windows PowerShell 5.1 aliases curl to
+            # Invoke-WebRequest, so `curl -sL ... -o file` dies with a
+            # parameter-binding error and the sidecar never downloads.
+            # The comparison is done by the snippet itself: Get-FileHash
+            # prints UPPERCASE while the sidecar holds a lowercase hash plus
+            # the filename, so the old "compare by eye" instruction could
+            # never match literally.
+            echo "curl.exe -sL -o ${ZIPNAME} https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${ZIPNAME}"
+            echo "curl.exe -sL -o ${ZIPNAME}.sha256 https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${ZIPNAME}.sha256"
+            echo "\$expect = ((Get-Content ${ZIPNAME}.sha256 -Raw).Trim() -split '\s+')[0]"
+            echo "\$actual = (Get-FileHash ${ZIPNAME} -Algorithm SHA256).Hash.ToLower()"
+            echo "if (\$actual -eq \$expect) { 'SHA256 OK' } else { \"SHA256 MISMATCH: expected \$expect, got \$actual\" }"
             echo '```'
             echo ""
             echo "### Метрики"

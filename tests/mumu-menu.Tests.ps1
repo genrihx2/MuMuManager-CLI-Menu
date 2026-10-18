@@ -46,7 +46,7 @@ BeforeAll {
                         'Get-MuMuOrphanInstanceDirs',
                         'Get-AuthenticodeSignerName', 'Get-MuMuInstallDrift', 'Switch-MuMuActiveInstall',
                         'Resolve-MuMuInstall', 'Update-MumuInstallState',
-                        'Stop-Logcat')) {
+                        'Stop-Logcat', 'Show-MumuOfflineInstallers', 'Resolve-InstallerThumbprint')) {
         $f = $script:ast.FindAll({
             param($node)
             $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -532,12 +532,13 @@ Describe 'Saved-token rejection wiring (v1.22.43 regression guard)' {
         $code | Should -Not -Match '(?<!script:)\$token\s*=\s*\$null'
     }
 
-    It 'the menu disables the rejected token in all three fetch paths and says how to restore it' {
+    It 'the menu disables the rejected token in all four fetch paths and says how to restore it' {
         $src = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\mumu-menu.ps1'))
         # Invoke-GitHubGet fallback + [U]/[UP] download fallback + Invoke-GitHubApiGet guard
-        ([regex]::Matches($src, [regex]::Escape('$script:GitHubToken = '''''))).Count | Should -Be 3
-        ([regex]::Matches($src, [regex]::Escape('Token rejected — retrying without auth'))).Count | Should -Be 3
-        ([regex]::Matches($src, [regex]::Escape('re-save via menu [K]'))).Count | Should -Be 3
+        # + Repair-Installation's no-auth retry (v10.2.0 auto-repair).
+        ([regex]::Matches($src, [regex]::Escape('$script:GitHubToken = '''''))).Count | Should -Be 4
+        ([regex]::Matches($src, [regex]::Escape('Token rejected — retrying without auth'))).Count | Should -Be 4
+        ([regex]::Matches($src, [regex]::Escape('re-save via menu [K]'))).Count | Should -Be 4
     }
 }
 
@@ -1937,6 +1938,44 @@ Describe 'BOM hygiene (v1.22.11)' {
         # The README sync writer must not re-introduce a BOM.
         $sync = [System.IO.File]::ReadAllText((Join-Path $root 'update-readme.ps1'))
         ($sync -match 'UTF8Encoding\]::new\(\$true\)') | Should -Be $false
+    }
+}
+
+Describe 'Release-notes verification snippet (v10.2.0)' {
+
+    # Tagged RepoFiles: reads the workflow that GENERATES the published
+    # release body - a deployed install never carries .github/. The snippet
+    # the release page publishes must run on Windows PowerShell 5.1, where
+    # `curl` is an alias for Invoke-WebRequest: the old bare `curl -sL ... -o`
+    # died with a parameter-binding error, so the .sha256 sidecar was never
+    # downloaded and the whole verification section was dead on arrival.
+    It 'the generator emits curl.exe (not the PS 5.1 curl alias) and compares hashes itself' -Tag 'RepoFiles' {
+        $wf = [System.IO.File]::ReadAllText((Join-Path (Join-Path $PSScriptRoot '..') '.github/workflows/release.yml'))
+
+        # The verification block: from the heading to the closing fence.
+        $m = [regex]::Match($wf, '(?s)### Верификация.*?echo .```powershell.(.*?)echo .```.', [System.Text.RegularExpressions.RegexOptions]::Singleline)
+        $m.Success | Should -BeTrue -Because 'the release-notes generator must keep a Верификация section'
+        $block = $m.Groups[1].Value
+
+        # curl.exe, not curl: the bare alias is Invoke-WebRequest on PS 5.1
+        # and rejects -sL/-o outright. Only the echo lines that EMIT the
+        # snippet are checked - YAML comments may mention the old form when
+        # explaining why it was replaced.
+        $emit = (@($block -split "`r?`n" | Where-Object { $_.TrimStart().StartsWith('echo') })) -join "`n"
+        $emit | Should -Match 'curl\.exe' -Because 'the snippet must call curl.exe - the curl alias breaks on PS 5.1'
+        $emit | Should -Not -Match '(?<![\w.])curl\s+-s' -Because 'a bare `curl -sL` line would fail on PS 5.1'
+
+        # The snippet must download both artifacts (zip + sidecar).
+        $block | Should -Match '\$\{ZIPNAME\}\.sha256' -Because 'the sidecar must be downloaded'
+
+        # The comparison must be done by the snippet, not by the reader:
+        # Get-FileHash prints UPPERCASE, the sidecar holds a lowercase hash
+        # plus the filename, so "compare by eye" never matched literally.
+        $block | Should -Match 'Get-FileHash' -Because 'the snippet must hash the zip itself'
+        $block | Should -Match '\.ToLower\(\)' -Because 'the actual hash must be lowercased before comparing'
+        $block | Should -Match '-split' -Because 'the sidecar line is `<hash>  <filename>` - the hash is the first token'
+        $block | Should -Match 'SHA256 OK' -Because 'a successful verification must be announced'
+        $block | Should -Match 'SHA256 MISMATCH' -Because 'a failed verification must be announced with both hashes'
     }
 }
 
@@ -3513,5 +3552,107 @@ Describe 'Quick install switch ([DIAG] prompt + [IN] shared implementation)' {
         $f | Should -Not -BeNullOrEmpty
         $text = $f.Extent.Text
         $text -match 'curl|Invoke-WebRequest|Invoke-RestMethod|Set-Content|Add-Content|Out-File' | Should -Be $false
+    }
+}
+
+Describe 'Show-MumuOfflineInstallers ([OI])' {
+    It 'the menu defines the function and wires [OI] in the main switch' {
+        $fn = $script:ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Show-MumuOfflineInstallers' }, $true) | Select-Object -First 1
+        $fn | Should -Not -BeNullOrEmpty
+        $src = Get-Content -Raw $script:menuPath
+        ($src -match "'oi'\s *\{\s *Show-MumuOfflineInstallers\s *\}") | Should -Be $true
+        ($src -match 'Show-MumuOfflineInstallers -ForegroundColor Yellow|\[OI\]') | Should -Be $true
+    }
+
+    It 'Show-MumuOfflineInstallers is read-only: only discovery and host output, no downloads' {
+        $f = $script:ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Show-MumuOfflineInstallers' }, $true) | Select-Object -First 1
+        $f | Should -Not -BeNullOrEmpty
+        $text = $f.Extent.Text
+        # The function talks to the official endpoints but never writes files or the install.
+        $text -match 'Invoke-WebRequest|curl' | Should -Be $true
+        $text -match 'Invoke-RestMethod|MumuManager|adb' | Should -Be $false
+        $text -match 'Set-Content|Add-Content|Out-File|Out-File -Encoding|Move-Item|Copy-Item|Remove-Item|Invoke-Expression|Start-Process -FilePath.*\.exe|Download-File' | Should -Be $false
+        ($text -match 'Write-Host.*End of offline-installer listing|End of offline-installer listing') | Should -Be $true
+    }
+
+    It 'Resolve-InstallerThumbprint helper is present and claims no fabricated checksums' {
+        $h = $script:ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Resolve-InstallerThumbprint' }, $true) | Select-Object -First 1
+        $h | Should -Not -BeNullOrEmpty
+        $text = $h.Extent.Text
+        $text -match '\$badges\s*\.\s*Count\s*-eq\s*0' | Should -Be $true
+        $text -match 'integrity:\s *headers did not expose' | Should -Be $true
+    }
+
+    It 'resolvers are HEAD-only and extraction never uses the 4-operand -replace' {
+        $f = $script:ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Show-MumuOfflineInstallers' }, $true) | Select-Object -First 1
+        $f | Should -Not -BeNullOrEmpty
+        $text = $f.Extent.Text
+        # Regression (v10.2.0 smoke): the resolvers used GET and buffered the whole
+        # installer into memory. Discovery must stay HEAD-only.
+        ($text -match 'api\.mumuplayer\.com/api/dl/win.*-Method Head') | Should -Be $true
+        ($text -match 'api\.mumuplayer\.com/api/dl/mac.*-Method Head') | Should -Be $true
+        # Regression (v10.2.0 smoke): -replace 'x','',0,1 is a 4-operand call that
+        # throws at runtime, silently dropping every name/size badge.
+        ($text -match "-replace '[^']*',\s*'',\s*0,\s*1") | Should -Be $false
+    }
+}
+
+
+Describe 'Exit-code hygiene' {
+    It 'script ends with an explicit trailing exit 0 (natural-completion path)' {
+        $lines = Get-Content -LiteralPath $script:menuPath | Where-Object { $_.Trim() -ne '' }
+        $lines[-1].Trim() | Should -Be 'exit 0'
+    }
+}
+
+Describe 'Repair-Installation ([F] auto-repair, v10.2.0)' {
+    BeforeAll {
+        $script:repairFn = $script:ast.FindAll({
+            param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Repair-Installation'
+        }, $true) | Select-Object -First 1
+        $script:verifyFn = $script:ast.FindAll({
+            param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Show-InstallVerify'
+        }, $true) | Select-Object -First 1
+    }
+
+    It 'is defined once and offered by Show-InstallVerify when drift is found' {
+        $script:repairFn | Should -Not -BeNullOrEmpty
+        $defs = $script:ast.FindAll({
+            param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Repair-Installation'
+        }, $true)
+        @($defs).Count | Should -Be 1
+        $v = $script:verifyFn.Extent.Text
+        # The report is kept (not discarded) and parsed for DRIFT/MISSING.
+        ($v -match 'Test-InstallationIntegrity -Tag \$resolvedTag') | Should -Be $true
+        ($v -match '\(DRIFT\|MISSING\)') | Should -Be $true
+        ($v.IndexOf('Repair from release $resolvedTag now? (y/N)')) | Should -BeGreaterThan 0
+        ($v -match '\$null = Repair-Installation -Tag \$resolvedTag -BadFiles \$badFiles') | Should -Be $true
+    }
+
+    It 'keeps the updater invariants: lock, backup-first, pinned ref, hash gate, .new staging, journal' {
+        $t = $script:repairFn.Extent.Text
+        ($t -match 'New-UpdateLock -Dir \$ScriptDir') | Should -Be $true
+        ($t -match 'finally \{\r?\n\s+# Release in finally') | Should -Be $true
+        ($t -match 'Resolve-GitRefSha -RepoPart \$GitHubRepo') | Should -Be $true
+        ($t -match 'Get-ExpectedFileHashes -Tag \$Tag') | Should -Be $true
+        # Backup must happen before any overwrite (IndexOf order).
+        ($t.IndexOf('Copy-Item -LiteralPath $p')) | Should -BeGreaterThan 0
+        ($t.IndexOf('Copy-Item -LiteralPath $p')) | Should -BeLessThan ($t.IndexOf('WriteAllBytes'))
+        # The running script is staged, never overwritten in place.
+        ($t.IndexOf('+ ''.new''), $bytes')) | Should -BeGreaterThan 0
+        ($t -match 'hash mismatch') | Should -Be $true
+        ($t -match "'repair-ok'") | Should -Be $true
+        ($t -match "'repair-fail'") | Should -Be $true
+    }
+
+    It 'whitelists the release file set, rejects JSON metadata, never redirects native stderr' {
+        $t = $script:repairFn.Extent.Text
+        # Whitelist: every shipped file, plus .version - nothing else can pass.
+        foreach ($name in @('mumu-menu\.ps1', 'SKILL\.md', 'README\.md', 'bootstrap-update\.ps1', 'Watch-MumuConnections\.ps1', 'Test-MumuTunnelAB\.ps1', 'Diag-MumuNx\.ps1', '\.version')) {
+            $t.Contains($name) | Should -Be $true -Because "whitelist must contain $name"
+        }
+        ($t -match 'JSON metadata instead of raw content') | Should -Be $true
+        # PS 5.1 guard (parity with bootstrap T3c): no 2>$null on native calls.
+        ($t -match '2>\s*\$null') | Should -Be $false
     }
 }

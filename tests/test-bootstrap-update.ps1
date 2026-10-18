@@ -16,6 +16,14 @@
 #       (via a local file:// URL, so no network flakiness) - must be rejected.
 #   T3. Feeds it a "Bad credentials" JSON body with a token configured -
 #       must be rejected after the without-auth retry.
+#   T3b. Live 401 fallback (v10.2.0 field report): --fail suppresses the
+#       HTTP-error body, so the T3 body check cannot see a real 401 -
+#       Invoke-CurlGet must detect the rejected token via its no-auth
+#       retry, disable the token for the run, and still deliver the body.
+#   T3c. No native stderr redirection (2>$null) anywhere in the script:
+#       under PS 5.1 + ErrorActionPreference=Stop redirected native
+#       stderr is marshaled as a terminating error on the first curl
+#       error line, killing the whole update (the T3b field report).
 #   T4. Informational: verifies the OLD unguarded regexes would still flag
 #       the raw script (i.e. the test data really is the regression case).
 #   T5. Journal writer: Write-UpdateJournal emits one tab-separated event
@@ -156,6 +164,28 @@ try {
     $size3  = Download-File $credsUrl (Join-Path $tmp 't3-out.ps1')
     $token  = $null
     Assert-True -Name 'bad-credentials JSON rejected (returns 0)' -Condition ($size3 -eq 0) -Detail "returned size: $size3"
+
+    # ── T3b: real HTTP 401 must disable the token and complete anonymously ──
+    Write-Host 'T3b: rejected token (HTTP 401) must fall back to anonymous' -ForegroundColor Cyan
+    $icgFn = $ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Invoke-CurlGet'
+    }, $true) | Select-Object -First 1
+    if (-not $icgFn) { throw 'Invoke-CurlGet function not found in bootstrap-update.ps1' }
+    . ([scriptblock]::Create($icgFn.Extent.Text))
+    $script:CurlRetryArgs = @('--retry', '1', '--retry-delay', '1')   # keep the live probe fast
+    $maxRetries = 2
+    $retryDelay = 1
+    $token = 'ghp_invalidtoken' + ('x' * 27)   # guaranteed 401; assembled from parts (DevSkim DS173237)
+    $body3b = Invoke-CurlGet "https://api.github.com/repos/$Repo/releases/latest"
+    Assert-True -Name 'public endpoint still delivered via the no-auth retry' -Condition ($body3b -match 'tag_name') -Detail ("returned: " + $(if ($body3b) { $body3b.Substring(0, [Math]::Min(60, $body3b.Length)) } else { '<null>' }))
+    Assert-True -Name 'token disabled for the run after the 401 fallback' -Condition ($null -eq $script:token) -Detail 'script-scoped token still set'
+    $token = $null
+
+    # ── T3c: the 5.1 terminating-quirk guard - no 2>$null anywhere ────────
+    Write-Host 'T3c: native stderr must stay unredirected (PS 5.1 guard)' -ForegroundColor Cyan
+    $bsSrc = [System.IO.File]::ReadAllText($bootstrap)
+    Assert-True -Name 'no 2>$null in bootstrap-update.ps1 (5.1 + EAP=Stop would terminate)' -Condition ($bsSrc -notmatch '2>\s*\$null') -Detail 'found 2>$null on a native call'
 
     # ── T5: journal writer (Write-UpdateJournal) — format + sanitization ──
     Write-Host 'T5: Update journal writer must emit well-formed events' -ForegroundColor Cyan
