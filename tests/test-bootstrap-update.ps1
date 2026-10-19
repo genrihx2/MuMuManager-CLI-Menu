@@ -288,6 +288,7 @@ try {
     # through the scope chain at call time, so no network is touched.
     $stubContent = @{
         'mumu-menu.ps1'        = "# menu`nline2`n"
+        'mumu-menu.cjs'        = "// js`n"
         'SKILL.md'             = "# skill`n"
         'README.md'            = "# readme`n"
         'bootstrap-update.ps1' = "# updater`n"
@@ -311,6 +312,7 @@ try {
     $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
     # Exact bytes for files that must hash-match the stub responses.
     [System.IO.File]::WriteAllText((Join-Path $vDir 'mumu-menu.ps1'), "# menu`nline2`n", $utf8NoBom)
+    [System.IO.File]::WriteAllText((Join-Path $vDir 'mumu-menu.cjs'), "// js`n", $utf8NoBom)
     [System.IO.File]::WriteAllText((Join-Path $vDir 'README.md'), "# readme`n", $utf8NoBom)
     # SKILL.md: present but different content (DRIFT case).
     [System.IO.File]::WriteAllText((Join-Path $vDir 'SKILL.md'), "# skill DRIFTED`n", $utf8NoBom)
@@ -380,6 +382,7 @@ try {
     $vDir2 = Join-Path $tmp 'verify-rl'
     New-Item -ItemType Directory -Path $vDir2 -Force | Out-Null
     [System.IO.File]::WriteAllText((Join-Path $vDir2 'mumu-menu.ps1'), "# menu`nline2`n", $utf8NoBom)
+    [System.IO.File]::WriteAllText((Join-Path $vDir2 'mumu-menu.cjs'), "// js`n", $utf8NoBom)
     [System.IO.File]::WriteAllText((Join-Path $vDir2 'SKILL.md'), "# skill`n", $utf8NoBom)
     [System.IO.File]::WriteAllText((Join-Path $vDir2 'README.md'), "# readme`n", $utf8NoBom)
     [System.IO.File]::WriteAllText((Join-Path $vDir2 'bootstrap-update.ps1'), "# updater`n", $utf8NoBom)
@@ -418,6 +421,7 @@ try {
         try {
             $fileBodies = @{
                 'mumu-menu.ps1'        = "# menu`n$scriptVerLine`n# body`n"
+                'mumu-menu.cjs'        = "// js`n"
                 'SKILL.md'             = "# skill`n"
                 'README.md'            = "# readme`n"
                 'bootstrap-update.ps1' = "# updater`n"
@@ -450,7 +454,7 @@ try {
     $r1 = Test-ReleaseZip -ZipPath $zipOk -ExpectedTag 'v1.19.6'
     Assert-True -Name 'correct ZIP passes all checks' -Condition ($r1.Ok) -Detail ($r1.Checks -join ' // ')
     Assert-True -Name 'sidecar sha256 matched exactly' -Condition ($r1.ZipHash -eq $r1.SidecarHash) -Detail ($r1.Checks -join ' // ')
-    Assert-True -Name 'file set check present and OK' -Condition (@($r1.Checks) -contains 'file set: OK (8 files)') -Detail ($r1.Checks -join ' // ')
+    Assert-True -Name 'file set check present and OK' -Condition (@($r1.Checks) -contains 'file set: OK (9 files)') -Detail ($r1.Checks -join ' // ')
     Assert-True -Name 'scriptVer read from archive matches tag' -Condition ($r1.ZipVersion -eq '1.19.6') -Detail ($r1.Checks -join ' // ')
 
     # Case 2: tampered archive (byte flip after sidecar) -> sha256 must fail
