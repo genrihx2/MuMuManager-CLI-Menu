@@ -2,7 +2,14 @@
 
 Interactive PowerShell menu for managing MuMu Emulator instances through the official `MuMuManager.exe`.
 
-This file contains the release notes for the v10.3.0, v10.2.0, v10.1.0 and v10.0.0 milestones. Older per-version blocks have been removed; only the latest entries are kept as requested.
+This file contains the release notes for the v10.3.1, v10.3.0, v10.2.0, v10.1.0 and v10.0.0 milestones. Older per-version blocks have been removed; only the latest entries are kept as requested.
+
+---
+
+## v10.3.1 (2026-10-19)
+
+- Fix: the update check no longer trusts the `.version` marker alone. A release can ADD a file, and v10.3.0 added `mumu-menu.cjs`; installs that were already carrying the 10.3.0 marker (the first `[U]` run updated the menu but not the new file) were told "Up to date" and the file never arrived - reproduced live in an installed folder. Both the menu updater (`[U]`/`[UP]`) and `bootstrap-update.ps1` now scan the declared file set before the up-to-date short-circuit, report the missing names and fall through to a normal hash-verified download (`repair of <tag> (file set incomplete: ...)` in the dry-run plan). Unchanged files are still skipped by the per-file hash gate, so the repair costs only the missing bytes.
+- Tests: a Pester test pins the `Update-FromGitHub` gate (same `$files` list for scan and download) and the bootstrap regression suite pins the gate position before the `Up to date` exit and the repair wording.
 
 ---
 

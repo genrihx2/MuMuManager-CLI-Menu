@@ -848,10 +848,21 @@ if (-not $remoteTag) {
     if (-not $Force) { exit 1 }
 }
 
-if ($localTag -eq $remoteTag -and -not $Force) {
+# The version marker alone is not proof the install is complete: a release can
+# ADD a file (v10.3.0 added mumu-menu.cjs). An install whose .version already
+# names the new tag used to short-circuit at 'Up to date' forever while the new
+# file never arrived - seen live in C:	est right after the 10.3.0 rollout.
+# Missing files therefore fall through to a normal, hash-verified download; an
+# unchanged file is still skipped by the per-file hash gate, so this is cheap.
+$missingFiles = @($files | Where-Object { -not (Test-Path -LiteralPath (Join-Path $TargetDir $_) -PathType Leaf) })
+if ($localTag -eq $remoteTag -and -not $Force -and $missingFiles.Count -eq 0) {
     Write-Host "  Up to date ($localTag) - nothing to download." -ForegroundColor Green
     Write-Host "  Use -Force to re-download anyway." -ForegroundColor DarkGray
     exit 0
+}
+if ($localTag -eq $remoteTag -and -not $Force -and $missingFiles.Count -gt 0) {
+    Write-Host ("  Version marker says {0}, but {1} file(s) are missing: {2}" -f $localTag, $missingFiles.Count, ($missingFiles -join ', ')) -ForegroundColor Yellow
+    Write-Host '  Repairing: downloading the release file set (hash-verified).' -ForegroundColor Yellow
 }
 
 # ── Dry-run: show the update plan without touching anything (issue: UX) ──
@@ -870,8 +881,10 @@ if ($WhatIf) {
     }
     $action = if (-not $localTag) {
         "fresh install of $remoteTag (target folder has no .version)"
-    } elseif ($localTag -eq $remoteTag) {
+    } elseif ($localTag -eq $remoteTag -and $Force) {
         "re-download of the current version $remoteTag (because of -Force)"
+    } elseif ($localTag -eq $remoteTag) {
+        "repair of $remoteTag (file set incomplete: $($missingFiles -join ', '))"
     } else {
         "update $localTag -> $remoteTag"
     }

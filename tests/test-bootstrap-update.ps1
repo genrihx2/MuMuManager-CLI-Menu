@@ -661,6 +661,13 @@ try {
         Assert-True -Name 'bootstrap wires the -WhatIf switch and the dry-run block' -Condition (($bRaw -match '\[switch\]\$WhatIf') -and ($idxWhatIf -gt 0)) -Detail 'dry-run wiring not found'
         Assert-True -Name 'dry-run block sits after the remote version check (plan knows the target version)' -Condition ($idxWhatIf -gt $idxRemote) -Detail "whatif=$idxWhatIf remote=$idxRemote"
         Assert-True -Name 'dry-run block runs before the lock and the download loop (zero mutations)' -Condition (($idxWhatIf -lt $idxLock) -and ($idxWhatIf -lt $idxLoop)) -Detail "whatif=$idxWhatIf lock=$idxLock loop=$idxLoop"
+        # v10.3.1: a version marker is not proof the file set is complete - a
+        # release can ADD a file (10.3.0 added mumu-menu.cjs). The gate must scan
+        # the declared set before it may exit with 'Up to date'.
+        $idxMissing = $bRaw.IndexOf('$missingFiles = @($files | Where-Object')
+        $idxUpToDate = $bRaw.IndexOf('  Up to date ($localTag) - nothing to download.')
+        Assert-True -Name 'up-to-date gate verifies the declared file set before exiting' -Condition (($idxMissing -gt 0) -and ($idxMissing -lt $idxUpToDate)) -Detail "missingFiles=$idxMissing upToDate=$idxUpToDate"
+        Assert-True -Name 'a missing file turns the up-to-date verdict into a repair run' -Condition (($bRaw -match 'Repairing: downloading the release file set') -and ($bRaw -match 'repair of \$remoteTag \(file set incomplete')) -Detail 'repair wording missing'
         Assert-True -Name 'plan names the three action classes (fresh install / update / forced re-download)' -Condition (($bRaw -match 'fresh install of') -and ($bRaw -match 'update \$localTag -> \$remoteTag') -and ($bRaw -match 're-download of the current version')) -Detail 'action classes missing'
         Assert-True -Name 'plan documents verification and the -NoVerify exception' -Condition (($bRaw -match 'Verify:') -and ($bRaw -match 'if \(\$NoVerify\)')) -Detail 'verification preview missing'
         Assert-True -Name 'plan previews backup, .version and self-refresh without promising them' -Condition (($bRaw -match 'would be copied to backup') -and ($bRaw -match 'would be set to') -and ($bRaw -match 'self-applies after a successful run')) -Detail 'preview wording missing'

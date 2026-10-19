@@ -155,6 +155,10 @@ irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-me
 
 ## Что нового
 
+### v10.3.1 (19.10.2026)
+
+- Fixed: обновление больше не верит одному `.version`. Релиз может **добавить** файл (в v10.3.0 это `mumu-menu.cjs`), и установка с уже актуальным маркером получала «Up to date», а новый файл так и не приезжал — воспроизведено на живой папке. Теперь `[U]`/`[UP]` и `bootstrap-update.ps1` перед коротким путём проверяют весь объявленный набор, называют отсутствующие файлы и докачивают их с проверкой SHA-256 (в dry-run это строка `repair of <tag> (file set incomplete: ...)`). Неизменённые файлы по-прежнему пропускаются по хешу.
+
 ### v10.3.0 (19.10.2026)
 
 - New: JavaScript-движок — `node mumu-menu.cjs` больше не тонкая обёртка: он сам находит `MuMuManager.exe` (включая пин `.mumu-install`), выполняет `--status`/`--list`/`--json`, `--start`/`--stop`/`--restart <N>`, `--watch` (сеть + updater, read-only) и `--ps` (переход в полное PowerShell-меню). Ноль зависимостей, работает из любой папки, входит в релизный ZIP и в deployed-набор обновления.
@@ -196,6 +200,7 @@ irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-me
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v10.3.1 | 19.10.2026 | Update check verifies the declared file set, not just .version (repairs installs missing a file added by a release) |
 | v10.3.0 | 19.10.2026 | Native JavaScript engine (`node mumu-menu.cjs`), [WN] watcher rewritten on netstat (was 52 s/tick via Get-NetTCPConnection) with SEEN seed + heartbeat |
 | v10.2.0 | 18.10.2026 | New [OI] offline installers, [F] installation auto-repair, updater hardening (stderr/token fallback), PS 5.1-safe verification snippet |
 | v10.1.0 | 17.10.2026 | New [MU] MuMu emulator update check, window-close guards (Ctrl+C / errors / EOF), schema-valid CodeRabbit config |

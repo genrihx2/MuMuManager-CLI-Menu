@@ -594,6 +594,22 @@ Describe 'Update-FromGitHub: tag pinning for downloads and fingerprints (stale-C
         ($src -match [regex]::Escape("`$FileSet = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1')")) | Should -Be $false
     }
 
+    It 'repairs an install whose marker is current but a declared file is missing (v10.3.1)' {
+        # A release can ADD a file; a marker-only gate then reports 'Up to date'
+        # forever and the new file never arrives (seen live right after 10.3.0:
+        # .version = v10.3.0, no mumu-menu.cjs in the installed folder).
+        $f = $script:ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Update-FromGitHub'
+        }, $true) | Select-Object -First 1
+        $t = $f.Extent.Text
+        $t | Should -Match '\$missingReleaseFiles = @\(\$files \| Where-Object'
+        $t | Should -Match 'if \(\$localTag -eq \$tag -and \$missingReleaseFiles\.Count -gt 0\)'
+        $t | Should -Match 'Repairing: downloading the release file set'
+        # The repair must download the very same list the gate scanned.
+        $t | Should -Match 'Get-ExpectedFileHashes -Tag \$tag -Names \$files'
+    }
+
     It 'Get-ExpectedFileHashes fetches through FetchRef and falls back to the tag' {
         $f = $script:ast.FindAll({
             param($node)

@@ -280,7 +280,7 @@ function Initialize-TokenStorage {
     # the token via menu [K] so it is recreated through this code path.
 }
 
-$scriptVer = '10.3.0'
+$scriptVer = '10.3.1'
 $InstalledVersion = $null
 
 # --- [WN] MuMu network + updater watcher (read-only, opt-in) -----------------
@@ -2113,7 +2113,19 @@ function Update-FromGitHub {
             try { $localTag = (Get-Content -LiteralPath $VersionFile -Raw).Trim() } catch { Write-Debug "Version file read failed: $($_.Exception.Message)" }
         }
 
-        if ($localTag -eq $tag) {
+        # The marker alone is not proof the install is complete: a release can
+        # ADD a file (v10.3.0 added mumu-menu.cjs). An install whose .version
+        # already names the tag used to stop at 'Up to date' forever while the
+        # new file never arrived (seen live right after the 10.3.0 rollout), so a
+        # missing declared file is treated as drift and repaired by this run.
+        # Unchanged files are still skipped by the per-file hash gate.
+        $missingReleaseFiles = @($files | Where-Object { -not (Test-Path -LiteralPath (Join-Path $ScriptDir $_) -PathType Leaf) })
+        if ($localTag -eq $tag -and $missingReleaseFiles.Count -gt 0) {
+            if (-not $Passive) {
+                Write-Host ("  Version marker says {0}, but {1} file(s) are missing: {2}" -f $tag, $missingReleaseFiles.Count, ($missingReleaseFiles -join ', ')) -ForegroundColor Yellow
+                Write-Host '  Repairing: downloading the release file set (hash-verified).' -ForegroundColor Yellow
+            }
+        } elseif ($localTag -eq $tag) {
             if (-not $Passive) {
                 if ($Plan) {
                     Write-Host "  Up to date ($tag)." -ForegroundColor Green
