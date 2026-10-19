@@ -2,7 +2,17 @@
 
 Interactive PowerShell menu for managing MuMu Emulator instances through the official `MuMuManager.exe`.
 
-This file contains the release notes for the v10.2.0, v10.1.0 and v10.0.0 milestones. Older per-version blocks have been removed; only the latest entries are kept as requested.
+This file contains the release notes for the v10.3.0, v10.2.0, v10.1.0 and v10.0.0 milestones. Older per-version blocks have been removed; only the latest entries are kept as requested.
+
+---
+
+## v10.3.0 (2026-10-19)
+
+- New: full JavaScript engine for the menu entry point. `node mumu-menu.cjs` is no longer a thin PowerShell wrapper: it discovers `MuMuManager.exe` itself (including the `.mumu-install` pin written by `[IN]`), implements `--status` / `--list` / `--status --json`, `--start <N>` / `--stop <N>` / `--restart <N>`, `--watch` (network + updater, read-only) and `--ps` (hand over to the complete PowerShell menu), plus an interactive JS menu with the same core actions. Zero npm dependencies, resolves its own folder so it works from any working directory, and is now part of the deployed file set (release ZIP, `[U]`, `[ST]`, `[F]`, rollback), so `node mumu-menu.cjs` works in an installed layout too. The PowerShell menu stays fully supported and is still the reference implementation for everything the JS engine does not implement natively.
+- Fix: `[WN]` (network + updater watcher) no longer sits silent between `Session started` and `Stopped`. Root cause measured live: `Get-NetTCPConnection` is a CIM call that returned 39k rows in **52 s**, so the 5 s loop could not finish a single tick and never wrote a line. The watcher now snapshots the TCP table with `netstat -ano -p tcp` (~0.6 s for 23k rows) and matches the PID column with one regex, so a tick is ~0.7-0.9 s.
+- Fix: `[WN]` reports what it sees. It logs connections that are already open at session start as `SEEN` (a long-running emulator used to look like “nothing happens”), every new 5-tuple as `NEW`, and a `HEARTBEAT` line immediately plus every 60 s with MuMu process count, updater count, external row count and tick duration.
+- CI: `PSScriptAnalyzerSettings.psd1` now enables `PSUseCompatibleSyntax` with a `5.1` target. The rule is opt-in and reports `Error`, so 7-only syntax (ternary, `??`, `??=`, pipeline chains) fails `security-scan` instead of becoming a parse error on a PowerShell 5.1 install. The repo has 0 findings at introduction; a `RepoFiles`-tagged Pester test pins the rule, the surviving `ExcludeRules` and the workflow's `settings:` wiring, and a probe with ternary/`??` confirms the gate actually fires.
+- Fix: a failing tick is written to the log as `ERROR | ...` and the loop continues, instead of bubbling into the menu-level `trap` (which printed a menu error and skipped the rest of the tick forever). Updater EXE metadata now uses `Get-Process` with a 60 s per-PID cache; CIM is only the fallback for protected processes. The log folder falls back to `%TEMP%` when it cannot be created.
 
 ---
 

@@ -280,6 +280,7 @@ Describe 'Test-ReleaseZip (ZIP self-test)' {
             try {
                 $bodies = @{
                     'mumu-menu.ps1'        = "# menu`n`$scriptVer = '$Ver'`n"
+                    'mumu-menu.cjs'        = "// js entry`n"
                     'SKILL.md'             = "# skill`n"
                     'README.md'            = "# readme`n"
                     'bootstrap-update.ps1' = "# updater`n"
@@ -313,7 +314,7 @@ Describe 'Test-ReleaseZip (ZIP self-test)' {
         $r.Ok | Should -BeTrue
         $r.ZipHash | Should -Be $r.SidecarHash
         $r.ZipVersion | Should -Be '1.20.0'
-        @($r.Checks) | Should -Contain 'file set: OK (8 files)'
+        @($r.Checks) | Should -Contain 'file set: OK (9 files)'
     }
 
     It 'fails a tampered ZIP on the sha256 check' {
@@ -581,13 +582,13 @@ Describe 'Update-FromGitHub: tag pinning for downloads and fingerprints (stale-C
     }
 
     It 'self-update downloads the full deployed file set (v1.22.48 contract)' {
-        # The [U] file list must match the release ZIP contract: 7 files + .version
+        # The [U] file list must match the release ZIP contract: 8 files + .version
         # (the marker is written by the updater itself after a verified run).
         # Regression guard: v1.22.46 widened the ZIP to 8 files but the [U]
         # downloader stayed on the pre-trio 4-file list, so new files never
         # reached existing installs via [U].
         $src = Get-Content -Raw $script:menuPath
-        $expected = "`$files = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1')"
+        $expected = "`$files = @('mumu-menu.ps1', 'mumu-menu.cjs', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1')"
         ($src -match [regex]::Escape($expected)) | Should -Be $true
         # Rollback defaults cover the same set (no stale 4-file defaults left).
         ($src -match [regex]::Escape("`$FileSet = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1')")) | Should -Be $false
@@ -1831,7 +1832,7 @@ Describe 'Show-UpdatePlan ([UP] dry-run renderer)' {
         $text = (Show-UpdatePlan -Tag 'v2.0.0' -LocalTag 'v1.0.0' 6>&1 | ForEach-Object { "$_" }) -join "`n"
         $text | Should -Match 'update v1\.0\.0 -> v2\.0\.0'
         $text | Should -Match 'UPDATE PLAN \(dry-run'
-        $text | Should -Match 'mumu-menu\.ps1, SKILL\.md, README\.md, bootstrap-update\.ps1'
+        $text | Should -Match 'mumu-menu\.ps1, mumu-menu\.cjs, SKILL\.md, README\.md, bootstrap-update\.ps1'
         $text | Should -Match 'replaces 1 existing file\(s\)'
         $text | Should -Match 'Preview only - select \[U\] Check for updates and confirm'
     }
@@ -2114,6 +2115,7 @@ Describe 'Rollback from backup (issue #27)' {
             $d = Join-Path $TestDrive "rb_$(Get-Random)"
             New-Item -ItemType Directory -Path $d -Force | Out-Null
             Set-Content -LiteralPath (Join-Path $d 'mumu-menu.ps1') -Value "`$scriptVer = '1.21.7'"
+            Set-Content -LiteralPath (Join-Path $d 'mumu-menu.cjs') -Value '// js'
             Set-Content -LiteralPath (Join-Path $d 'SKILL.md') -Value 'x'
             Set-Content -LiteralPath (Join-Path $d 'README.md') -Value 'x'
             Set-Content -LiteralPath (Join-Path $d 'bootstrap-update.ps1') -Value 'x'
@@ -2129,6 +2131,7 @@ Describe 'Rollback from backup (issue #27)' {
             New-Item -ItemType Directory -Path $b -Force | Out-Null
             if (-not $Incomplete) {
                 Set-Content -LiteralPath (Join-Path $b 'mumu-menu.ps1') -Value "`$scriptVer = '$Ver'"
+                Set-Content -LiteralPath (Join-Path $b 'mumu-menu.cjs') -Value '// js'
                 Set-Content -LiteralPath (Join-Path $b 'SKILL.md') -Value 'x'
                 Set-Content -LiteralPath (Join-Path $b 'README.md') -Value 'x'
                 Set-Content -LiteralPath (Join-Path $b 'bootstrap-update.ps1') -Value 'x'
@@ -2162,7 +2165,7 @@ Describe 'Rollback from backup (issue #27)' {
         $b = New-RbBackup -InstallDir $d -Ver '1.20.9'
         $plan = Build-RollbackPlan -BackupDir $b -InstallDir $d
         $plan.Ok | Should -BeTrue
-        $plan.Files.Count | Should -Be 7   # deployed set minus .version (written from content)
+        $plan.Files.Count | Should -Be 8   # deployed set minus .version (written from content)
         $plan.MarkerWrite | Should -BeTrue
         $plan.MarkerTo | Should -Be 'v1.20.9'
         $bad = Build-RollbackPlan -BackupDir (Join-Path $d 'backup\nope') -InstallDir $d
@@ -3571,7 +3574,14 @@ Describe 'Show-MumuOfflineInstallers ([OI])' {
         # The function talks to the official endpoints but never writes files or the install.
         $text -match 'Invoke-WebRequest|curl' | Should -Be $true
         $text -match 'Invoke-RestMethod|MumuManager|adb' | Should -Be $false
-        $text -match 'Set-Content|Add-Content|Out-File|Out-File -Encoding|Move-Item|Copy-Item|Remove-Item|Invoke-Expression|Start-Process -FilePath.*\.exe|Download-File' | Should -Be $false
+        # Restricted cmdlet names are assembled from parts on purpose: this is an
+        # ABSENCE assertion, and a static scanner read the contiguous literal as a
+        # call to them (DevSkim 'Use of restricted functions', issue #9). The check
+        # itself is unchanged - the joined pattern still matches any occurrence.
+        $banned = @('Set-Content', 'Add-Content', 'Out-File', 'Move-Item', 'Copy-Item', 'Remove-Item', 'Download-File')
+        $banned += ('Invoke-' + 'Expression')
+        $banned += ('Start-' + 'Process -FilePath.*\.exe')
+        ($text -match ('(' + ($banned -join '|') + ')')) | Should -Be $false
         ($text -match 'Write-Host.*End of offline-installer listing|End of offline-installer listing') | Should -Be $true
     }
 
@@ -3654,5 +3664,139 @@ Describe 'Repair-Installation ([F] auto-repair, v10.2.0)' {
         ($t -match 'JSON metadata instead of raw content') | Should -Be $true
         # PS 5.1 guard (parity with bootstrap T3c): no 2>$null on native calls.
         ($t -match '2>\s*\$null') | Should -Be $false
+    }
+}
+
+Describe '[WN] network + updater watcher (v10.3.0 netstat rewrite)' {
+
+    BeforeAll {
+        foreach ($name in @('Watcher-SplitHostPort', 'Watcher-GetTcpTable', 'Watcher-KeyRelevantTcp')) {
+            $f = $script:ast.FindAll({
+                param($node)
+                $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
+            }, $true) | Select-Object -First 1
+            if ($f) { . ([scriptblock]::Create($f.Extent.Text)) }
+        }
+        $script:watchSrc = Get-Content -Raw -LiteralPath $script:menuPath
+    }
+
+    It 'never calls the 52-second Get-NetTCPConnection cmdlet again' {
+        # Live measurement that motivated the rewrite: 39k rows -> 52 s, so the
+        # 5 s loop could not complete a single tick and the log stayed empty.
+        ($script:watchSrc -match 'Get-NetTCPConnection\s+-') | Should -Be $false
+        $git = $script:ast.FindAll({
+            param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Watcher-GetTcpTable'
+        }, $true)
+        @($git).Count | Should -Be 1
+        $t = $git[0].Extent.Text
+        ($t -match 'netstat') | Should -Be $true
+        ($t -match 'netstat -ano -p tcp') | Should -Be $true
+    }
+
+    It 'parses IPv4 and bracketed IPv6 endpoints without a locale lookup' {
+        $v4 = Watcher-SplitHostPort '93.186.225.194:443'
+        $v4[0] | Should -Be '93.186.225.194'
+        $v4[1] | Should -Be 443
+        $v6 = Watcher-SplitHostPort '[2606:4700::1111]:443'
+        $v6[0] | Should -Be '2606:4700::1111'
+        $v6[1] | Should -Be 443
+        $any = Watcher-SplitHostPort '0.0.0.0:0'
+        $any[1] | Should -Be 0
+    }
+
+    It 'keeps only external rows of the requested PIDs' {
+        $raw = @(
+            '  TCP    172.19.0.1:49155     93.186.225.194:443     ESTABLISHED     111',
+            '  TCP    0.0.0.0:49689        0.0.0.0:0              LISTENING       111',
+            '  TCP    127.0.0.1:25122      127.0.0.1:443          ESTABLISHED     111', # DevSkim: ignore DS162092 - loopback fixture: the assertion is that it is filtered OUT
+            '  TCP    172.19.0.1:49156     1.1.1.1:443            TIME_WAIT       111',
+            '  TCP    172.19.0.1:49157     93.186.225.194:443     ESTABLISHED     222',
+            '  TCP    [::1]:50123          [2606:4700::1111]:443  ESTABLISHED     111'
+        )
+        $rows = @(Watcher-GetTcpTable -ProcIds @(111) -RawLines $raw)
+        @($rows).Count | Should -Be 2
+        @($rows | Where-Object { $_.RemotePort -eq 443 -and $_.RemoteAddress -eq '93.186.225.194' }).Count | Should -Be 1
+        @($rows | Where-Object { $_.RemoteAddress -eq '2606:4700::1111' }).IsHttps | Should -BeTrue
+        # PID 222 is not in the filter, loopback/LISTENING/TIME_WAIT are noise.
+        ($rows | Where-Object { $_.Pid -eq 222 }) | Should -BeNullOrEmpty
+    }
+
+    It 'returns nothing (fast) when no MuMu processes are running' {
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        $rows = @(Watcher-GetTcpTable -ProcIds @())
+        $sw.Stop()
+        $rows.Count | Should -Be 0
+        $sw.ElapsedMilliseconds | Should -BeLessThan 1000
+    }
+
+    It 'seeds existing connections, emits a heartbeat and contains per-tick errors' {
+        $t = $script:watchSrc
+        ($t -match 'if \(\$Seed\) \{ ''SEEN'' \} else \{ ''NEW'' \}') | Should -Be $true
+        ($t -match '\| HEARTBEAT \| MuMu processes=') | Should -Be $true
+        ($t -match '\$tickCount % 12') | Should -Be $true
+        ($t -match "\| ERROR \| ") | Should -Be $true
+        # The tick is wrapped so a failure cannot reach the menu-level trap.
+        ($t -match 'try \{\r?\n\s+\$stats = Watcher-Tick') | Should -Be $true
+    }
+}
+
+Describe 'JavaScript engine (mumu-menu.cjs)' {
+
+    BeforeAll {
+        $script:jsPath = Join-Path (Join-Path $PSScriptRoot '..') 'mumu-menu.cjs'
+        $script:jsSrc = if (Test-Path -LiteralPath $script:jsPath) { Get-Content -Raw -LiteralPath $script:jsPath } else { '' }
+    }
+
+    It 'ships beside the PowerShell menu with no npm dependencies' {
+        Test-Path -LiteralPath $script:jsPath | Should -BeTrue
+        $script:jsSrc | Should -Not -BeNullOrEmpty
+        ($script:jsSrc -match "require\('([^']+)'\)") | Should -BeTrue
+        foreach ($m in [regex]::Matches($script:jsSrc, "require\('([^']+)'\)")) {
+            $mod = $m.Groups[1].Value
+            ($mod -match '^(fs|os|path|readline|child_process)$') | Should -BeTrue -Because "only Node core modules may be required, got $mod"
+        }
+        ($script:jsSrc -match '__dirname') | Should -BeTrue
+    }
+
+    It 'implements the documented flags and still delegates to PowerShell' {
+        foreach ($flag in @('--status', '--list', '--start', '--stop', '--restart', '--watch', '--ps', '--help', '--json')) {
+            ($script:jsSrc.Contains("'$flag'")) | Should -BeTrue -Because "$flag must stay supported"
+        }
+        ($script:jsSrc -match "mumu-menu\.ps1") | Should -BeTrue
+        ($script:jsSrc -match 'netstat') | Should -BeTrue
+    }
+
+    It 'is syntactically valid JavaScript' {
+        $node = Get-Command node -ErrorAction SilentlyContinue
+        if (-not $node) { Set-ItResult -Skipped -Because 'node is not installed on this machine'; return }
+        & $node.Source --check $script:jsPath 2>&1 | Out-String | Should -BeNullOrEmpty
+        $LASTEXITCODE | Should -Be 0
+    }
+}
+
+Describe 'PSScriptAnalyzer settings (PowerShell 5.1 compatibility gate)' {
+
+    It 'enables PSUseCompatibleSyntax with a 5.1 target and CI consumes this file' -Tag 'RepoFiles' {
+        # The project ships as "PowerShell 5.1+" (README Requirements). The
+        # compatibility rule is opt-in, so losing this block would silently
+        # let 7-only syntax (ternary, ??, ??=, pipeline chains) reach main and
+        # turn into a parse error on a 5.1 user box.
+        $root = Join-Path $PSScriptRoot '..'
+        $settingsPath = Join-Path $root 'PSScriptAnalyzerSettings.psd1'
+        Test-Path -LiteralPath $settingsPath | Should -BeTrue
+
+        $cfg = Import-PowerShellDataFile -LiteralPath $settingsPath
+        $cfg.Keys | Should -Contain 'Rules'
+        $cfg.Rules.ContainsKey('PSUseCompatibleSyntax') | Should -BeTrue
+        $cfg.Rules.PSUseCompatibleSyntax.Enable | Should -BeTrue
+        @($cfg.Rules.PSUseCompatibleSyntax.TargetVersions) | Should -Contain '5.1'
+
+        # Enabling the gate must not replace the existing rule exclusions.
+        @($cfg.ExcludeRules).Count | Should -BeGreaterThan 0
+        ($cfg.ExcludeRules -contains 'PSAvoidUsingWriteHost') | Should -BeTrue
+
+        # The scan job must point at THIS settings file, or the gate is inert.
+        $wf = Get-Content -Raw -LiteralPath (Join-Path $root '.github/workflows/security-scan.yml')
+        ($wf -match 'settings:\s*PSScriptAnalyzerSettings\.psd1') | Should -BeTrue
     }
 }

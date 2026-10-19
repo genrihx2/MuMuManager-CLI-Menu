@@ -43,12 +43,14 @@
 Для полного списка функций и опций см. SKILL.md или запустите меню.
 
 - 📥 Offline-инсталляторы: пункт `[OI]` показывает все текущие официальные сборки (Windows .exe, macOS .dmg, Android APK) прямо из CDN NetEase — с именем файла, размером и бейджем целостности, когда заголовки его отдают. Без скачивания, только список. Источник: https://www.mumuplayer.com/ 
+- 🐙 JavaScript-движок (`node mumu-menu.cjs`): статус и управление инстансами, сетевой watcher и проверка версий — нативно на Node.js, без npm install; остальные функции по-прежнему в полном PowerShell-меню, куда JS-меню передаёт управление.
 
 ## Требования
 
 - Windows 10/11
 - PowerShell 5.1+ или PowerShell 7+
 - MuMu Emulator 6.x (тестировано на V6.7.1, минимально поддерживаемая версия: 4.0.0.3179)
+- Node.js 18+ — опционально, только для JavaScript-движка
 
 ## Установка
 
@@ -60,12 +62,18 @@ cd MuMuManager-CLI-Menu
 .\mumu-menu.ps1
 ```
 
-Запуск через Node (только из корня репозитория, обёртка делегирует в PowerShell):
+Два движка, один репозиторий. PowerShell-меню (`mumu-menu.ps1`) остаётся эталонным и работает ровно как раньше; JavaScript-движок (`mumu-menu.cjs`) добавляет нативную альтернативу для тех, у кого есть Node.js 18+ — ноль зависимостей, `npm install` не нужен, запуск из любой папки:
 
 ```powershell
-node mumu-menu.cjs
-npm run menu
+node mumu-menu.cjs              # интерактивное JS-меню
+node mumu-menu.cjs --status     # таблица инстансов (read-only; --json для машинного вывода)
+node mumu-menu.cjs --watch      # сетевой watcher + updater (read-only)
+node mumu-menu.cjs --ps         # полное PowerShell-меню (все функции)
 ```
+
+JS-движок покрывает `--status`/`--list`, `--start/--stop/--restart <N>`, `--watch [--interval <сек>] [--log <файл>]` и `--ps`; остальное (APK, ADB, бэкапы, spoofing, обновления, `[DIAG]` и т.д.) делает PowerShell-меню, в которое JS-меню передаёт управление. Оба файла лежат рядом и в git-клоне, и в установленной папке, поэтому `node mumu-menu.cjs` работает и в деплое.
+
+`npm run menu` — то же самое через package.json (только в git-клоне).
 
 Быстрый запуск (скачивает и запускает временный файл):
 
@@ -147,6 +155,14 @@ irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-me
 
 ## Что нового
 
+### v10.3.0 (19.10.2026)
+
+- New: JavaScript-движок — `node mumu-menu.cjs` больше не тонкая обёртка: он сам находит `MuMuManager.exe` (включая пин `.mumu-install`), выполняет `--status`/`--list`/`--json`, `--start`/`--stop`/`--restart <N>`, `--watch` (сеть + updater, read-only) и `--ps` (переход в полное PowerShell-меню). Ноль зависимостей, работает из любой папки, входит в релизный ZIP и в deployed-набор обновления.
+- Fixed: `[WN]` больше не «молчит». Сетевая таблица читается через `netstat -ano -p tcp` (~0.6 с на 23k строк) вместо `Get-NetTCPConnection`, который на живой машине занял 52 с на 39k строк — из-за этого 5-секундный цикл не успевал ни одного тика и между `Session started` и `Stopped` было пусто.
+- Improved: `[WN]` теперь логирует уже открытые соединения при старте (`SEEN`), шлёт heartbeat (сразу и раз в 60 с) с числом MuMu-процессов, внешних строк и длительностью тика, сам пишет ошибку тика в лог (`ERROR | ...`) вместо падения в общий trap меню и берёт EXE-инфо апдейтера через `Get-Process` с кэшем (CIM — только фолбэк).
+
+**EN summary (v10.3.0):** Native JavaScript engine for the menu entry point (`--status/--list/--json`, instance control, `--watch`, `--ps`; zero dependencies, shipped in the release ZIP), and a rewritten `[WN]` watcher that uses `netstat -ano -p tcp` instead of the 52-second `Get-NetTCPConnection` call, seeds existing connections, emits heartbeats and contains per-tick errors.
+
 ### v10.2.0 (18.10.2026)
 
 - New: `[OI]` — offline installer listing (all platforms): the current official Windows `.exe`, macOS `.dmg` and Android APK variants resolved from the official release page and the telemetry-free CDN alias, with filename, size and an integrity badge when the CDN exposes it. Read-only, downloads nothing.
@@ -180,6 +196,7 @@ irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-me
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v10.3.0 | 19.10.2026 | Native JavaScript engine (`node mumu-menu.cjs`), [WN] watcher rewritten on netstat (was 52 s/tick via Get-NetTCPConnection) with SEEN seed + heartbeat |
 | v10.2.0 | 18.10.2026 | New [OI] offline installers, [F] installation auto-repair, updater hardening (stderr/token fallback), PS 5.1-safe verification snippet |
 | v10.1.0 | 17.10.2026 | New [MU] MuMu emulator update check, window-close guards (Ctrl+C / errors / EOF), schema-valid CodeRabbit config |
 | v10.0.0 | 14.10.2026 | Major release: semantic-version bump to v10.0.0, documentation reorganized, Pester 260/261 |

@@ -56,7 +56,7 @@ try {
 # ── Config ───────────────────────────────────────────────────────────
 $repo       = 'genrihx2/MuMuManager-CLI-Menu'
 $apiBase    = "https://api.github.com/repos/$repo"
-$files      = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1')
+$files      = @('mumu-menu.ps1', 'mumu-menu.cjs', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1')
 $maxRetries = 3
 $retryDelay = 3   # seconds between retries
 
@@ -409,7 +409,7 @@ function Test-ReleaseZip {
         [Parameter(Mandatory = $true)] [string]$ExpectedTag,
         [string]$SidecarPath = "$ZipPath.sha256"
     )
-    $expectedFiles = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', '.version', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1')
+    $expectedFiles = @('mumu-menu.ps1', 'mumu-menu.cjs', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', '.version', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1')
     $checks = @()
     $ok = $true
     $zipVer = ''

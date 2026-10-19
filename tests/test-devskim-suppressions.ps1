@@ -18,7 +18,7 @@ $known = @(
     'DS440020' # .NET hard-coded SSL/TLS versions
 )
 
-$files = @('mumu-menu.ps1', 'bootstrap-update.ps1', 'tests/run-pester.ps1',
+$files = @('mumu-menu.ps1', 'mumu-menu.cjs', 'bootstrap-update.ps1', 'tests/run-pester.ps1',
     'tests/mumu-menu.Tests.ps1', 'tests/test-bootstrap-update.ps1')
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
