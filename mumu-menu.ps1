@@ -1043,14 +1043,39 @@ $script:MumuInstallLabel = Get-MuMuInstallLabel -ManagerPath $MumuPath
 # try/finally, which always releases this guard again (the menu can run
 # inside an existing shell, where a leftover handler would disable Ctrl+C
 # for that whole session).
-$script:NoCtrlCHandler = [System.ConsoleCancelEventHandler]{
-    param($src, $e)   # $src is unused: required delegate signature
-    $e.Cancel = $true   # Ctrl+C must never terminate the menu process
-}
+# The handler must be a COMPILED delegate, never a ScriptBlock. .NET raises
+# CancelKeyPress on its own signal thread, where no runspace is attached, so a
+# ScriptBlock delegate throws PSInvalidOperationException ("Нет доступного
+# пространства выполнения для запуска скрипта в этом потоке") *before* its body
+# runs and the process dies with an unhandled exception - the Ctrl+C guard
+# crashed the menu instead of ignoring Ctrl+C (reproduced on v10.3.1: unhandled
+# System.Management.Automation.PSInvalidOperationException at
+# ScriptBlock.GetContextFromTLS, raised from the PosixSignalRegistration
+# handler). The compiled delegate below touches only e.Cancel, so it needs no
+# runspace. If compilation is unavailable (ConstrainedLanguage, no csc) the
+# guard is skipped on purpose: a menu without a Ctrl+C guard is degraded, a
+# menu that dies on Ctrl+C is broken.
+$script:NoCtrlCHandler = $null
 try {
-    [System.Console]::add_CancelKeyPress($script:NoCtrlCHandler)
+    if (-not ('MuMuMenuCtrlCGuard' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+public static class MuMuMenuCtrlCGuard {
+    public static readonly ConsoleCancelEventHandler Handler =
+        delegate (object sender, ConsoleCancelEventArgs e) { e.Cancel = true; };
+}
+'@ -ErrorAction Stop
+    }
+    $script:NoCtrlCHandler = [MuMuMenuCtrlCGuard]::Handler
 } catch {
-    Write-Debug "Ctrl+C guard unavailable: $($_.Exception.Message)"
+    Write-Debug "Ctrl+C guard not compiled: $($_.Exception.Message)"
+}
+if ($script:NoCtrlCHandler) {
+    try {
+        [System.Console]::add_CancelKeyPress($script:NoCtrlCHandler)
+    } catch {
+        Write-Debug "Ctrl+C guard unavailable: $($_.Exception.Message)"
+    }
 }
 
 trap {
@@ -11971,10 +11996,12 @@ do {
     # Whatever way the script ends (q/0 exit, an exit inside a menu
     # function, a fatal error), release the Ctrl+C guard so an enclosing
     # interactive session keeps its normal Ctrl+C behaviour.
-    try {
-        [System.Console]::remove_CancelKeyPress($script:NoCtrlCHandler)
-    } catch {
-        Write-Debug "Ctrl+C guard detach failed: $($_.Exception.Message)"
+    if ($script:NoCtrlCHandler) {
+        try {
+            [System.Console]::remove_CancelKeyPress($script:NoCtrlCHandler)
+        } catch {
+            Write-Debug "Ctrl+C guard detach failed: $($_.Exception.Message)"
+        }
     }
 }
 

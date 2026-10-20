@@ -3816,3 +3816,56 @@ Describe 'PSScriptAnalyzer settings (PowerShell 5.1 compatibility gate)' {
         ($wf -match 'settings:\s*PSScriptAnalyzerSettings\.psd1') | Should -BeTrue
     }
 }
+
+Describe 'Ctrl+C guard (compiled delegate)' {
+
+    # Ctrl+C used to crash the menu instead of being ignored. .NET raises
+    # Console.CancelKeyPress on its own signal thread (PosixSignalRegistration on
+    # PowerShell 7), where no runspace is attached, so a ScriptBlock delegate
+    # throws PSInvalidOperationException inside GetContextFromTLS *before* its
+    # body runs: "Нет доступного пространства выполнения для запуска скрипта в
+    # этом потоке" and an unhandled exception kills the process. The guard is now
+    # a compiled delegate that only touches e.Cancel, so it needs no runspace;
+    # this test reproduces the failing condition (invoke the handler from a plain
+    # thread) without needing a real Ctrl+C keystroke.
+    It 'handler survives a thread with no runspace' {
+        $root = Join-Path $PSScriptRoot '..'
+        $src = [System.IO.File]::ReadAllText((Join-Path $root 'mumu-menu.ps1'))
+
+        ($src -match '\[System\.ConsoleCancelEventHandler\]\s*\{') |
+            Should -BeFalse -Because 'a ScriptBlock delegate cannot run on the signal thread'
+
+        $m = [regex]::Match($src, "(?s)Add-Type -TypeDefinition @'\r?\n(.*?)\r?\n'@ -ErrorAction Stop")
+        $m.Success | Should -BeTrue -Because 'the guard must compile its own delegate'
+        if (-not ('MuMuMenuCtrlCGuard' -as [type])) { Add-Type -TypeDefinition $m.Groups[1].Value }
+
+        $handler = [MuMuMenuCtrlCGuard]::Handler
+        $handler.GetType().FullName | Should -Be 'System.ConsoleCancelEventHandler'
+
+        if (-not ('MuMuGuardProbe' -as [type])) {
+            Add-Type -TypeDefinition @'
+using System;
+using System.Threading;
+public static class MuMuGuardProbe {
+    public static string Invoke(Delegate d) {
+        string res = "no-exception";
+        var t = new Thread(() => {
+            try { d.DynamicInvoke(new object[] { null, null }); }
+            catch (Exception ex) {
+                Exception e = ex; while (e.InnerException != null) e = e.InnerException;
+                res = e.GetType().FullName;
+            }
+        });
+        t.Start(); t.Join();
+        return res;
+    }
+}
+'@
+        }
+
+        # A NullReferenceException is expected and fine (the probe passes null
+        # args); what must never happen again is the runspace lookup failing.
+        [MuMuGuardProbe]::Invoke($handler) |
+            Should -Not -Be 'System.Management.Automation.PSInvalidOperationException'
+    }
+}
