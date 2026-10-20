@@ -13,6 +13,7 @@ All operations run locally through the official `MuMuManager.exe`.
 ```
 mumu-menu.ps1           # Main script (version lives in $scriptVer, ~line 238)
 mumu-menu.cjs           # JavaScript engine (zero deps): --status/--list/--json, --start/--stop/--restart, --watch, --ps
+mumu-menu.cmd           # Double-click launcher: mumu-menu.ps1 with -ExecutionPolicy Bypass for that process only (repo-only, not in the deployed set)
 bootstrap-update.ps1    # Standalone updater/recovery path (ships inside every release ZIP)
 update-readme.ps1       # Regenerates the menu block in README.md
 README.md               # Documentation + changelog (what's-new + version table)
@@ -57,7 +58,7 @@ irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-me
 # Or git clone:
 git clone https://github.com/genrihx2/MuMuManager-CLI-Menu.git
 cd MuMuManager-CLI-Menu
-.\mumu-menu.ps1
+.\mumu-menu.ps1                 # if the execution policy blocks this, double-click mumu-menu.cmd
 
 # Or bootstrap into an existing folder (also the recovery path):
 .\bootstrap-update.ps1 <target-dir>

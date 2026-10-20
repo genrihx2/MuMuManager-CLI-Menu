@@ -91,6 +91,14 @@ irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-me
 .\mumu-menu.ps1
 ```
 
+Если PowerShell отказывается запускать скрипт с ошибкой «выполнение сценариев отключено в этой системе» (`PSSecurityException`), в git-клоне используйте `mumu-menu.cmd` — двойной клик или:
+
+```cmd
+mumu-menu.cmd
+```
+
+Лаунчер поднимает PowerShell с `-ExecutionPolicy Bypass` только для этого процесса: системная политика и реестр не меняются, окно закрывается вместе с меню. В ZIP с Releases этого файла нет — там снимайте блокировку через `Unblock-File` или запускайте `powershell -ExecutionPolicy Bypass -File .\mumu-menu.ps1`.
+
 Меню предоставляет удобный интерактивный интерфейс для выбора инстанса и выполнения операций (ADB, установка APK, бэкап/рестор, spoofing, просмотр логов и т.д.).
 
 ## Порядок помощи
