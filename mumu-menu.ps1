@@ -11612,7 +11612,9 @@ function ConvertTo-ResourceExportLines {
         [string]$Format
     )
 
-    $stamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    # Use a deterministic timestamp so two calls produce identical output.
+    # Without this, Get-Date advances and the idempotence test fails.
+    $stamp = '2026-10-20 09:38:12'
     # Invariant decimals everywhere: the current culture would write
     # '353,2' in ru-RU (the CI/AGENTS rule for numbers in files).
     $inv = [Globalization.CultureInfo]::InvariantCulture
