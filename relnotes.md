@@ -2,9 +2,15 @@
 
 Interactive PowerShell menu for managing MuMu Emulator instances through the official `MuMuManager.exe`.
 
-This file contains the release notes for the v10.3.1, v10.3.0, v10.2.0, v10.1.0 and v10.0.0 milestones. Older per-version blocks have been removed; only the latest entries are kept as requested.
+This file contains the release notes for the v10.3.3, v10.3.1, v10.3.0, v10.2.0, v10.1.0 and v10.0.0 milestones. Older per-version blocks have been removed; only the latest entries are kept as requested.
 
 ---
+
+## v10.3.3 (2026-10-20)
+
+- Fix: Ctrl+C no longer kills the menu. The `CancelKeyPress` guard was a PowerShell ScriptBlock, and .NET raises that event on its own signal thread (`PosixSignalRegistration` on PowerShell 7) where no runspace is attached, so the delegate threw `PSInvalidOperationException` inside `GetContextFromTLS` *before* its body ran - the host died with "Unhandled exception ... Process will be terminated" instead of ignoring the key. The handler is now a compiled delegate that only flips `e.Cancel`, so it needs no runspace; when compilation is unavailable (ConstrainedLanguage) the guard is skipped instead of crashing the process, and the detach in the main loop's `finally` is guarded the same way.
+- New: `mumu-menu.cmd` - double-click launcher for git clones. It starts PowerShell with `-ExecutionPolicy Bypass` for that process only, so a machine whose execution policy is `Restricted` can open the menu without changing a system security setting; it refuses to start when `mumu-menu.ps1` is not beside it. Repo-only on purpose: the deployed file set stays at nine files, so ZIP installs and installs updated through `[U]` cannot drift apart.
+- Tests: a regression test invokes the real handler from a thread with no runspace (the exact failing condition) and fails on the previous script; suite: 280 passed / 0 failed / 1 skipped on both Windows PowerShell 5.1 and pwsh 7.6.7 with Pester 5.7.1.
 
 ## v10.3.1 (2026-10-19)
 

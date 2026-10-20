@@ -163,6 +163,12 @@ mumu-menu.cmd
 
 ## Что нового
 
+### v10.3.3 (20.10.2026)
+
+- Fixed: Ctrl+C убивал меню вместо того, чтобы игнорироваться. Обработчик `CancelKeyPress` был PowerShell-скриптблоком, а .NET поднимает это событие на своём сигнальном потоке (`PosixSignalRegistration` в PowerShell 7), где нет привязанного runspace — делегат падал с `PSInvalidOperationException` в `GetContextFromTLS` ещё до выполнения тела, и хост завершался с «Unhandled exception … Процесс PowerShell будет завершён». Обработчик теперь компилируемый делегат, который только выставляет `e.Cancel`; если компиляция недоступна (ConstrainedLanguage), защита пропускается, а не роняет процесс. Снятие обработчика в `finally` защищено так же.
+- New: `mumu-menu.cmd` — запуск меню двойным кликом из git-клона. Поднимает PowerShell с `-ExecutionPolicy Bypass` только для этого процесса, поэтому при политике `Restricted` не нужно менять системные настройки; без `mumu-menu.ps1` рядом отказывается запускаться. Файл намеренно не входит в deployed-набор из девяти файлов, чтобы ZIP-установки и установки после `[U]` не расходились.
+- Tests: регрессионный тест вызывает реальный обработчик с потока без runspace (та самая падающая ситуация) и красный на прежней версии скрипта; сьют — 280 passed / 0 failed / 1 skipped на PowerShell 5.1 и pwsh 7.6.7 (Pester 5.7.1).
+
 ### v10.3.1 (19.10.2026)
 
 - Fixed: обновление больше не верит одному `.version`. Релиз может **добавить** файл (в v10.3.0 это `mumu-menu.cjs`), и установка с уже актуальным маркером получала «Up to date», а новый файл так и не приезжал — воспроизведено на живой папке. Теперь `[U]`/`[UP]` и `bootstrap-update.ps1` перед коротким путём проверяют весь объявленный набор, называют отсутствующие файлы и докачивают их с проверкой SHA-256 (в dry-run это строка `repair of <tag> (file set incomplete: ...)`). Неизменённые файлы по-прежнему пропускаются по хешу.
@@ -208,6 +214,7 @@ mumu-menu.cmd
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v10.3.3 | 20.10.2026 | Ctrl+C no longer crashes the menu (compiled CancelKeyPress guard), `mumu-menu.cmd` double-click launcher for git clones |
 | v10.3.1 | 19.10.2026 | Update check verifies the declared file set, not just .version (repairs installs missing a file added by a release) |
 | v10.3.0 | 19.10.2026 | Native JavaScript engine (`node mumu-menu.cjs`), [WN] watcher rewritten on netstat (was 52 s/tick via Get-NetTCPConnection) with SEEN seed + heartbeat |
 | v10.2.0 | 18.10.2026 | New [OI] offline installers, [F] installation auto-repair, updater hardening (stderr/token fallback), PS 5.1-safe verification snippet |
