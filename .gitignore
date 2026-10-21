@@ -43,6 +43,13 @@ archil/release-notes.json
 *.new
 testResults.xml
 
+# Local release artifacts (published on GitHub Releases, not repo content)
+MuMuManager-CLI-Menu-v*.zip
+MuMuManager-CLI-Menu-v*.zip.sha256
+
+# Freebuff workspace metadata
+.freebuff/
+
 # Pinned active MuMu install chosen with menu [IN] (local machine state)
 .mumu-install
 
