@@ -1,6 +1,6 @@
 {
   "name": "mumu-manager-cli-menu",
-  "version": "10.0.0",
+  "version": "10.3.3",
   "private": true,
   "type": "module",
   "description": "Archil disk storage integration for the MuMuManager CLI Menu repo",
