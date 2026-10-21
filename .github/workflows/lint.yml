@@ -1,0 +1,60 @@
+name: Lint workflows (actionlint + shellcheck)
+
+# Static checks for all GitHub Actions workflows:
+#   - actionlint: workflow syntax, expression and context errors
+#   - shellcheck: every `run:` bash block (via actionlint's built-in integration)
+# Runs on every change to .github/workflows/**.
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/**'
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Install shellcheck
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq shellcheck
+          shellcheck --version | head -2
+
+      - name: Install actionlint (pinned + checksum-verified)
+        env:
+          ACTIONLINT_VERSION: v1.7.12
+        run: |
+          set -euo pipefail
+          VER="${ACTIONLINT_VERSION#v}"
+          curl -sSfL --retry 3 --connect-timeout 15 --max-time 120 \
+            -o actionlint.tgz \
+            "https://github.com/rhysd/actionlint/releases/download/${ACTIONLINT_VERSION}/actionlint_${VER}_linux_amd64.tar.gz"
+          curl -sSfL --retry 3 --connect-timeout 15 --max-time 60 \
+            -o checksums.txt \
+            "https://github.com/rhysd/actionlint/releases/download/${ACTIONLINT_VERSION}/actionlint_${VER}_checksums.txt"
+          GOT_SHA256=$(sha256sum actionlint.tgz | cut -d' ' -f1)
+          if ! grep -q "$GOT_SHA256" checksums.txt; then
+            echo "actionlint tarball checksum mismatch: $GOT_SHA256" >&2
+            exit 1
+          fi
+          tar -xzf actionlint.tgz actionlint
+          ./actionlint --version | head -1
+
+      - name: Run actionlint (includes shellcheck for run blocks)
+        run: |
+          set -euo pipefail
+          ./actionlint -color
+          echo "actionlint: OK (workflow syntax + shellcheck on run blocks)"

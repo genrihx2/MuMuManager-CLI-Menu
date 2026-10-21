@@ -1,0 +1,60 @@
+name: Sync README
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'mumu-menu.ps1'
+      - 'update-readme.ps1'
+      - '.github/workflows/sync-readme.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync-readme:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Regenerate README
+        id: sync
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          ./update-readme.ps1
+          $changed = git status --porcelain README.md
+          if ($changed) {
+            "changed=true" >> $env:GITHUB_OUTPUT
+            Write-Host "README.md has changes"
+          } else {
+            "changed=false" >> $env:GITHUB_OUTPUT
+            Write-Host "README.md already up to date"
+          }
+
+      - name: Commit and push
+        if: steps.sync.outputs.changed == 'true'
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git commit -m "docs: auto-sync README with mumu-menu.ps1"
+          # The other sync bot (.version) can land a commit between our
+          # rebase and our push - retry the rebase+push pair a few times.
+          ok=""
+          for i in 1 2 3 4; do
+            if git push origin main; then ok=1; break; fi
+            git pull --rebase origin main
+            sleep $((i * 3))
+          done
+          if [ -z "$ok" ]; then
+            echo "README push failed after retries"
+            exit 1
+          fi
+          echo "README synced and pushed"

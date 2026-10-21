@@ -1,0 +1,51 @@
+## MuMuManager CLI Menu v10.0.0
+
+Интерактивное PowerShell-меню для управления MuMu Emulator через `MuMuManager.exe`.
+
+### Что нового
+
+- Major release: semantic-version bump to `v10.0.0` to mark a stable, production-ready milestone and unify public-facing versioning.
+- Documentation and release notes reorganized for clarity (relnotes.md and README.md).
+- No behavioral changes to the runtime scripts in this commit — this release primarily records the versioning milestone and documentation cleanups.
+- Token storage note: the repo’s DPAPI blob `.github-token.dpapi` is machine/user-scoped and not portable by hand. If the stored blob is unreadable (for example after moving the folder between machines/users, or if the blob got corrupted), do **not** try to decrypt it manually — re-save the token through menu `[K]` so the script recreates it through the normal path.
+- Troubleshooting caveat: the file can legitimately have a UTF-8 BOM (that is why a BOM scan may call it “safe to strip”), but that is separate from whether the DPAPI blob is decryptable. A `TypeNotFound` on `[System.Security.Cryptography.ProtectedData]` is a runtime availability problem in the shell you ran it from, not proof that the blob is corrupted.
+- Pester suite: 261/261 passing.
+
+**EN summary (v10.0.0):** Production-ready milestone at v10.0.0 with synchronized version markers across `mumu-menu.ps1`, `.version`, `relnotes.md` and `README.md`, plus documented DPAPI token recovery (`.github-token.dpapi` re-save via `[K]`) and the BOM-is-not-plaintext caveat. Pester suite: 261/261 passing.
+
+### Документация
+
+- README: https://github.com/genrihx2/MuMuManager-CLI-Menu#readme
+- Wiki (install, features, docs map, troubleshooting, security, roadmap): https://github.com/genrihx2/MuMuManager-CLI-Menu/wiki/Home
+- Release notes: `relnotes.md` · Security policy: `SECURITY.md`
+
+### Установка
+
+**Быстрый запуск** (одна команда):
+```powershell
+irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-menu.ps1 -OutFile $env:TEMP\mumu-menu.ps1; & $env:TEMP\mumu-menu.ps1
+```
+
+**Git clone** (с автообновлением через `[U]`):
+```powershell
+git clone https://github.com/genrihx2/MuMuManager-CLI-Menu.git
+cd MuMuManager-CLI-Menu
+.\mumu-menu.ps1
+```
+
+### Верификация
+```powershell
+curl -sL https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/download/v10.0.0/MuMuManager-CLI-Menu-v10.0.0.zip.sha256 -o MuMuManager-CLI-Menu-v10.0.0.zip.sha256
+Get-FileHash MuMuManager-CLI-Menu-v10.0.0.zip -Algorithm SHA256 | Select -Expand Hash
+# Сравнить с содержимым MuMuManager-CLI-Menu-v10.0.0.zip.sha256
+```
+
+### Метрики
+
+| | |
+|---|---|
+| Размер ZIP | 160 KB |
+| Файлов | 8 |
+| SHA256 | `3a1f0fb57c1ddf44abe0cacfcbe15dd26919621d869ebfb7f3e25ec2626d509d` |
+
+**Требования:** Windows 10/11 · PowerShell 5.1+ · MuMu Emulator 6.x

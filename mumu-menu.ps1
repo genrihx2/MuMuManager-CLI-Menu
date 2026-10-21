@@ -224,6 +224,9 @@ function ConvertFrom-SecureToken {
     finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
 }
 
+# =========================================================================
+# Менеджер GitHub-токена — чтение (DPAPI-шифрование)
+# =========================================================================
 function Get-GitHubToken {
     if (Test-Path -LiteralPath $DpapiTokenFile -PathType Leaf) {
         try {
@@ -232,6 +235,10 @@ function Get-GitHubToken {
             return (ConvertFrom-SecureToken $sec)
         } catch {
             Write-Warning "Cannot decrypt $DpapiTokenFile (moved between machines/users?). Re-save the token via menu option [K]."
+            # NOTE: the DPAPI blob is user/machine-scoped and not portable by hand. If the
+            # stored .github-token.dpapi becomes unreadable (e.g. moved between machines/users
+            # or corrupted), do not hand-edit or try to decrypt it outside the script; re-save
+            # the token via menu [K] so it is recreated through this code path.
             return ''
         }
     }
@@ -267,9 +274,13 @@ function Initialize-TokenStorage {
         Write-Warning "Could not migrate token to encrypted storage: $($_.Exception.Message)"
         Write-Warning 'The plaintext .github-token file was left untouched. Re-save via menu option [K].'
     }
+    # NOTE: the DPAPI blob is user/machine-scoped and not portable by hand. If the
+    # stored .github-token.dpapi becomes unreadable (e.g. moved between machines/users
+    # or corrupted), do not hand-edit or try to decrypt it outside the script; re-save
+    # the token via menu [K] so it is recreated through this code path.
 }
 
-$scriptVer = '10.0.0'
+$scriptVer = '10.3.3'
 $InstalledVersion = $null
 
 # --- [WN] MuMu network + updater watcher (read-only, opt-in) -----------------
@@ -278,7 +289,10 @@ $InstalledVersion = $null
 # its own log file.
 $script:WatcherStopRequested = $false
 $script:WatcherConsoleMode   = $false
-$script:WatcherLogFile       = 'C:\test\mumu-network-update.txt'
+$script:WatcherLogFile       = 'C:\test\mumu-network-update.txt'   # falls back to %TEMP% if the folder cannot be created
+# Declared here (not lazily) for the same Set-StrictMode reason as the ETag
+# session tables below: an unset script-scoped read is a terminating error.
+$script:WatcherExeCache      = @{}
 
 $GitHubToken = Get-GitHubToken
 
@@ -1016,6 +1030,61 @@ if (-not (Test-Path -LiteralPath $MumuPath -PathType Leaf)) {
 # Shown in the status line so it is always obvious which copy is active.
 $script:MumuInstallLabel = Get-MuMuInstallLabel -ManagerPath $MumuPath
 
+# ---------------------------------------------------------------------------
+# Keep the menu window alive: accidental-close guards
+# ---------------------------------------------------------------------------
+# Launched standalone, the console window closes the moment the script ends,
+# so a stray Ctrl+C - the reflex right after a mouse click/selection in the
+# console - used to kill the whole menu instantly, and any unhandled runtime
+# error did the same. Ctrl+C is now ignored (exit with 0/q; closing the
+# window still works), and a script-level trap prints the error and returns
+# to the menu instead of ending the script. Placed after the MuMu-probe
+# 'exit 1' above so every remaining exit path runs inside the main loop's
+# try/finally, which always releases this guard again (the menu can run
+# inside an existing shell, where a leftover handler would disable Ctrl+C
+# for that whole session).
+# The handler must be a COMPILED delegate, never a ScriptBlock. .NET raises
+# CancelKeyPress on its own signal thread, where no runspace is attached, so a
+# ScriptBlock delegate throws PSInvalidOperationException ("Нет доступного
+# пространства выполнения для запуска скрипта в этом потоке") *before* its body
+# runs and the process dies with an unhandled exception - the Ctrl+C guard
+# crashed the menu instead of ignoring Ctrl+C (reproduced on v10.3.1: unhandled
+# System.Management.Automation.PSInvalidOperationException at
+# ScriptBlock.GetContextFromTLS, raised from the PosixSignalRegistration
+# handler). The compiled delegate below touches only e.Cancel, so it needs no
+# runspace. If compilation is unavailable (ConstrainedLanguage, no csc) the
+# guard is skipped on purpose: a menu without a Ctrl+C guard is degraded, a
+# menu that dies on Ctrl+C is broken.
+$script:NoCtrlCHandler = $null
+try {
+    if (-not ('MuMuMenuCtrlCGuard' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+public static class MuMuMenuCtrlCGuard {
+    public static readonly ConsoleCancelEventHandler Handler =
+        delegate (object sender, ConsoleCancelEventArgs e) { e.Cancel = true; };
+}
+'@ -ErrorAction Stop
+    }
+    $script:NoCtrlCHandler = [MuMuMenuCtrlCGuard]::Handler
+} catch {
+    Write-Debug "Ctrl+C guard not compiled: $($_.Exception.Message)"
+}
+if ($script:NoCtrlCHandler) {
+    try {
+        [System.Console]::add_CancelKeyPress($script:NoCtrlCHandler)
+    } catch {
+        Write-Debug "Ctrl+C guard unavailable: $($_.Exception.Message)"
+    }
+}
+
+trap {
+    Write-Host ''
+    Write-Host ("Error (the menu stays open): {0}" -f $_.Exception.Message) -ForegroundColor Red
+    Write-Host '  Pick a menu option to continue, or 0/q to exit.' -ForegroundColor DarkGray
+    continue
+}
+
 # Auto-update from GitHub
 function Get-ContentHash {
     param([string]$Text)
@@ -1481,7 +1550,7 @@ function Test-InstallationIntegrity {
             }
         }
 
-        $files = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1')
+        $files = @('mumu-menu.ps1', 'mumu-menu.cjs', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1')
         $verFile = Join-Path $ScriptDir '.version'
         $localTag = ''
         if (Test-Path -LiteralPath $verFile) {
@@ -1616,7 +1685,7 @@ function Test-ReleaseZip {
         [Parameter(Mandatory = $true)] [string]$ExpectedTag,
         [string]$SidecarPath = "$ZipPath.sha256"
     )
-    $expectedFiles = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', '.version', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1')
+    $expectedFiles = @('mumu-menu.ps1', 'mumu-menu.cjs', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', '.version', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1')
     $checks = @()
     $ok = $true
     $zipVer = ''
@@ -1706,17 +1775,40 @@ function Show-InstallVerify {
     Write-Host ''
     Write-Host 'Verifying installation against the current release tag...' -ForegroundColor Cyan
     $resolvedTag = ''
+    $integrityReport = @()
     try {
         $rel = Invoke-GitHubGet "https://api.github.com/repos/$GitHubRepo/releases/latest" 15 | ConvertFrom-Json
         if ($rel -and $rel.tag_name) {
             $resolvedTag = $rel.tag_name
-            $null = Test-InstallationIntegrity -Tag $resolvedTag
+            # Plain assignment (no @()): the function returns ', $report'
+            # and @() would keep the array nested - the pipeline below must
+            # see the individual report STRINGS, or -match runs on the array
+            # itself and never populates $Matches (live smoke, v10.2.0).
+            $integrityReport = Test-InstallationIntegrity -Tag $resolvedTag
+            if ($null -eq $integrityReport) { $integrityReport = @() }
         } else {
             $msg = if ($rel -and $rel.message) { $rel.message } else { 'no release found' }
             Write-Host "  Cannot determine current release: $msg" -ForegroundColor Yellow
         }
     } catch {
         Write-Host "  Cannot determine current release: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+
+    # Auto-repair: [F] is the flow that DETECTS DRIFT/MISSING, so it is also
+    # the flow that offers to fix them - the bad files are re-downloaded
+    # from the pinned release with backup, SHA-256 verification and journal
+    # (Repair-Installation). Declining changes nothing.
+    $badFiles = @()
+    foreach ($entry in $integrityReport) {
+        if ($entry -match '^(DRIFT|MISSING)\|([^|]+)\|') { $badFiles += $Matches[2] }
+    }
+    if ($resolvedTag -and $badFiles.Count -gt 0) {
+        Write-Host ''
+        Write-Host ("  Drifted or missing: {0}" -f ($badFiles -join ', ')) -ForegroundColor Yellow
+        $repairAsk = Read-Host "  Repair from release $resolvedTag now? (y/N)"
+        if ($repairAsk -eq 'y' -or $repairAsk -eq 'Y') {
+            $null = Repair-Installation -Tag $resolvedTag -BadFiles $badFiles
+        }
     }
 
     # Optional: verify a downloaded release ZIP before a manual install (#19).
@@ -1755,6 +1847,139 @@ function Show-InstallVerify {
     }
 }
 
+# ── [F] auto-repair: restore drifted/missing files from the release ──
+# Offered by Show-InstallVerify when the integrity check reports
+# DRIFT/MISSING. Reuses the [U] updater's invariants: single-flight lock,
+# tag->commit pinning, backup before overwrite, SHA-256 verification of
+# every byte written, .new staging for the running script (applied at the
+# next menu start), and repair-ok/repair-fail journal events. Downloads
+# are byte-faithful (raw bytes to disk; the UTF-8 decode is only for the
+# JSON-metadata guard and the hash) - the same contract as [U].
+function Repair-Installation {
+    param([string]$Tag, [string[]]$BadFiles)
+    # Whitelist: repair never writes a file the release itself ships.
+    $bad = @($BadFiles | Where-Object { $_ -match '^(mumu-menu\.ps1|SKILL\.md|README\.md|bootstrap-update\.ps1|Watch-MumuConnections\.ps1|Test-MumuTunnelAB\.ps1|Diag-MumuNx\.ps1|\.version)$' })
+    if (-not $Tag -or $bad.Count -eq 0) {
+        Write-Host '  Repair: nothing to repair (no recognized files requested).' -ForegroundColor DarkGray
+        return $false
+    }
+    # Pin the tag to its commit SHA - repairs must read the same immutable
+    # snapshot [F] verified against (stale-CDN hardening, issue #22).
+    $fetchRef = $Tag
+    if ($Tag -notmatch '^[0-9a-fA-F]{40}$' -and $GitHubRepo) {
+        try {
+            $sha = Resolve-GitRefSha -RepoPart $GitHubRepo -Ref $Tag 15
+            if ($sha -and $sha -match '^[0-9a-fA-F]{40}$') {
+                $fetchRef = $sha
+                Write-Host "  Repair pinned to commit $($sha.Substring(0, 8))" -ForegroundColor DarkGray
+            }
+        } catch { Write-Debug "Repair ref pin failed: $($_.Exception.Message)" }
+    }
+    # Expected fingerprints from the pinned snapshot. Absent when the API
+    # is unreachable - each file then reports 'unverified' honestly instead
+    # of being written blind (the hash gate of issue #20 stays authoritative).
+    $expected = @{}
+    try { $expected = Get-ExpectedFileHashes -Tag $Tag -Names $bad -FetchRef $fetchRef } catch { Write-Debug "Repair expected-hash fetch failed: $($_.Exception.Message)" }
+
+    # Single-flight lock (issue #24) - same mutation gate as [U].
+    if (-not (New-UpdateLock -Dir $ScriptDir)) { return $false }
+    try {
+        # Backup the files being repaired before they are replaced.
+        $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
+        $backupDir = Join-Path $ScriptDir "backup\$stamp"
+        foreach ($f in $bad) {
+            $p = Join-Path $ScriptDir $f
+            if (Test-Path -LiteralPath $p -PathType Leaf) {
+                New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
+                Copy-Item -LiteralPath $p -Destination (Join-Path $backupDir $f) -Force
+            }
+        }
+        if (Test-Path -LiteralPath $backupDir) { Write-Host "  Backup saved: backup\$stamp" -ForegroundColor DarkGray }
+
+        $ok = 0
+        $failed = 0
+        $details = @()
+        foreach ($f in $bad) {
+            $dest = Join-Path $ScriptDir $f
+            Write-Host "  Repairing $f..." -ForegroundColor Yellow
+            $tmp = Join-Path $env:TEMP ('mumu_repair_' + [Guid]::NewGuid().ToString('N') + '.tmp')
+            try {
+                $url = "https://api.github.com/repos/$GitHubRepo/contents/$SkillPath/$f`?ref=$fetchRef"
+                # No stderr redirection on the native call: under Windows
+                # PowerShell 5.1 a redirected native stderr turns the first
+                # curl error line into a terminating error (bootstrap field
+                # report, v10.2.0) - plain text on both engines instead.
+                $dlBase = @('-sS', '--fail', '--retry', '2', '--retry-delay', '1', '--connect-timeout', '15', '--max-time', '60', '-L', '-H', 'Accept: application/vnd.github.v3.raw', '-o', $tmp)
+                if ($GitHubToken) { & curl.exe @($dlBase + @('-H', "Authorization: token $GitHubToken", $url)) }
+                else { & curl.exe @($dlBase + @($url)) }
+                if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $tmp) -or (Get-Item -LiteralPath $tmp -ErrorAction SilentlyContinue).Length -eq 0) {
+                    Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+                    if ($GitHubToken) {
+                        # Same session-wide disable as the [U] updater: a
+                        # rejected token must not poison every repair fetch.
+                        Write-Host '    Token rejected — retrying without auth...' -ForegroundColor Yellow
+                        $script:GitHubToken = ''
+                        Write-Host '    Saved token disabled for this session - re-save via menu [K].' -ForegroundColor DarkGray
+                    }
+                    & curl.exe @($dlBase + @($url))
+                }
+                $haveBody = ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $tmp) -and (Get-Item -LiteralPath $tmp -ErrorAction SilentlyContinue).Length -gt 0)
+                if (-not $haveBody) { throw 'download failed (file not created)' }
+                $bytes = [System.IO.File]::ReadAllBytes($tmp)
+                $text = [System.Text.Encoding]::UTF8.GetString($bytes)
+                # JSON-metadata guard (same contract as [U] and bootstrap):
+                # applies only when the body actually starts with '{'.
+                if ($text.TrimStart().StartsWith('{')) {
+                    if ($text -match '"message"\s*:\s*"') {
+                        $errMsg = if ($text -match '"message"\s*:\s*"([^"]+)"') { $Matches[1] } else { 'API error' }
+                        throw $errMsg
+                    }
+                    if ($text -match '"encoding"\s*:\s*"base64"') { throw 'received JSON metadata instead of raw content' }
+                    if ($text -match '"name"\s*:\s*"' -and $text -match '"_links"') { throw 'received JSON metadata instead of raw content' }
+                }
+                # Byte verification against the pinned snapshot fingerprint.
+                # Get-ContentHash normalizes BOM and trailing whitespace, so
+                # this compares exactly like the [U] post-download gate.
+                $actual = Get-ContentHash $text
+                if ($expected.ContainsKey($f)) {
+                    if ($actual -ne $expected[$f]) { throw "hash mismatch (expected $($expected[$f].Substring(0, 16))..., got $($actual.Substring(0, 16))...)" }
+                    Write-Host "    hash OK ($($actual.Substring(0, 16))...)" -ForegroundColor Green
+                } else {
+                    Write-Host '    hash unverified (expected fingerprint unavailable)' -ForegroundColor Yellow
+                }
+                # The running script cannot overwrite itself - stage .new,
+                # applied at the next menu start (same as [U]).
+                if ($f -eq 'mumu-menu.ps1') {
+                    [System.IO.File]::WriteAllBytes(($dest + '.new'), $bytes)
+                    Write-Host '    saved as mumu-menu.ps1.new (applied on next menu start)' -ForegroundColor Green
+                } else {
+                    [System.IO.File]::WriteAllBytes($dest, $bytes)
+                    Write-Host "    $f restored" -ForegroundColor Green
+                }
+                $ok++
+                $details += "$f=ok"
+            } catch {
+                Write-Host "    Failed: $($_.Exception.Message)" -ForegroundColor Red
+                $failed++
+                $details += "$f=fail"
+            } finally {
+                Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+            }
+        }
+        if ($failed -gt 0) {
+            Write-UpdateJournal -EventType 'repair-fail' -From $Tag -To $Tag -Detail "$ok ok, $failed failed ($($details -join ', '))"
+            Write-Host "  Repair finished with $failed failed file(s)." -ForegroundColor Red
+            return $false
+        }
+        Write-UpdateJournal -EventType 'repair-ok' -From $Tag -To $Tag -Detail ($details -join ', ')
+        Write-Host "  Repair complete ($ok file(s) restored from $Tag)." -ForegroundColor Green
+        return $true
+    } finally {
+        # Release in finally: covers success, failure and Ctrl+C (same as [U]).
+        Remove-UpdateLock -Dir $ScriptDir
+    }
+}
+
 # ── [UP] Update plan (dry-run): what [U] would do, nothing replaced ───
 # Pure report renderer so tests can assert the facts without side effects.
 # Facts come from the caller's fetched release + local install state; the
@@ -1765,7 +1990,7 @@ function Show-UpdatePlan {
         [AllowEmptyString()] [string]$LocalTag
     )
 
-    $files = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1')
+    $files = @('mumu-menu.ps1', 'mumu-menu.cjs', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1')
     $present = 0
     $updateSize = 0
     foreach ($f in $files) {
@@ -1835,10 +2060,11 @@ function Update-FromGitHub {
     }
 
     # v1.22.48: the self-update downloads the full deployed file set (the same
-    # 8-file contract as the release ZIP and bootstrap-update.ps1), so [U] can
+    # 9-file contract as the release ZIP and bootstrap-update.ps1; mumu-menu.cjs
+    # joined in v10.3.0), so [U] can
     # deliver files introduced after v1.22.45 (diagnostics trio) to existing
     # installs. .version is written by the updater itself after a verified run.
-    $files = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1')
+    $files = @('mumu-menu.ps1', 'mumu-menu.cjs', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1')
 
     # Updates are sourced ONLY from tagged GitHub Releases, never from the
     # mutable main branch. Get-RemoteFile closes over the resolved tag.
@@ -1912,7 +2138,19 @@ function Update-FromGitHub {
             try { $localTag = (Get-Content -LiteralPath $VersionFile -Raw).Trim() } catch { Write-Debug "Version file read failed: $($_.Exception.Message)" }
         }
 
-        if ($localTag -eq $tag) {
+        # The marker alone is not proof the install is complete: a release can
+        # ADD a file (v10.3.0 added mumu-menu.cjs). An install whose .version
+        # already names the tag used to stop at 'Up to date' forever while the
+        # new file never arrived (seen live right after the 10.3.0 rollout), so a
+        # missing declared file is treated as drift and repaired by this run.
+        # Unchanged files are still skipped by the per-file hash gate.
+        $missingReleaseFiles = @($files | Where-Object { -not (Test-Path -LiteralPath (Join-Path $ScriptDir $_) -PathType Leaf) })
+        if ($localTag -eq $tag -and $missingReleaseFiles.Count -gt 0) {
+            if (-not $Passive) {
+                Write-Host ("  Version marker says {0}, but {1} file(s) are missing: {2}" -f $tag, $missingReleaseFiles.Count, ($missingReleaseFiles -join ', ')) -ForegroundColor Yellow
+                Write-Host '  Repairing: downloading the release file set (hash-verified).' -ForegroundColor Yellow
+            }
+        } elseif ($localTag -eq $tag) {
             if (-not $Passive) {
                 if ($Plan) {
                     Write-Host "  Up to date ($tag)." -ForegroundColor Green
@@ -2822,22 +3060,12 @@ try {
 
 $script:QuickStatusCache = $null
 $script:QuickStatusTs = [datetime]::MinValue
+$script:QuickStatusPipe = $null
 
-function Show-QuickStatus {
-    # Show compact status line at the top of the menu
-    # Cache MuMuManager info for 5 seconds to avoid lag on every menu render
-    $muVer = if ($InstalledVersion) { "$InstalledVersion" } else { 'unknown' }
-    # Which install we drive (Netease\MuMuPlayer, Netease1\MuMu, ...) - the
-    # whole menu talks to exactly one MuMuManager.exe, so it is always shown.
-    $installTag = if ($script:MumuInstallLabel) { " | $($script:MumuInstallLabel)" } else { '' }
-    $now = [datetime]::Now
-    if ($script:QuickStatusCache -and ($now - $script:QuickStatusTs).TotalSeconds -lt 5) {
-        $total = $script:QuickStatusCache.total
-        $running = $script:QuickStatusCache.running
-        $script:QuickStatusTs = $now
-        Write-Host "  v$scriptVer | MuMu $muVer$installTag | $running/$total running" -ForegroundColor DarkGray
-        return
-    }
+function Get-QuickStatusCounts {
+    # One MuMuManager `info -v all` round-trip -> @{ total; running }, or
+    # $null when the manager is missing/answers garbage. Never throws -
+    # the status line degrades to the version-only form.
     try {
         $info = & $MumuPath info -v all 2>$null | ConvertFrom-Json
         $total = 0; $running = 0
@@ -2845,10 +3073,94 @@ function Show-QuickStatus {
             $total++
             if ($info.$key.player_state -and $info.$key.player_state -notmatch 'stopped| shutting') { $running++ }
         }
-        $script:QuickStatusCache = @{ total = $total; running = $running }
-        $script:QuickStatusTs = $now
-        Write-Host "  v$scriptVer | MuMu $muVer$installTag | $running/$total running" -ForegroundColor DarkGray
+        return @{ total = $total; running = $running }
+    } catch { return $null }
+}
+
+function Start-QuickStatusRefresh {
+    # Kick a BACKGROUND MuMuManager query in a light in-process runspace.
+    # Start-Job would spawn a whole powershell.exe (slower than the query
+    # itself); [powershell]::Create runs in this process. Only ever one
+    # query is in flight ($script:QuickStatusPipe is the guard).
+    if ($script:QuickStatusPipe) { return }
+    try {
+        $ps = [powershell]::Create()
+        $null = $ps.AddScript({ param($exe) & $exe info -v all 2>$null | Out-String }).AddArgument("$MumuPath")
+        $script:QuickStatusPipe = @{ PS = $ps; Handle = $ps.BeginInvoke() }
     } catch {
+        # Background refresh is best-effort: the cache simply stays stale.
+        Write-Debug "quick-status refresh kick failed: $($_.Exception.Message)"
+        try { if ($ps) { $ps.Dispose() } } catch { Write-Debug "quick-status dispose failed: $($_.Exception.Message)" }
+        $script:QuickStatusPipe = $null
+    }
+}
+
+function Update-QuickStatusCache {
+    # Adopt a COMPLETED background query into the cache. Returns $true
+    # when new data landed. Safe to call every render: it only ever reads
+    # the handle and no-ops while the query is still running.
+    $p = $script:QuickStatusPipe
+    if (-not $p) { return $false }
+    if (-not $p.Handle.IsCompleted) { return $false }
+    $script:QuickStatusPipe = $null
+    try {
+        $out = $p.PS.EndInvoke($p.Handle)
+        $text = (@($out) -join "`n").Trim()
+        if ($text) {
+            $info = $text | ConvertFrom-Json
+            $total = 0; $running = 0
+            foreach ($key in $info.PSObject.Properties.Name) {
+                $total++
+                if ($info.$key.player_state -and $info.$key.player_state -notmatch 'stopped| shutting') { $running++ }
+            }
+            $script:QuickStatusCache = @{ total = $total; running = $running }
+            $script:QuickStatusTs = [datetime]::Now
+            return $true
+        }
+    } catch {
+        Write-Debug "quick-status refresh failed: $($_.Exception.Message)"
+    } finally {
+        try { $p.PS.Dispose() } catch { Write-Debug "quick-status dispose failed: $($_.Exception.Message)" }
+    }
+    return $false
+}
+
+function Show-QuickStatus {
+    # Compact status line at the top of the menu.
+    # NEVER blocks the redraw on MuMuManager (the after-action lag fix):
+    # - fresh cache        -> render instantly, no manager call at all;
+    # - stale cache        -> render last known values IMMEDIATELY and
+    #   refresh in the background (Start-QuickStatusRefresh), with a short
+    #   bounded wait (400 ms) so a healthy manager still lands truthfully
+    #   on this render; a slow manager costs at most 400 ms, not seconds;
+    # - no cache (startup) -> one synchronous query so the first line is
+    #   truthful (runs once per process, before any action has run).
+    # The timestamp advances only when data is actually fetched (the old
+    # code also bumped it on cache HITS, which slid the window and made
+    # the cache expire right after any action - the exact lag seen after
+    # [2]/[3]/[4]).
+    $muVer = if ($InstalledVersion) { "$InstalledVersion" } else { 'unknown' }
+    # Which install we drive (Netease\MuMuPlayer, Netease1\MuMu, ...) - the
+    # whole menu talks to exactly one MuMuManager.exe, so it is always shown.
+    $installTag = if ($script:MumuInstallLabel) { " | $($script:MumuInstallLabel)" } else { '' }
+    $null = Update-QuickStatusCache
+    if (-not $script:QuickStatusCache) {
+        $first = Get-QuickStatusCounts
+        if ($first) {
+            $script:QuickStatusCache = $first
+            $script:QuickStatusTs = [datetime]::Now
+        }
+    } elseif (([datetime]::Now - $script:QuickStatusTs).TotalSeconds -ge 12) {
+        Start-QuickStatusRefresh
+        $deadline = [datetime]::Now.AddMilliseconds(400)
+        while ($script:QuickStatusPipe -and [datetime]::Now -lt $deadline) {
+            Start-Sleep -Milliseconds 25
+            if (Update-QuickStatusCache) { break }
+        }
+    }
+    if ($script:QuickStatusCache) {
+        Write-Host ("  v$scriptVer | MuMu $muVer$installTag | {0}/{1} running" -f $script:QuickStatusCache.running, $script:QuickStatusCache.total) -ForegroundColor DarkGray
+    } else {
         Write-Host "  v$scriptVer | MuMu $muVer$installTag" -ForegroundColor DarkGray
     }
 }
@@ -3582,7 +3894,7 @@ function Build-RollbackPlan {
     param(
         [Parameter(Mandatory = $true)] [string]$BackupDir,
         [Parameter(Mandatory = $true)] [string]$InstallDir,
-        [string[]]$FileSet = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1')
+        [string[]]$FileSet = @('mumu-menu.ps1', 'mumu-menu.cjs', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1')
     )
     $r = @{ Ok = $false; Reason = ''; Files = @(); MarkerTo = ''; MarkerWrite = $false }
     if (-not ($BackupDir -and (Test-Path -LiteralPath $BackupDir -PathType Container))) { $r.Reason = "backup folder not found: $BackupDir"; return $r }
@@ -3609,7 +3921,7 @@ function Invoke-Rollback {
         [Parameter(Mandatory = $true)] [string]$BackupDir,
         [Parameter(Mandatory = $true)] [string]$InstallDir,
         [string]$VersionFile = '',
-        [string[]]$FileSet = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1')
+        [string[]]$FileSet = @('mumu-menu.ps1', 'mumu-menu.cjs', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1')
     )
     if (-not $VersionFile) { $VersionFile = Join-Path $InstallDir '.version' }
     $markerBefore = ''
@@ -4121,6 +4433,8 @@ function Show-Menu {
     Write-Host '  [RM] Resource monitor (CPU/RAM, live)' -ForegroundColor Yellow
     Write-Host '  [IN] MuMu installation (choose active)' -ForegroundColor Yellow
     Write-Host '  [V] Version info' -ForegroundColor Yellow
+    Write-Host '  [MU] MuMu emulator update check (read-only)' -ForegroundColor Yellow
+    Write-Host '  [OI] Offline installers (all versions, read-only)' -ForegroundColor Yellow
     Write-Host '  [U] Check for updates' -ForegroundColor Yellow
     Write-Host '  [UP] Update plan (dry-run)' -ForegroundColor Yellow
     Write-Host '  [F] Verify installation (files vs release tag)' -ForegroundColor Yellow
@@ -4132,6 +4446,7 @@ function Show-Menu {
     Write-Host '  [CR] Create release' -ForegroundColor Yellow
     Write-Host '  [FR] Fix release encoding' -ForegroundColor Yellow
     Write-Host '  [0] Exit' -ForegroundColor Yellow
+    Write-Host '  (Ctrl+C will not close this window - use 0 or q to exit)' -ForegroundColor DarkGray
     Write-Host ''
     Write-Host '======================================' -ForegroundColor Cyan
 }
@@ -6567,6 +6882,10 @@ function Update-Token {
         # Sigma FP: "Unsigned Image Loaded Into LSASS" - This is NOT LSASS injection.
         # Uses standard .NET DPAPI via ConvertFrom-SecureString (ProtectedData CurrentUser scope).
         # No DLL/EXE loads into LSASS, no process injection. Credential is per-user encrypted.
+        # NOTE: the DPAPI blob is user/machine-scoped and not portable by hand. If the
+        # stored .github-token.dpapi becomes unreadable (e.g. moved between machines/users
+        # or corrupted), do not hand-edit or try to decrypt it outside the script; re-save
+        # the token via menu [K] so it is recreated through this code path.
         # Script is Authenticode-signed after [CRT] (see Get-AuthenticodeSignature).
         ConvertFrom-SecureString -SecureString $sec |
             Set-Content -LiteralPath $DpapiTokenFile -Force
@@ -9079,6 +9398,426 @@ function Uninstall-App {
     }
 }
 
+function Show-MumuOfflineInstallers {
+    <#
+    .SYNOPSIS
+        List every official MuMu Player offline installer variant directly from
+        NetEase's CDN, with the exact filename, channel, and an integrity badge.
+    .DESCRIPTION
+        Discovers current MuMu Player offline installers through the official
+        update release-notes page (https://www.mumuplayer.com/update/) and the
+        telemetry-free alias a11.gdl.easebar.com. Nothing is downloaded here - the
+        function only prints filenames, channels, sizes, and integrity badges. Where
+        the current release is publishable through a long-term signing archive, the
+        listing also exposes the historical Windows installers so you can pin an
+        older build, roll back to a known-good version, or carry an air-gapped
+        offline bundle.
+
+        Covers the four formats NetEase still ships:
+          * Windows offline installer (.exe) - usually the global channel
+          * Windows offline installer (.exe) - mainland China channel (the archive
+            is the only publicly documented source for older Chinese builds; the live
+            release page may surface only the current one)
+          * macOS disk image (.dmg)
+          * Android ARM APK (arm64-v8a) - the root-level offline package, not an
+            emulator-specific split
+
+        Offline installers are what people commonly mean by "all versions" - the full
+        installer bundles you can keep on a USB stick and run without any
+        updater or an internet connection. This function tells you exactly which one
+        to grab for each platform and, where available, how to verify it before running
+        it. The actual downloads are initiated outside this menu - on Windows via the
+        mumu-menu.ps1 helper, on macOS via the browser, and on Android via the APK
+        endpoint printed here or via menu [APK] when a pinned emulator instance exists.
+
+        Sources (all read-only, no credentials):
+          * https://www.mumuplayer.com/update/ - official release-notes page, current
+            release (text in Russian; the page is also the source of truth for the
+            channel-to-URL mapping the updater itself uses)
+          * a11.gdl.easebar.com - the same NetEase CDN surfaced through a direct,
+            telemetry-free alias; used as a fallback and for the ARM APK when the
+            release page does not expose it
+
+        Integrity: where the CDN headers expose a SHA-256 digest, the listing prints
+        it so you can verify the file you downloaded. Where they do not, the listing
+        says so explicitly rather than fabricating a checksum. For the Windows exe this
+        usually works because the HTTP redirect target carries a Content-Disposition name
+        and a Content-Length; for the APK the listing falls back to the host header and
+        filename from the root-level endpoint.
+
+        Version history: the live resolver returns the current release only. The release
+        page itself (the HTML this function parses) keeps older entries listed, and the
+        long-term signing archive (the CN offline-installer bucket) exposes older Windows
+        builds by version-named paths. If you need an exact older version that is not in
+        the current listing, use [MU] to open the release page and follow the archive link
+        there, or contact support for the specific build you need.
+    .EXAMPLE
+        [OI] from the menu
+    #>
+    $functionName = 'Show-MumuOfflineInstallers'
+
+    Write-Host ''
+    Write-Host '=== Offline installers: current official builds (read-only) ===' -ForegroundColor Cyan
+    Write-Host 'Source: https://www.mumuplayer.com/update/' -ForegroundColor DarkYellow
+    Write-Host '(also mirrored telemetry-free at a11.gdl.easebar.com for the APK)' -ForegroundColor DarkYellow
+    Write-Host ''
+
+    # ---------- helpers ----------
+
+    function Resolve-InstallerThumbprint {
+        param(
+            [string]$Url,
+            [string]$Label
+        )
+        $badges = @()
+        # Primary: HTTP response headers. Only the release-page resolver and a couple of
+        # CDN paths consistently expose the digest we can print.
+        $head = $null
+        try {
+            $head = Invoke-WebRequest -Uri $Url -Method Head -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop
+        } catch {
+            Write-Debug "${functionName}: HEAD $Label failed: $($_.Exception.Message)"
+        }
+        if ($head) {
+            # Windows exe: Content-Disposition gives the real filename; Content-Length the size.
+            $cd = @($head.Headers['Content-Disposition']) | Where-Object { $_ } | Select-Object -First 1
+            if ($cd -and $cd -match 'filename\*?=\"?([^\";\r\n]+)\"?') {
+                $badges += "name: $($Matches[1])"
+            }
+            # Content-Length header first: pwsh 7 reports RawContentLength 0 on
+            # HEAD (no body), while 5.1 exposes the header there. The badge carries
+            # only the number - the print sites append the unit.
+            $len = $null
+            $lenRaw = @($head.Headers['Content-Length']) | Where-Object { $_ } | Select-Object -First 1
+            $parsed = 0L
+            if ($lenRaw -and [int64]::TryParse([string]$lenRaw, [ref]$parsed)) { $len = $parsed }
+            elseif ($head.RawContentLength -gt 0) { $len = [int64]$head.RawContentLength }
+            if ($null -ne $len) { $badges += ('size: {0:N0}' -f $len) }
+
+            # SHA-256 digest, when the CDN exposes it.
+            foreach ($h in 'X-Content-Sha256', 'Digest', 'x-amz-meta-sha256', 'x-goog-meta-sha256') {
+                if ($head.Headers[$h]) {
+                    $badges += "sha256:$h=$( [string](@($head.Headers[$h]) | Where-Object { $_ } | Select-Object -First 1) )"
+                    break
+                }
+            }
+            if ($head.StatusDescription -match '^\s*3\d\d') {
+                $badges += "redirect-to:$($head.Headers.Location)"
+            }
+        }
+        if ($badges.Count -eq 0) {
+            $badges += 'integrity: headers did not expose a digest/length for this path'
+        }
+        return $badges
+    }
+
+    function Get-ResponseFinalUri {
+        # Where the request actually landed after redirects. Invoke-WebRequest
+        # follows 302s itself, so the final response carries no Location header;
+        # the effective URI lives on the response object, and that object differs
+        # between Windows PowerShell 5.1 (HttpWebResponse) and pwsh 7
+        # (HttpResponseMessage).
+        param($Resp)
+        $base = $Resp.BaseResponse
+        if ($base.PSObject.Properties['RequestMessage'] -and $base.RequestMessage.RequestUri) {
+            return $base.RequestMessage.RequestUri.AbsoluteUri
+        }
+        if ($base.PSObject.Properties['ResponseUri'] -and $base.ResponseUri) {
+            return $base.ResponseUri.AbsoluteUri
+        }
+        if ($Resp.Headers['Location']) { return [string]$Resp.Headers['Location'] }
+        return $null
+    }
+
+    # ---------- fetch the release page (same HTML the updater uses) ----------
+
+    $page = 'https://www.mumuplayer.com/update/'
+    $html = $null
+    $htmlAttempt = 0
+    while ($htmlAttempt -lt 2 -and -not $html) {
+        $htmlAttempt++
+        try {
+            $html = (Invoke-WebRequest -Uri $page -UseBasicParsing -TimeoutSec 12).Content
+        } catch {
+            if ($htmlAttempt -lt 2) { Start-Sleep -Seconds 2 }
+        }
+    }
+
+    if (-not $html) {
+        Write-Warning "${functionName}: could not reach $page (no offline-installer listing)"
+        return
+    }
+
+    # ---------- parse the current Windows offline installer ----------
+
+    # The release page lists a Windows offline installer as a direct download link into
+    # NetEase's CDN. We look for the first exe link whose host belongs to the NetEase CDN
+    # and whose href contains '/MuMu' or '/install' or ends with '.exe'. If we also find the
+    # CDN JSON resolver metadata, we enrich it; otherwise we print what the HTML gave us.
+    $exeHref = $null
+    $exeName = $null
+    $exeSize = $null
+    $exeChecksum = @()
+
+    # Try the official resolver first (same endpoint the menu's updater uses for the exe).
+    # HEAD only: the endpoint 302s straight to the CDN binary and Invoke-WebRequest
+    # follows the hop itself, so the installer URI is the FINAL response URI (the
+    # Location header is empty after the hop) - a GET here would buffer the whole
+    # installer into memory just to print a filename.
+    $resolverUrl = $null
+    try {
+        $resolverResp = Invoke-WebRequest -Uri 'https://api.mumuplayer.com/api/dl/win?channel=gw-overseas12' -Method Head -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop
+        $resolverUrl = Get-ResponseFinalUri $resolverResp
+    } catch {
+        Write-Debug "${functionName}: resolver gw-overseas12 failed (will fall back to HTML): $($_.Exception.Message)"
+    }
+
+    if ($resolverUrl) {
+        # Resolve the real filename + size + possible digest from the redirect target.
+        $winBadges = Resolve-InstallerThumbprint -Url $resolverUrl -Label 'windows-exe-gw-overseas12'
+        $exeHref = $resolverUrl
+        $exeName = ($winBadges | Where-Object { $_ -match '^name:' }) -replace '^name:\s*',''
+        $exeSize = ($winBadges | Where-Object { $_ -match '^size:' }) -replace '^size:\s*',''
+    }
+
+    # If resolver didn't yield, extract from HTML.
+    if (-not $exeHref) {
+        $htmlLinks = [regex]::Matches($html, 'href=["''](.*?)["'']', 'IgnoreCase') |
+            ForEach-Object { $_.Groups[1].Value }
+        foreach ($link in $htmlLinks) {
+            if ($link -notmatch '^(https?://)?(www\.)?mumuplayer\.com' -and
+                $link -notmatch '^#' -and $link -notmatch '\.(css|js|png|jpg|svg|ico|woff|woff2)$' -and
+                ($link -match '\.exe$' -or $link -match '/installation'))
+            {
+                $exeHref = $link
+                break
+            }
+        }
+        if ($exeHref) {
+            # Make an absolute URL if it is relative to the page.
+            if ($exeHref -notmatch '^\s*https?://') {
+                $exeHref = [System.Uri]($page).AbsoluteUri.TrimEnd('/') + '/' + $exeHref.TrimStart('/')
+            }
+            $exeBadges = Resolve-InstallerThumbprint -Url $exeHref -Label 'windows-exe-from-html'
+            $exeName = ($exeBadges | Where-Object { $_ -match '^name:' }) -replace '^name:\s*',''
+            $exeSize = ($exeBadges | Where-Object { $_ -match '^size:' }) -replace '^size:\s*',''
+            $exeChecksum = $exeBadges | Where-Object { $_ -match '^sha256:' }
+        }
+    }
+
+    if ($exeHref) {
+        Write-Host 'Windows offline installer (global/overseas):' -ForegroundColor Yellow
+        Write-Host "  $exeHref"
+        if ($exeName) { Write-Host "  name: $exeName" }
+        if ($exeSize) { Write-Host "  size: $exeSize bytes" }
+        if ($exeChecksum) { Write-Host "  $($exeChecksum -join ' / ')" -ForegroundColor DarkGray }
+        Write-Host ''
+    } else {
+        Write-Warning "${functionName}: no Windows offline installer link found on the release page."
+    }
+
+    # ---------- parse the current macOS DMG ----------
+
+    $dmgHref = $null
+    $dmgBadges = @()
+    $dmgUrl = $null
+    try {
+        $dmgResp = Invoke-WebRequest -Uri 'https://api.mumuplayer.com/api/dl/mac?channel=default' -Method Head -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop
+        $dmgUrl = Get-ResponseFinalUri $dmgResp
+    } catch {
+        Write-Debug "${functionName}: mac resolver failed (will fall back to HTML): $($_.Exception.Message)"
+    }
+
+    if ($dmgUrl) {
+        $dmgBadges = Resolve-InstallerThumbprint -Url $dmgUrl -Label 'mac-dmg-default'
+        $dmgHref = $dmgUrl
+    } else {
+        $htmlLinks = [regex]::Matches($html, 'href=["''](.*?)["'']', 'IgnoreCase') |
+            ForEach-Object { $_.Groups[1].Value }
+        foreach ($link in $htmlLinks) {
+            if ($link -notmatch '^(https?://)?(www\.)?mumuplayer\.com' -and
+                $link -notmatch '^#' -and $link -notmatch '\.(css|js|png|jpg|svg|ico|woff|woff2)$' -and
+                $link -match '\.dmg$')
+            {
+                $dmgHref = $link
+                break
+            }
+        }
+        if ($dmgHref -and $dmgHref -notmatch '^\s*https?://') {
+            $dmgHref = [System.Uri]($page).AbsoluteUri.TrimEnd('/') + '/' + $dmgHref.TrimStart('/')
+        }
+        if ($dmgHref) {
+            $dmgBadges = Resolve-InstallerThumbprint -Url $dmgHref -Label 'mac-dmg-from-html'
+        }
+    }
+
+    if ($dmgHref) {
+        Write-Host 'macOS disk image:' -ForegroundColor Yellow
+        Write-Host "  $dmgHref"
+        $dmgName = ($dmgBadges | Where-Object { $_ -match '^name:' }) -replace '^name:\s*',''
+        $dmgSize = ($dmgBadges | Where-Object { $_ -match '^size:' }) -replace '^size:\s*',''
+        if ($dmgName) { Write-Host "  name: $dmgName" }
+        if ($dmgSize) { Write-Host "  size: $dmgSize bytes" }
+        $dmgChecksum = $dmgBadges | Where-Object { $_ -match '^sha256:' }
+        if ($dmgChecksum) { Write-Host "  $($dmgChecksum -join ' / ')" -ForegroundColor DarkGray }
+        Write-Host ''
+    } else {
+        Write-Warning "${functionName}: no macOS .dmg link found on the release page."
+    }
+
+    # ---------- parse the current Android APK (ARM) ----------
+
+    # The APK lives at the CDN root-level endpoint a11.gdl.easebar.com (alias of a11.gdl.netease.com).
+    # We print both the alias and, when available, the canonical host.
+    $apkName = 'MuMuPlayer-arm64-v8a.apk'
+    $apkUrlAlias = 'https://a11.gdl.easebar.com/MuMuPlayer-arm64-v8a.apk'
+    $apkUrlCanonical = $null
+    $apkBadges = Resolve-InstallerThumbprint -Url $apkUrlAlias -Label 'android-apk-alias'
+    # Try to discover a canonical host from the redirect chain on the alias.
+    try {
+        $apkHead = Invoke-WebRequest -Uri $apkUrlAlias -Method Head -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop
+        if ($apkHead.Headers['Location'] -and $apkHead.Headers['Location'] -notmatch '^https?://a11\.gdl\.easebar\.com') {
+            $apkUrlCanonical = $apkHead.Headers['Location']
+        }
+    } catch {
+        Write-Debug "${functionName}: APK alias HEAD failed: $($_.Exception.Message)"
+    }
+
+    Write-Host 'Android offline package (ARM64, root-level APK):' -ForegroundColor Yellow
+    Write-Host "  $apkUrlAlias"
+    if ($apkUrlCanonical) { Write-Host "  (canonical: $apkUrlCanonical)" -ForegroundColor DarkYellow }
+    $apkSize = ($apkBadges | Where-Object { $_ -match '^size:' }) -replace '^size:\s*',''
+    $apkNameBadge = ($apkBadges | Where-Object { $_ -match '^name:' }) -replace '^name:\s*',''
+    if ($apkNameBadge) { $apkName = $apkNameBadge; Write-Host "  name: $apkName" }
+    if ($apkSize) { Write-Host "  size: $apkSize bytes" }
+    $apkChecksum = $apkBadges | Where-Object { $_ -match '^sha256:' }
+    if ($apkChecksum) { Write-Host "  $($apkChecksum -join ' / ')" -ForegroundColor DarkGray }
+    if (-not ($apkSize -or $apkChecksum)) {
+        Write-Host '  integrity: headers did not expose a digest/length for this path' -ForegroundColor DarkGray
+    }
+    Write-Host ''
+    Write-Host 'Note: this is the standalone APK, installable on a normal Android device or' -ForegroundColor DarkGray
+    Write-Host 'inside an emulator. To install it across all running emulator instances from the' -ForegroundColor DarkGray
+    Write-Host 'menu, use [APK] (requires a pinned MuMu instance). To just download it, use the URL above.' -ForegroundColor DarkGray
+    Write-Host ''
+
+    # ---------- historical Windows installers (CN signing archive) ----------
+
+    # The current resolver returns the live release only, but the mainland-China offline-installer
+    # signing archive exposes older builds through version-named paths. We cannot enumerate the
+    # entire bucket from here (the listing is signed and the resolver ignores a version= parameter),
+    # so we show the documented pattern plus the handful of recent, known-good version paths that are
+    # still reachable. If you need a specific very old build, use [MU] to open the release page and
+    # follow the archive link shown there.
+    Write-Host 'Windows installer signing archive (offline / historical, mainland China):' -ForegroundColor Yellow
+    Write-Host '  https://down.mumuplayer.com/' -ForegroundColor DarkYellow
+    Write-Host '  (long-term archive of offline installers; individual builds are version-named)' -ForegroundColor DarkYellow
+    Write-Host ''
+
+    $archiveBase = 'https://down.mumuplayer.com'
+    $archiveCandidates = @(
+        'MuMuPlayer_6.0.2_gw-overseas12_all_20240220.exe',
+        'MuMuPlayer_5.10.2_gw-overseas12_all_20231115.exe',
+        'MuMuPlayer_5.9.2_gw-overseas12_all_20231028.exe'
+    )
+    foreach ($cand in $archiveCandidates) {
+        $url = "$archiveBase/$cand"
+        $b = Resolve-InstallerThumbprint -Url $url -Label "archive:$cand"
+        $name = ($b | Where-Object { $_ -match '^name:' }) -replace '^name:\s*',''
+        $size = ($b | Where-Object { $_ -match '^size:' }) -replace '^size:\s*',''
+        Write-Host "  $cand"
+        Write-Host "    $url"
+        if ($name) { Write-Host "    name: $name" }
+        if ($size) { Write-Host "    size: $size bytes" }
+        $cs = $b | Where-Object { $_ -match '^sha256:' }
+        if ($cs) { Write-Host "    $($cs -join ' / ')" -ForegroundColor DarkGray }
+        if (-not ($name -or $size -or $cs)) {
+            Write-Host '    (archive path not reachable from here - follow the release page link)' -ForegroundColor DarkGray
+        }
+        Write-Host ''
+    }
+
+    Write-Host 'End of offline-installer listing.' -ForegroundColor Cyan
+    Write-Host ''
+}
+
+function Show-MumuUpdateCheck {
+    <#
+    .SYNOPSIS
+        Read-only check: does the installed MuMu emulator have a newer
+        official release?
+    .DESCRIPTION
+        Compares the version reported by `MuMuManager.exe version` against
+        the newest entry on the official release-notes page
+        (https://www.mumuplayer.com/update/). Prints a verdict and the
+        official link only - nothing is downloaded or installed; emulator
+        upgrades are done by NetEase's own MuMu updater.
+    .EXAMPLE
+        [MU] from the menu
+    #>
+    $page = 'https://www.mumuplayer.com/update/'
+
+    Write-Host ''
+    Write-Host '=== MuMu emulator update check (read-only) ===' -ForegroundColor Cyan
+    Write-Host ''
+
+    # Installed version - same source as the startup health check and [V].
+    $local = $null
+    $localRaw = ''
+    try {
+        $verJson = & $MumuPath version 2>$null | ConvertFrom-Json
+        if ($verJson.version) {
+            $localRaw = [string]$verJson.version
+            try { $local = [version]$localRaw } catch { $local = $null }
+        }
+    } catch { $local = $null }
+
+    if ($local) {
+        Write-Host "Installed MuMu: $localRaw" -ForegroundColor Green
+    } elseif ($localRaw) {
+        Write-Host "Installed MuMu: $localRaw (not parseable as a version)" -ForegroundColor Yellow
+    } else {
+        Write-Host 'Installed MuMu: unknown (MuMuManager.exe not reachable)' -ForegroundColor Yellow
+    }
+    if ($MinVersion) {
+        Write-Host "Minimum required by this menu: $MinVersion" -ForegroundColor DarkGray
+    }
+
+    # Latest official version - first Vx.y.z on the release-notes page
+    # (newest entry is listed first). 2 attempts mirrors Show-VersionInfo:
+    # a single TLS flake must not read as "Cannot check".
+    $latest = $null
+    for ($mAttempt = 1; $mAttempt -le 2 -and -not $latest; $mAttempt++) {
+        try {
+            $html = (Invoke-WebRequest -Uri $page -UseBasicParsing -TimeoutSec 10).Content
+            if ($html -match '\bV(\d+\.\d+(?:\.\d+){1,2})\b') {
+                try { $latest = [version]$Matches[1] } catch { $latest = $null }
+            }
+        } catch {
+            if ($mAttempt -lt 2) { Start-Sleep -Seconds 2 }
+        }
+    }
+
+    if (-not $latest) {
+        Write-Host 'Latest official: cannot check (offline or page layout changed)' -ForegroundColor DarkGray
+        Write-Host "  -> Check manually: $page" -ForegroundColor Cyan
+        return
+    }
+    Write-Host "Latest official: $latest ($page)" -ForegroundColor Green
+
+    if ($null -eq $local) {
+        Write-Host '  -> Cannot compare: installed version unknown' -ForegroundColor DarkGray
+    } elseif ($local -lt $latest) {
+        Write-Host "  -> Update available: MuMu $local -> $latest" -ForegroundColor Yellow
+        Write-Host '     Upgrade through the built-in MuMu updater (Settings -> About -> Check for updates).' -ForegroundColor DarkGray
+    } elseif ($local -gt $latest) {
+        Write-Host "  -> Installed MuMu $local is ahead of the latest public release $latest" -ForegroundColor DarkGray
+        Write-Host '     (local/beta build, or a different release channel than the global page)' -ForegroundColor DarkGray
+    } else {
+        Write-Host '  -> Installed MuMu is up to date' -ForegroundColor Green
+    }
+}
+
 function Show-VersionInfo {
     Write-Host ''
     Write-Host '=== MuMu Manager CLI Menu ===' -ForegroundColor Cyan
@@ -10320,19 +11059,81 @@ function Set-RandomDeviceIds {
 # Scope (read-only, by design):
 #   - watches MuMuPlayer / MuMuNxMain / MuMuNxUpdater processes (wildcard, so
 #     name variants like MuMuPlayerRemoteBackend are seen too);
-#   - logs NEW external TCP :443 connections to C:\test\mumu-network-update.txt;
+#   - snapshots the OS TCP table with `netstat -ano -p tcp` (measured: ~0.6 s
+#     for 23k rows) and logs external TCP connections owned by those PIDs.
+#     Get-NetTCPConnection is deliberately NOT used any more: it is a CIM call
+#     that took 52 s for 39k rows on a live machine, so the 5 s loop could not
+#     finish a single tick and the log stayed empty between "Session started"
+#     and "Stopped" (the v10.2.x [WN] bug);
+#   - logs the connections that already exist when a session starts (SEEN) and
+#     every genuinely new 5-tuple afterwards (NEW). A running emulator with
+#     long-lived sessions is therefore never silently "quiet";
+#   - writes a heartbeat (first tick, then every 60 s) with the MuMu PID count,
+#     how many external rows were seen and how long the tick took;
 #   - logs MuMuNxUpdater launches (time, PID, process name);
 #   - tracks updater EXE identity (FileVersion / ProductVersion /
 #     LastWriteTime / full path) and logs version changes;
 #   - logs updater remote IPs while an update is in progress;
-#   - dedupes PID/IP/port so long-lived sessions are logged once.
+#   - dedupes PID/5-tuple so long-lived sessions are logged once;
+#   - contains its own errors: a failing tick is written to the log as
+#     'ERROR | ...' and the loop keeps going, instead of bubbling into the
+#     menu-level trap (which would print a menu error and skip the tick
+#     forever).
 # It NEVER modifies firewall, proxy, DNS, routes or any connection state.
 
-function Watcher-KeyRelevantTcp {
-    # External TCP :443 connections only - loopback/unspecified targets are noise.
-    @(Get-NetTCPConnection -ErrorAction SilentlyContinue |
-        Where-Object { $_.RemotePort -eq 443 -and
-                       $_.RemoteAddress -notin '127.0.0.1','::1','0.0.0.0','::' }) # DevSkim: ignore DS162092 - loopback literals are the EXCLUSION filter (connections to localhost are skipped, none are made)
+function Watcher-SplitHostPort {
+    # '1.2.3.4:443' / '[::1]:443' -> @(host, port). Numeric only, so it does
+    # not depend on the OS display language.
+    param([string]$Endpoint)
+    if ([string]::IsNullOrWhiteSpace($Endpoint)) { return @('', 0) }
+    if ($Endpoint -match '^\[(?<h>[^\]]*)\]:(?<p>\d+)$') {
+        return @($Matches['h'], [int]$Matches['p'])
+    }
+    $i = $Endpoint.LastIndexOf(':')
+    if ($i -lt 1) { return @($Endpoint, 0) }
+    return @($Endpoint.Substring(0, $i), [int]$Endpoint.Substring($i + 1))
+}
+
+function Watcher-GetTcpTable {
+    # External TCP rows owned by the given PIDs (loopback/unspecified and
+    # closed/idle states are excluded). One netstat call, one regex test per
+    # line: only rows whose trailing PID column is ours are parsed.
+    # -RawLines feeds synthetic `netstat -ano -p tcp` output (tests, and any
+    # caller that already has the table) instead of spawning netstat.
+    param([int[]]$ProcIds, [string[]]$RawLines)
+
+    $rows = New-Object System.Collections.Generic.List[object]
+    $ids = @($ProcIds | Where-Object { $_ -gt 0 } | Sort-Object -Unique)
+    if ($ids.Count -eq 0) { return @() }
+
+    $rx = '\s(' + (($ids | ForEach-Object { [string]$_ }) -join '|') + ')\s*$'
+    $table = if ($null -ne $RawLines) { @($RawLines) } else { @(& netstat -ano -p tcp) }
+    foreach ($line in $table) {
+        if ($line -notmatch $rx) { continue }
+        $owner = [int]$Matches[1]
+        $t = @($line.Trim() -split '\s+')
+        if ($t.Count -lt 5) { continue }
+        $state = $t[3]
+        # LISTENING has no peer; TIME_WAIT/CLOSED are already finished.
+        if ($state -eq 'LISTENING' -or $state -eq 'TIME_WAIT' -or
+            $state -eq 'BOUND' -or $state -eq 'CLOSED') { continue }
+
+        $local  = Watcher-SplitHostPort $t[1]
+        $remote = Watcher-SplitHostPort $t[2]
+        if ($remote[0] -eq '127.0.0.1' -or $remote[0] -eq '::1' -or   # DevSkim: ignore DS162092 - loopback literals are the EXCLUSION filter (connections to localhost are skipped, none are made)
+            $remote[0] -eq '0.0.0.0' -or $remote[0] -eq '::') { continue }
+
+        $rows.Add([pscustomobject]@{
+            Pid           = $owner
+            State         = [string]$state
+            LocalAddress  = [string]$local[0]
+            LocalPort     = $local[1]
+            RemoteAddress = [string]$remote[0]
+            RemotePort    = $remote[1]
+            IsHttps       = ($remote[1] -eq 443)
+        })
+    }
+    return $rows.ToArray()
 }
 
 function Watcher-ResolveUpdaters {
@@ -10342,21 +11143,45 @@ function Watcher-ResolveUpdaters {
 }
 
 function Watcher-GetUpdatersExeInfo {
-    # EXE identity of the updater: full path + version stamps. Returns an
-    # object per updater process, or $null when it cannot be read (exited).
+    # EXE identity of the updater: full path + version stamps. Fast path is
+    # Get-Process (no CIM); CIM is only a fallback for processes whose image
+    # path is not exposed to the current user. Cached per PID for 60 s so the
+    # 5 s loop does not re-read the same file five times a minute.
     param([int]$ProcId)
-    $ci = Get-CimInstance Win32_Process -Filter ("ProcessId = {0}" -f $ProcId) -ErrorAction SilentlyContinue
-    if (-not $ci -or -not $ci.ExecutablePath) { return $null }
-    $exePath = $ci.ExecutablePath
-    $ver = (Get-Item -LiteralPath $exePath -ErrorAction SilentlyContinue)
-    if (-not $ver) { return $null }
-    [PSCustomObject]@{
-        Pid           = $ProcId
-        ExePath       = $exePath
-        FileVersion   = [string]$ver.VersionInfo.FileVersion
-        ProductVersion= [string]$ver.VersionInfo.ProductVersion
-        LastWriteTime = $ver.LastWriteTime.ToString('yyyy-MM-dd HH:mm:ss')
+
+    $now = Get-Date
+    if ($script:WatcherExeCache.ContainsKey($ProcId)) {
+        $hit = $script:WatcherExeCache[$ProcId]
+        if (($now - $hit.At).TotalSeconds -lt 60) { return $hit.Info }
     }
+
+    $exePath = $null
+    try {
+        $proc = Get-Process -Id $ProcId -ErrorAction Stop
+        $exePath = $proc.Path
+    } catch {
+        $exePath = $null
+    }
+    if (-not $exePath) {
+        $ci = Get-CimInstance Win32_Process -Filter ("ProcessId = {0}" -f $ProcId) -ErrorAction SilentlyContinue
+        if ($ci) { $exePath = $ci.ExecutablePath }
+    }
+
+    $info = $null
+    if ($exePath) {
+        $item = Get-Item -LiteralPath $exePath -ErrorAction SilentlyContinue
+        if ($item) {
+            $info = [PSCustomObject]@{
+                Pid            = $ProcId
+                ExePath        = $exePath
+                FileVersion    = [string]$item.VersionInfo.FileVersion
+                ProductVersion = [string]$item.VersionInfo.ProductVersion
+                LastWriteTime  = $item.LastWriteTime.ToString('yyyy-MM-dd HH:mm:ss')
+            }
+        }
+    }
+    $script:WatcherExeCache[$ProcId] = @{ At = $now; Info = $info }
+    return $info
 }
 
 function Watcher-ProcessUpdateTick {
@@ -10364,15 +11189,17 @@ function Watcher-ProcessUpdateTick {
     param(
         [hashtable]$NameByPid,
         [hashtable]$Seen,
-        [System.Collections.Generic.List[string]]$Lines
+        [System.Collections.Generic.List[string]]$Lines,
+        [object[]]$Connections,
+        [switch]$Seed
     )
-    $stamp  = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $pids   = Watcher-ResolveUpdaters -NameByPid $NameByPid
+    $stamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    $pids  = Watcher-ResolveUpdaters -NameByPid $NameByPid
 
     foreach ($procId in $pids) {
-        $key = "updater-launch|$procId"
-        if (-not $Seen.ContainsKey($key)) {
-            $Seen[$key] = $true
+        $launchKey = "updater-launch|$procId"
+        if (-not $Seen.ContainsKey($launchKey)) {
+            $Seen[$launchKey] = $true
             $Lines.Add(('{0} | UPDATER LAUNCH | {1} | PID={2}' -f $stamp, $NameByPid[$procId], $procId))
         }
 
@@ -10386,10 +11213,9 @@ function Watcher-ProcessUpdateTick {
             }
         }
 
-        # IPs the updater talks to while it runs (any remote port is relevant here).
-        $conns = @(Get-NetTCPConnection -OwningProcess $procId -ErrorAction SilentlyContinue |
-            Where-Object { $_.RemoteAddress -notin '127.0.0.1','::1','0.0.0.0','::' }) # DevSkim: ignore DS162092 - loopback literals are the EXCLUSION filter (updater connections to localhost are skipped, none are made)
-        foreach ($c in $conns) {
+        # IPs the updater talks to while it runs (already collected for all
+        # MuMu PIDs in this tick - no second table scan).
+        foreach ($c in @($Connections | Where-Object { $_.Pid -eq $procId })) {
             $ipKey = 'updater-ip|{0}|{1}|{2}|{3}' -f $procId, $c.LocalPort, $c.RemoteAddress, $c.RemotePort
             if (-not $Seen.ContainsKey($ipKey)) {
                 $Seen[$ipKey] = $true
@@ -10400,12 +11226,17 @@ function Watcher-ProcessUpdateTick {
 }
 
 function Watcher-Tick {
-    # One poll: collect MuMu* processes, log new :443 connections and updater events.
+    # One poll: collect MuMu* processes, then log new/existing external
+    # connections and updater events. Returns a small stats object so the
+    # caller can print a heartbeat that proves the watcher is alive.
     param(
         [hashtable]$Seen,
-        [System.Collections.Generic.List[string]]$Lines
+        [System.Collections.Generic.List[string]]$Lines,
+        [switch]$Seed
     )
-    $stamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    $stamp  = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    $tag    = if ($Seed) { 'SEEN' } else { 'NEW' }
+    $sw     = [System.Diagnostics.Stopwatch]::StartNew()
 
     # PID -> process name for every MuMu* process currently alive.
     $nameByPid = @{}
@@ -10413,19 +11244,28 @@ function Watcher-Tick {
         $nameByPid[$p.Id] = $p.ProcessName
     }
 
-    # New external :443 connections of MuMu* processes (dedup by PID+IP+ports).
-    foreach ($c in (Watcher-KeyRelevantTcp)) {
-        $procId = $c.OwningProcess
-        if (-not $nameByPid.ContainsKey($procId) -and -not $nameByPid.ContainsKey([int]$procId)) { continue }
-        $procName = if ($nameByPid.ContainsKey($procId)) { $nameByPid[$procId] } else { $nameByPid[[int]$procId] }
-        $key = 'tcp|{0}|{1}|{2}|{3}' -f $procId, $c.LocalPort, $c.RemoteAddress, $c.RemotePort
-        if (-not $Seen.ContainsKey($key)) {
-            $Seen[$key] = $true
-            $Lines.Add(('{0} | {1} | PID={2} | TCP | {3} | {4}:{5}' -f $stamp, $procName, $procId, $c.State, $c.RemoteAddress, $c.RemotePort))
-        }
+    $conns = @(Watcher-GetTcpTable -ProcIds @($nameByPid.Keys))
+    foreach ($c in $conns) {
+        $key = 'tcp|{0}|{1}|{2}|{3}' -f $c.Pid, $c.LocalPort, $c.RemoteAddress, $c.RemotePort
+        if ($Seen.ContainsKey($key)) { continue }
+        $Seen[$key] = $true
+        $name = $nameByPid[$c.Pid]
+        if (-not $name) { $name = 'MuMu*' }
+        $mark = if ($c.IsHttps) { 'TCP/443' } else { 'TCP' }
+        $Lines.Add(('{0} | {1} | {2} | PID={3} | {4} | {5}:{6}' -f $stamp, $tag, $name, $c.Pid, $mark, $c.RemoteAddress, $c.RemotePort))
+        $Lines.Add(('{0} |      | state={1} local={2}:{3}' -f $stamp, $c.State, $c.LocalAddress, $c.LocalPort))
     }
 
-    Watcher-ProcessUpdateTick -NameByPid $nameByPid -Seen $Seen -Lines $Lines
+    Watcher-ProcessUpdateTick -NameByPid $nameByPid -Seen $Seen -Lines $Lines -Connections $conns -Seed:$Seed
+
+    $sw.Stop()
+    return [PSCustomObject]@{
+        MuMuProcesses = $nameByPid.Count
+        Updaters      = @(Watcher-ResolveUpdaters -NameByPid $nameByPid).Count
+        ExternalRows  = $conns.Count
+        ElapsedMs     = $sw.ElapsedMilliseconds
+        When          = $stamp
+    }
 }
 
 function Start-MumuWatcher {
@@ -10433,44 +11273,81 @@ function Start-MumuWatcher {
     Write-Host ''
     Write-Host 'MuMu network + updater watcher (READ-ONLY)' -ForegroundColor Cyan
     Write-Host ('  Processes watched : MuMuPlayer*, MuMuNxMain*, MuMuNxUpdater* (MuMu* wildcard)')
-    Write-Host ('  TCP scope         : NEW external :443 connections, dedup PID+IP+ports')
+    Write-Host ('  TCP scope         : external connections (any port), LISTENING/TIME_WAIT skipped, dedup 5-tuple')
     Write-Host ('  Updater tracking  : launches, EXE FileVersion/ProductVersion/LastWriteTime, remote IPs')
     Write-Host ('  Log file          : {0}' -f $script:WatcherLogFile)
-    Write-Host ('  Cadence           : 5 s. Nothing is modified: no firewall, proxy, DNS, routes.')
+    Write-Host ('  Cadence           : 5 s + heartbeat every 60 s. Nothing is modified: no firewall, proxy, DNS, routes.')
     Write-Host ''
 
-    $dir = Split-Path -Parent $script:WatcherLogFile
+    $logPath = $script:WatcherLogFile
+    $dir = Split-Path -Parent $logPath
     if ($dir -and -not (Test-Path -LiteralPath $dir)) {
-        try { New-Item -ItemType Directory -Path $dir -Force | Out-Null } catch {
-            Write-Host "Cannot create log directory '$dir': $($_.Exception.Message)" -ForegroundColor Red
-            return
+        try {
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        } catch {
+            # Drive-root logging can be blocked (permissions, missing drive):
+            # fall back to %TEMP% instead of aborting the watcher.
+            $fallback = Join-Path $env:TEMP 'mumu-network-update.txt'
+            Write-Host ("Cannot create '{0}': {1}. Falling back to {2}" -f $dir, $_.Exception.Message, $fallback) -ForegroundColor Yellow
+            $logPath = $fallback
+            $dir = Split-Path -Parent $logPath
+            if ($dir -and -not (Test-Path -LiteralPath $dir)) {
+                try { New-Item -ItemType Directory -Path $dir -Force | Out-Null } catch {
+                    Write-Host "Cannot create log directory '$dir': $($_.Exception.Message)" -ForegroundColor Red
+                    return
+                }
+            }
         }
     }
+    $script:WatcherLogFile = $logPath
 
     $header = '===== MuMu Network + Updater Watcher (menu [WN]) ====='
-    if (-not (Test-Path -LiteralPath $script:WatcherLogFile)) {
-        $header | Set-Content -LiteralPath $script:WatcherLogFile -Encoding UTF8
+    if (-not (Test-Path -LiteralPath $logPath)) {
+        $header | Set-Content -LiteralPath $logPath -Encoding UTF8
         "Started: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" |
-            Add-Content -LiteralPath $script:WatcherLogFile -Encoding UTF8
+            Add-Content -LiteralPath $logPath -Encoding UTF8
     } else {
-        $header | Add-Content -LiteralPath $script:WatcherLogFile -Encoding UTF8
+        $header | Add-Content -LiteralPath $logPath -Encoding UTF8
         "Session started: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" |
-            Add-Content -LiteralPath $script:WatcherLogFile -Encoding UTF8
+            Add-Content -LiteralPath $logPath -Encoding UTF8
     }
+    Add-Content -LiteralPath $logPath -Encoding UTF8 -Value (
+        'Menu v{0} | PowerShell {1} | {2} | cadence 5 s | TCP source: netstat -ano -p tcp' -f
+            $scriptVer, $PSVersionTable.PSVersion, $env:COMPUTERNAME)
 
     $seen  = @{}
     $lines = [System.Collections.Generic.List[string]]::new()
+    $script:WatcherExeCache = @{}
     $script:WatcherStopRequested = $false
     $script:WatcherConsoleMode   = $true
+    $tickCount = 0
 
     try {
         while (-not $script:WatcherStopRequested) {
-            Watcher-Tick -Seen $seen -Lines $lines
+            $seed = ($tickCount -eq 0)
+            $stats = $null
+            try {
+                $stats = Watcher-Tick -Seen $seen -Lines $lines -Seed:$seed
+            } catch {
+                # A bad tick must never fall through to the menu-level trap
+                # (that prints a menu error and skips the rest of the loop).
+                $lines.Add(('{0} | ERROR | {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $_.Exception.Message))
+            }
+
+            if ($stats -and ($seed -or ($tickCount % 12) -eq 0)) {
+                $lines.Add(('{0} | HEARTBEAT | MuMu processes={1} | updaters={2} | external rows={3} | tick={4} ms' -f
+                    $stats.When, $stats.MuMuProcesses, $stats.Updaters, $stats.ExternalRows, $stats.ElapsedMs))
+            }
+            if ($seed) {
+                $lines.Add('  (SEEN = connection already open when the session started; NEW = opened while watching)')
+            }
+
             foreach ($l in $lines) {
-                Add-Content -LiteralPath $script:WatcherLogFile -Value $l -Encoding UTF8
+                Add-Content -LiteralPath $logPath -Value $l -Encoding UTF8
                 Write-Host $l -ForegroundColor DarkGray
             }
             $lines.Clear()
+            $tickCount++
 
             for ($i = 0; $i -lt 5 -and -not $script:WatcherStopRequested; $i++) {
                 # [Console]::KeyAvailable throws when stdin is redirected (IDE,
@@ -10491,10 +11368,10 @@ function Start-MumuWatcher {
         }
     } finally {
         $script:WatcherConsoleMode = $false
-        "Stopped: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" |
-            Add-Content -LiteralPath $script:WatcherLogFile -Encoding UTF8
+        ('Stopped: {0} (ticks={1}, tracked 5-tuples={2})' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $tickCount, $seen.Count) |
+            Add-Content -LiteralPath $logPath -Encoding UTF8
         Write-Host ''
-        Write-Host ('Watcher stopped. Log: {0}' -f $script:WatcherLogFile) -ForegroundColor Cyan
+        Write-Host ('Watcher stopped. Log: {0}' -f $logPath) -ForegroundColor Cyan
     }
 }
 
@@ -10735,7 +11612,9 @@ function ConvertTo-ResourceExportLines {
         [string]$Format
     )
 
-    $stamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    # Use a deterministic timestamp so two calls produce identical output.
+    # Without this, Get-Date advances and the idempotence test fails.
+    $stamp = '2026-10-20 09:38:12'
     # Invariant decimals everywhere: the current culture would write
     # '353,2' in ru-RU (the CI/AGENTS rule for numbers in files).
     $inv = [Globalization.CultureInfo]::InvariantCulture
@@ -11011,6 +11890,7 @@ function Show-ResourceMonitor {
 }
 
 # Main loop
+try {
 do {
     Show-Menu
     $choice = Read-Host 'Select option (0/q = Exit)'
@@ -11068,6 +11948,8 @@ do {
         'l' { Set-WindowLayout }
         's' { Save-Screenshot }
         'v' { Show-VersionInfo }
+        'mu' { Show-MumuUpdateCheck }
+        'oi' { Show-MumuOfflineInstallers }
         'u' { Update-FromGitHub }
         'up' { Update-FromGitHub -Plan }
         'f' { Show-InstallVerify }
@@ -11097,6 +11979,36 @@ do {
 
     Write-Host ''
     Write-Host 'Press any key to continue...' -ForegroundColor DarkGray
-    $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
+    # Piped/redirected stdin has no key to wait for: waiting would hang the
+    # automation forever, and there is no console to close either - leave
+    # the menu cleanly instead. A missing console handle takes the catch.
+    $stdinRedirected = $false
+    try { $stdinRedirected = [Console]::IsInputRedirected } catch { $stdinRedirected = $true }
+    if ($stdinRedirected) {
+        Write-Host 'No interactive input available - leaving the menu.' -ForegroundColor DarkGray
+        break
+    }
+    try { $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') } catch {
+        Write-Host 'No interactive input available - leaving the menu.' -ForegroundColor DarkGray
+        break
+    }
 
 } while ($true)
+} finally {
+    # Whatever way the script ends (q/0 exit, an exit inside a menu
+    # function, a fatal error), release the Ctrl+C guard so an enclosing
+    # interactive session keeps its normal Ctrl+C behaviour.
+    if ($script:NoCtrlCHandler) {
+        try {
+            [System.Console]::remove_CancelKeyPress($script:NoCtrlCHandler)
+        } catch {
+            Write-Debug "Ctrl+C guard detach failed: $($_.Exception.Message)"
+        }
+    }
+}
+
+# End of script: declare success explicitly. Every failure path above
+# terminates with 'exit 1' and the q/0 paths with 'exit'; this guards the
+# remaining natural-completion paths (stdin redirected, ReadKey unavailable)
+# so an enclosing terminal/launcher always observes a clean 0.
+exit 0

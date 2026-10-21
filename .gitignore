@@ -1,0 +1,50 @@
+# PowerShell
+*.ps1xml
+
+# Node (Archil disk SDK integration)
+node_modules/
+
+# Local environment files (Archil API key, region, disk id)
+.env
+.env.local
+.env.*.local
+
+# GitHub token
+.github-token
+.github-token.dpapi
+
+# VirusTotal API key
+.vt-apikey
+.vt-apikey.dpapi
+
+# Screenshots (large files)
+screenshots/*.png
+
+# Logs
+*.log
+
+# OS files
+Thumbs.db
+Desktop.ini
+
+# IDE
+.vscode/
+.idea/
+
+# Instance data backups (large files)
+backups/
+backup/
+
+# Archil experiment generated release artifact (machine-readable bundle notes)
+archil/release-notes.json
+
+# Temp update/sign files
+*.old
+*.new
+testResults.xml
+
+# Pinned active MuMu install chosen with menu [IN] (local machine state)
+.mumu-install
+
+# Local HTTP ETag cache written by the startup update check
+.etag-cache.json

@@ -12,6 +12,8 @@ All operations run locally through the official `MuMuManager.exe`.
 ## Project Structure
 ```
 mumu-menu.ps1           # Main script (version lives in $scriptVer, ~line 238)
+mumu-menu.cjs           # JavaScript engine (zero deps): --status/--list/--json, --start/--stop/--restart, --watch, --ps
+mumu-menu.cmd           # Double-click launcher: mumu-menu.ps1 with -ExecutionPolicy Bypass for that process only (repo-only, not in the deployed set)
 bootstrap-update.ps1    # Standalone updater/recovery path (ships inside every release ZIP)
 update-readme.ps1       # Regenerates the menu block in README.md
 README.md               # Documentation + changelog (what's-new + version table)
@@ -46,6 +48,7 @@ PSScriptAnalyzerSettings.psd1
 - MuMu Emulator 6.x (minimum v4.0.0.3179)
 - `MuMuManager.exe` at: `C:\Program Files\Netease\MuMuPlayer\nx_main\MuMuManager.exe`
 - Optional: GitHub token (menu `[K]`) for higher API rate limits; VirusTotal API key (menu `[VK]`)
+- Optional: Node.js 18+ for the JavaScript engine (`node mumu-menu.cjs`) — PowerShell remains the full-feature engine
 
 ## Installation
 ```powershell
@@ -55,11 +58,21 @@ irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-me
 # Or git clone:
 git clone https://github.com/genrihx2/MuMuManager-CLI-Menu.git
 cd MuMuManager-CLI-Menu
-.\mumu-menu.ps1
+.\mumu-menu.ps1                 # if the execution policy blocks this, double-click mumu-menu.cmd
 
 # Or bootstrap into an existing folder (also the recovery path):
 .\bootstrap-update.ps1 <target-dir>
+
+# JavaScript engine (same folder, zero npm deps, any cwd):
+node mumu-menu.cjs              # interactive JS menu
+node mumu-menu.cjs --status     # instance table (--json for machine output)
+node mumu-menu.cjs --watch      # network + updater watcher (read-only)
+node mumu-menu.cjs --ps         # complete PowerShell menu
 ```
+
+Both engines ship in every install: the JS entry implements status, instance control
+(launch/shutdown/restart) and the network/updater watcher natively, and hands every
+other operation over to `mumu-menu.ps1`, which stays the reference implementation.
 
 ## Menu Commands
 ### Instances

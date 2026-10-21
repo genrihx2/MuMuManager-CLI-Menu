@@ -1,0 +1,96 @@
+﻿# Sync README.md with mumu-menu.ps1 (menu block + script version)
+# Usage: ./update-readme.ps1
+# Used by .github/workflows/sync-readme.yml and locally before commits.
+#
+# Security scope:
+#   - LOCAL ONLY: no network access, no downloads, no command execution.
+#   - Touches exactly two files in this folder: reads mumu-menu.ps1,
+#     rewrites README.md between the MENU:AUTO markers.
+#   - Fail-closed: every extraction below is validated; on any anomaly
+#     the script throws instead of writing a malformed README.
+
+$ErrorActionPreference = 'Stop'
+
+$root = if ($PSScriptRoot) { $PSScriptRoot } else { $PWD.Path }
+$menuScript = Join-Path $root 'mumu-menu.ps1'
+$readmePath = Join-Path $root 'README.md'
+
+foreach ($f in @($menuScript, $readmePath)) {
+    if (-not (Test-Path -LiteralPath $f -PathType Leaf)) { throw "Required file not found: $f" }
+}
+
+# UTF-8 WITHOUT BOM: non-script files must stay BOM-less (the [UW] scanner
+# flags BOM on .md/.json/.yml as 'safe to strip'), and a BOM here would come
+# back on every CI sync run. A BOM-less UTF-8 file is safe for GitHub,
+# PowerShell 5.1 (it only reads .ps1 files here) and every editor.
+$utf8 = [System.Text.UTF8Encoding]::new($false)
+$script = [System.IO.File]::ReadAllText($menuScript)
+$readme = [System.IO.File]::ReadAllText($readmePath)
+$newline = if ($readme -match "`r`n") { "`r`n" } else { "`n" }
+
+# 1. Extract version (strictly numeric, dotted)
+# Match: $scriptVer = 'X.Y.Z' OR Write-Host 'Script version: X.Y.Z'
+$verMatch = [regex]::Match($script, "(?m)^\s*\`$scriptVer\s*=\s*'(\d+(?:\.\d+){1,3})'|Write-Host\s+['""]Script version:\s*(\d+(?:\.\d+){1,3})")
+if (-not $verMatch.Success) { throw 'Cannot find a valid numeric "Script version" in mumu-menu.ps1' }
+$version = if ($verMatch.Groups[1].Success) { $verMatch.Groups[1].Value } else { $verMatch.Groups[2].Value }
+
+# 1b. Offline-installer line: README advertises [OI] only when the script
+#     actually implements Show-MumuOfflineInstallers.
+$oiInScript = $script -match 'function\s+Show-MumuOfflineInstallers\s*\{'
+$oiReadmeLine = "- 📥 Offline-инсталляторы: пункт `[OI]` показывает все текущие официальные сборки (Windows .exe, macOS .dmg, Android APK) прямо из CDN NetEase — с именем файла, размером и бейджем целостности, когда заголовки его отдают. Без скачивания, только список. Источник: https://www.mumuplayer.com/ "
+
+# 2. Extract menu lines from Show-Menu body (function boundaries must be unique)
+$startIdx = $script.IndexOf('function Show-Menu')
+$endIdx = $script.IndexOf('function Get-InstanceIndex')
+if ($startIdx -lt 0 -or $endIdx -lt 0 -or $endIdx -le $startIdx) { throw 'Cannot locate Show-Menu function boundaries' }
+$body = $script.Substring($startIdx, $endIdx - $startIdx)
+
+$lines = foreach ($m in [regex]::Matches($body, "Write-Host '([^']*)'")) {
+    $text = $m.Groups[1].Value -replace "''", "'"
+    if ($text -match '^\s*---\s*.+\s*---\s*$') {
+        ''
+        $text
+    } elseif ($text.TrimStart().StartsWith('[') -or $text -match '^=+$' -or $text -match '^\s*MuMuManager CLI Menu\s*$') {
+        $text
+    }
+}
+if (-not $lines -or @($lines).Count -lt 5) { throw 'Menu extraction produced too few lines; aborting' }
+
+$menuText = ($lines -join $newline)
+$block = '```' + $newline + $menuText + $newline + '```'
+$menuStart = '<!-- MENU:AUTO:START -->'
+$menuEnd = '<!-- MENU:AUTO:END -->'
+
+# Markers must exist exactly once each - refuse ambiguous/malformed README
+$pattern = '(?s)' + [regex]::Escape($menuStart) + '.*?' + [regex]::Escape($menuEnd)
+$found = [regex]::Matches($readme, $pattern)
+if ($found.Count -ne 1) { throw "Expected exactly one MENU:AUTO block in README.md, found $($found.Count)" }
+
+$replacement = $menuStart + $newline + $block + $newline + $menuEnd
+$updated = [regex]::Replace($readme, $pattern, $replacement)
+
+# 3. Sync the [OI] offline-installer blurb: insert before the '## Требования'
+# first heading if the script implements Show-MumuOfflineInstallers, otherwise
+# remove any existing blurb line so documentation tracks the code.
+$reqAnchor = '## Требования'
+$oiPat = '(?m)^\s*' + [regex]::Escape($oiReadmeLine) + '\s*$'
+if ($oiInScript) {
+    $updated = $updated -replace $oiPat, $oiReadmeLine
+    if ($updated -notmatch '(?m)^\s*' + [regex]::Escape($oiReadmeLine) + '\s*$') {
+        # Not yet present - insert just before the requirements heading.
+        $updated = $updated -replace '(?s)((' + [regex]::Escape($reqAnchor) + '))', ($oiReadmeLine + $newline + '$1')
+    }
+} else {
+    $updated = [regex]::Replace($updated, $oiPat, '')
+}
+
+# 4. Sync version in examples (digits-only replacement value)
+$updated = [regex]::Replace($updated, '(Script version:\s*)[\d\.]+', ('${1}' + $version))
+
+# 5. Write only if changed (idempotent)
+if ($updated -ne $readme) {
+    [System.IO.File]::WriteAllText($readmePath, $updated, $utf8)
+    Write-Host "README.md updated (version $version)" -ForegroundColor Green
+    exit 0
+}
+Write-Host "README.md already up to date (version $version)" -ForegroundColor DarkGray

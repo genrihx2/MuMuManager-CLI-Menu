@@ -34,17 +34,23 @@
 - 🔄 Массовые операции (все инстансы)
 - 📋 Просмотр логов (статические файлы + **adb logcat**: снапшот, live-стрим, фильтр по уровню/тегу)
 - 🛡️ Менеджер GitHub-токена (DPAPI-шифрование)
+
+> Хранилище токена — `.github-token.dpapi`, зашифрованный DPAPI-блоб (CurrentUser). Это не простая строка и не portable-файл: ручная попытка расшифровки в стороннем PowerShell может вообще не выполниться, если среда не загружает `System.Security.Cryptography.ProtectedData`, а сам блоб не читается после перемещения между машинами/пользователями. В таких случаях восстановление — через меню `[K]`, а не редактированием или ручным дешифрованием файла.
 - 📊 Информация о версиях
 - ⚡ Автообновление из GitHub
 - 🗄️ Загрузка репозитория (git clone, ZIP, отдельный файл)
 
 Для полного списка функций и опций см. SKILL.md или запустите меню.
 
+- 📥 Offline-инсталляторы: пункт `[OI]` показывает все текущие официальные сборки (Windows .exe, macOS .dmg, Android APK) прямо из CDN NetEase — с именем файла, размером и бейджем целостности, когда заголовки его отдают. Без скачивания, только список. Источник: https://www.mumuplayer.com/ 
+- 🐙 JavaScript-движок (`node mumu-menu.cjs`): статус и управление инстансами, сетевой watcher и проверка версий — нативно на Node.js, без npm install; остальные функции по-прежнему в полном PowerShell-меню, куда JS-меню передаёт управление.
+
 ## Требования
 
 - Windows 10/11
 - PowerShell 5.1+ или PowerShell 7+
 - MuMu Emulator 6.x (тестировано на V6.7.1, минимально поддерживаемая версия: 4.0.0.3179)
+- Node.js 18+ — опционально, только для JavaScript-движка
 
 ## Установка
 
@@ -55,6 +61,19 @@ git clone https://github.com/genrihx2/MuMuManager-CLI-Menu.git
 cd MuMuManager-CLI-Menu
 .\mumu-menu.ps1
 ```
+
+Два движка, один репозиторий. PowerShell-меню (`mumu-menu.ps1`) остаётся эталонным и работает ровно как раньше; JavaScript-движок (`mumu-menu.cjs`) добавляет нативную альтернативу для тех, у кого есть Node.js 18+ — ноль зависимостей, `npm install` не нужен, запуск из любой папки:
+
+```powershell
+node mumu-menu.cjs              # интерактивное JS-меню
+node mumu-menu.cjs --status     # таблица инстансов (read-only; --json для машинного вывода)
+node mumu-menu.cjs --watch      # сетевой watcher + updater (read-only)
+node mumu-menu.cjs --ps         # полное PowerShell-меню (все функции)
+```
+
+JS-движок покрывает `--status`/`--list`, `--start/--stop/--restart <N>`, `--watch [--interval <сек>] [--log <файл>]` и `--ps`; остальное (APK, ADB, бэкапы, spoofing, обновления, `[DIAG]` и т.д.) делает PowerShell-меню, в которое JS-меню передаёт управление. Оба файла лежат рядом и в git-клоне, и в установленной папке, поэтому `node mumu-menu.cjs` работает и в деплое.
+
+`npm run menu` — то же самое через package.json (только в git-клоне).
 
 Быстрый запуск (скачивает и запускает временный файл):
 
@@ -71,6 +90,14 @@ irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-me
 ```powershell
 .\mumu-menu.ps1
 ```
+
+Если PowerShell отказывается запускать скрипт с ошибкой «выполнение сценариев отключено в этой системе» (`PSSecurityException`), в git-клоне используйте `mumu-menu.cmd` — двойной клик или:
+
+```cmd
+mumu-menu.cmd
+```
+
+Лаунчер поднимает PowerShell с `-ExecutionPolicy Bypass` только для этого процесса: системная политика и реестр не меняются, окно закрывается вместе с меню. В ZIP с Releases этого файла нет — там снимайте блокировку через `Unblock-File` или запускайте `powershell -ExecutionPolicy Bypass -File .\mumu-menu.ps1`.
 
 Меню предоставляет удобный интерактивный интерфейс для выбора инстанса и выполнения операций (ADB, установка APK, бэкап/рестор, spoofing, просмотр логов и т.д.).
 
@@ -115,6 +142,11 @@ irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-me
    - Проблема с MuMu → `[DIAG]` и `[IN]`
    - Проблема с обновлением → `[F]`, `[ST]`, `[J]`
 
+8. Если меню пишет «Cannot decrypt .github-token.dpapi» или token не работает
+   - Не пытайтесь расшифровать `.github-token.dpapi` вручную — это DPAPI blob (CurrentUser), он не переносится между машинами/пользователями и не поддаётся простому ручному раскладыванию.
+   - В меню выберите `[K]` Update GitHub token, введите токен заново, дождитесь проверки `api.github.com/user` и сохранения.
+   - Если вы работали в PowerShell, где нет загрузки `System.Security.Cryptography.ProtectedData`, то даже ручная попытка `[...ProtectedData]::Unprotect(...)` будет падать с `TypeNotFound` — это проблема среды, а не манифеста репозитория.
+
 ## Автообновление и проверка целостности
 
 - Обновления берутся только из помеченных тегов релизов GitHub Releases.
@@ -131,6 +163,44 @@ irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-me
 
 ## Что нового
 
+### v10.3.3 (20.10.2026)
+
+- Fixed: Ctrl+C убивал меню вместо того, чтобы игнорироваться. Обработчик `CancelKeyPress` был PowerShell-скриптблоком, а .NET поднимает это событие на своём сигнальном потоке (`PosixSignalRegistration` в PowerShell 7), где нет привязанного runspace — делегат падал с `PSInvalidOperationException` в `GetContextFromTLS` ещё до выполнения тела, и хост завершался с «Unhandled exception … Процесс PowerShell будет завершён». Обработчик теперь компилируемый делегат, который только выставляет `e.Cancel`; если компиляция недоступна (ConstrainedLanguage), защита пропускается, а не роняет процесс. Снятие обработчика в `finally` защищено так же.
+- New: `mumu-menu.cmd` — запуск меню двойным кликом из git-клона. Поднимает PowerShell с `-ExecutionPolicy Bypass` только для этого процесса, поэтому при политике `Restricted` не нужно менять системные настройки; без `mumu-menu.ps1` рядом отказывается запускаться. Файл намеренно не входит в deployed-набор из девяти файлов, чтобы ZIP-установки и установки после `[U]` не расходились.
+- Tests: регрессионный тест вызывает реальный обработчик с потока без runspace (та самая падающая ситуация) и красный на прежней версии скрипта; сьют — 280 passed / 0 failed / 1 skipped на PowerShell 5.1 и pwsh 7.6.7 (Pester 5.7.1).
+
+### v10.3.1 (19.10.2026)
+
+- Fixed: обновление больше не верит одному `.version`. Релиз может **добавить** файл (в v10.3.0 это `mumu-menu.cjs`), и установка с уже актуальным маркером получала «Up to date», а новый файл так и не приезжал — воспроизведено на живой папке. Теперь `[U]`/`[UP]` и `bootstrap-update.ps1` перед коротким путём проверяют весь объявленный набор, называют отсутствующие файлы и докачивают их с проверкой SHA-256 (в dry-run это строка `repair of <tag> (file set incomplete: ...)`). Неизменённые файлы по-прежнему пропускаются по хешу.
+
+### v10.3.0 (19.10.2026)
+
+- New: JavaScript-движок — `node mumu-menu.cjs` больше не тонкая обёртка: он сам находит `MuMuManager.exe` (включая пин `.mumu-install`), выполняет `--status`/`--list`/`--json`, `--start`/`--stop`/`--restart <N>`, `--watch` (сеть + updater, read-only) и `--ps` (переход в полное PowerShell-меню). Ноль зависимостей, работает из любой папки, входит в релизный ZIP и в deployed-набор обновления.
+- Fixed: `[WN]` больше не «молчит». Сетевая таблица читается через `netstat -ano -p tcp` (~0.6 с на 23k строк) вместо `Get-NetTCPConnection`, который на живой машине занял 52 с на 39k строк — из-за этого 5-секундный цикл не успевал ни одного тика и между `Session started` и `Stopped` было пусто.
+- Improved: `[WN]` теперь логирует уже открытые соединения при старте (`SEEN`), шлёт heartbeat (сразу и раз в 60 с) с числом MuMu-процессов, внешних строк и длительностью тика, сам пишет ошибку тика в лог (`ERROR | ...`) вместо падения в общий trap меню и берёт EXE-инфо апдейтера через `Get-Process` с кэшем (CIM — только фолбэк).
+
+**EN summary (v10.3.0):** Native JavaScript engine for the menu entry point (`--status/--list/--json`, instance control, `--watch`, `--ps`; zero dependencies, shipped in the release ZIP), and a rewritten `[WN]` watcher that uses `netstat -ano -p tcp` instead of the 52-second `Get-NetTCPConnection` call, seeds existing connections, emits heartbeats and contains per-tick errors.
+
+### v10.2.0 (18.10.2026)
+
+- New: `[OI]` — offline installer listing (all platforms): the current official Windows `.exe`, macOS `.dmg` and Android APK variants resolved from the official release page and the telemetry-free CDN alias, with filename, size and an integrity badge when the CDN exposes it. Read-only, downloads nothing.
+- New: `[F]` auto-repairs the installation — when the integrity check reports DRIFT/MISSING files it offers to restore exactly those files from the pinned release commit (backup first, SHA-256-verified bytes, file-set whitelist, journaled `repair-ok`/`repair-fail`); the running script is staged as `mumu-menu.ps1.new` and applied at the next start (same contract as `[U]`).
+- Fixed: bootstrap-update.ps1 no longer redirects native stderr (`2>$null` is a terminating error under PowerShell 5.1 with `$ErrorActionPreference='Stop'`), and a rejected GitHub token is now actually detected — `--fail` suppresses the error body, so both API helpers retry once anonymously and disable the token for the run with a re-save hint.
+- Fixed: the release page's verification snippet works on Windows PowerShell 5.1 — the generator emits `curl.exe` (bare `curl` is an `Invoke-WebRequest` alias there and rejects `-sL`/`-o`) and the snippet downloads both artifacts and compares the hashes itself instead of asking the reader to compare by eye.
+- Exit-code hygiene: the script ends with an explicit `exit 0`.
+- Pester suite: 270/270 passed.
+
+**EN summary (v10.2.0):** Offline-installer listing `[OI]`, `[F]` installation auto-repair from the pinned release, updater hardening (native stderr, rejected-token fallback) and a PowerShell 5.1-safe release verification snippet. Pester 270/270.
+
+### v10.1.0 (17.10.2026)
+
+- New: `[MU]` — read-only MuMu emulator update check (installed version vs the latest official release; nothing is downloaded).
+- Fixed: the menu window no longer dies on accidental input — Ctrl+C is ignored inside the menu, runtime errors return to the menu instead of closing it, and piped stdin exits cleanly instead of hanging.
+- Housekeeping: `.coderabbit.yaml` rewritten against the published CodeRabbit schema (the old file used non-existent keys and was silently ignored).
+- Pester suite: 261/261 passed.
+
+**EN summary (v10.1.0):** Read-only MuMu emulator update check `[MU]`, window-close guards (Ctrl+C / runtime errors / piped stdin), schema-valid CodeRabbit config.
+
 ### v10.0.0 (14.10.2026)
 
 - Major release: semantic-version bump to `v10.0.0` to mark a stable, production-ready milestone and unify public-facing versioning.
@@ -144,13 +214,120 @@ irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-me
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v10.3.3 | 20.10.2026 | Ctrl+C no longer crashes the menu (compiled CancelKeyPress guard), `mumu-menu.cmd` double-click launcher for git clones |
+| v10.3.1 | 19.10.2026 | Update check verifies the declared file set, not just .version (repairs installs missing a file added by a release) |
+| v10.3.0 | 19.10.2026 | Native JavaScript engine (`node mumu-menu.cjs`), [WN] watcher rewritten on netstat (was 52 s/tick via Get-NetTCPConnection) with SEEN seed + heartbeat |
+| v10.2.0 | 18.10.2026 | New [OI] offline installers, [F] installation auto-repair, updater hardening (stderr/token fallback), PS 5.1-safe verification snippet |
+| v10.1.0 | 17.10.2026 | New [MU] MuMu emulator update check, window-close guards (Ctrl+C / errors / EOF), schema-valid CodeRabbit config |
 | v10.0.0 | 14.10.2026 | Major release: semantic-version bump to v10.0.0, documentation reorganized, Pester 260/261 |
 
 ## Где смотреть полные изменения (changelog)
 
 Полный список релизов и подробный changelog хранится в `relnotes.md` и в релизах GitHub: https://github.com/genrihx2/MuMuManager-CLI-Menu/releases
 
+## Wiki
+
+Расширенная документация — roadmap, статус проекта, гайды — живёт в wiki репозитория:
+
+- Главная страница: https://github.com/genrihx2/MuMuManager-CLI-Menu/wiki/Home
+- Содержание: требования и установка, обзор возможностей меню, карта документов (README / SECURITY / relnotes / RELEASE-RUNBOOK / SKILL), troubleshooting, безопасность и план развития.
+- Wiki — это git-репозиторий, страницы можно править локально: `git clone https://github.com/genrihx2/MuMuManager-CLI-Menu.wiki.git`
+
 ---
+
+<!-- MENU:AUTO:START -->
+```
+======================================
+    MuMuManager CLI Menu
+======================================
+
+  --- Emulator Control ---
+  [1] Show emulator info
+  [2] Launch emulator
+  [3] Shutdown emulator
+  [4] Restart emulator
+  [5] Create new emulator (Android 12/15)
+  [C] Clone emulator
+  [X] Delete emulator
+  [N] Rename emulator
+
+  --- Apps and Settings ---
+  [6] List installed apps
+  [7] Show settings
+  [CMP] Compare instance settings
+  [RT] Enable / disable root (instance)
+  [VE] Virtual environment (enable/disable/remove)
+  [FPS] Set frame rate (30/60/90/120/144/240/uncapped)
+  [8] Install APK
+  [9] Uninstall app
+  [G] View logs
+
+  --- Batch ---
+  [B] Launch all instances
+  [D] Shutdown all instances
+  [R] Restart all instances
+  [I] Install APK to all
+
+  --- Window ---
+  [W] Show all windows
+  [H] Hide all windows
+  [L] Layout windows
+
+  --- Tools ---
+  [S] Take screenshot
+  [A] Run ADB command
+  [AF] ADB file transfer (push/pull/list)
+  [AS] ADB screen capture (screenshot/record)
+  [AH] ADB interactive shell
+  [O] Clear app data
+  [P] Force stop app
+  [T] Start app
+  [E] Export emulator data
+  [BA] Backup instance data
+  [RE] Restore from backup
+  [K] Update GitHub token
+  [VK] Set VirusTotal API key
+  [CRT] Create/sign certificate
+  [Z] Security audit (disabled)
+
+  --- Tests ---
+  [TC] Connection test
+  [TN] Network test
+  [TS] Network speed test
+  [TD] Dependencies test
+  [VT] VirusTotal scan
+  [VF] VirusTotal Upload file
+  [UW] Fix Unicode / encoding
+
+  --- Spoofing ---
+  [DM] Spoof device model
+  [SIM] Change SIM operator / country (MCC/MNC)
+  [SIM+] View / clear auto-apply SIM config
+  [SC] SIM check (all properties)
+  [AI] Set Android ID
+  [DI] Random device IDs
+
+  --- Info ---
+  [WN] Watch MuMu network + updater
+  [RM] Resource monitor (CPU/RAM, live)
+  [IN] MuMu installation (choose active)
+  [V] Version info
+  [MU] MuMu emulator update check (read-only)
+  [OI] Offline installers (all versions, read-only)
+  [U] Check for updates
+  [UP] Update plan (dry-run)
+  [F] Verify installation (files vs release tag)
+  [ST] Install status (read-only)
+  [J] Update journal
+  [DIAG] Problem diagnostics
+  [RB] Rollback from backup
+  [DL] Download repository
+  [CR] Create release
+  [FR] Fix release encoding
+  [0] Exit
+======================================
+```
+<!-- MENU:AUTO:END -->
 
 English summary
 

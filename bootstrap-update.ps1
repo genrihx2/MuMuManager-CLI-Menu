@@ -56,7 +56,7 @@ try {
 # ── Config ───────────────────────────────────────────────────────────
 $repo       = 'genrihx2/MuMuManager-CLI-Menu'
 $apiBase    = "https://api.github.com/repos/$repo"
-$files      = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1')
+$files      = @('mumu-menu.ps1', 'mumu-menu.cjs', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1')
 $maxRetries = 3
 $retryDelay = 3   # seconds between retries
 
@@ -73,7 +73,14 @@ $retryDelay = 3   # seconds between retries
 function Test-CurlCapability {
     param([string]$CurlExe = 'curl.exe', [string]$ProbeUrl = 'https://api.github.com/')
     try {
-        $null = & $CurlExe -s --retry-all-errors --connect-timeout 10 --max-time 15 -o NUL $ProbeUrl 2>$null
+        # Native stderr is NEVER redirected anywhere in this script. Under
+        # Windows PowerShell 5.1 with $ErrorActionPreference='Stop' a redirected
+        # native stderr is marshaled as ErrorRecords, so the first curl error
+        # line (e.g. 'curl: (22) ... returned error: 401') becomes a TERMINATING
+        # RemoteException and kills the whole run - pwsh 7 has no such quirk.
+        # Unredirected, curl's terse -sS error text is plain console text on
+        # both engines and can never terminate anything (v10.2.0 field report).
+        $null = & $CurlExe -s --retry-all-errors --connect-timeout 10 --max-time 15 -o NUL $ProbeUrl
         return ($LASTEXITCODE -ne 2)
     } catch {
         return $false
@@ -402,7 +409,7 @@ function Test-ReleaseZip {
         [Parameter(Mandatory = $true)] [string]$ExpectedTag,
         [string]$SidecarPath = "$ZipPath.sha256"
     )
-    $expectedFiles = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', '.version', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1')
+    $expectedFiles = @('mumu-menu.ps1', 'mumu-menu.cjs', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', '.version', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1')
     $checks = @()
     $ok = $true
     $zipVer = ''
@@ -559,7 +566,7 @@ function Invoke-CurlGet {
         $curlArgs = @('-sS', '--fail') + $script:CurlRetryArgs + @('--connect-timeout', '30', '--max-time', '30', '-H', 'Accept: application/vnd.github.v3+json')
         if ($token) { $curlArgs += @('-H', "Authorization: token $token") }
         $curlArgs += $Url
-        $result = & curl.exe @curlArgs 2>$null
+        $result = & curl.exe @curlArgs
         if ($LASTEXITCODE -eq 0 -and $result) {
             $resultStr = @($result) | Out-String
             # Bad credentials fallback — retry without token
@@ -572,13 +579,28 @@ function Invoke-CurlGet {
                 $script:token = $null
                 Write-Host "  Saved token disabled for this run - re-save via mumu-menu [K] (DPAPI) or use -NoAuth." -ForegroundColor DarkGray
                 $noAuthArgs = @('-sS', '--fail') + $script:CurlRetryArgs + @('--connect-timeout', '30', '--max-time', '30', '-H', 'Accept: application/vnd.github.v3+json', $Url)
-                $result2 = & curl.exe @noAuthArgs 2>$null
+                $result2 = & curl.exe @noAuthArgs
                 if ($LASTEXITCODE -eq 0 -and $result2) {
                     return (@($result2) | Out-String)
                 }
                 return $null
             }
             return $resultStr
+        }
+        # --fail suppresses the HTTP-error body, so a real 401 never reaches
+        # the 'Bad credentials' check above: curl exits 22 with no output.
+        # Retry the SAME URL once WITHOUT auth - if anonymous succeeds, the
+        # attached token is the problem: disable it for the run. A genuine
+        # 404/5xx fails anonymously too, so a valid token is never blamed.
+        if ($token -and $LASTEXITCODE -eq 22) {
+            Write-Host "  HTTP error with token attached (curl exit 22) - retrying without auth..." -ForegroundColor Yellow
+            $noAuthArgs = @('-sS', '--fail') + $script:CurlRetryArgs + @('--connect-timeout', '30', '--max-time', '30', '-H', 'Accept: application/vnd.github.v3+json', $Url)
+            $result2 = & curl.exe @noAuthArgs
+            if ($LASTEXITCODE -eq 0 -and $result2) {
+                $script:token = $null
+                Write-Host "  Saved token rejected - disabled for this run; re-save via mumu-menu [K] (DPAPI) or use -NoAuth." -ForegroundColor DarkGray
+                return (@($result2) | Out-String)
+            }
         }
         if ($attempt -lt $maxRetries) {
             Write-Host "  Attempt $attempt failed (curl exit $LASTEXITCODE) - retrying in ${retryDelay}s..." -ForegroundColor Yellow
@@ -596,9 +618,24 @@ function Download-File {
         $dlArgs = @('-sS', '--fail') + $script:CurlRetryArgs + @('--connect-timeout', '30', '--max-time', '120', '-L', '-H', 'Accept: application/vnd.github.v3.raw', '-o', $tmpFile)
         if ($token) { $dlArgs += @('-H', "Authorization: token $token") }
         $dlArgs += $Url
-        & curl.exe @dlArgs 2>$null | Out-Null
+        & curl.exe @dlArgs | Out-Null
         $haveBody = ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $tmpFile) -and (Get-Item -LiteralPath $tmpFile).Length -gt 0)
         if (-not $haveBody) {
+            # Same class as Invoke-CurlGet: with a token attached, an HTTP
+            # 401 (--fail, no body) lands here. One blind retry WITHOUT auth
+            # decides whether the token is the problem; the CDN mirror below
+            # stays as the transport-level fallback.
+            if ($token) {
+                $noAuthDl = @('-sS', '--fail') + $script:CurlRetryArgs + @('--connect-timeout', '30', '--max-time', '120', '-L', '-H', 'Accept: application/vnd.github.v3.raw', '-o', $tmpFile, $Url)
+                & curl.exe @noAuthDl | Out-Null
+                $haveBody = ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $tmpFile) -and (Get-Item -LiteralPath $tmpFile).Length -gt 0)
+                if ($haveBody) {
+                    $script:token = $null
+                    Write-Host "  Saved token rejected - disabled for this run; re-save via mumu-menu [K] (DPAPI) or use -NoAuth." -ForegroundColor DarkGray
+                } elseif (Test-Path -LiteralPath $tmpFile) {
+                    Remove-Item -LiteralPath $tmpFile -Force -ErrorAction SilentlyContinue
+                }
+            }
             # Transport-only CDN fallback: one retry through the
             # cdn.jsdelivr.net mirror of the SAME pinned commit - a stale
             # GitHub edge cannot serve the wrong blob by construction, and
@@ -612,7 +649,7 @@ function Download-File {
                 $cdnUrl = "https://cdn.jsdelivr.net/gh/$($Matches[1])@$($Matches[3])/$($Matches[2])"
                 Write-Host "  api.github.com failed - retrying via cdn.jsdelivr.net mirror..." -ForegroundColor DarkGray
                 $cdnArgs = @('-sS', '--fail') + $script:CurlRetryArgs + @('--connect-timeout', '30', '--max-time', '120', '-H', 'Accept: application/vnd.github.v3.raw', '-o', $tmpFile, $cdnUrl)
-                & curl.exe @cdnArgs 2>$null | Out-Null
+                & curl.exe @cdnArgs | Out-Null
                 $haveBody = ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $tmpFile) -and (Get-Item -LiteralPath $tmpFile).Length -gt 0)
             }
             if (-not $haveBody -and $attempt -lt $maxRetries) {
@@ -698,7 +735,7 @@ function Invoke-CurlGetRaw {
         $curlArgs = @('-sS', '--fail') + $script:CurlRetryArgs + @('--connect-timeout', '30', '--max-time', '60', '-H', 'Accept: application/vnd.github.raw', '-o', $tmpFile)
         if ($token) { $curlArgs += @('-H', "Authorization: token $token") }
         $curlArgs += $Url
-        & curl.exe @curlArgs 2>$null
+        & curl.exe @curlArgs
         if ((Test-Path -LiteralPath $tmpFile -PathType Leaf) -and (Get-Item -LiteralPath $tmpFile).Length -gt 0) {
             return ([System.Text.Encoding]::UTF8.GetString([System.IO.File]::ReadAllBytes($tmpFile))).TrimEnd()
         }
@@ -811,10 +848,21 @@ if (-not $remoteTag) {
     if (-not $Force) { exit 1 }
 }
 
-if ($localTag -eq $remoteTag -and -not $Force) {
+# The version marker alone is not proof the install is complete: a release can
+# ADD a file (v10.3.0 added mumu-menu.cjs). An install whose .version already
+# names the new tag used to short-circuit at 'Up to date' forever while the new
+# file never arrived - seen live in C:	est right after the 10.3.0 rollout.
+# Missing files therefore fall through to a normal, hash-verified download; an
+# unchanged file is still skipped by the per-file hash gate, so this is cheap.
+$missingFiles = @($files | Where-Object { -not (Test-Path -LiteralPath (Join-Path $TargetDir $_) -PathType Leaf) })
+if ($localTag -eq $remoteTag -and -not $Force -and $missingFiles.Count -eq 0) {
     Write-Host "  Up to date ($localTag) - nothing to download." -ForegroundColor Green
     Write-Host "  Use -Force to re-download anyway." -ForegroundColor DarkGray
     exit 0
+}
+if ($localTag -eq $remoteTag -and -not $Force -and $missingFiles.Count -gt 0) {
+    Write-Host ("  Version marker says {0}, but {1} file(s) are missing: {2}" -f $localTag, $missingFiles.Count, ($missingFiles -join ', ')) -ForegroundColor Yellow
+    Write-Host '  Repairing: downloading the release file set (hash-verified).' -ForegroundColor Yellow
 }
 
 # ── Dry-run: show the update plan without touching anything (issue: UX) ──
@@ -833,8 +881,10 @@ if ($WhatIf) {
     }
     $action = if (-not $localTag) {
         "fresh install of $remoteTag (target folder has no .version)"
-    } elseif ($localTag -eq $remoteTag) {
+    } elseif ($localTag -eq $remoteTag -and $Force) {
         "re-download of the current version $remoteTag (because of -Force)"
+    } elseif ($localTag -eq $remoteTag) {
+        "repair of $remoteTag (file set incomplete: $($missingFiles -join ', '))"
     } else {
         "update $localTag -> $remoteTag"
     }

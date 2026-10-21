@@ -1,0 +1,482 @@
+name: Release
+
+# Tag-driven releases.
+#
+# Triggers:
+#   1. push of a v* tag        -> release exactly that tag
+#   2. push to main            -> read $scriptVer from HEAD; if the matching v* tag
+#                                 does not exist yet, create it at HEAD and release
+#                                 (no paths filter: a push must never be able to skip its own release)
+#   3. workflow_dispatch       -> release the tag given in `tag` input (or the latest v* tag)
+#
+# The ZIP and .sha256 assets are ALWAYS built from the tag content (git archive),
+# and the workflow fails hard if $scriptVer in mumu-menu.ps1 at the tag does not
+# match the tag version. Re-runs are idempotent: if the release already exists,
+# the run succeeds without doing anything.
+# Before publishing, the workflow runs and requires the named Tests legs
+# (bootstrap-detector, the three pester-unit matrix legs, the deployed-
+# layout leg - see REQUIRED_LEGS in the gate step) green on the exact
+# tag commit: it reuses an existing Tests run on that commit or
+# dispatches one itself, then fails closed on red/missing/timeout.
+# Legs are matched by exact name, so a leg removed from tests.yml or
+# renamed out from under the gate blocks the release instead of
+# silently shrinking the audited coverage.
+
+on:
+  push:
+    branches: [ main ]
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to release (e.g. v1.18.7). Empty = latest v* tag.'
+        required: false
+
+permissions:
+  contents: write
+  checks: read
+  actions: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Determine tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          set -euo pipefail
+          # Remote refs are the source of truth for tags
+          git fetch origin --tags --force --prune --prune-tags >/dev/null 2>&1 || true
+
+          if [ -n "$INPUT_TAG" ]; then
+            TAG="$INPUT_TAG"
+          elif [ "$REF_TYPE" = "tag" ]; then
+            TAG="$REF_NAME"
+          elif [ "$REF_TYPE" = "branch" ]; then
+            # Version-bump push: derive the tag from $scriptVer at HEAD
+            RAW="$(git show HEAD:mumu-menu.ps1)"
+            SCRIPT_VER="$(printf '%s\n' "$RAW" | grep -oP "scriptVer\s*=\s*'\K[\d\.]+" | head -1 || true)"
+            if [ -z "$SCRIPT_VER" ]; then
+              echo "Cannot find \$scriptVer in mumu-menu.ps1 at HEAD" >&2
+              exit 1
+            fi
+            TAG="v${SCRIPT_VER}"
+            if git ls-remote --exit-code origin "refs/tags/$TAG" >/dev/null 2>&1; then
+              echo "Tag $TAG already exists - skipping release"
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            git tag "$TAG" HEAD
+            git push origin "refs/tags/$TAG"
+            echo "Created and pushed tag $TAG at HEAD"
+          else
+            # workflow_dispatch without input: use the latest v* tag
+            TAG="$(git tag -l 'v*' | sort -V | tail -1)"
+          fi
+
+          if [ -z "$TAG" ]; then
+            echo "No tag to release (provide the 'tag' input or push a v* tag)" >&2
+            exit 1
+          fi
+
+          case "$TAG" in
+            v[0-9]*.[0-9]*.[0-9]*|v[0-9]*.[0-9]*) ;;
+            *) echo "Tag '$TAG' is not a version tag (expected vX.Y or vX.Y.Z)" >&2; exit 1 ;;
+          esac
+
+          git rev-parse -q --verify "refs/tags/$TAG^{commit}" >/dev/null \
+            || { echo "Tag $TAG does not exist locally or on origin" >&2; exit 1; }
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Releasing tag: $TAG"
+
+      - name: Verify tag content
+        if: steps.tag.outputs.skip != 'true'
+        id: ver
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          TAG_VERSION="${TAG#v}"
+          RAW="$(git show "$TAG:mumu-menu.ps1")"
+          SCRIPT_VER="$(printf '%s\n' "$RAW" | grep -oP "scriptVer\s*=\s*'\K[\d\.]+" | head -1 || true)"
+
+          if [ -z "$SCRIPT_VER" ]; then
+            echo "Cannot find \$scriptVer in mumu-menu.ps1 at $TAG" >&2
+            exit 1
+          fi
+          if [ "$SCRIPT_VER" != "$TAG_VERSION" ]; then
+            echo "Version mismatch: tag is $TAG but \$scriptVer is '$SCRIPT_VER' in mumu-menu.ps1 at the tag" >&2
+            echo "Delete/recreate the tag or fix the version, then run again." >&2
+            exit 1
+          fi
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists - skipping asset upload"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          PREV="$(git tag -l 'v*' | sort -V | awk -v t="$TAG" '$0==t{print prev; exit} {prev=$0}')"
+          COMMITS=0
+          if [ -n "$PREV" ]; then
+            COMMITS="$(git log --oneline --no-decorate "$PREV..$TAG" 2>/dev/null | wc -l)" || COMMITS=0
+          fi
+          echo "prev_tag=$PREV" >> "$GITHUB_OUTPUT"
+          echo "commit_count=$COMMITS" >> "$GITHUB_OUTPUT"
+
+      - name: Run and require green Tests on the tag commit
+        # Release gate: the release must not publish before the Tests
+        # matrix is green on the tag commit. The gate OWNS the wait - it
+        # reuses an existing Tests run on the exact commit, otherwise
+        # dispatches tests.yml at the tag ref, polls the run to completion,
+        # then audits its check-runs. Fails CLOSED: red, missing, or
+        # timed-out Tests block the release the same way.
+        if: steps.tag.outputs.skip != 'true' && steps.ver.outputs.skip != 'true'
+        id: tests-gate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          # Resolve the commit SHA the tag points at (the gate is per-commit,
+          # not per-ref: a later main push must not satisfy this tag's gate).
+          TAG_SHA=$(git rev-parse "${SHA}^{commit}")
+          echo "Tag $SHA -> commit $TAG_SHA"
+
+          # Per-commit matching: the gate audits Tests on THIS commit only,
+          # so a later main push can neither satisfy nor break this tag.
+          # The gate owns the wait: it reuses an existing Tests run on the
+          # exact commit (the version-bump push starts one immediately),
+          # otherwise dispatches tests.yml at the tag ref, then polls the
+          # run to completion before auditing its check-runs. Requires
+          # actions: write (dispatch) and checks: read (check-runs audit).
+          RUN_ID=$(gh api "repos/$REPO/actions/runs?head_sha=$TAG_SHA&per_page=100" \
+            --jq '[(.workflow_runs[]? | select(.name == "Tests"))] | sort_by(.created_at) | reverse | .[0].id // ""' || true)
+          if [ -z "$RUN_ID" ]; then
+            echo "No Tests run on $TAG_SHA - dispatching tests.yml at ref $SHA..."
+            gh workflow run tests.yml --repo "$REPO" --ref "$SHA"
+            for _ in 1 2 3 4 5 6; do
+              sleep 10
+              RUN_ID=$(gh api "repos/$REPO/actions/runs?head_sha=$TAG_SHA&per_page=100" \
+                --jq '[(.workflow_runs[]? | select(.name == "Tests"))] | sort_by(.created_at) | reverse | .[0].id // ""' || true)
+              if [ -n "$RUN_ID" ]; then break; fi
+            done
+          else
+            echo "Reusing an existing Tests run on $TAG_SHA"
+          fi
+          case "$RUN_ID" in '' | *[!0-9]*) echo "No Tests run could be found or started on $TAG_SHA" >&2; exit 1 ;; esac
+          echo "Tests run: ${GITHUB_SERVER_URL:-https://github.com}/$REPO/actions/runs/$RUN_ID"
+
+          # Poll up to 25 minutes for the Tests run to complete - matrix
+          # legs take ~6-8 minutes each; 25 also covers a queued-runner
+          # window. Fail-closed on timeout.
+          DEADLINE=$(( $(date +%s) + 1500 ))
+          while :; do
+            STATUS_TSV=$(gh api "repos/$REPO/actions/runs/$RUN_ID" --jq '[.status, (.conclusion // "-")] | @tsv' 2>/dev/null || printf 'unknown\t-')
+            RUN_STATUS=$(printf '%s' "$STATUS_TSV" | cut -f1)
+            RUN_CONCLUSION=$(printf '%s' "$STATUS_TSV" | cut -f2)
+            if [ "$RUN_STATUS" = "completed" ]; then
+              echo "Tests run $RUN_ID completed: $RUN_CONCLUSION"
+              break
+            fi
+            if [ "$(date +%s)" -ge "$DEADLINE" ]; then
+              echo "Tests run $RUN_ID did not finish within 25 minutes - blocking the release (fail-closed)." >&2
+              echo "Re-run this workflow once the Tests run completes." >&2
+              exit 1
+            fi
+            sleep 30
+          done
+          if [ "$RUN_CONCLUSION" != "success" ]; then
+            {
+              echo "### Tests gate: release blocked for \`$SHA\` (commit \`$TAG_SHA\`)"
+              echo ""
+              echo "- Tests run [$RUN_ID](${GITHUB_SERVER_URL:-https://github.com}/$REPO/actions/runs/$RUN_ID): **$RUN_CONCLUSION**"
+            } | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "Tests run $RUN_ID concluded '$RUN_CONCLUSION' - refusing to publish $SHA." >&2
+            exit 1
+          fi
+
+          # The run as a whole is green; now the per-leg audit - every
+          # required Tests leg must be present and successful on the tag
+          # commit. Legs are matched by EXACT NAME, not by a common prefix:
+          # a prefix filter accepts any pester-unit* check-run, so removing
+          # a leg from the tests.yml matrix (or renaming it) would satisfy
+          # the gate silently and shrink audited coverage. REQUIRED_LEGS is
+          # the source of truth and must mirror the job names in tests.yml;
+          # a renamed or dropped leg surfaces as "missing" on the next
+          # release instead of passing unnoticed.
+          REQUIRED_LEGS='bootstrap-detector
+          pester-unit (5.7.1 / powershell)
+          pester-unit (5.7.1 / pwsh)
+          pester-unit (preinstalled / pwsh)
+          pester-unit (deployed layout / both engines)'
+          # One fetch of the tag commit's check-runs, loosely filtered to
+          # the Tests legs; exactness comes from the awk match below. A leg
+          # renamed outside this prefix fails the gate as "missing" - the
+          # desired outcome for a gate the tests.yml names drifted away
+          # from. Double quotes around the jq regex are MANDATORY: without
+          # them the value reaches jq as a bare token (test(^(...))) and
+          # the jq parse error is fatal for gh - the release would block
+          # on "missing" (v1.22.43 lesson).
+          gh api "repos/$REPO/commits/$TAG_SHA/check-runs?per_page=100" \
+            --jq ".check_runs[] | select(.name | test(\"^(bootstrap-detector|pester-unit)\")) | [.name, .status, (.conclusion // \"-\")] | @tsv" > runs.tsv
+          # Exact-name match per required leg; the LAST matching row wins
+          # (a re-run appends new rows; keeping the first could see a red
+          # row that later went green). A leg with no check-run yields an
+          # empty status cell - the "missing" signal in the loop below.
+          : > runs.dedup.tsv
+          while IFS= read -r leg; do
+            [ -n "$leg" ] || continue
+            # Strip a trailing CR: a CRLF checkout of this file would glue
+            # it to every leg name and turn the whole matrix into "missing".
+            leg=${leg%$'\r'}
+            awk -F'\t' -v leg="$leg" '$1 == leg { row = $2 "\t" $3 } END { print leg "\t" row }' runs.tsv >> runs.dedup.tsv
+          done <<< "$REQUIRED_LEGS"
+          FOUND=$(wc -l < runs.dedup.tsv)
+          echo "Required legs: $FOUND"
+
+          # Every required run must exist (empty status = no check-run on
+          # the tag commit) and be green.
+          MISSING=0; RED=0
+          : > gate-report.md
+          while IFS=$'\t' read -r name status conclusion; do
+            status=${status%$'\r'}
+            conclusion=${conclusion%$'\r'}
+            if [ -z "$status" ]; then
+              echo "- \`$name\`: **missing** (no check-run on this commit)" >> gate-report.md
+              MISSING=$((MISSING + 1))
+            else
+              echo "- \`$name\`: $conclusion" >> gate-report.md
+              if [ "$conclusion" != "success" ]; then RED=$((RED + 1)); fi
+            fi
+          done < runs.dedup.tsv
+
+          if [ "$RED" -gt 0 ] || [ "$MISSING" -gt 0 ]; then
+            {
+              echo "### Tests gate: release blocked for \`$SHA\` (commit \`$TAG_SHA\`)"
+              echo ""
+              cat gate-report.md
+            } | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "Tests gate FAILED (red: $RED, missing: $MISSING) - refusing to publish $SHA." >&2
+            echo "Fix the failing checks, then re-run this workflow." >&2
+            exit 1
+          fi
+
+          {
+            echo "### Tests gate: release allowed for \`$SHA\`"
+            echo ""
+            echo "- Tests run: ${GITHUB_SERVER_URL:-https://github.com}/$REPO/actions/runs/$RUN_ID"
+            cat gate-report.md
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "Tests gate passed - all required checks green on $TAG_SHA."
+
+      - name: Build ZIP from tag content
+        if: steps.tag.outputs.skip != 'true' && steps.ver.outputs.skip != 'true'
+        id: zip
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          ZIPNAME="MuMuManager-CLI-Menu-${TAG}.zip"
+
+          rm -rf dist && mkdir -p dist
+          # Build strictly from the tag's content - not from the checked-out branch.
+          # bootstrap-update.ps1 ships in the ZIP so every install carries the current
+          # updater (the v1.18.8 JSON-detector fix must reach installs that never ran it).
+          git archive "$TAG" mumu-menu.ps1 mumu-menu.cjs bootstrap-update.ps1 README.md SKILL.md .version Watch-MumuConnections.ps1 Test-MumuTunnelAB.ps1 Diag-MumuNx.ps1 | tar -x -C dist
+
+          (cd dist && zip -r "../${ZIPNAME}" .)
+
+          SHA256=$(sha256sum "${ZIPNAME}" | cut -d' ' -f1)
+          echo "${SHA256}  ${ZIPNAME}" > "${ZIPNAME}.sha256"
+
+          FILE_COUNT=$(unzip -l "${ZIPNAME}" | tail -1 | awk '{print $2}')
+          ZIP_SIZE=$(stat -c%s "${ZIPNAME}")
+          ZIP_SIZE_KB=$((ZIP_SIZE / 1024))
+
+          {
+            echo "zipname=${ZIPNAME}"
+            echo "sha256=${SHA256}"
+            echo "file_count=${FILE_COUNT}"
+            echo "size_kb=${ZIP_SIZE_KB}"
+          } >> "$GITHUB_OUTPUT"
+          echo "ZIP: ${ZIPNAME} (${ZIP_SIZE_KB}KB, ${FILE_COUNT} files)"
+          echo "SHA256: ${SHA256}"
+
+      - name: Verify ZIP
+        if: steps.tag.outputs.skip != 'true' && steps.ver.outputs.skip != 'true'
+        env:
+          ZIPNAME: ${{ steps.zip.outputs.zipname }}
+          SHA256: ${{ steps.zip.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          echo "${SHA256}  ${ZIPNAME}" | sha256sum -c -
+          echo "SHA256: OK"
+          for f in mumu-menu.ps1 mumu-menu.cjs bootstrap-update.ps1 README.md SKILL.md .version Watch-MumuConnections.ps1 Test-MumuTunnelAB.ps1 Diag-MumuNx.ps1; do
+            unzip -l "${ZIPNAME}" | grep -q "$f" || { echo "MISSING: $f"; exit 1; }
+          done
+          echo "Structure: OK"
+
+      - name: Generate release notes
+        if: steps.tag.outputs.skip != 'true' && steps.ver.outputs.skip != 'true'
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          PREV_TAG: ${{ steps.ver.outputs.prev_tag }}
+          SHA256: ${{ steps.zip.outputs.sha256 }}
+          FILE_COUNT: ${{ steps.zip.outputs.file_count }}
+          SIZE_KB: ${{ steps.zip.outputs.size_kb }}
+          COMMIT_COUNT: ${{ steps.ver.outputs.commit_count }}
+        run: |
+          set -euo pipefail
+          ZIPNAME="MuMuManager-CLI-Menu-${TAG}.zip"
+
+          CHANGELOG=$(git show "$TAG:README.md" | awk '/^## Что нового/{f=1; next} /^## /{if(f) f=0} f' | sed '/^$/d' | head -40 || true)
+
+          COMMIT_LIST=""
+          if [ -n "$PREV_TAG" ]; then
+            COMMIT_LIST=$(git log --oneline --no-decorate "$PREV_TAG..$TAG" 2>/dev/null | head -20 || true)
+          fi
+
+          {
+            echo "## MuMuManager CLI Menu ${TAG}"
+            echo ""
+            echo "Интерактивное PowerShell-меню для управления MuMu Emulator через \`MuMuManager.exe\`."
+            echo ""
+            echo "### Что нового"
+            if [ -n "$CHANGELOG" ]; then
+              echo "$CHANGELOG"
+            else
+              echo "- Обновление файлов скрипта"
+            fi
+            echo ""
+            if [ -n "$PREV_TAG" ]; then
+              echo "### Сравнение"
+              echo "| | |"
+              echo "|---|---|"
+              echo "| Предыдущая версия | [\`${PREV_TAG}\`](../releases/tag/${PREV_TAG}) |"
+              echo "| Текущая версия | \`${TAG}\` |"
+              echo "| Коммитов | ${COMMIT_COUNT} |"
+              echo ""
+            fi
+            if [ -n "$COMMIT_LIST" ]; then
+              echo "### Коммиты"
+              echo '```'
+              echo "$COMMIT_LIST"
+              echo '```'
+              echo ""
+            fi
+            echo "### Установка"
+            echo ""
+            echo "**Быстрый запуск** (одна команда):"
+            echo '```powershell'
+            echo "irm https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/mumu-menu.ps1 -OutFile \$env:TEMP\\mumu-menu.ps1; & \$env:TEMP\\mumu-menu.ps1"
+            echo '```'
+            echo ""
+            echo "**Git clone** (с автообновлением через \`[U]\`):"
+            echo '```powershell'
+            echo "git clone https://github.com/${GITHUB_REPOSITORY}.git"
+            echo "cd MuMuManager-CLI-Menu"
+            echo ".\\mumu-menu.ps1"
+            echo '```'
+            echo ""
+            echo "### Верификация"
+            echo '```powershell'
+            # curl.exe, not curl: Windows PowerShell 5.1 aliases curl to
+            # Invoke-WebRequest, so `curl -sL ... -o file` dies with a
+            # parameter-binding error and the sidecar never downloads.
+            # The comparison is done by the snippet itself: Get-FileHash
+            # prints UPPERCASE while the sidecar holds a lowercase hash plus
+            # the filename, so the old "compare by eye" instruction could
+            # never match literally.
+            echo "curl.exe -sL -o ${ZIPNAME} https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${ZIPNAME}"
+            echo "curl.exe -sL -o ${ZIPNAME}.sha256 https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${ZIPNAME}.sha256"
+            echo "\$expect = ((Get-Content ${ZIPNAME}.sha256 -Raw).Trim() -split '\s+')[0]"
+            echo "\$actual = (Get-FileHash ${ZIPNAME} -Algorithm SHA256).Hash.ToLower()"
+            echo "if (\$actual -eq \$expect) { 'SHA256 OK' } else { \"SHA256 MISMATCH: expected \$expect, got \$actual\" }"
+            echo '```'
+            echo ""
+            echo "### Метрики"
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Размер ZIP | ${SIZE_KB} KB |"
+            echo "| Файлов | ${FILE_COUNT} |"
+            echo "| SHA256 | \`${SHA256:0:16}...\` |"
+            echo ""
+            echo "**Требования:** Windows 10/11 · PowerShell 5.1+ · MuMu Emulator 6.x"
+          } > relnotes.md
+
+          echo "Release notes generated ($(wc -l < relnotes.md) lines)"
+
+      - name: Create release
+        if: steps.tag.outputs.skip != 'true' && steps.ver.outputs.skip != 'true'
+        env:
+          RELEASE_PAT: ${{ secrets.RELEASE_PAT }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          ZIPNAME: ${{ steps.zip.outputs.zipname }}
+        run: |
+          set -euo pipefail
+          # Publish with a PAT when available so the `on: release published`
+          # trigger fires for the VirusTotal workflow - GitHub suppresses
+          # workflow triggers for releases created with GITHUB_TOKEN (issue #16).
+          # The PAT is validated first (cheap /user call); if it is absent,
+          # expired, or lacks access, fall back to GITHUB_TOKEN so publishing
+          # can never break (the VT scan then needs a manual dispatch).
+          if [ -n "$RELEASE_PAT" ]; then
+            PAT_LOGIN=$(curl -s --max-time 15 -H "Authorization: Bearer $RELEASE_PAT" \
+              https://api.github.com/user | python3 -c "import sys,json; print(json.load(sys.stdin).get('login',''))" 2>/dev/null || true)
+            if [ -n "$PAT_LOGIN" ]; then
+              export GH_TOKEN="$RELEASE_PAT"
+              echo "Publishing with RELEASE_PAT (validated as $PAT_LOGIN) - VirusTotal scan will auto-trigger"
+            else
+              echo "RELEASE_PAT present but invalid/expired - publishing with GITHUB_TOKEN (dispatch the VT scan manually)"
+            fi
+          else
+            echo "RELEASE_PAT not configured - publishing with GITHUB_TOKEN (dispatch the VT scan manually)"
+          fi
+          gh release create "$TAG" \
+            "$ZIPNAME" \
+            "$ZIPNAME.sha256" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "MuMuManager CLI Menu $TAG" \
+            --notes-file relnotes.md
+          echo "=== Release $TAG created ==="
+
+      - name: Publish summary
+        # The release-guard audit is dispatched by virustotal.yml AFTER its
+        # verdict table lands in the release body - dispatching it here
+        # raced the VT scan and produced a false vt=no guard issue
+        # (v1.22.49 and again on v1.22.53 tag re-point). The audit therefore
+        # runs strictly last in the chain: publish -> VT scan (+ verdicts)
+        # -> guard.
+        if: steps.tag.outputs.skip != 'true' && steps.ver.outputs.skip != 'true'
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          SHA256: ${{ steps.zip.outputs.sha256 }}
+        run: |
+          {
+            echo "### Release $TAG published"
+            echo ""
+            echo "- ZIP: MuMuManager-CLI-Menu-${TAG}.zip"
+            echo "- SHA256: \`${SHA256}\`"
+            echo "- VirusTotal scan: triggered on publish; the release-guard"
+            echo "  audit follows automatically after the VT verdicts land."
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "URL: https://github.com/${GITHUB_REPOSITORY}/releases/tag/$TAG"
