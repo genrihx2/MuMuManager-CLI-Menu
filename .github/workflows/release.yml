@@ -426,6 +426,7 @@ jobs:
 
       - name: Create release
         if: steps.tag.outputs.skip != 'true' && steps.ver.outputs.skip != 'true'
+        id: create
         env:
           RELEASE_PAT: ${{ secrets.RELEASE_PAT }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -438,18 +439,22 @@ jobs:
           # workflow triggers for releases created with GITHUB_TOKEN (issue #16).
           # The PAT is validated first (cheap /user call); if it is absent,
           # expired, or lacks access, fall back to GITHUB_TOKEN so publishing
-          # can never break (the VT scan then needs a manual dispatch).
+          # can never break. On the fallback we still get a scan: the next
+          # step dispatches virustotal.yml explicitly (v10.3.3 shipped with
+          # no VT verdicts because nothing covered the suppressed event).
+          USED_PAT=false
           if [ -n "$RELEASE_PAT" ]; then
             PAT_LOGIN=$(curl -s --max-time 15 -H "Authorization: Bearer $RELEASE_PAT" \
               https://api.github.com/user | python3 -c "import sys,json; print(json.load(sys.stdin).get('login',''))" 2>/dev/null || true)
             if [ -n "$PAT_LOGIN" ]; then
               export GH_TOKEN="$RELEASE_PAT"
+              USED_PAT=true
               echo "Publishing with RELEASE_PAT (validated as $PAT_LOGIN) - VirusTotal scan will auto-trigger"
             else
-              echo "RELEASE_PAT present but invalid/expired - publishing with GITHUB_TOKEN (dispatch the VT scan manually)"
+              echo "RELEASE_PAT present but invalid/expired - publishing with GITHUB_TOKEN (dispatching the VT scan explicitly)"
             fi
           else
-            echo "RELEASE_PAT not configured - publishing with GITHUB_TOKEN (dispatch the VT scan manually)"
+            echo "RELEASE_PAT not configured - publishing with GITHUB_TOKEN (dispatching the VT scan explicitly)"
           fi
           gh release create "$TAG" \
             "$ZIPNAME" \
@@ -457,7 +462,28 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --title "MuMuManager CLI Menu $TAG" \
             --notes-file relnotes.md
+          echo "used_pat=$USED_PAT" >> "$GITHUB_OUTPUT"
           echo "=== Release $TAG created ==="
+
+      - name: Dispatch VirusTotal scan (GITHUB_TOKEN fallback)
+        # GitHub suppresses `release: published` for releases created with
+        # GITHUB_TOKEN, so the PAT-fallback path never auto-fires the VT scan
+        # and the release ships without verdicts (seen live on v10.3.3). A
+        # workflow_dispatch IS allowed to fire under GITHUB_TOKEN and takes
+        # the same `tag` input, so the fallback dispatches the scan here.
+        # Non-fatal: a manual dispatch of virustotal.yml covers it, and a
+        # broken dispatch must never fail an already-published release. The
+        # scan itself updates the release body (verdicts) and then dispatches
+        # the release-guard audit, exactly as the release-event path would.
+        if: steps.tag.outputs.skip != 'true' && steps.ver.outputs.skip != 'true' && steps.create.outputs.used_pat != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh workflow run virustotal.yml --repo "$GITHUB_REPOSITORY" --ref main -f tag="$TAG" \
+            || echo "::warning::VT dispatch failed - run VirusTotal scan manually for $TAG"
+          echo "Dispatched VirusTotal scan for $TAG"
 
       - name: Publish summary
         # The release-guard audit is dispatched by virustotal.yml AFTER its
@@ -476,7 +502,8 @@ jobs:
             echo ""
             echo "- ZIP: MuMuManager-CLI-Menu-${TAG}.zip"
             echo "- SHA256: \`${SHA256}\`"
-            echo "- VirusTotal scan: triggered on publish; the release-guard"
-            echo "  audit follows automatically after the VT verdicts land."
+            echo "- VirusTotal scan: auto-triggered on publish (RELEASE_PAT) or"
+            echo "  dispatched explicitly in the GITHUB_TOKEN fallback; the"
+            echo "  release-guard audit follows after the VT verdicts land."
           } | tee -a "$GITHUB_STEP_SUMMARY"
           echo "URL: https://github.com/${GITHUB_REPOSITORY}/releases/tag/$TAG"
