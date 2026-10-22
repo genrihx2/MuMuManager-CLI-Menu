@@ -9883,10 +9883,25 @@ function Show-VersionInfo {
     $dotnet = [System.Runtime.InteropServices.RuntimeInformation]::FrameworkDescription
     Write-Host ".NET: $dotnet" -ForegroundColor DarkGray
 
-    # OS info
+    # OS info: [Environment]::OSVersion reports 10.0 on every Windows 10/11,
+    # and ProductName stays stale through in-place upgrades (a 26H2 machine
+    # still reads "Windows 10 Pro"), so the marketing name is derived from the
+    # build number (11 starts at 22000) and the feature-update label
+    # (DisplayVersion, e.g. 26H2; ReleaseId on pre-2004 builds) is appended.
     $os = [System.Environment]::OSVersion.Version
-    $build = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction SilentlyContinue).CurrentBuild
-    Write-Host "OS: Windows $($os.Major).$($os.Minor) (Build $build)" -ForegroundColor DarkGray
+    $cv = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction SilentlyContinue
+    $build = $os.Build
+    if ($cv -and $cv.CurrentBuild) { $build = [int]$cv.CurrentBuild }
+    if ($build -ge 22000) { $osName = 'Windows 11' }
+    elseif ($build -ge 10240) { $osName = 'Windows 10' }
+    else { $osName = "Windows $($os.Major).$($os.Minor)" }
+    $osLabel = $osName
+    if ($cv) {
+        $dvProp = $cv.PSObject.Properties['DisplayVersion']
+        if (-not $dvProp -or -not $dvProp.Value) { $dvProp = $cv.PSObject.Properties['ReleaseId'] }
+        if ($dvProp -and $dvProp.Value) { $osLabel = "$osName $($dvProp.Value)" }
+    }
+    Write-Host "OS: $osLabel (Build $build)" -ForegroundColor DarkGray
 
     # Architecture
     $arch = if ([Environment]::Is64BitOperatingSystem) { 'x64' } else { 'x86' }
