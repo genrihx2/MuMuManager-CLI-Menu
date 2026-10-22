@@ -163,6 +163,13 @@ mumu-menu.cmd
 
 ## Что нового
 
+### v10.3.4 (22.10.2026)
+
+- Fixed: строка ОС в `[V]` больше не врёт на Windows 11. `[Environment]::OSVersion` на всех Windows 10/11 отдаёт `10.0`, а `ProductName` после in-place апгрейда остаётся «Windows 10 Pro» — меню показывало `OS: Windows 10.0 (Build 26300)` на фактической Windows 11 26H2. Имя системы теперь выводится из номера сборки (11 начинается с 22000) и метки feature-update из реестра (`DisplayVersion`, для старых сборок — `ReleaseId`): `OS: Windows 11 26H2 (Build 26300)`.
+- Fixed (CI): релиз, опубликованный через `GITHUB_TOKEN` (fallback без `RELEASE_PAT`), теперь гарантированно получает VirusTotal-скан. GitHub не рассылает событие `release: published` для релизов, созданных `GITHUB_TOKEN` — именно поэтому v10.3.3 вышел без секции вердиктов в теле релиза. Release-воркфлоу теперь явно диспатчит `virustotal.yml` с тем же тегом (шаг не-fatal: сбой диспатча не валит уже опубликованный релиз), а путь с `RELEASE_PAT` не изменился.
+- Docs: SECURITY.md — заголовок «Актуально для» подтянут с v1.22.64 до v10.3.4, добавлены записи RU/EN про новый VT-fallback, счётчик CI-тестов обновлён (173 → 281).
+- Tests: сьют 281 passed / 0 failed, PSScriptAnalyzer 0 findings.
+
 ### v10.3.3 (20.10.2026)
 
 - Fixed: Ctrl+C убивал меню вместо того, чтобы игнорироваться. Обработчик `CancelKeyPress` был PowerShell-скриптблоком, а .NET поднимает это событие на своём сигнальном потоке (`PosixSignalRegistration` в PowerShell 7), где нет привязанного runspace — делегат падал с `PSInvalidOperationException` в `GetContextFromTLS` ещё до выполнения тела, и хост завершался с «Unhandled exception … Процесс PowerShell будет завершён». Обработчик теперь компилируемый делегат, который только выставляет `e.Cancel`; если компиляция недоступна (ConstrainedLanguage), защита пропускается, а не роняет процесс. Снятие обработчика в `finally` защищено так же.
@@ -214,6 +221,7 @@ mumu-menu.cmd
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v10.3.4 | 22.10.2026 | [V] reports the real Windows version (Windows 11 26H2 instead of "Windows 10.0"), Release workflow now explicitly dispatches the VirusTotal scan when published with GITHUB_TOKEN |
 | v10.3.3 | 20.10.2026 | Ctrl+C no longer crashes the menu (compiled CancelKeyPress guard), `mumu-menu.cmd` double-click launcher for git clones |
 | v10.3.1 | 19.10.2026 | Update check verifies the declared file set, not just .version (repairs installs missing a file added by a release) |
 | v10.3.0 | 19.10.2026 | Native JavaScript engine (`node mumu-menu.cjs`), [WN] watcher rewritten on netstat (was 52 s/tick via Get-NetTCPConnection) with SEEN seed + heartbeat |

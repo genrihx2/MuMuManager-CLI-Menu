@@ -2,11 +2,16 @@
 
 Interactive PowerShell menu for managing MuMu Emulator instances through the official `MuMuManager.exe`.
 
-This file contains the release notes for the v10.3.3, v10.3.1, v10.3.0, v10.2.0, v10.1.0 and v10.0.0 milestones. Older per-version blocks have been removed; only the latest entries are kept as requested.
+This file contains the release notes for the v10.3.4, v10.3.3, v10.3.1, v10.3.0, v10.2.0, v10.1.0 and v10.0.0 milestones. Older per-version blocks have been removed; only the latest entries are kept as requested.
 
 ---
 
-## v10.3.3 (2026-10-20)
+## v10.3.4 (2026-10-22)
+
+- Fix: `[V]` no longer reports a wrong OS on Windows 11. `[Environment]::OSVersion` returns `10.0` on every Windows 10/11 and an in-place upgrade leaves `ProductName` at "Windows 10 Pro", so the menu printed `OS: Windows 10.0 (Build 26300)` on an actual Windows 11 26H2 machine. The marketing name is now derived from the build number (Windows 11 starts at 22000) plus the feature-update label from the registry (`DisplayVersion`, `ReleaseId` on pre-2004 builds): `OS: Windows 11 26H2 (Build 26300)`.
+- Fix (CI): a release published with `GITHUB_TOKEN` (the fallback when `RELEASE_PAT` is absent) now always gets its VirusTotal scan. GitHub does not emit `release: published` for releases created with `GITHUB_TOKEN` - that is why v10.3.3 shipped with no verdict section in its release body. The Release workflow now dispatches `virustotal.yml` explicitly with the same tag (the step is non-fatal: a dispatch failure never fails an already-published release); the `RELEASE_PAT` path is unchanged.
+- Docs: SECURITY.md - the "Current for" header was pulled from v1.22.64 to v10.3.4, RU/EN entries added for the new VT fallback, CI test counter refreshed (173 -> 281).
+- Tests: suite 281 passed / 0 failed, PSScriptAnalyzer 0 findings.
 
 - Fix: Ctrl+C no longer kills the menu. The `CancelKeyPress` guard was a PowerShell ScriptBlock, and .NET raises that event on its own signal thread (`PosixSignalRegistration` on PowerShell 7) where no runspace is attached, so the delegate threw `PSInvalidOperationException` inside `GetContextFromTLS` *before* its body ran - the host died with "Unhandled exception ... Process will be terminated" instead of ignoring the key. The handler is now a compiled delegate that only flips `e.Cancel`, so it needs no runspace; when compilation is unavailable (ConstrainedLanguage) the guard is skipped instead of crashing the process, and the detach in the main loop's `finally` is guarded the same way.
 - New: `mumu-menu.cmd` - double-click launcher for git clones. It starts PowerShell with `-ExecutionPolicy Bypass` for that process only, so a machine whose execution policy is `Restricted` can open the menu without changing a system security setting; it refuses to start when `mumu-menu.ps1` is not beside it. Repo-only on purpose: the deployed file set stays at nine files, so ZIP installs and installs updated through `[U]` cannot drift apart.

@@ -6,7 +6,7 @@
 
 ## Русский
 
-> Актуально для **v1.22.64** (обновлено 2026-10-11).
+> Актуально для **v10.3.4** (обновлено 2026-10-22).
 
 ### Поддерживаемые версии
 
@@ -17,6 +17,11 @@
 | актуальный релиз ([Releases/latest](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest)) | ✅ |
 | предыдущие версии | ❌ |
 
+
+### v10.3.4 (2026-10-22)
+
+- Конвейер релизов: публикация через `GITHUB_TOKEN` (fallback, когда `RELEASE_PAT` отсутствует или просрочен) теперь явно запускает VirusTotal-скан — GitHub не рассылает событие `release: published` для релизов, созданных `GITHUB_TOKEN`, из-за чего v10.3.3 вышел без секции вердиктов в теле релиза. Шаг диспатча не-fatal и выполняется только на fallback-пути; путь с `RELEASE_PAT` не изменился. Политика выполнения: документация подтверждена по about_execution_policies (PowerShell 7.6) — `Restricted` остаётся default для клиентов Windows при всех областях `Undefined`, рекомендация `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` (без админки) сохранена.
+- Docs: заголовок «Актуально для» подтянут с v1.22.64 до v10.3.4; счётчик CI-гейтов обновлён (Pester 173 → 281).
 
 ### v1.22.64 (2026-10-11)
 
@@ -214,7 +219,7 @@
 - **VirusTotal**: каждый релиз сканируется в CI (3 файла), вердикты публикуются в теле релиза
 - **Release guard**: еженедельный CI-аудит — каждый релиз новее v1.18.6 обязан иметь ZIP + SHA256 + VT-вердикты, latest release сверяется с `.version`; расхождения открывают идемпотентный issue
 - **Зависимости экшенов**: еженедельные групповые Dependabot-обновления
-- **CI-гейты**: PSScriptAnalyzer, Pester (173 теста), bootstrap-регрессия, changelog-sync
+- **CI-гейты**: PSScriptAnalyzer, Pester (281 тест), bootstrap-регрессия, changelog-sync
 
 ### Управление ADB
 
@@ -383,7 +388,7 @@ The script uses Invoke-WebRequest/curl only to access GitHub API for auto-update
 
 ## English
 
-> Current for **v1.22.64** (updated 2026-10-11).
+> Current for **v10.3.4** (updated 2026-10-22).
 
 ### Supported Versions
 
@@ -393,6 +398,11 @@ Security fixes are released only for the latest release.
 | --- | --- |
 | latest release ([Releases/latest](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest)) | ✅ |
 | older | ❌ |
+
+### v10.3.4 (2026-10-22)
+
+- Release pipeline: publishing with `GITHUB_TOKEN` (the fallback when `RELEASE_PAT` is absent or expired) now explicitly dispatches the VirusTotal scan - GitHub does not emit `release: published` for releases created with `GITHUB_TOKEN`, which is why v10.3.3 shipped with no verdict section in its release body. The dispatch step is non-fatal and runs only on the fallback path; the `RELEASE_PAT` path is unchanged. Execution policy: documentation re-checked against about_execution_policies (PowerShell 7.6) - `Restricted` remains the Windows client default when every scope is `Undefined`; the `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` recommendation (no admin required) stands.
+- Docs: the "Current for" header was pulled from v1.22.64 to v10.3.4; the CI gates counter was refreshed (Pester 173 -> 281).
 
 ### v1.22.64 (2026-10-11)
 
@@ -444,7 +454,7 @@ Please include: description and impact, reproduction steps (PoC welcome), affect
 
 **ADB management:** File transfer (`push/pull`), screen capture, interactive shell — all require explicit user consent. Commands are parameterized with argument escaping. Executes only inside the emulator VM.
 
-**Release pipeline security:** tag-driven Release workflow (ZIP + `.sha256` sidecar), CI VirusTotal scan with verdicts in the release body, weekly **Release guard** audit (every release newer than v1.18.6 must ship ZIP + SHA256 + VT verdicts; latest release must match `.version`; the latest release ZIP is compared byte-for-byte against its tag content; discrepancies open an idempotent issue), grouped weekly Dependabot action updates, CI gates: PSScriptAnalyzer + Pester (173 tests) + bootstrap regression + changelog-sync.
+**Release pipeline security:** tag-driven Release workflow (ZIP + `.sha256` sidecar), CI VirusTotal scan with verdicts in the release body, weekly **Release guard** audit (every release newer than v1.18.6 must ship ZIP + SHA256 + VT verdicts; latest release must match `.version`; the latest release ZIP is compared byte-for-byte against its tag content; discrepancies open an idempotent issue), grouped weekly Dependabot action updates, CI gates: PSScriptAnalyzer + Pester (281 tests) + bootstrap regression + changelog-sync.
 
 ### Network Endpoints
 
