@@ -317,7 +317,7 @@ function Initialize-TokenStorage {
     # the token via menu [K] so it is recreated through this code path.
 }
 
-$scriptVer = '10.3.5'
+$scriptVer = '10.4.0'
 $InstalledVersion = $null
 
 # --- [WN] MuMu network + updater watcher (read-only, opt-in) -----------------
@@ -4391,102 +4391,449 @@ function Show-InstallStatus {
     }
 }
 
+function Write-MenuGroup {
+    # Group header: a bright label followed by a dim rule. $Width is the total
+    # rendered width, which is the header frame width ($inner + 4 columns:
+    # two spaces of indent, two border characters), so the rules run exactly
+    # under the frame edges.
+    param(
+        [string]$Title,
+        [int]$Width
+    )
+    $label = "  ── $Title "
+    $fill = $Width - $label.Length
+    if ($fill -lt 2) { $fill = 2 }
+    Write-Host $label -ForegroundColor Cyan -NoNewline
+    Write-Host ('─' * $fill) -ForegroundColor DarkCyan
+}
+
+function Write-MenuItem {
+    # Renders '  [KEY] description' with the key in Yellow and the text in
+    # Gray, padded to a fixed key column so every description starts at the
+    # same x. The caller keeps the literal '[KEY] description' string, which
+    # is also what the source-level wiring tests match on.
+    param(
+        [string]$Entry,
+        [int]$KeyColumn = 8
+    )
+    $m = [regex]::Match($Entry, '^(\[[^\]]+\])\s+(.*)$')
+    if (-not $m.Success) {
+        Write-Host "  $Entry" -ForegroundColor Gray
+        return
+    }
+    $key = $m.Groups[1].Value
+    $pad = $KeyColumn - $key.Length
+    if ($pad -lt 1) { $pad = 1 }
+    Write-Host ('  ' + $key + (' ' * $pad)) -ForegroundColor Yellow -NoNewline
+    Write-Host $m.Groups[2].Value -ForegroundColor Gray
+}
+
+function Write-ScreenFrame {
+    # The frame every screen shares with the main menu: a double-ruled box with
+    # the screen name and an optional dim context line. Returns the total
+    # rendered width so the caller's section rules line up with the box.
+    param(
+        [string]$Title,
+        [string]$Context = '',
+        [int]$Width = 56
+    )
+    $inner = $Width
+    foreach ($line in @($Title, $Context)) {
+        if ($line -and ($line.Length + 4) -gt $inner) { $inner = $line.Length + 4 }
+    }
+    if ($inner -gt 76) { $inner = 76 }
+    if ($inner -lt 20) { $inner = 20 }
+
+    Write-Host ''
+    Write-Host ('  ╔' + ('═' * $inner) + '╗') -ForegroundColor Cyan
+    Write-Host ('  ║  ' + $Title.PadRight($inner - 4) + '  ║') -ForegroundColor Cyan
+    if ($Context) {
+        $ctx = $Context
+        if ($ctx.Length -gt $inner - 4) { $ctx = $ctx.Substring(0, [Math]::Max(1, $inner - 7)) + '...' }
+        Write-Host ('  ║  ' + $ctx.PadRight($inner - 4) + '  ║') -ForegroundColor DarkGray
+    }
+    Write-Host ('  ╚' + ('═' * $inner) + '╝') -ForegroundColor Cyan
+    Write-Host ''
+    return ($inner + 4)
+}
+
+function Write-KeyValue {
+    # One aligned 'key   value' row inside a screen: keys dim and fixed-width,
+    # long values clipped to the frame so a settings path never breaks the box.
+    param(
+        [string]$Key,
+        [string]$Value,
+        [int]$KeyWidth = 18,
+        [int]$Width = 60,
+        [string]$ValueColor = 'White'
+    )
+    $k = $Key
+    if ($k.Length -gt ($KeyWidth - 2)) { $k = $k.Substring(0, [Math]::Max(1, $KeyWidth - 5)) + '...' }
+    $max = $Width - 4 - $KeyWidth
+    if ($max -lt 8) { $max = 8 }
+
+    # Long values wrap under the value column instead of being cut: a settings
+    # path or an install directory stays readable inside the frame.
+    $chunks = Split-MenuWrappedText -Text ([string]$Value) -Width $max
+    $pad = ' ' * (2 + $KeyWidth)
+    $first = $true
+    foreach ($chunk in $chunks) {
+        if ($first) {
+            Write-Host ('  ' + $k.PadRight($KeyWidth)) -ForegroundColor DarkGray -NoNewline
+            Write-Host $chunk -ForegroundColor $ValueColor
+            $first = $false
+        } else {
+            Write-Host ($pad + $chunk) -ForegroundColor $ValueColor
+        }
+    }
+}
+
+function Split-MenuWrappedText {
+    # Splits a value into frame-width chunks. A long path breaks after its
+    # separator (or after a space) when one sits in the second half of the
+    # chunk, so 'C:\Program Files\Netease\MuMuPlayer' never splits mid-name.
+    param(
+        [string]$Text,
+        [int]$Width
+    )
+    if ($Width -lt 1) { $Width = 1 }
+    $out = @()
+    $rest = [string]$Text
+    while ($rest.Length -gt $Width) {
+        $cut = $Width
+        $floor = [int][Math]::Ceiling($Width / 2)
+        for ($i = $Width; $i -ge $floor; $i--) {
+            $ch = $rest[$i - 1]
+            if ($ch -eq '\' -or $ch -eq '/' -or $ch -eq ' ') { $cut = $i; break }
+        }
+        $out += $rest.Substring(0, $cut).TrimEnd()
+        $rest = $rest.Substring($cut).TrimStart()
+    }
+    $out += $rest
+    return $out
+}
+
+function Write-ScreenStatus {
+    # The one status line every action screen prints: '  ● RUNNING ✓  detail'.
+    # The caller passes the state together with its mark, so the wording stays
+    # the same as the info table ('STOPPED ○', 'RUNNING ✓').
+    param(
+        [string]$State,
+        [string]$Tone = 'White',
+        [string]$Detail = ''
+    )
+    Write-Host '  ● ' -ForegroundColor $Tone -NoNewline
+    Write-Host $State -ForegroundColor $Tone -NoNewline
+    if ($Detail) { Write-Host "  $Detail" -ForegroundColor DarkGray -NoNewline }
+    Write-Host ''
+}
+
+function Write-ScreenStep {
+    # Progress line shared by the action screens: '  › Shutting down...'
+    param([string]$Text)
+    Write-Host '  › ' -ForegroundColor DarkCyan -NoNewline
+    Write-Host $Text -ForegroundColor Cyan
+}
+
+function Write-ScreenNote {
+    # Result or hint line: the marker follows the colour, so colour never lies -
+    # '  ✓ done' green, '  ✗ failed' red, '  ! retrying' yellow, '  · hint' dim.
+    param(
+        [string]$Text,
+        [string]$Tone = 'White'
+    )
+    $mark = switch ($Tone) {
+        'Green' { '✓' }
+        'Red' { '✗' }
+        'Yellow' { '!' }
+        default { '·' }
+    }
+    Write-Host "  $mark " -ForegroundColor $Tone -NoNewline
+    Write-Host $Text -ForegroundColor $Tone
+}
+
+function Write-ToolOutput {
+    # Raw manager output (control/adb replies) indented under the screen and
+    # dimmed - it is evidence, not a headline.
+    param($Lines)
+    foreach ($line in @($Lines)) {
+        $text = [string]$line
+        if (-not $text.Trim()) { continue }
+        Write-Host "    $text" -ForegroundColor DarkGray
+    }
+}
+
+function Write-ScreenChoices {
+    # Interactive option list ('[1] Push file TO emulator') inside a screen:
+    # the same key column and colours the main menu uses for its items.
+    param(
+        [string[]]$Items,
+        [int]$KeyColumn = 8
+    )
+    foreach ($item in @($Items)) { Write-MenuItem -Entry $item -KeyColumn $KeyColumn }
+}
+
+function Get-ValueTone {
+    # Colour by meaning, not by field: up/running is green, down is dim, a
+    # transition is yellow. Unknown strings stay neutral white.
+    param([string]$Value)
+    $v = ([string]$Value).Trim().ToLowerInvariant()
+    if ($v -in @('true', 'yes', 'on', 'started', 'running', 'start_finished', 'booted')) { return 'Green' }
+    if ($v -in @('false', 'no', 'off', 'stopped', 'not booted', 'not_started', 'unknown', '')) { return 'DarkGray' }
+    if ($v -in @('starting', 'stopping', 'waiting', 'restarting')) { return 'Yellow' }
+    return 'White'
+}
+
+function ConvertTo-InfoRows {
+    # Turns one instance's info object into display rows: the fields a human
+    # looks for first under 'Details', then every remaining field, sorted, under
+    # 'Other fields' - a field added by a future MuMuManager still shows up.
+    param($Info)
+
+    $labels = @{
+        'index'               = 'Index'
+        'name'                = 'Name'
+        'player_state'        = 'State'
+        'is_process_started'  = 'Process'
+        'is_android_started'  = 'Android'
+        'android_version'     = 'Android version'
+        'resolution'          = 'Resolution'
+        'adb_version'         = 'ADB version'
+        'adb_host_ip'         = 'ADB host'
+        'adb_port'            = 'ADB port'
+        'path'                = 'Path'
+        'config_path'         = 'Config'
+        'disk_size'           = 'Disk size'
+        'memory'              = 'Memory'
+        'cpu'                 = 'CPU'
+        'is_root'             = 'Root'
+    }
+    $order = @('index', 'name', 'player_state', 'is_process_started', 'is_android_started',
+               'android_version', 'resolution', 'adb_version', 'adb_host_ip', 'adb_port',
+               'path', 'config_path', 'disk_size', 'memory', 'cpu', 'is_root')
+
+    # Raw booleans read badly ('Process True'); spell out what they mean.
+    $booleans = @{
+        'is_process_started' = @('running', 'stopped')
+        'is_android_started' = @('booted', 'not booted')
+        'is_root'            = @('yes', 'no')
+    }
+
+    $rows = @()
+    if (-not $Info) { return $rows }
+
+    $seen = @{}
+    foreach ($key in $order) {
+        $prop = $Info.PSObject.Properties[$key]
+        if (-not $prop) { continue }
+        $seen[$key] = $true
+        $value = [string]$prop.Value
+        if ($prop.Value -is [bool] -and $booleans.ContainsKey($key)) {
+            $value = if ($prop.Value) { $booleans[$key][0] } else { $booleans[$key][1] }
+        } elseif ($prop.Value -is [bool]) {
+            $value = if ($prop.Value) { 'yes' } else { 'no' }
+        }
+        $rows += [pscustomobject]@{
+            Section = 'Details'
+            Key     = $labels[$key]
+            Value   = $value
+            Tone    = Get-ValueTone -Value $value
+        }
+    }
+    foreach ($prop in ($Info.PSObject.Properties | Sort-Object Name)) {
+        if ($seen.ContainsKey($prop.Name)) { continue }
+        $value = if ($prop.Value -is [bool]) { if ($prop.Value) { 'yes' } else { 'no' } } else { [string]$prop.Value }
+        $rows += [pscustomobject]@{
+            Section = 'Other fields'
+            Key     = $prop.Name
+            Value   = $value
+            Tone    = Get-ValueTone -Value $value
+        }
+    }
+    return $rows
+}
+
+function Format-Columns {
+    # Two columns when the widest item still leaves room inside the frame,
+    # one otherwise - package ids run long (com.google.android.apps.youtube).
+    param(
+        [string[]]$Items,
+        [int]$Width = 60
+    )
+    $items = @($Items)
+    if ($items.Count -lt 2) { return $items }
+
+    $max = 0
+    foreach ($item in $items) { if ($item.Length -gt $max) { $max = $item.Length } }
+    $col = $max + 2
+    if (($col * 2) -gt ($Width - 4)) { return $items }
+
+    $out = @()
+    for ($i = 0; $i -lt $items.Count; $i += 2) {
+        $right = if ($i + 1 -lt $items.Count) { $items[$i + 1] } else { '' }
+        $out += ($items[$i].PadRight($col) + $right).TrimEnd()
+    }
+    return $out
+}
+
 function Show-Menu {
     Clear-Host
-    Write-Host '======================================' -ForegroundColor Cyan
-    Write-Host '    MuMuManager CLI Menu' -ForegroundColor Cyan
+
+    # The single screen the menu has always been: same keys, same order, same
+    # wording. Only the presentation changed - a framed header carrying the
+    # running version, the live status lines, then the command groups with an
+    # aligned key column and rules that line up with the frame.
+    $groups = @(
+        @{
+            Title = 'Emulator Control'
+            Items = @(
+                '[1] Show emulator info'
+                '[2] Launch emulator'
+                '[3] Shutdown emulator'
+                '[4] Restart emulator'
+                '[5] Create new emulator (Android 12/15)'
+                '[C] Clone emulator'
+                '[X] Delete emulator'
+                '[N] Rename emulator'
+            )
+        }
+        @{
+            Title = 'Apps and Settings'
+            Items = @(
+                '[6] List installed apps'
+                '[7] Show settings'
+                '[CMP] Compare instance settings'
+                '[RT] Enable / disable root (instance)'
+                '[VE] Virtual environment (enable/disable/remove)'
+                '[FPS] Set frame rate (30/60/90/120/144/240/uncapped)'
+                '[8] Install APK'
+                '[9] Uninstall app'
+                '[G] View logs'
+            )
+        }
+        @{
+            Title = 'Batch'
+            Items = @(
+                '[B] Launch all instances'
+                '[D] Shutdown all instances'
+                '[R] Restart all instances'
+                '[I] Install APK to all'
+            )
+        }
+        @{
+            Title = 'Window'
+            Items = @(
+                '[W] Show all windows'
+                '[H] Hide all windows'
+                '[L] Layout windows'
+            )
+        }
+        @{
+            Title = 'Tools'
+            Items = @(
+                '[S] Take screenshot'
+                '[A] Run ADB command'
+                '[AF] ADB file transfer (push/pull/list)'
+                '[AS] ADB screen capture (screenshot/record)'
+                '[AH] ADB interactive shell'
+                '[O] Clear app data'
+                '[P] Force stop app'
+                '[T] Start app'
+                '[E] Export emulator data'
+                '[BA] Backup instance data'
+                '[RE] Restore from backup'
+                '[K] Update GitHub token'
+                '[VK] Set VirusTotal API key'
+                '[CRT] Create/sign certificate'
+                '[Z] Security audit (disabled)'
+            )
+        }
+        @{
+            Title = 'Tests'
+            Items = @(
+                '[TC] Connection test'
+                '[TN] Network test'
+                '[TS] Network speed test'
+                '[TD] Dependencies test'
+                '[VT] VirusTotal scan'
+                '[VF] VirusTotal Upload file'
+                '[UW] Fix Unicode / encoding'
+            )
+        }
+        @{
+            Title = 'Spoofing'
+            Items = @(
+                '[DM] Spoof device model'
+                '[SIM] Change SIM operator / country (MCC/MNC)'
+                '[SIM+] View / clear auto-apply SIM config'
+                '[SC] SIM check (all properties)'
+                '[AI] Set Android ID'
+                '[DI] Random device IDs'
+            )
+        }
+        @{
+            Title = 'Info'
+            Items = @(
+                '[WN] Watch MuMu network + updater'
+                '[RM] Resource monitor (CPU/RAM, live)'
+                '[IN] MuMu installation (choose active)'
+                '[V] Version info'
+                '[MU] MuMu emulator update check (read-only)'
+                '[OI] Offline installers (all versions, read-only)'
+                '[U] Check for updates'
+                '[UP] Update plan (dry-run)'
+                '[F] Verify installation (files vs release tag)'
+                '[ST] Install status (read-only)'
+                '[J] Update journal'
+                '[DIAG] Problem diagnostics'
+                '[RB] Rollback from backup'
+                '[DL] Download repository'
+                '[CR] Create release'
+                '[FR] Fix release encoding'
+                '[0] Exit'
+            )
+        }
+    )
+
+    # Size the frame and the rules from the longest rendered line, so a long
+    # label never pokes out of the box.
+    $keyColumn = 8
+    $inner = 56
+    foreach ($g in $groups) {
+        foreach ($item in $g.Items) {
+            $m = [regex]::Match($item, '^(\[[^\]]+\])\s+(.*)$')
+            $len = 2 + $keyColumn + $(if ($m.Success) { $m.Groups[2].Value.Length } else { $item.Length })
+            if ($len -gt $inner) { $inner = $len }
+        }
+    }
+    if ($inner -gt 72) { $inner = 72 }
+
+    $title = 'MuMuManager CLI Menu'
+    $version = "v$scriptVer"
+    $pad = $inner - $title.Length - $version.Length - 4
+    if ($pad -lt 1) { $pad = 1 }
+
+    Write-Host ''
+    Write-Host ('  ╔' + ('═' * $inner) + '╗') -ForegroundColor Cyan
+    Write-Host ('  ║  ' + $title + (' ' * $pad) + $version + '  ║') -ForegroundColor Cyan
+    Write-Host ('  ╚' + ('═' * $inner) + '╝') -ForegroundColor Cyan
     Show-QuickStatus
     Show-AutoDiagLine
-    Write-Host '======================================' -ForegroundColor Cyan
     Write-Host ''
-    Write-Host '  --- Emulator Control ---' -ForegroundColor Green
-    Write-Host '  [1] Show emulator info' -ForegroundColor Yellow
-    Write-Host '  [2] Launch emulator' -ForegroundColor Yellow
-    Write-Host '  [3] Shutdown emulator' -ForegroundColor Yellow
-    Write-Host '  [4] Restart emulator' -ForegroundColor Yellow
-    Write-Host '  [5] Create new emulator (Android 12/15)' -ForegroundColor Yellow
-    Write-Host '  [C] Clone emulator' -ForegroundColor Yellow
-    Write-Host '  [X] Delete emulator' -ForegroundColor Yellow
-    Write-Host '  [N] Rename emulator' -ForegroundColor Yellow
-    Write-Host ''
-    Write-Host '  --- Apps and Settings ---' -ForegroundColor Green
-    Write-Host '  [6] List installed apps' -ForegroundColor Yellow
-    Write-Host '  [7] Show settings' -ForegroundColor Yellow
-    Write-Host '  [CMP] Compare instance settings' -ForegroundColor Yellow
-  Write-Host '  [RT] Enable / disable root (instance)' -ForegroundColor Yellow
-  Write-Host '  [VE] Virtual environment (enable/disable/remove)' -ForegroundColor Yellow
-  Write-Host '  [FPS] Set frame rate (30/60/90/120/144/240/uncapped)' -ForegroundColor Yellow
-    Write-Host '  [8] Install APK' -ForegroundColor Yellow
-    Write-Host '  [9] Uninstall app' -ForegroundColor Yellow
-    Write-Host '  [G] View logs' -ForegroundColor Yellow
-    Write-Host ''
-    Write-Host '  --- Batch ---' -ForegroundColor Green
-    Write-Host '  [B] Launch all instances' -ForegroundColor Yellow
-    Write-Host '  [D] Shutdown all instances' -ForegroundColor Yellow
-    Write-Host '  [R] Restart all instances' -ForegroundColor Yellow
-    Write-Host '  [I] Install APK to all' -ForegroundColor Yellow
-    Write-Host ''
-    Write-Host '  --- Window ---' -ForegroundColor Green
-    Write-Host '  [W] Show all windows' -ForegroundColor Yellow
-    Write-Host '  [H] Hide all windows' -ForegroundColor Yellow
-    Write-Host '  [L] Layout windows' -ForegroundColor Yellow
-    Write-Host ''
-    Write-Host '  --- Tools ---' -ForegroundColor Green
-    Write-Host '  [S] Take screenshot' -ForegroundColor Yellow
-    Write-Host '  [A] Run ADB command' -ForegroundColor Yellow
-    Write-Host '  [AF] ADB file transfer (push/pull/list)' -ForegroundColor Yellow
-    Write-Host '  [AS] ADB screen capture (screenshot/record)' -ForegroundColor Yellow
-    Write-Host '  [AH] ADB interactive shell' -ForegroundColor Yellow
-    Write-Host '  [O] Clear app data' -ForegroundColor Yellow
-    Write-Host '  [P] Force stop app' -ForegroundColor Yellow
-    Write-Host '  [T] Start app' -ForegroundColor Yellow
-    Write-Host '  [E] Export emulator data' -ForegroundColor Yellow
-    Write-Host '  [BA] Backup instance data' -ForegroundColor Yellow
-    Write-Host '  [RE] Restore from backup' -ForegroundColor Yellow
-    Write-Host '  [K] Update GitHub token' -ForegroundColor Yellow
-    Write-Host '  [VK] Set VirusTotal API key' -ForegroundColor Yellow
-    Write-Host '  [CRT] Create/sign certificate' -ForegroundColor Yellow
-    Write-Host '  [Z] Security audit (disabled)' -ForegroundColor Yellow
-    Write-Host ''
-    Write-Host '  --- Tests ---' -ForegroundColor Green
-    Write-Host '  [TC] Connection test' -ForegroundColor Yellow
-  Write-Host '  [TN] Network test' -ForegroundColor Yellow
-  Write-Host '  [TS] Network speed test' -ForegroundColor Yellow
-  Write-Host '  [TD] Dependencies test' -ForegroundColor Yellow
-    Write-Host '  [VT] VirusTotal scan' -ForegroundColor Yellow
-    Write-Host '  [VF] VirusTotal Upload file' -ForegroundColor Yellow
-    Write-Host '  [UW] Fix Unicode / encoding' -ForegroundColor Yellow
-    Write-Host ''
-    Write-Host '  --- Spoofing ---' -ForegroundColor Green
-    Write-Host '  [DM] Spoof device model' -ForegroundColor Yellow
-    Write-Host '  [SIM] Change SIM operator / country (MCC/MNC)' -ForegroundColor Yellow
-    Write-Host '  [SIM+] View / clear auto-apply SIM config' -ForegroundColor Yellow
-    Write-Host '  [SC] SIM check (all properties)' -ForegroundColor Yellow
-    Write-Host '  [AI] Set Android ID' -ForegroundColor Yellow
-    Write-Host '  [DI] Random device IDs' -ForegroundColor Yellow
-    Write-Host ''
-    Write-Host '  --- Info ---' -ForegroundColor Green
-    Write-Host '  [WN] Watch MuMu network + updater' -ForegroundColor Yellow
-    Write-Host '  [RM] Resource monitor (CPU/RAM, live)' -ForegroundColor Yellow
-    Write-Host '  [IN] MuMu installation (choose active)' -ForegroundColor Yellow
-    Write-Host '  [V] Version info' -ForegroundColor Yellow
-    Write-Host '  [MU] MuMu emulator update check (read-only)' -ForegroundColor Yellow
-    Write-Host '  [OI] Offline installers (all versions, read-only)' -ForegroundColor Yellow
-    Write-Host '  [U] Check for updates' -ForegroundColor Yellow
-    Write-Host '  [UP] Update plan (dry-run)' -ForegroundColor Yellow
-    Write-Host '  [F] Verify installation (files vs release tag)' -ForegroundColor Yellow
-    Write-Host '  [ST] Install status (read-only)' -ForegroundColor Yellow
-    Write-Host '  [J] Update journal' -ForegroundColor Yellow
-    Write-Host '  [DIAG] Problem diagnostics' -ForegroundColor Yellow
-    Write-Host '  [RB] Rollback from backup' -ForegroundColor Yellow
-    Write-Host '  [DL] Download repository' -ForegroundColor Yellow
-    Write-Host '  [CR] Create release' -ForegroundColor Yellow
-    Write-Host '  [FR] Fix release encoding' -ForegroundColor Yellow
-    Write-Host '  [0] Exit' -ForegroundColor Yellow
+
+    foreach ($g in $groups) {
+        Write-MenuGroup -Title $g.Title -Width ($inner + 4)
+        foreach ($item in $g.Items) {
+            Write-MenuItem -Entry $item -KeyColumn $keyColumn
+        }
+        Write-Host ''
+    }
+
+    Write-Host ('  ' + ('─' * ($inner + 2))) -ForegroundColor DarkCyan
     Write-Host '  (Ctrl+C will not close this window - use 0 or q to exit)' -ForegroundColor DarkGray
     Write-Host ''
-    Write-Host '======================================' -ForegroundColor Cyan
 }
+
 
 function Get-InstanceIndex {
     param([string]$Prompt = 'Enter instance index')
@@ -4570,15 +4917,50 @@ $line                                        " -NoNewline
 }
 
 function Show-InstanceInfo {
+    # Was a raw JSON dump; now the same data as an aligned table, with every
+    # field the manager reports - curated ones first, the rest sorted below.
     $index = Get-InstanceIndex 'Select instance'
     if (-not $index) { return }
+
     Write-Host ''
-    Write-Host "Fetching info for instance $index..." -ForegroundColor Cyan
-    $result = Invoke-Mumu info -v $index
-    try {
-        $result | ConvertFrom-Json | ConvertTo-Json -Depth 10
-    } catch {
-        Write-Host $result
+    Write-Host "  Fetching info for instance $index..." -ForegroundColor Cyan
+
+    $raw = & $MumuPath info -v $index 2>$null
+    $info = $null
+    try { $info = ($raw | Out-String) | ConvertFrom-Json } catch { $info = $null }
+    # `info -v <n>` returns the instance object; `info -v all` wraps instances
+    # in a map keyed by index - accept both shapes.
+    if ($info -and -not $info.PSObject.Properties['player_state']) {
+        $wrapped = $info.PSObject.Properties["$index"]
+        if ($wrapped) { $info = $wrapped.Value }
+    }
+
+    $rows = @(ConvertTo-InfoRows -Info $info)
+    $context = "instance $index"
+    if ($info -and $info.name) { $context = "$($info.name) | instance $index" }
+    $width = Write-ScreenFrame -Title 'Instance info' -Context $context
+
+    if ($rows.Count -eq 0) {
+        Write-Host '  No readable fields - the manager returned nothing.' -ForegroundColor Yellow
+        Write-Host ''
+        return
+    }
+
+    # Wide enough for the longest label, capped so the value column keeps room.
+    $keyWidth = 18
+    foreach ($row in $rows) {
+        if (($row.Key.Length + 2) -gt $keyWidth) { $keyWidth = $row.Key.Length + 2 }
+    }
+    if ($keyWidth -gt 28) { $keyWidth = 28 }
+
+    foreach ($section in @('Details', 'Other fields')) {
+        $sectionRows = @($rows | Where-Object { $_.Section -eq $section })
+        if ($sectionRows.Count -eq 0) { continue }
+        Write-MenuGroup -Title $section -Width $width
+        foreach ($row in $sectionRows) {
+            Write-KeyValue -Key $row.Key -Value $row.Value -Width $width -KeyWidth $keyWidth -ValueColor $row.Tone
+        }
+        Write-Host ''
     }
 }
 
@@ -4596,39 +4978,35 @@ function Start-Emulator {
         if ($info.is_android_started -eq $true -or $info.is_process_started -eq $true) { $running = $true }
     } catch { Write-Debug "pre-launch info read failed: $($_.Exception.Message)" }
 
-    Write-Host ''
-    Write-Host '  ┌─────────────────────────────────────────────┐' -ForegroundColor Cyan
-    Write-Host ("  │  Launch emulator: {0,-25}│" -f $instName) -ForegroundColor Cyan
-    Write-Host '  └─────────────────────────────────────────────┘' -ForegroundColor Cyan
-    Write-Host ''
+    # 'Name | instance N' once the name is known, plain 'instance N' otherwise.
+    $context = if ($instName -like 'Instance *') { "instance $index" } else { "$instName | instance $index" }
+    $null = Write-ScreenFrame -Title 'Launch emulator:' -Context $context
 
     if ($running) {
-        Write-Host '    ● Status: ' -NoNewline
-        Write-Host 'ALREADY RUNNING' -ForegroundColor Green -NoNewline
-        Write-Host ' ✓' -ForegroundColor Green
+        Write-ScreenStatus -State 'ALREADY RUNNING ✓' -Tone Green -Detail 'nothing to do'
         Write-Host ''
-        Write-Host '    Nothing to do - the instance is up.' -ForegroundColor White
-        Write-Host '    Reconnect helpers if needed: [A] adb connect, [F] verify.' -ForegroundColor DarkGray
+        Write-ScreenNote -Text 'The instance is up - no launch needed.' -Tone DarkGray
+        Write-ScreenNote -Text 'Reconnect helpers: [A] adb connect, [F] verify.' -Tone DarkGray
+        Write-Host ''
         return
     }
 
     # --- launch ---
-    Write-Host '    ● Status: ' -NoNewline
-    Write-Host 'STOPPED' -ForegroundColor DarkGray -NoNewline
-    Write-Host ' ○ - launching...' -ForegroundColor White
+    Write-ScreenStatus -State 'STOPPED ○' -Tone DarkGray -Detail 'launching...'
     Write-Host ''
     & $MumuPath api -v $index launch_player 2>&1 | ForEach-Object { Write-Host "    $_" }
 
-    Write-Host '    Waiting for Android boot (up to 120 s)...' -ForegroundColor Cyan
+    Write-ScreenStep -Text 'Waiting for Android boot (up to 120 s)...'
     $ok = Wait-Boot -Index $index
     if (-not $ok) {
-        Write-Host '    ✗ Boot did not complete - check [1] instance info.' -ForegroundColor Red
+        Write-ScreenNote -Text 'Boot did not complete - check [1] instance info.' -Tone Red
+        Write-Host ''
         return
     }
-    Write-Host '    ✓ Instance is running' -ForegroundColor Green
+    Write-ScreenNote -Text 'Instance is running' -Tone Green
     Apply-SavedSim -Index $index
     Write-Host ''
-    Write-Host '    Next: [6] apps, [7] settings, [S] screenshot, [RT] root.' -ForegroundColor DarkGray
+    Write-ScreenNote -Text 'Next: [6] apps, [7] settings, [S] screenshot, [RT] root.' -Tone DarkGray
 }
 
 function Stop-Emulator {
@@ -4645,30 +5023,24 @@ function Stop-Emulator {
         if ($info.is_android_started -eq $true -or $info.is_process_started -eq $true) { $running = $true }
     } catch { Write-Debug "pre-shutdown info read failed: $($_.Exception.Message)" }
 
-    Write-Host ''
-    Write-Host '  ┌─────────────────────────────────────────────┐' -ForegroundColor Cyan
-    Write-Host ("  │  Shutdown emulator: {0,-24}│" -f $instName) -ForegroundColor Cyan
-    Write-Host '  └─────────────────────────────────────────────┘' -ForegroundColor Cyan
-    Write-Host ''
+    $context = if ($instName -like 'Instance *') { "instance $index" } else { "$instName | instance $index" }
+    $null = Write-ScreenFrame -Title 'Shutdown emulator:' -Context $context
 
     if (-not $running) {
-        Write-Host '    ● Status: ' -NoNewline
-        Write-Host 'ALREADY STOPPED' -ForegroundColor DarkGray -NoNewline
-        Write-Host ' ○' -ForegroundColor DarkGray
+        Write-ScreenStatus -State 'ALREADY STOPPED ○' -Tone DarkGray -Detail 'nothing to do'
         Write-Host ''
-        Write-Host '    Nothing to do - the instance is down.' -ForegroundColor White
+        Write-ScreenNote -Text 'The instance is down - no shutdown needed.' -Tone DarkGray
+        Write-Host ''
         return
     }
 
-    Write-Host '    ● Status: ' -NoNewline
-    Write-Host 'RUNNING' -ForegroundColor Green -NoNewline
-    Write-Host ' ✓ - shutting down...' -ForegroundColor White
+    Write-ScreenStatus -State 'RUNNING ✓' -Tone Green -Detail 'shutting down...'
     Write-Host ''
 
     $output = & $MumuPath control -v $index shutdown 2>&1
     $outputStr = $output | Out-String
     if ($outputStr -match 'errcode') {
-        Write-Host '    control shutdown failed, trying api...' -ForegroundColor Yellow
+        Write-ScreenNote -Text 'control shutdown failed - trying the api fallback...' -Tone Yellow
         & $MumuPath api -v $index shutdown_player 2>&1 | ForEach-Object { Write-Host "    $_" }
     } else {
         $output | ForEach-Object { Write-Host "    $_" }
@@ -4685,10 +5057,11 @@ function Stop-Emulator {
     } catch { Write-Debug "post-shutdown info read failed: $($_.Exception.Message)" }
 
     if ($stopped) {
-        Write-Host '    ✓ Instance is shut down' -ForegroundColor Green
+        Write-ScreenNote -Text 'Instance is shut down' -Tone Green
     } else {
-        Write-Host '    ✗ Instance still reports running - check [1] instance info.' -ForegroundColor Red
+        Write-ScreenNote -Text 'Instance still reports running - check [1] info.' -Tone Red
     }
+    Write-Host ''
 }
 
 function Restart-Emulator {
@@ -4705,41 +5078,35 @@ function Restart-Emulator {
         if ($info.is_android_started -eq $true -or $info.is_process_started -eq $true) { $running = $true }
     } catch { Write-Debug "pre-restart info read failed: $($_.Exception.Message)" }
 
-    Write-Host ''
-    Write-Host '  ┌─────────────────────────────────────────────┐' -ForegroundColor Cyan
-    Write-Host ("  │  Restart emulator: {0,-25}│" -f $instName) -ForegroundColor Cyan
-    Write-Host '  └─────────────────────────────────────────────┘' -ForegroundColor Cyan
-    Write-Host ''
+    $context = if ($instName -like 'Instance *') { "instance $index" } else { "$instName | instance $index" }
+    $null = Write-ScreenFrame -Title 'Restart emulator:' -Context $context
 
     if ($running) {
-        Write-Host '    ● Status: ' -NoNewline
-        Write-Host 'RUNNING ✓' -ForegroundColor Green -NoNewline
-        Write-Host ' - restarting...' -ForegroundColor White
+        Write-ScreenStatus -State 'RUNNING ✓' -Tone Green -Detail 'restarting...'
     } else {
-        Write-Host '    ● Status: ' -NoNewline
-        Write-Host 'STOPPED ○' -ForegroundColor DarkGray -NoNewline
-        Write-Host ' - starting...' -ForegroundColor White
+        Write-ScreenStatus -State 'STOPPED ○' -Tone DarkGray -Detail 'starting...'
     }
     Write-Host ''
 
-    Write-Host '    Shutting down...' -ForegroundColor Cyan
+    Write-ScreenStep -Text 'Shutting down...'
     & $MumuPath api -v $index shutdown_player 2>&1 | Out-Null
-    Write-Host '    Waiting for main service...' -ForegroundColor Cyan
+    Write-ScreenStep -Text 'Waiting for the main service...'
     Start-Sleep -Seconds 5
 
-    Write-Host '    Launching...' -ForegroundColor Cyan
+    Write-ScreenStep -Text 'Launching...'
     & $MumuPath api -v $index launch_player 2>&1 | ForEach-Object { Write-Host "    $_" }
 
-    Write-Host '    Waiting for Android boot (up to 120 s)...' -ForegroundColor Cyan
+    Write-ScreenStep -Text 'Waiting for Android boot (up to 120 s)...'
     $ok = Wait-Boot -Index $index
     if (-not $ok) {
-        Write-Host '    ✗ Boot did not complete - check [1] instance info.' -ForegroundColor Red
+        Write-ScreenNote -Text 'Boot did not complete - check [1] instance info.' -Tone Red
+        Write-Host ''
         return
     }
-    Write-Host '    ✓ Instance is running' -ForegroundColor Green
+    Write-ScreenNote -Text 'Instance is running' -Tone Green
     Apply-SavedSim -Index $index
     Write-Host ''
-    Write-Host '    Next: [6] apps, [7] settings, [S] screenshot, [RT] root.' -ForegroundColor DarkGray
+    Write-ScreenNote -Text 'Next: [6] apps, [7] settings, [S] screenshot, [RT] root.' -Tone DarkGray
 }
 
 function New-Emulator {
@@ -8691,22 +9058,23 @@ function Restart-All {
 }
 
 function Install-APK-All {
-    Write-Host ''
+    $null = Write-ScreenFrame -Title 'Install APK to all:' -Context 'every visible instance'
     $apkPath = (Read-Host 'Enter APK file path').Trim()
     if (-not $apkPath) {
-        Write-Host 'Cancelled.' -ForegroundColor Yellow
+        Write-ScreenNote -Text 'Cancelled - no file given.' -Tone Yellow
+        Write-Host ''
         return
     }
     if (-not (Test-Path -LiteralPath $apkPath)) {
-        Write-Host "File not found: $apkPath" -ForegroundColor Red
+        Write-ScreenNote -Text "File not found: $apkPath" -Tone Red
+        Write-Host ''
         return
     }
     $apkName = Split-Path $apkPath -Leaf
     $apkSize = [math]::Round((Get-Item -LiteralPath $apkPath).Length / 1MB, 1)
 
     $indices = Get-AllIndices
-    Write-Host ''
-    Write-Host "Installing $apkName ($apkSize MB) to $($indices.Count) instance(s)..." -ForegroundColor Cyan
+    Write-ScreenStep -Text "Installing $apkName ($apkSize MB) to $($indices.Count) instance(s)..."
     Write-Host ''
 
     $success = 0
@@ -8717,24 +9085,26 @@ function Install-APK-All {
         $running = $info.is_process_started
 
         if (-not $running) {
-            Write-Host "  [$idx] $name - skipped (not running)" -ForegroundColor DarkGray
+            Write-ScreenNote -Text "[$idx] $name - skipped (not running)" -Tone DarkGray
             continue
         }
 
-        Write-Host "  [$idx] $name - installing..." -ForegroundColor Yellow
+        Write-ScreenStep -Text "[$idx] $name - installing..."
         $result = & $MumuPath control -v $idx app install -apk $apkPath 2>&1 | Out-String
         if ($result -match '"package"') {
-            Write-Host "  [$idx] $name - OK" -ForegroundColor Green
+            Write-ScreenNote -Text "[$idx] $name - OK" -Tone Green
             $success++
         } else {
             $msg = $result.Trim() -replace '\s+', ' '
-            Write-Host "  [$idx] $name - FAILED: $msg" -ForegroundColor Red
+            Write-ScreenNote -Text "[$idx] $name - FAILED: $msg" -Tone Red
             $failed++
         }
     }
 
     Write-Host ''
-    Write-Host "Done! Success: $success, Failed: $failed" -ForegroundColor Cyan
+    $summaryTone = if ($failed -gt 0) { 'Yellow' } else { 'Green' }
+    Write-ScreenNote -Text "Done - success: $success, failed: $failed" -Tone $summaryTone
+    Write-Host ''
 }
 
 function Show-Apps {
@@ -8762,7 +9132,7 @@ function Show-Apps {
         Start-Sleep -Seconds 5
     }
 
-    Write-Host 'Fetching installed apps...' -ForegroundColor Cyan
+    Write-Host '  Fetching installed apps...' -ForegroundColor Cyan
     $job = Start-Job -ScriptBlock {
         param($mp, $idx)
         & $mp adb --vmindex $idx --cmd 'shell pm list packages -3' 2>&1
@@ -8811,10 +9181,12 @@ function Show-Apps {
             Write-Host "Third-party apps: none. Only system packages found ($($all.Count))." -ForegroundColor Yellow
             $show = Read-Host 'Show all system packages? (y/N)'
             if ($show -eq 'y' -or $show -eq 'Y') {
-                Write-Host ''
-                foreach ($pkg in $all) {
-                    Write-Host "  $pkg" -ForegroundColor White
+                $width = Write-ScreenFrame -Title 'System packages' -Context "instance $index | $($all.Count) package(s)"
+                Write-MenuGroup -Title 'All system packages' -Width $width
+                foreach ($line in @(Format-Columns -Items @($all) -Width $width)) {
+                    Write-Host ('  ' + $line) -ForegroundColor White
                 }
+                Write-Host ''
             }
         } else {
             Write-Host 'ADB returned no package list.' -ForegroundColor Yellow
@@ -8823,31 +9195,56 @@ function Show-Apps {
         return
     }
 
-    Write-Host "Found $($packages.Count) third-party apps:`n" -ForegroundColor Green
-    foreach ($pkg in $packages) {
-        Write-Host "  $pkg" -ForegroundColor White
+    $width = Write-ScreenFrame -Title 'Installed apps' -Context "instance $index | $($packages.Count) third-party package(s)"
+    Write-MenuGroup -Title 'Third-party apps' -Width $width
+    foreach ($line in @(Format-Columns -Items @($packages) -Width $width)) {
+        Write-Host ('  ' + $line) -ForegroundColor White
     }
+    Write-Host ''
 }
 
 function Show-Settings {
+    # Settings used to be echoed as raw JSON; the same key set is now a framed
+    # table with aligned values, while the failure paths stay explicit.
     $index = Get-InstanceIndex 'Select instance'
     if (-not $index) { return }
     Write-Host ''
 
-    # Check if running
-    $info = & $MumuPath info -v $index 2>$null | ConvertFrom-Json
-    if (-not $info.is_process_started) {
-        Write-Host 'Emulator is not running! Start it first.' -ForegroundColor Red
+    $info = $null
+    try { $info = (& $MumuPath info -v $index 2>$null | Out-String) | ConvertFrom-Json } catch { $info = $null }
+    if ($info -and -not $info.PSObject.Properties['is_process_started']) {
+        $wrapped = $info.PSObject.Properties["$index"]
+        if ($wrapped) { $info = $wrapped.Value }
+    }
+    if (-not $info -or -not $info.is_process_started) {
+        Write-Host '  Emulator is not running! Start it first with [2].' -ForegroundColor Red
         return
     }
 
-    Write-Host 'Fetching settings...' -ForegroundColor Cyan
-    $result = & $MumuPath setting -v $index --all_writable 2>&1 | Out-String
-    if ($result -match 'errcode.*-1') {
-        Write-Host 'Settings command not supported. Try MuMu settings UI.' -ForegroundColor Yellow
-    } else {
-        Write-Host $result
+    Write-Host "  Fetching settings for instance $index..." -ForegroundColor Cyan
+    $res = Get-InstanceWritableSettings -Index $index
+    if (-not $res.ok) {
+        $null = Write-ScreenFrame -Title 'Settings' -Context "instance $index"
+        Write-Host "  Could not read settings: $($res.error)" -ForegroundColor Yellow
+        Write-Host '  Try the MuMu settings UI instead.' -ForegroundColor DarkGray
+        Write-Host ''
+        return
     }
+
+    $keys = @($res.settings.Keys | Sort-Object)
+    $width = Write-ScreenFrame -Title 'Settings' -Context "instance $index | $($keys.Count) writable key(s)"
+
+    $keyWidth = 26
+    foreach ($key in $keys) {
+        if (($key.Length + 2) -gt $keyWidth) { $keyWidth = $key.Length + 2 }
+    }
+    if ($keyWidth -gt 34) { $keyWidth = 34 }
+
+    Write-MenuGroup -Title 'Writable settings' -Width $width
+    foreach ($key in $keys) {
+        Write-KeyValue -Key $key -Value $res.settings[$key] -Width $width -KeyWidth $keyWidth
+    }
+    Write-Host ''
 }
 
 function Get-InstanceWritableSettings {
@@ -9372,30 +9769,35 @@ function Set-FrameRate {
 function Install-APK {
     $index = Get-InstanceIndex 'Select instance'
     if (-not $index) { return }
-    Write-Host ''
+    $null = Write-ScreenFrame -Title 'Install APK:' -Context "instance $index"
     $apkPath = (Read-Host 'Enter APK file path').Trim()
 
     if (-not $apkPath) {
-        Write-Host 'Cancelled.' -ForegroundColor Yellow
+        Write-ScreenNote -Text 'Cancelled - no file given.' -Tone Yellow
+        Write-Host ''
         return
     }
 
     if (-not (Test-Path -LiteralPath $apkPath)) {
-        Write-Host "File not found: $apkPath" -ForegroundColor Red
+        Write-ScreenNote -Text "File not found: $apkPath" -Tone Red
+        Write-Host ''
         return
     }
 
-    Write-Host 'Installing APK...' -ForegroundColor Cyan
+    $apkName = Split-Path $apkPath -Leaf
+    $apkSize = '{0:N1} MB' -f ((Get-Item -LiteralPath $apkPath).Length / 1MB)
+    Write-ScreenStep -Text "Installing $apkName ($apkSize)..."
     $maxAttempts = 3
     $result = ''
     for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
         $result = & $MumuPath control -v $index app install -apk $apkPath 2>&1 | Out-String
         if ($result -match '"package"') {
-            Write-Host 'APK installed!' -ForegroundColor Green
+            Write-ScreenNote -Text "$apkName installed." -Tone Green
+            Write-Host ''
             return
         }
         if ($result -match 'not handle cmd' -and $attempt -lt $maxAttempts) {
-            Write-Host "  Emulator service not ready, retrying ($attempt/$maxAttempts)..." -ForegroundColor Yellow
+            Write-ScreenNote -Text "Emulator service not ready - retrying ($attempt/$maxAttempts)..." -Tone Yellow
             Start-Sleep -Seconds 5
             continue
         }
@@ -9408,7 +9810,8 @@ function Install-APK {
     } catch {
         Write-Warning "Install parse error: $($_.Exception.Message)"
     }
-    Write-Host "Install failed: $msg" -ForegroundColor Red
+    Write-ScreenNote -Text "Install failed: $msg" -Tone Red
+    Write-Host ''
 }
 
 function Uninstall-App {
@@ -10005,42 +10408,45 @@ function Show-VersionInfo {
 }
 
 function Show-Windows {
-    Write-Host ''
-    Write-Host 'Showing all emulator windows...' -ForegroundColor Cyan
+    $null = Write-ScreenFrame -Title 'Show all windows:' -Context 'every running instance'
+    Write-ScreenStep -Text 'Showing every emulator window...'
     $output = & $MumuPath control -v all show_window 2>&1 | Out-String
     if ($output -match 'errcode.*0') {
-        Write-Host 'Done! Windows shown.' -ForegroundColor Green
+        Write-ScreenNote -Text 'Windows shown.' -Tone Green
     } elseif ($output -match 'not running') {
-        Write-Host 'No running emulators found' -ForegroundColor Yellow
+        Write-ScreenNote -Text 'No running emulators found.' -Tone Yellow
     } else {
-        Write-Host $output -ForegroundColor DarkGray
+        Write-ToolOutput -Lines ($output -split "`r?`n")
     }
+    Write-Host ''
 }
 
 function Hide-Windows {
-    Write-Host ''
-    Write-Host 'Hiding all emulator windows...' -ForegroundColor Cyan
+    $null = Write-ScreenFrame -Title 'Hide all windows:' -Context 'every running instance'
+    Write-ScreenStep -Text 'Hiding every emulator window...'
     $output = & $MumuPath control -v all hide_window 2>&1 | Out-String
     if ($output -match 'errcode.*0') {
-        Write-Host 'Done! Windows hidden.' -ForegroundColor Green
+        Write-ScreenNote -Text 'Windows hidden.' -Tone Green
     } elseif ($output -match 'not running') {
-        Write-Host 'No running emulators found' -ForegroundColor Yellow
+        Write-ScreenNote -Text 'No running emulators found.' -Tone Yellow
     } else {
-        Write-Host $output -ForegroundColor DarkGray
+        Write-ToolOutput -Lines ($output -split "`r?`n")
     }
+    Write-Host ''
 }
 
 function Set-WindowLayout {
-    Write-Host ''
-    Write-Host 'Arranging emulator windows...' -ForegroundColor Cyan
+    $null = Write-ScreenFrame -Title 'Layout windows:' -Context 'every running instance'
+    Write-ScreenStep -Text 'Arranging every emulator window...'
     $output = & $MumuPath control -v all layout_window 2>&1 | Out-String
     if ($output -match 'height') {
-        Write-Host 'Done! Windows arranged.' -ForegroundColor Green
+        Write-ScreenNote -Text 'Windows arranged.' -Tone Green
     } elseif ($output -match 'not running') {
-        Write-Host 'No running emulators found' -ForegroundColor Yellow
+        Write-ScreenNote -Text 'No running emulators found.' -Tone Yellow
     } else {
-        Write-Host $output -ForegroundColor DarkGray
+        Write-ToolOutput -Lines ($output -split "`r?`n")
     }
+    Write-Host ''
 }
 
 function Save-Screenshot {
@@ -10097,23 +10503,31 @@ function Invoke-ADBCommand {
     $index = Get-InstanceIndex 'Select instance'
     if (-not $index) { return }
     if (-not (Confirm-AdbConsent)) { return }
-    Write-Host ''
+    $null = Write-ScreenFrame -Title 'ADB shell:' -Context "instance $index | one command"
     $cmd = (Read-Host 'Enter ADB command').Trim()
+    if (-not $cmd) {
+        Write-ScreenNote -Text 'Cancelled - no command given.' -Tone Yellow
+        Write-Host ''
+        return
+    }
 
-    Write-Host 'Running ADB command...' -ForegroundColor Cyan
+    Write-ScreenStep -Text "Running: $cmd"
+    Write-Host ''
     Invoke-Mumu adb --vmindex $index --cmd $cmd
+    Write-Host ''
 }
 
 function ADB-FileTransfer {
     $index = Get-InstanceIndex 'Select instance'
     if (-not $index) { return }
     if (-not (Confirm-AdbConsent)) { return }
-    Write-Host ''
-    Write-Host 'ADB File Transfer' -ForegroundColor Cyan
-    Write-Host ''
-    Write-Host '  [1] Push file TO emulator' -ForegroundColor White
-    Write-Host '  [2] Pull file FROM emulator' -ForegroundColor White
-    Write-Host '  [3] List files on emulator' -ForegroundColor White
+    $width = Write-ScreenFrame -Title 'ADB file transfer:' -Context "instance $index"
+    Write-MenuGroup -Title 'Mode' -Width $width
+    Write-ScreenChoices -Items @(
+        '[1] Push file TO emulator'
+        '[2] Pull file FROM emulator'
+        '[3] List files on emulator'
+    )
     Write-Host ''
     $mode = Read-Host 'Select (1/2/3)'
 
@@ -10127,12 +10541,12 @@ function ADB-FileTransfer {
         $remotePath = (Read-Host 'Remote path on emulator (e.g. /sdcard/Download/)').Trim()
         if (-not $remotePath) { $remotePath = '/sdcard/Download/' }
         $size = '{0:N1} KB' -f ((Get-Item -LiteralPath $localPath).Length / 1KB)
-        Write-Host "  Pushing $(Split-Path $localPath -Leaf) ($size) to $remotePath..." -ForegroundColor Cyan
+        Write-ScreenStep -Text "Pushing $(Split-Path $localPath -Leaf) ($size) to $remotePath..."
         $result = & $MumuPath adb --vmindex $index --cmd "push \"$localPath\" $remotePath" 2>&1 | Out-String
         if ($result -match 'pushed|bytes') {
-            Write-Host '  Done!' -ForegroundColor Green
+            Write-ScreenNote -Text 'File pushed.' -Tone Green
         } else {
-            Write-Host "  Result: $($result.Trim())" -ForegroundColor Yellow
+            Write-ScreenNote -Text "Push failed: $($result.Trim())" -Tone Yellow
         }
     } elseif ($mode -eq '2') {
         # Pull
@@ -10143,20 +10557,21 @@ function ADB-FileTransfer {
         if (-not (Test-Path -LiteralPath $localDir)) {
             New-Item -ItemType Directory -Path $localDir -Force | Out-Null
         }
-        Write-Host "  Pulling $remotePath..." -ForegroundColor Cyan
+        Write-ScreenStep -Text "Pulling $remotePath..."
         $result = & $MumuPath adb --vmindex $index --cmd "pull $remotePath \"$localDir\"" 2>&1 | Out-String
         if ($result -match 'pulled|bytes') {
-            Write-Host "  Saved to: $localDir" -ForegroundColor Green
+            Write-ScreenNote -Text "Saved to: $localDir" -Tone Green
         } else {
-            Write-Host "  Result: $($result.Trim())" -ForegroundColor Yellow
+            Write-ScreenNote -Text "Pull failed: $($result.Trim())" -Tone Yellow
         }
     } elseif ($mode -eq '3') {
         # List
         $path = (Read-Host 'Path to list (Enter=/sdcard/)').Trim()
         if (-not $path) { $path = '/sdcard/' }
-        Write-Host "  Listing $path..." -ForegroundColor Cyan
+        Write-ScreenStep -Text "Listing $path..."
+        Write-Host ''
         $result = & $MumuPath adb --vmindex $index --cmd "shell ls -la $path" 2>&1
-        $result | ForEach-Object { Write-Host "  $_" -ForegroundColor White }
+        foreach ($line in @($result)) { Write-Host "  $line" -ForegroundColor White }
     }
 }
 
@@ -10164,11 +10579,12 @@ function ADB-ScreenCapture {
     $index = Get-InstanceIndex 'Select instance'
     if (-not $index) { return }
     if (-not (Confirm-AdbConsent)) { return }
-    Write-Host ''
-    Write-Host 'ADB Screen Capture' -ForegroundColor Cyan
-    Write-Host ''
-    Write-Host '  [1] Take screenshot' -ForegroundColor White
-    Write-Host '  [2] Record screen (max 180s)' -ForegroundColor White
+    $width = Write-ScreenFrame -Title 'ADB screen capture:' -Context "instance $index"
+    Write-MenuGroup -Title 'Mode' -Width $width
+    Write-ScreenChoices -Items @(
+        '[1] Take screenshot'
+        '[2] Record screen (max 180s)'
+    )
     Write-Host ''
     $mode = Read-Host 'Select (1/2)'
 
@@ -10177,16 +10593,16 @@ function ADB-ScreenCapture {
         $remotePath = '/sdcard/screenshot.png'
         $localDir = (Read-Host 'Save to directory (Enter=current)').Trim().Trim('"')
         if (-not $localDir) { $localDir = $PWD.Path }
-        Write-Host '  Taking screenshot...' -ForegroundColor Cyan
+        Write-ScreenStep -Text 'Taking screenshot...'
         & $MumuPath adb --vmindex $index --cmd "shell screencap -p $remotePath" 2>&1 | Out-Null
         $result = & $MumuPath adb --vmindex $index --cmd "pull $remotePath \"$localDir\screenshot_$($index).png\"" 2>&1 | Out-String
         & $MumuPath adb --vmindex $index --cmd "shell rm $remotePath" 2>&1 | Out-Null
         if ($result -match 'pulled|bytes') {
             $file = Join-Path $localDir "screenshot_$($index).png"
             $size = '{0:N1} KB' -f ((Get-Item -LiteralPath $file).Length / 1KB)
-            Write-Host "  Saved: $file ($size)" -ForegroundColor Green
+            Write-ScreenNote -Text "Saved: $file ($size)" -Tone Green
         } else {
-            Write-Host "  Failed: $($result.Trim())" -ForegroundColor Red
+            Write-ScreenNote -Text "Failed: $($result.Trim())" -Tone Red
         }
     } elseif ($mode -eq '2') {
         # Screen record
@@ -10196,7 +10612,7 @@ function ADB-ScreenCapture {
         $remotePath = '/sdcard/recording.mp4'
         $localDir = (Read-Host 'Save to directory (Enter=current)').Trim().Trim('"')
         if (-not $localDir) { $localDir = $PWD.Path }
-        Write-Host "  Recording screen for ${duration}s... (Ctrl+C to stop early)" -ForegroundColor Cyan
+        Write-ScreenStep -Text "Recording screen for ${duration}s... (Ctrl+C to stop early)"
         try {
             & $MumuPath adb --vmindex $index --cmd "shell screenrecord --time-limit $duration $remotePath" 2>&1 | Out-Null
         } catch { Write-Debug "Recording interrupted: $($_.Exception.Message)" }
@@ -10205,9 +10621,9 @@ function ADB-ScreenCapture {
         if ($result -match 'pulled|bytes') {
             $file = Join-Path $localDir "recording_$($index).mp4"
             $size = '{0:N1} KB' -f ((Get-Item -LiteralPath $file).Length / 1KB)
-            Write-Host "  Saved: $file ($size)" -ForegroundColor Green
+            Write-ScreenNote -Text "Saved: $file ($size)" -Tone Green
         } else {
-            Write-Host "  Failed: $($result.Trim())" -ForegroundColor Red
+            Write-ScreenNote -Text "Failed: $($result.Trim())" -Tone Red
         }
     }
 }
@@ -10216,16 +10632,17 @@ function ADB-InteractiveShell {
     $index = Get-InstanceIndex 'Select instance'
     if (-not $index) { return }
     if (-not (Confirm-AdbConsent)) { return }
-    Write-Host ''
-    Write-Host "Interactive ADB shell (instance $index)" -ForegroundColor Cyan
-    Write-Host '  Type commands directly. Type "exit" to return.' -ForegroundColor DarkGray
+    $null = Write-ScreenFrame -Title 'ADB interactive shell:' -Context "instance $index"
+    Write-ScreenNote -Text 'Type commands directly - "exit" returns to the menu.' -Tone DarkGray
     Write-Host ''
     while ($true) {
         $cmd = (Read-Host 'adb>').Trim()
         if (-not $cmd -or $cmd -eq 'exit' -or $cmd -eq 'quit') { break }
-        & $MumuPath adb --vmindex $index --cmd "shell $cmd" 2>&1 | ForEach-Object { Write-Host "  $_" }
+        $result = & $MumuPath adb --vmindex $index --cmd "shell $cmd" 2>&1
+        foreach ($line in @($result)) { Write-Host "  $line" -ForegroundColor White }
     }
-    Write-Host 'Shell closed.' -ForegroundColor DarkGray
+    Write-ScreenNote -Text 'Shell closed.' -Tone DarkGray
+    Write-Host ''
 }
 
 # Consent gate for identifier/model spoofing options: shown once per
@@ -11945,7 +12362,7 @@ function Show-ResourceMonitor {
 try {
 do {
     Show-Menu
-    $choice = Read-Host 'Select option (0/q = Exit)'
+    $choice = Read-Host '  Select option (0/q = Exit)'
 
     switch ($choice) {
         '1' { Show-InstanceInfo }

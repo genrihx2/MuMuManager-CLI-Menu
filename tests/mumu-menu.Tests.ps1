@@ -1642,6 +1642,84 @@ Describe 'Shutdown and Restart screens [3]/[4]' {
     }
 }
 
+describe 'Action screens styling (launch/shutdown/restart/adb/install/windows)' {
+
+    BeforeAll {
+        function Get-FunctionBody {
+            param([string]$Raw, [string]$Name, [string]$Next)
+            $fnAt = $Raw.IndexOf("function $Name {")
+            $nextAt = $Raw.IndexOf("function $Next {")
+            ($fnAt -ge 0 -and $nextAt -gt $fnAt) | Should -BeTrue
+            return $Raw.Substring($fnAt, $nextAt - $fnAt)
+        }
+    }
+
+    it 'the shared screen helpers exist and keep the 60-column contract' {
+        $raw = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'mumu-menu.ps1') -Raw -Encoding UTF8
+        foreach ($fn in @('Write-ScreenFrame', 'Write-MenuGroup', 'Write-KeyValue', 'Write-ScreenStatus',
+                          'Write-ScreenStep', 'Write-ScreenNote', 'Write-ToolOutput', 'Write-ScreenChoices',
+                          'Split-MenuWrappedText', 'Write-MenuItem')) {
+            $raw.Contains("function $fn {") | Should -BeTrue
+        }
+    }
+
+    it 'Start/Stop/Restart use the shared frame + status/step/note helpers' {
+        $raw = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'mumu-menu.ps1') -Raw -Encoding UTF8
+        foreach ($spec in @(
+            @{ Name = 'Start-Emulator'; Next = 'Stop-Emulator'; Title = 'Launch emulator:' },
+            @{ Name = 'Stop-Emulator'; Next = 'Restart-Emulator'; Title = 'Shutdown emulator:' },
+            @{ Name = 'Restart-Emulator'; Next = 'New-Emulator'; Title = 'Restart emulator:' })) {
+            $body = Get-FunctionBody -Raw $raw -Name $spec.Name -Next $spec.Next
+            $body.Contains('Write-ScreenFrame') | Should -BeTrue
+            $body.Contains("-Title '$($spec.Title)'") | Should -BeTrue
+            $body.Contains('Write-ScreenStatus') | Should -BeTrue
+            $body.Contains('Write-ScreenNote') | Should -BeTrue
+            ($body -match '┌─') | Should -BeFalse
+        }
+    }
+
+    it 'ADB, install and window screens use the shared frame' {
+        $raw = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'mumu-menu.ps1') -Raw -Encoding UTF8
+        $adb = Get-FunctionBody -Raw $raw -Name 'Invoke-ADBCommand' -Next 'ADB-FileTransfer'
+        $adb.Contains('Write-ScreenFrame') | Should -BeTrue
+        $adb.Contains('Write-ScreenStep') | Should -BeTrue
+
+        $apk = Get-FunctionBody -Raw $raw -Name 'Install-APK' -Next 'Uninstall-App'
+        $apk.Contains('Write-ScreenFrame') | Should -BeTrue
+        $apk.Contains('Write-ScreenStep') | Should -BeTrue
+        $apk.Contains('Write-ScreenNote') | Should -BeTrue
+
+        $all = Get-FunctionBody -Raw $raw -Name 'Install-APK-All' -Next 'Show-Apps'
+        $all.Contains('Write-ScreenFrame') | Should -BeTrue
+        $all.Contains('Write-ScreenNote') | Should -BeTrue
+
+        foreach ($spec in @(
+            @{ Name = 'Show-Windows'; Next = 'Hide-Windows' },
+            @{ Name = 'Hide-Windows'; Next = 'Set-WindowLayout' },
+            @{ Name = 'Set-WindowLayout'; Next = 'Save-Screenshot' })) {
+            $body = Get-FunctionBody -Raw $raw -Name $spec.Name -Next $spec.Next
+            $body.Contains('Write-ScreenFrame') | Should -BeTrue
+            $body.Contains('Write-ScreenStep') | Should -BeTrue
+            $body.Contains('Write-ScreenNote') | Should -BeTrue
+            ($body -match '┌─') | Should -BeFalse
+        }
+    }
+
+    it 'the old single-line header box is gone from every converted screen' {
+        $raw = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'mumu-menu.ps1') -Raw -Encoding UTF8
+        foreach ($name in @('Start-Emulator', 'Stop-Emulator', 'Restart-Emulator', 'Invoke-ADBCommand',
+                            'ADB-FileTransfer', 'ADB-ScreenCapture', 'ADB-InteractiveShell',
+                            'Install-APK', 'Install-APK-All', 'Show-Windows', 'Hide-Windows', 'Set-WindowLayout')) {
+            $at = $raw.IndexOf("function $name {")
+            ($at -ge 0) | Should -BeTrue
+            # take until the next top-level function
+            $nextAt = $raw.IndexOf("function ", $at + 1)
+            $body = $raw.Substring($at, $nextAt - $at)
+            ($body -match '┌─') | Should -BeFalse
+        }
+    }
+}
+
 Describe 'Create screen [5]' {
 
     It 'New-Emulator shows a panel, detects the new index by diff and reports an honest outcome' {
