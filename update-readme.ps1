@@ -39,22 +39,50 @@ $version = if ($verMatch.Groups[1].Success) { $verMatch.Groups[1].Value } else {
 $oiInScript = $script -match 'function\s+Show-MumuOfflineInstallers\s*\{'
 $oiReadmeLine = "- 📥 Offline-инсталляторы: пункт `[OI]` показывает все текущие официальные сборки (Windows .exe, macOS .dmg, Android APK) прямо из CDN NetEase — с именем файла, размером и бейджем целостности, когда заголовки его отдают. Без скачивания, только список. Источник: https://www.mumuplayer.com/ "
 
-# 2. Extract menu lines from Show-Menu body (function boundaries must be unique)
+# 2. Extract the menu from Show-Menu's $groups array (function boundaries must
+#    be unique). The menu is no longer a flat list of Write-Host '[N] ...'
+#    calls - it is a $groups array of hashtables (Title + Items) rendered by
+#    Write-MenuGroup/Write-MenuItem - so we parse the array literal directly.
 $startIdx = $script.IndexOf('function Show-Menu')
 $endIdx = $script.IndexOf('function Get-InstanceIndex')
 if ($startIdx -lt 0 -or $endIdx -lt 0 -or $endIdx -le $startIdx) { throw 'Cannot locate Show-Menu function boundaries' }
 $body = $script.Substring($startIdx, $endIdx - $startIdx)
 
-$lines = foreach ($m in [regex]::Matches($body, "Write-Host '([^']*)'")) {
-    $text = $m.Groups[1].Value -replace "''", "'"
-    if ($text -match '^\s*---\s*.+\s*---\s*$') {
-        ''
-        $text
-    } elseif ($text.TrimStart().StartsWith('[') -or $text -match '^=+$' -or $text -match '^\s*MuMuManager CLI Menu\s*$') {
-        $text
+# The array literal runs from '$groups = @(' up to the sizing comment that
+# immediately follows it - slice exactly that so unrelated code is never parsed.
+$gStart = $body.IndexOf('$groups = @(')
+$sizingAnchor = $body.IndexOf('# Size the frame')
+if ($gStart -lt 0 -or $sizingAnchor -lt 0 -or $sizingAnchor -le $gStart) { throw 'Cannot locate the $groups array literal in Show-Menu' }
+$gSlice = $body.Substring($gStart, $sizingAnchor - $gStart)
+
+# Titles and items in source order; items are single-quoted strings on their
+# own line starting with '[' (the '[KEY] description' menu entries). Capture
+# group 1 is the text WITHOUT the surrounding quotes.
+$titleMatches = [regex]::Matches($gSlice, "(?m)Title\s*=\s*'([^']*)'")
+$itemMatches  = [regex]::Matches($gSlice, "(?m)^\s*'\[([^\]]+\][^']*)'\s*$")
+if ($titleMatches.Count -lt 1)               { throw 'No group titles found in $groups' }
+if (@($itemMatches).Count -lt 5)             { throw "Menu extraction produced too few lines (@(@($itemMatches).Count)); aborting" }
+
+# Rebuild the documented block: 38-column '=' rule, 4-space title, then each
+# group as '  --- Title ---' with '  [K] desc' items, a blank line before every
+# group header, and a closing rule (this mirrors the previous hand-written
+# block, so a correct run is a no-op on an up-to-date README).
+$rule = '=' * 38
+$lines = @($rule, '    MuMuManager CLI Menu', $rule)
+$titles = @()
+foreach ($t in $titleMatches) { $titles += [pscustomobject]@{ Title = $t.Groups[1].Value; Pos = $t.Index } }
+for ($i = 0; $i -lt $titles.Count; $i++) {
+    $tStart = $titles[$i].Pos
+    $tEnd   = if ($i + 1 -lt $titles.Count) { $titles[$i + 1].Pos } else { $gSlice.Length }
+    $lines += ''
+    $lines += ('  --- ' + $titles[$i].Title + ' ---')
+    foreach ($im in $itemMatches) {
+        if ($im.Index -ge $tStart -and $im.Index -lt $tEnd) {
+            $lines += ('  [' + ($im.Groups[1].Value -replace "''", "'"))
+        }
     }
 }
-if (-not $lines -or @($lines).Count -lt 5) { throw 'Menu extraction produced too few lines; aborting' }
+$lines += $rule
 
 $menuText = ($lines -join $newline)
 $block = '```' + $newline + $menuText + $newline + '```'
