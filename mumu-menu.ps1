@@ -33,6 +33,43 @@ param([switch]$Force)
 # Launch:   .\mumu-menu.ps1
 #
 # ========================================================================
+function Repair-DesktopModulePath {
+    # Fixes PowerShell/PowerShell#18530: when Windows PowerShell 5.1 (Desktop)
+    # is launched through an intermediate process (cmd from mumu-menu.cmd,
+    # node from `node mumu-menu.cjs --ps`, VS Code / Windows Terminal opened
+    # from a pwsh session, etc.), the child inherits PowerShell 7's PSModulePath
+    # with pw7 module roots FIRST, so the first Security-module auto-import
+    # (Get-Acl, ConvertTo-SecureString while reading .github-token.dpapi)
+    # resolves the PS7 copy of Microsoft.PowerShell.Security, whose
+    # Security.types.ps1xml re-registers the seven System.Security.AccessControl
+    # .ObjectSecurity members that 5.1's core types.ps1xml already defines - the
+    # session dies on the very first such call with the aggregated "already
+    # present" type-data dump. pwsh (Core) is immune: on 7+ those members live
+    # only in the module, and the PS7 roots are exactly what pw7 needs, so the
+    # repair runs on the Desktop edition only. A root is dropped if any path
+    # segment is exactly 'PowerShell' (the WinPS roots all end in
+    # 'WindowsPowerShell\Modules' and are never matched); if the filter would
+    # remove everything the original value is returned unchanged.
+    param([string]$Path)
+    if (-not $Path) { return $Path }
+    $kept = @()
+    foreach ($entry in ($Path -split ';')) {
+        $e = $entry.Trim()
+        if (-not $e) { continue }
+        $isSevenRoot = $false
+        foreach ($seg in ($e -split '[\\/]')) {
+            if ($seg -ieq 'PowerShell') { $isSevenRoot = $true; break }
+        }
+        if (-not $isSevenRoot) { $kept += $e }
+    }
+    if ($kept.Count -eq 0) { return $Path }
+    return ($kept -join ';')
+}
+
+if ($PSVersionTable.PSEdition -eq 'Desktop') {
+    $env:PSModulePath = Repair-DesktopModulePath -Path $env:PSModulePath
+}
+
 # SIGMA RULE EXCLUSIONS (Documentation for SOC/AV Analysts)
 # ========================================================================
 # The following Sigma and YARA rules trigger on legitimate admin functionality.
@@ -280,7 +317,7 @@ function Initialize-TokenStorage {
     # the token via menu [K] so it is recreated through this code path.
 }
 
-$scriptVer = '10.3.4'
+$scriptVer = '10.3.5'
 $InstalledVersion = $null
 
 # --- [WN] MuMu network + updater watcher (read-only, opt-in) -----------------

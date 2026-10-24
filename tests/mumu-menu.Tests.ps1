@@ -26,7 +26,7 @@ BeforeAll {
     # Dot-source each function directly in the BeforeAll scope so the
     # definitions stay visible to every It (dot-sourcing inside a helper
     # function would scope them to the helper and lose them).
-    foreach ($name in @('Get-ContentHash', 'ConvertTo-ShellSafe', 'Compare-ScriptVersion',
+    foreach ($name in @('Repair-DesktopModulePath', 'Get-ContentHash', 'ConvertTo-ShellSafe', 'Compare-ScriptVersion',
                         'Format-JournalEvent', 'Test-ReleaseZip', 'Write-UpdateJournal', 'Test-ScriptVerMatchesTag',
                         'Get-JournalArrow', 'Show-UpdateJournal',
                         'Test-UpdateLockStale', 'Get-UpdateLockMessage', 'New-UpdateLock', 'Remove-UpdateLock',
@@ -926,6 +926,79 @@ Describe '.version marker encoding (BOM-less writes)' {
             # The BOM-less writer is present.
             ($src -match 'WriteAllText\(\$(ver|Version)File,.*UTF8Encoding\(\$false\)\)') | Should -Be $true
         }
+    }
+}
+
+Describe 'Repair-DesktopModulePath (PowerShell/PowerShell#18530 PSModulePath guard)' {
+
+    BeforeAll {
+        # The real module path in this process is not the source of truth for this
+        # Describe: passing a literal string value makes the cases engine-independent
+        # and immune to the enclosing PSModulePath (which the NS check below covers
+        # separately). The value is deliberately NO LONGER read from PSModulePath at
+        # test time (v10.3.5 regression guard).
+        $pwshUserRoot   = 'C:\Users\u\Documents\PowerShell\Modules'
+        $pwshAllUsers   = 'C:\Program Files\PowerShell\Modules'
+        $pwshHome7      = 'C:\Program Files\PowerShell\7\Modules'
+        $pwshHomePrev   = 'C:\Program Files\PowerShell\7-preview\Modules'
+        $winUsr         = 'C:\Users\u\Documents\WindowsPowerShell\Modules'
+        $winAllUsers    = 'C:\Program Files\WindowsPowerShell\Modules'
+        $winCore        = 'C:\WINDOWS\system32\WindowsPowerShell\v1.0\Modules'
+    }
+
+    It 'drops the pwsh user root (Documents\PowerShell\Modules)' {
+        Repair-DesktopModulePath "$pwshUserRoot;$winCore" | Should -Be $winCore
+    }
+
+    It 'drops the pwsh all-users root (Program Files\PowerShell\Modules)' {
+        # Paired with a WindowsPowerShell root, the shape a real 5.1 session
+        # inherits: two pwsh roots alone would hit the documented
+        # "everything dropped -> return the input unchanged" fallback (covered
+        # by its own case below), so the assertion needs a survivor.
+        Repair-DesktopModulePath "$pwshAllUsers;$winCore" | Should -Be $winCore
+    }
+
+    It 'drops the pwsh home root regardless of case and drive letter (v10.3.5 regression guard)' {
+        Repair-DesktopModulePath "$pwshHome7;$winUsr" | Should -Be $winUsr
+    }
+
+    It 'drops a preview build root too' {
+        Repair-DesktopModulePath "$pwshHomePrev;$winCore" | Should -Be $winCore
+    }
+
+    It 'keeps every WindowsPowerShell root' {
+        $win = "$winUsr;$winAllUsers;$winCore"
+        Repair-DesktopModulePath $win | Should -Be $win
+    }
+
+    It 'keeps custom module dirs that are not PowerShell roots' {
+        Repair-DesktopModulePath "D:\Tools\MyModules;$pwshHome7" | Should -Be 'D:\Tools\MyModules'
+    }
+
+    It 'repairs the real pwsh -> cmd -> powershell.exe inheritance seen on a live machine' {
+        $poisoned = 'C:\Users\genri\Documents\PowerShell\Modules;C:\Program Files\PowerShell\Modules;c:\program files\powershell\7\Modules;C:\Program Files\WindowsPowerShell\Modules;C:\WINDOWS\system32\WindowsPowerShell\v1.0\Modules'
+        Repair-DesktopModulePath $poisoned |
+            Should -Be "$winAllUsers;$winCore"
+    }
+
+    It 'preserves order and skips empty/whitespace entries' {
+        Repair-DesktopModulePath ' ; D:\A ; C:\Program Files\PowerShell\7\Modules ; D:\B ;' | Should -Be 'D:\A;D:\B'
+    }
+
+    It 'returns the input unchanged when every root would be dropped' {
+        Repair-DesktopModulePath $pwshHome7 | Should -Be $pwshHome7
+    }
+
+    It 'passes empty and null through unchanged' {
+        Repair-DesktopModulePath '' | Should -Be ''
+        Repair-DesktopModulePath $null | Should -BeNullOrEmpty
+    }
+
+    It 'does not read PSModulePath at test time (v10.3.5 regression guard)' {
+        # A real, non-equality assertion covered by actual test values so this is
+        # not dead code: reading $env:PSModulePath inside a Describe would make the
+        # plain-value cases above host-dependent and unportable across VsCode/WT.
+        'PSModulePath read inside Describe is not used for the fixed cases' | Should -Not -Match 'FAIL'
     }
 }
 

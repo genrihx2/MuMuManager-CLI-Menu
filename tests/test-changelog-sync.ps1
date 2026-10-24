@@ -107,6 +107,16 @@ if ($SelfTest) {
     Write-Host ''
     Write-Host 'Self-test: the check must fail on injected inconsistencies' -ForegroundColor Cyan
     $script:stFailures = 0
+    # Mutations are injected into the version that is actually documented in
+    # README.md. The old v1.19.1 regression anchor has been pruned from the
+    # changelog table, so a hard-coded version would mutate nothing and the
+    # self-test would "fail" without testing anything.
+    if ($rowVersions.Count -eq 0) {
+        Write-Host 'Self-test aborted: no changelog table rows to mutate.' -ForegroundColor Red
+        exit 1
+    }
+    $script:stProbe   = $rowVersions[0]
+    $script:stProbeRe = [regex]::Escape($script:stProbe)
     $stTmp = Join-Path ([System.IO.Path]::GetTempPath()) ("chg-sync-" + [Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $stTmp -Force | Out-Null
     try {
@@ -123,30 +133,30 @@ if ($SelfTest) {
                 $script:stFailures++
             }
         }
-        # 1. remove a section, keep the row (the v1.19.1 regression)
+        # 1. remove a section, keep the row (the v1.19.1 regression shape)
         Invoke-Check -Name 'row-without-section' -Mutate {
             param($p)
-            $t = @(Get-Content -LiteralPath $p -Encoding UTF8 | Where-Object { $_ -notmatch '^###\s+v1\.19\.1(\s|$)' })
+            $t = @(Get-Content -LiteralPath $p -Encoding UTF8 | Where-Object { $_ -notmatch ('^###\s+' + $script:stProbeRe + '(\s|$)') })
             Set-Content -LiteralPath $p -Value $t -Encoding UTF8
         }
         # 2. remove a row, keep the section
         Invoke-Check -Name 'section-without-row' -Mutate {
             param($p)
-            $t = @(Get-Content -LiteralPath $p -Encoding UTF8 | Where-Object { $_ -notmatch '^\|\s*v1\.19\.1\s*\|' })
+            $t = @(Get-Content -LiteralPath $p -Encoding UTF8 | Where-Object { $_ -notmatch ('^\|\s*' + $script:stProbeRe + '\s*\|') })
             Set-Content -LiteralPath $p -Value $t -Encoding UTF8
         }
         # 3. duplicate row
         Invoke-Check -Name 'duplicate-row' -Mutate {
             param($p)
             $t  = @(Get-Content -LiteralPath $p -Encoding UTF8)
-            $i  = @($t | Select-String -Pattern '^\|\s*v1\.19\.1\s*\|').LineNumber[0] - 1
+            $i  = @($t | Select-String -Pattern ('^\|\s*' + $script:stProbeRe + '\s*\|')).LineNumber[0] - 1
             Set-Content -LiteralPath $p -Value (@($t[0..$i]) + $t[$i] + @($t[($i + 1)..($t.Count - 1)])) -Encoding UTF8
         }
         # 4. duplicate section heading
         Invoke-Check -Name 'duplicate-section' -Mutate {
             param($p)
             $t  = @(Get-Content -LiteralPath $p -Encoding UTF8)
-            $i  = @($t | Select-String -Pattern '^###\s+v1\.19\.1(\s|$)').LineNumber[0] - 1
+            $i  = @($t | Select-String -Pattern ('^###\s+' + $script:stProbeRe + '(\s|$)')).LineNumber[0] - 1
             Set-Content -LiteralPath $p -Value (@($t[0..$i]) + $t[$i] + @($t[($i + 1)..($t.Count - 1)])) -Encoding UTF8
         }
         # 5. sanity: unmutated copy must pass

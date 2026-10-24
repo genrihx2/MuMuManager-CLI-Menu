@@ -6,7 +6,7 @@
 
 ## Русский
 
-> Актуально для **v10.3.4** (обновлено 2026-10-22).
+> Актуально для **v10.3.5** (обновлено 2026-10-22).
 
 ### Поддерживаемые версии
 
@@ -388,7 +388,7 @@ The script uses Invoke-WebRequest/curl only to access GitHub API for auto-update
 
 ## English
 
-> Current for **v10.3.4** (updated 2026-10-22).
+> Current for **v10.3.5** (updated 2026-10-22).
 
 ### Supported Versions
 

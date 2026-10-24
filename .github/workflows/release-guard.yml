@@ -17,6 +17,9 @@ name: Release guard
 #   - the latest release ZIP must match its tag content byte-for-byte
 #     (per-file hashes), so a tampered, truncated, or half-uploaded asset
 #     is caught even after a successful publish;
+#   - the README changelog table and the release version sources
+#     (relnotes.md top section, .version, $scriptVer) must agree - the same
+#     gate Release runs before publishing (tests/test-changelog-sync.ps1);
 #   - the audit report always lands in the run summary; any violation also
 #     opens a dedicated issue (one, marker-scoped, idempotent) and the run
 #     fails so the badge/mail notifies the maintainer;
@@ -52,6 +55,56 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 0
+
+      - name: Verify changelog table and release version sources
+        # The same gate the Release workflow runs before publishing: a
+        # changelog table row without a «Что нового» section silently drops
+        # that version from the published notes, and relnotes.md / .version /
+        # $scriptVer disagreeing means the next tag ships stale text (#31).
+        # The verdict is folded into the audit report, the guard issue and
+        # the run's exit status by the step below.
+        id: changelog
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $out  = (& pwsh -NoProfile -File ./tests/test-changelog-sync.ps1 2>&1 | Out-String)
+          $code = $LASTEXITCODE
+          $out.TrimEnd() | Write-Host
+
+          $sectionPath = Join-Path $env:GITHUB_WORKSPACE 'changelog-section.md'
+          $violPath    = Join-Path $env:GITHUB_WORKSPACE 'changelog-violations.txt'
+
+          if ($code -eq 0) {
+            @(
+              '### Changelog table + release version sources'
+              ''
+              "**VERIFIED** - $($out.Trim())"
+            ) | Set-Content -LiteralPath $sectionPath -Encoding utf8
+            # Left empty on purpose: the audit step treats a non-empty file
+            # as the violation list.
+            Set-Content -LiteralPath $violPath -Value @() -Encoding utf8
+          }
+          else {
+            @(
+              '### Changelog table + release version sources'
+              ''
+              '**FAILED** - the Release workflow would refuse to publish:'
+              ''
+              '```'
+              $out.Trim()
+              '```'
+            ) | Set-Content -LiteralPath $sectionPath -Encoding utf8
+
+            $fails = @($out -split "`r?`n" |
+              ForEach-Object { $_.Trim() } |
+              Where-Object { $_.StartsWith('- ') } |
+              ForEach-Object { '- changelog: ' + $_.Substring(2) })
+            if ($fails.Count -eq 0) {
+              $fails = @('- changelog: check failed - see the run log and the step summary')
+            }
+            Set-Content -LiteralPath $violPath -Value $fails -Encoding utf8
+          }
 
       - name: Audit releases and version consistency
         id: audit
@@ -127,12 +180,20 @@ jobs:
             echo "- version drift: latest release \`$LATEST_TAG\`, but \`.version\` says \`$REPO_VER\`" >> violations.txt
           fi
 
+          # Changelog + release-version gate (files written by the step above).
+          if [ -f changelog-section.md ]; then
+            { echo ""; cat changelog-section.md; } >> report.md
+          fi
+          if [ -s changelog-violations.txt ]; then
+            cat changelog-violations.txt >> violations.txt
+          fi
+
           COUNT=$(wc -l < violations.txt)
           {
             if [ "$TOTAL" -eq 0 ] && [ "$COUNT" -eq 0 ]; then
               echo "**No releases newer than $BASELINE found - nothing to audit.**"
             elif [ "$COUNT" -eq 0 ]; then
-              echo "**Status: CLEAN** - all $TOTAL release(s) newer than \`$BASELINE\` ship ZIP + SHA256 + VirusTotal verdicts, and the latest release \`$LATEST_TAG\` matches \`.version\`."
+              echo "**Status: CLEAN** - all $TOTAL release(s) newer than \`$BASELINE\` ship ZIP + SHA256 + VirusTotal verdicts, the latest release \`$LATEST_TAG\` matches \`.version\`, and the changelog table plus release version sources are consistent."
             else
               echo "**Status: $COUNT VIOLATION(S)**:"
               echo ""
@@ -279,15 +340,16 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          TITLE='[release-guard] Release audit: missing assets/VT verdicts, version drift, or ZIP mismatch'
+          TITLE='[release-guard] Release audit: missing assets/VT verdicts, version drift, changelog drift, or ZIP mismatch'
           MARKER='<!-- release-guard-audit -->'
           {
             echo "$MARKER"
             echo ""
             echo "The weekly release-guard audit found violations: releases newer"
             echo "than v10.0.0 missing ZIP/.sha256/VT verdicts, the latest release"
-            echo "tag drifting from .version on the default branch, or the latest"
-            echo "release ZIP not matching its tag content."
+            echo "tag drifting from .version on the default branch, the latest"
+            echo "release ZIP not matching its tag content, or the README changelog"
+            echo "table / relnotes.md / .version / scriptVer disagreeing."
             echo ""
             cat report.md
             if [ -f zip-section.md ]; then cat zip-section.md; fi
@@ -320,7 +382,7 @@ jobs:
           NUMBER=$(gh issue list --repo "$REPO" --search "$MARKER in:body" --state open --json number --jq '.[0].number // ""')
           if [ -n "$NUMBER" ]; then
             gh issue close "$NUMBER" --repo "$REPO" \
-              --comment "The latest weekly audit is clean - all releases newer than v10.0.0 ship ZIP + SHA256 + VirusTotal verdicts, the latest release matches .version, and its ZIP matches the tag content. Closing."
+              --comment "The latest weekly audit is clean - all releases newer than v10.0.0 ship ZIP + SHA256 + VirusTotal verdicts, the latest release matches .version, its ZIP matches the tag content, and the changelog table plus release version sources are consistent. Closing."
             echo "Closed stale guard issue #$NUMBER"
           else
             echo "No open guard issue - nothing to close"

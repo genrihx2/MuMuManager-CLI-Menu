@@ -163,6 +163,13 @@ mumu-menu.cmd
 
 ## Что нового
 
+### v10.3.5 (22.10.2026)
+
+- Fixed: меню больше не падает при старте с семистрочным дампом типовых данных `System.Security.AccessControl.ObjectSecurity` «… уже присутствует», если Windows PowerShell 5.1 запущен косвенно — через `mumu-menu.cmd`, `node mumu-menu.cjs --ps` или окно VS Code / Windows Terminal, открытое из pwsh-сессии. Такой процесс наследует `PSModulePath` PowerShell 7 (PowerShell/PowerShell#18530, microsoft/vscode#251311), поэтому первый авто-импорт модуля Security (`Get-Acl` или `ConvertTo-SecureString` при чтении `.github-token.dpapi`) берёт ps7-копию `Microsoft.PowerShell.Security`, чей `Security.types.ps1xml` повторно регистрирует семь членов `ObjectSecurity`, уже определённых ядровым `types.ps1xml` 5.1. Скрипт чинит `$env:PSModulePath` при старте (только на Desktop-издании): корни модулей с сегментом пути ровно `PowerShell` отбрасываются, все `WindowsPowerShell`-корни и пользовательские каталоги сохраняются, а если фильтр удалил бы всё — значение возвращается без изменений. Сессии PowerShell 7 не затрагиваются.
+- Tests: новые чистые юнит-тесты `Repair-DesktopModulePath` (10 сценариев: отбрасывание ps7-корней user/all-users/home/preview case-insensitively, сохранение WindowsPowerShell-корней и пользовательских каталогов, порядок, пустой вход, фолбэк при полном удалении); сьют 289 passed / 0 failed, PSScriptAnalyzer 0 findings.
+
+**EN summary (v10.3.5):** Startup fix for the seven-member `ObjectSecurity` type-data dump seen when Windows PowerShell 5.1 inherits PowerShell 7's `PSModulePath` through an intermediate launcher (PowerShell/PowerShell#18530); the script repairs the path on Desktop only. New `Repair-DesktopModulePath` unit tests.
+
 ### v10.3.4 (22.10.2026)
 
 - Fixed: строка ОС в `[V]` больше не врёт на Windows 11. `[Environment]::OSVersion` на всех Windows 10/11 отдаёт `10.0`, а `ProductName` после in-place апгрейда остаётся «Windows 10 Pro» — меню показывало `OS: Windows 10.0 (Build 26300)` на фактической Windows 11 26H2. Имя системы теперь выводится из номера сборки (11 начинается с 22000) и метки feature-update из реестра (`DisplayVersion`, для старых сборок — `ReleaseId`): `OS: Windows 11 26H2 (Build 26300)`.
@@ -221,6 +228,7 @@ mumu-menu.cmd
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v10.3.5 | 22.10.2026 | Startup fix: no more ObjectSecurity "already present" type-data dump when 5.1 inherits PowerShell 7's PSModulePath through an intermediate launcher (PowerShell/PowerShell#18530); the script repairs $env:PSModulePath on Desktop only. New Repair-DesktopModulePath unit tests |
 | v10.3.4 | 22.10.2026 | [V] reports the real Windows version (Windows 11 26H2 instead of "Windows 10.0"), Release workflow now explicitly dispatches the VirusTotal scan when published with GITHUB_TOKEN |
 | v10.3.3 | 20.10.2026 | Ctrl+C no longer crashes the menu (compiled CancelKeyPress guard), `mumu-menu.cmd` double-click launcher for git clones |
 | v10.3.1 | 19.10.2026 | Update check verifies the declared file set, not just .version (repairs installs missing a file added by a release) |

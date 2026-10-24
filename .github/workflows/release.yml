@@ -13,6 +13,10 @@ name: Release
 # and the workflow fails hard if $scriptVer in mumu-menu.ps1 at the tag does not
 # match the tag version. Re-runs are idempotent: if the release already exists,
 # the run succeeds without doing anything.
+# It also requires the README changelog table and the tag's own version sources
+# (relnotes.md top section, .version, $scriptVer) to agree - tests/test-changelog-sync.ps1
+# runs against the tag blobs before anything is published, so a version whose
+# notes row/section is missing never ships with an incomplete release body.
 # Before publishing, the workflow runs and requires the named Tests legs
 # (bootstrap-detector, the three pester-unit matrix legs, the deployed-
 # layout leg - see REQUIRED_LEGS in the gate step) green on the exact
@@ -138,6 +142,44 @@ jobs:
           fi
           echo "prev_tag=$PREV" >> "$GITHUB_OUTPUT"
           echo "commit_count=$COMMITS" >> "$GITHUB_OUTPUT"
+
+      - name: Verify changelog and release version sources at the tag
+        # Release gate: the tag is cut from $scriptVer at HEAD and the
+        # published body is built from the README's «Что нового» sections, so
+        # a table row without a matching section silently drops that version
+        # from the notes (the v1.19.1 regression), and a lagging
+        # relnotes/.version/$scriptVer triple ships stale text (#31).
+        # The check reads the TAG blobs (git archive), not the working tree,
+        # so a dispatch of an older tag is judged on its own content, and it
+        # runs only when we are about to publish - an already-published
+        # release is still re-runnable for repair.
+        if: steps.tag.outputs.skip != 'true' && steps.ver.outputs.skip != 'true'
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/changelog-gate"
+          rm -rf "$dir"
+          mkdir -p "$dir"
+          git archive "$TAG" README.md relnotes.md .version mumu-menu.ps1 | tar -x -C "$dir"
+
+          # The checker itself is taken from the checked-out ref; a tag cut
+          # before it existed still gets the default-branch copy.
+          SCRIPT=./tests/test-changelog-sync.ps1
+          if [ ! -f "$SCRIPT" ]; then
+            git show "origin/main:tests/test-changelog-sync.ps1" > "$SCRIPT"
+          fi
+
+          pwsh -NoProfile -File "$SCRIPT" \
+            -ReadmePath   "$dir/README.md" \
+            -RelnotesPath "$dir/relnotes.md" \
+            -VersionPath  "$dir/.version" \
+            -MenuPath     "$dir/mumu-menu.ps1" \
+            || {
+                 echo "Changelog / release version sources at $TAG are inconsistent - refusing to release." >&2
+                 echo "Fix the missing table row or «Что нового» section, and bump relnotes.md + .version + \$scriptVer together." >&2
+                 exit 1
+               }
 
       - name: Run and require green Tests on the tag commit
         # Release gate: the release must not publish before the Tests
