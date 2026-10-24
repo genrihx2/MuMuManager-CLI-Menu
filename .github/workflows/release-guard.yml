@@ -220,12 +220,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Same file set release.yml ships (git archive list). The expected
-          # entry count is derived from this list, so the two cannot drift:
-          # mumu-menu.cjs was added to the archive while this check still
-          # expected 8 entries, which failed the step on every run.
-          FILES="mumu-menu.ps1 mumu-menu.cjs bootstrap-update.ps1 README.md SKILL.md .version Watch-MumuConnections.ps1 Test-MumuTunnelAB.ps1 Diag-MumuNx.ps1"
-          EXPECTED_COUNT=$(wc -w <<< "$FILES" | tr -d ' ')
+          # The file set comes from release-files.txt, the same single source
+          # the Release workflow builds the ZIP from (resolved inside the
+          # checks below, preferring the tag's copy). Keeping one list is what
+          # stops a file added to one side from desynchronising the other.
 
           VIOL=0
           rm -f zip-violations.txt zip-section.md
@@ -241,6 +239,20 @@ jobs:
             } > zip-section.md
             if [ -z "$LATEST" ]; then
               echo "- no published release found" >> zip-violations.txt
+              exit 1
+            fi
+            if git cat-file -e "$LATEST:release-files.txt" 2>/dev/null; then
+              SRC=$(git show "$LATEST:release-files.txt")
+            else
+              SRC=$(cat release-files.txt)
+            fi
+            FILES=$(printf '%s\n' "$SRC" \
+              | sed -e 's/\r$//' -e 's/#.*$//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
+              | sed '/^$/d' | tr '\n' ' ')
+            FILES=${FILES% }
+            EXPECTED_COUNT=$(wc -w <<< "$FILES" | tr -d ' ')
+            if [ "$EXPECTED_COUNT" -eq 0 ]; then
+              echo "- release-files.txt declares no files" >> zip-violations.txt
               exit 1
             fi
             ZIPNAME="MuMuManager-CLI-Menu-${LATEST}.zip"

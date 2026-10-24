@@ -329,11 +329,43 @@ jobs:
           } | tee -a "$GITHUB_STEP_SUMMARY"
           echo "Tests gate passed - all required checks green on $TAG_SHA."
 
+      - name: Determine release file set
+        # release-files.txt is the single source of truth for what the ZIP
+        # ships - the Release guard verifies the published asset against the
+        # same file instead of keeping its own copy of the list. The tag's
+        # copy is preferred so a dispatch of an older tag builds exactly the
+        # set that tag declared; tags cut before this file existed fall back
+        # to the branch copy.
+        id: fileset
+        if: steps.tag.outputs.skip != 'true'
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if git cat-file -e "$TAG:release-files.txt" 2>/dev/null; then
+            SRC=$(git show "$TAG:release-files.txt")
+          else
+            SRC=$(cat release-files.txt)
+          fi
+          FILES=$(printf '%s\n' "$SRC" \
+            | sed -e 's/\r$//' -e 's/#.*$//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
+            | sed '/^$/d' | tr '\n' ' ')
+          FILES=${FILES% }
+          COUNT=$(wc -w <<< "$FILES" | tr -d ' ')
+          if [ "$COUNT" -eq 0 ]; then
+            echo "release-files.txt declares no files" >&2
+            exit 1
+          fi
+          echo "Release file set ($COUNT): $FILES"
+          echo "files=$FILES" >> "$GITHUB_OUTPUT"
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+
       - name: Build ZIP from tag content
         if: steps.tag.outputs.skip != 'true' && steps.ver.outputs.skip != 'true'
         id: zip
         env:
           TAG: ${{ steps.tag.outputs.tag }}
+          FILESET: ${{ steps.fileset.outputs.files }}
         run: |
           set -euo pipefail
           ZIPNAME="MuMuManager-CLI-Menu-${TAG}.zip"
@@ -342,7 +374,8 @@ jobs:
           # Build strictly from the tag's content - not from the checked-out branch.
           # bootstrap-update.ps1 ships in the ZIP so every install carries the current
           # updater (the v1.18.8 JSON-detector fix must reach installs that never ran it).
-          git archive "$TAG" mumu-menu.ps1 mumu-menu.cjs bootstrap-update.ps1 README.md SKILL.md .version Watch-MumuConnections.ps1 Test-MumuTunnelAB.ps1 Diag-MumuNx.ps1 | tar -x -C dist
+          # The file set comes from release-files.txt (see the step above).
+          git archive "$TAG" $FILESET | tar -x -C dist
 
           (cd dist && zip -r "../${ZIPNAME}" .)
 
@@ -367,11 +400,12 @@ jobs:
         env:
           ZIPNAME: ${{ steps.zip.outputs.zipname }}
           SHA256: ${{ steps.zip.outputs.sha256 }}
+          FILESET: ${{ steps.fileset.outputs.files }}
         run: |
           set -euo pipefail
           echo "${SHA256}  ${ZIPNAME}" | sha256sum -c -
           echo "SHA256: OK"
-          for f in mumu-menu.ps1 mumu-menu.cjs bootstrap-update.ps1 README.md SKILL.md .version Watch-MumuConnections.ps1 Test-MumuTunnelAB.ps1 Diag-MumuNx.ps1; do
+          for f in $FILESET; do
             unzip -l "${ZIPNAME}" | grep -q "$f" || { echo "MISSING: $f"; exit 1; }
           done
           echo "Structure: OK"
