@@ -220,8 +220,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Same file set release.yml ships (git archive list).
-          EXPECTED_COUNT=8
+          # Same file set release.yml ships (git archive list). The expected
+          # entry count is derived from this list, so the two cannot drift:
+          # mumu-menu.cjs was added to the archive while this check still
+          # expected 8 entries, which failed the step on every run.
+          FILES="mumu-menu.ps1 mumu-menu.cjs bootstrap-update.ps1 README.md SKILL.md .version Watch-MumuConnections.ps1 Test-MumuTunnelAB.ps1 Diag-MumuNx.ps1"
+          EXPECTED_COUNT=$(wc -w <<< "$FILES" | tr -d ' ')
 
           VIOL=0
           rm -f zip-violations.txt zip-section.md
@@ -268,7 +272,7 @@ jobs:
             if [ "$ENTRY_COUNT" != "$EXPECTED_COUNT" ]; then
               echo "- ZIP has $ENTRY_COUNT entries, expected $EXPECTED_COUNT" >> zip-violations.txt
             fi
-            for f in mumu-menu.ps1 bootstrap-update.ps1 README.md SKILL.md .version Watch-MumuConnections.ps1 Test-MumuTunnelAB.ps1 Diag-MumuNx.ps1; do
+            for f in $FILES; do
               EXPECTED_HASH=$(git show "$LATEST:$f" | sha256sum | cut -d' ' -f1)
               if [ ! -f "extracted/$f" ]; then
                 echo "- \`$f\`: missing from the ZIP" >> zip-violations.txt
@@ -313,11 +317,14 @@ jobs:
             echo "count=$VIOL_COUNT"
           } >> "$GITHUB_OUTPUT"
 
-          if [ "$VIOL_COUNT" -gt 0 ]; then
-            cat zip-section.md >&2
-            exit 1
-          fi
+          # Deliberately NOT failing the step here: a failed step ends the
+          # job, so the guard issue and the "Fail on violations" step would
+          # never run and the audit would fail silently. The recorded count
+          # fails the run after the issue has been opened.
           cat zip-section.md
+          if [ "$VIOL_COUNT" -gt 0 ]; then
+            echo "ZIP integrity: $VIOL_COUNT violation(s) - see the step summary and the guard issue." >&2
+          fi
 
       - name: Publish summary
         # always(): the summary must appear even when the audit or the ZIP
