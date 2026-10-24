@@ -375,7 +375,8 @@ jobs:
           # bootstrap-update.ps1 ships in the ZIP so every install carries the current
           # updater (the v1.18.8 JSON-detector fix must reach installs that never ran it).
           # The file set comes from release-files.txt (see the step above).
-          git archive "$TAG" $FILESET | tar -x -C dist
+          read -r -a RELEASE_FILES <<< "$FILESET"
+          git archive "$TAG" "${RELEASE_FILES[@]}" | tar -x -C dist
 
           (cd dist && zip -r "../${ZIPNAME}" .)
 
