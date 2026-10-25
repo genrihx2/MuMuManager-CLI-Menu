@@ -10,5 +10,8 @@
   },
   "dependencies": {
     "disk": "1.8.0"
+  },
+  "overrides": {
+    "undici": "8.12.3"
   }
 }
