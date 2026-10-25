@@ -317,7 +317,7 @@ function Initialize-TokenStorage {
     # the token via menu [K] so it is recreated through this code path.
 }
 
-$scriptVer = '10.4.0'
+$scriptVer = '10.4.1'
 $InstalledVersion = $null
 
 # --- [WN] MuMu network + updater watcher (read-only, opt-in) -----------------
@@ -9896,10 +9896,9 @@ function Show-MumuOfflineInstallers {
     #>
     $functionName = 'Show-MumuOfflineInstallers'
 
-    Write-Host ''
-    Write-Host '=== Offline installers: current official builds (read-only) ===' -ForegroundColor Cyan
-    Write-Host 'Source: https://www.mumuplayer.com/update/' -ForegroundColor DarkYellow
-    Write-Host '(also mirrored telemetry-free at a11.gdl.easebar.com for the APK)' -ForegroundColor DarkYellow
+    $width = Write-ScreenFrame -Title 'Offline installers' -Context 'current official builds | read-only | no downloads'
+    Write-ScreenNote -Text 'Source: https://www.mumuplayer.com/update/' -Tone DarkGray
+    Write-ScreenNote -Text 'mirror: a11.gdl.easebar.com (telemetry-free, used for the APK)' -Tone DarkGray
     Write-Host ''
 
     # ---------- helpers ----------
@@ -9984,7 +9983,8 @@ function Show-MumuOfflineInstallers {
     }
 
     if (-not $html) {
-        Write-Warning "${functionName}: could not reach $page (no offline-installer listing)"
+        Write-ScreenNote -Text "could not reach $page - no offline-installer listing" -Tone Yellow
+        Write-Host ''
         return
     }
 
@@ -10018,6 +10018,7 @@ function Show-MumuOfflineInstallers {
         $exeHref = $resolverUrl
         $exeName = ($winBadges | Where-Object { $_ -match '^name:' }) -replace '^name:\s*',''
         $exeSize = ($winBadges | Where-Object { $_ -match '^size:' }) -replace '^size:\s*',''
+        $exeChecksum = $winBadges | Where-Object { $_ -match '^sha256:' }
     }
 
     # If resolver didn't yield, extract from HTML.
@@ -10046,14 +10047,18 @@ function Show-MumuOfflineInstallers {
     }
 
     if ($exeHref) {
-        Write-Host 'Windows offline installer (global/overseas):' -ForegroundColor Yellow
-        Write-Host "  $exeHref"
-        if ($exeName) { Write-Host "  name: $exeName" }
-        if ($exeSize) { Write-Host "  size: $exeSize bytes" }
-        if ($exeChecksum) { Write-Host "  $($exeChecksum -join ' / ')" -ForegroundColor DarkGray }
+        Write-MenuGroup -Title 'Windows offline installer (global/overseas)' -Width $width
+        Write-KeyValue -Key 'URL' -Value $exeHref -KeyWidth 12 -Width $width
+        if ($exeName) { Write-KeyValue -Key 'name' -Value $exeName -KeyWidth 12 -Width $width }
+        if ($exeSize) { Write-KeyValue -Key 'size' -Value "$exeSize bytes" -KeyWidth 12 -Width $width }
+        if ($exeChecksum) { Write-KeyValue -Key 'digest' -Value ($exeChecksum -join ' / ') -KeyWidth 12 -Width $width -ValueColor DarkGray }
+        if (-not ($exeName -or $exeSize -or $exeChecksum)) {
+            Write-KeyValue -Key 'integrity' -Value 'headers did not expose a digest/length for this path' -KeyWidth 12 -Width $width -ValueColor DarkGray
+        }
         Write-Host ''
     } else {
-        Write-Warning "${functionName}: no Windows offline installer link found on the release page."
+        Write-ScreenNote -Text 'no Windows offline installer link found on the release page' -Tone Yellow
+        Write-Host ''
     }
 
     # ---------- parse the current macOS DMG ----------
@@ -10092,17 +10097,21 @@ function Show-MumuOfflineInstallers {
     }
 
     if ($dmgHref) {
-        Write-Host 'macOS disk image:' -ForegroundColor Yellow
-        Write-Host "  $dmgHref"
+        Write-MenuGroup -Title 'macOS disk image' -Width $width
+        Write-KeyValue -Key 'URL' -Value $dmgHref -KeyWidth 12 -Width $width
         $dmgName = ($dmgBadges | Where-Object { $_ -match '^name:' }) -replace '^name:\s*',''
         $dmgSize = ($dmgBadges | Where-Object { $_ -match '^size:' }) -replace '^size:\s*',''
-        if ($dmgName) { Write-Host "  name: $dmgName" }
-        if ($dmgSize) { Write-Host "  size: $dmgSize bytes" }
+        if ($dmgName) { Write-KeyValue -Key 'name' -Value $dmgName -KeyWidth 12 -Width $width }
+        if ($dmgSize) { Write-KeyValue -Key 'size' -Value "$dmgSize bytes" -KeyWidth 12 -Width $width }
         $dmgChecksum = $dmgBadges | Where-Object { $_ -match '^sha256:' }
-        if ($dmgChecksum) { Write-Host "  $($dmgChecksum -join ' / ')" -ForegroundColor DarkGray }
+        if ($dmgChecksum) { Write-KeyValue -Key 'digest' -Value ($dmgChecksum -join ' / ') -KeyWidth 12 -Width $width -ValueColor DarkGray }
+        if (-not ($dmgName -or $dmgSize -or $dmgChecksum)) {
+            Write-KeyValue -Key 'integrity' -Value 'headers did not expose a digest/length for this path' -KeyWidth 12 -Width $width -ValueColor DarkGray
+        }
         Write-Host ''
     } else {
-        Write-Warning "${functionName}: no macOS .dmg link found on the release page."
+        Write-ScreenNote -Text 'no macOS .dmg link found on the release page' -Tone Yellow
+        Write-Host ''
     }
 
     # ---------- parse the current Android APK (ARM) ----------
@@ -10123,22 +10132,20 @@ function Show-MumuOfflineInstallers {
         Write-Debug "${functionName}: APK alias HEAD failed: $($_.Exception.Message)"
     }
 
-    Write-Host 'Android offline package (ARM64, root-level APK):' -ForegroundColor Yellow
-    Write-Host "  $apkUrlAlias"
-    if ($apkUrlCanonical) { Write-Host "  (canonical: $apkUrlCanonical)" -ForegroundColor DarkYellow }
+    Write-MenuGroup -Title 'Android offline package (ARM64, root-level)' -Width $width
+    Write-KeyValue -Key 'URL' -Value $apkUrlAlias -KeyWidth 12 -Width $width
+    if ($apkUrlCanonical) { Write-KeyValue -Key 'canonical' -Value $apkUrlCanonical -KeyWidth 12 -Width $width -ValueColor DarkYellow }
     $apkSize = ($apkBadges | Where-Object { $_ -match '^size:' }) -replace '^size:\s*',''
     $apkNameBadge = ($apkBadges | Where-Object { $_ -match '^name:' }) -replace '^name:\s*',''
-    if ($apkNameBadge) { $apkName = $apkNameBadge; Write-Host "  name: $apkName" }
-    if ($apkSize) { Write-Host "  size: $apkSize bytes" }
+    if ($apkNameBadge) { $apkName = $apkNameBadge; Write-KeyValue -Key 'name' -Value $apkName -KeyWidth 12 -Width $width }
+    if ($apkSize) { Write-KeyValue -Key 'size' -Value "$apkSize bytes" -KeyWidth 12 -Width $width }
     $apkChecksum = $apkBadges | Where-Object { $_ -match '^sha256:' }
-    if ($apkChecksum) { Write-Host "  $($apkChecksum -join ' / ')" -ForegroundColor DarkGray }
+    if ($apkChecksum) { Write-KeyValue -Key 'digest' -Value ($apkChecksum -join ' / ') -KeyWidth 12 -Width $width -ValueColor DarkGray }
     if (-not ($apkSize -or $apkChecksum)) {
-        Write-Host '  integrity: headers did not expose a digest/length for this path' -ForegroundColor DarkGray
+        Write-KeyValue -Key 'integrity' -Value 'headers did not expose a digest/length for this path' -KeyWidth 12 -Width $width -ValueColor DarkGray
     }
     Write-Host ''
-    Write-Host 'Note: this is the standalone APK, installable on a normal Android device or' -ForegroundColor DarkGray
-    Write-Host 'inside an emulator. To install it across all running emulator instances from the' -ForegroundColor DarkGray
-    Write-Host 'menu, use [APK] (requires a pinned MuMu instance). To just download it, use the URL above.' -ForegroundColor DarkGray
+    Write-KeyValue -Key 'note' -Value 'this is the standalone APK, installable on a normal Android device or inside an emulator. To install it across all running emulator instances from the menu, use [APK] (requires a pinned MuMu instance). To just download it, use the URL above.' -KeyWidth 12 -Width $width -ValueColor DarkGray
     Write-Host ''
 
     # ---------- historical Windows installers (CN signing archive) ----------
@@ -10149,30 +10156,31 @@ function Show-MumuOfflineInstallers {
     # so we show the documented pattern plus the handful of recent, known-good version paths that are
     # still reachable. If you need a specific very old build, use [MU] to open the release page and
     # follow the archive link shown there.
-    Write-Host 'Windows installer signing archive (offline / historical, mainland China):' -ForegroundColor Yellow
-    Write-Host '  https://down.mumuplayer.com/' -ForegroundColor DarkYellow
-    Write-Host '  (long-term archive of offline installers; individual builds are version-named)' -ForegroundColor DarkYellow
-    Write-Host ''
-
     $archiveBase = 'https://down.mumuplayer.com'
     $archiveCandidates = @(
         'MuMuPlayer_6.0.2_gw-overseas12_all_20240220.exe',
         'MuMuPlayer_5.10.2_gw-overseas12_all_20231115.exe',
         'MuMuPlayer_5.9.2_gw-overseas12_all_20231028.exe'
     )
+
+    Write-MenuGroup -Title 'Windows signing archive (offline / historical)' -Width $width
+    Write-KeyValue -Key 'base' -Value $archiveBase -KeyWidth 12 -Width $width -ValueColor DarkYellow
+    Write-KeyValue -Key 'note' -Value 'long-term archive of offline installers; individual builds are version-named (mainland China)' -KeyWidth 12 -Width $width -ValueColor DarkGray
+    Write-Host ''
+
     foreach ($cand in $archiveCandidates) {
         $url = "$archiveBase/$cand"
         $b = Resolve-InstallerThumbprint -Url $url -Label "archive:$cand"
         $name = ($b | Where-Object { $_ -match '^name:' }) -replace '^name:\s*',''
         $size = ($b | Where-Object { $_ -match '^size:' }) -replace '^size:\s*',''
-        Write-Host "  $cand"
-        Write-Host "    $url"
-        if ($name) { Write-Host "    name: $name" }
-        if ($size) { Write-Host "    size: $size bytes" }
+        Write-Host ('  ' + $cand) -ForegroundColor White
+        Write-KeyValue -Key 'URL' -Value $url -KeyWidth 12 -Width $width
+        if ($name) { Write-KeyValue -Key 'name' -Value $name -KeyWidth 12 -Width $width }
+        if ($size) { Write-KeyValue -Key 'size' -Value "$size bytes" -KeyWidth 12 -Width $width }
         $cs = $b | Where-Object { $_ -match '^sha256:' }
-        if ($cs) { Write-Host "    $($cs -join ' / ')" -ForegroundColor DarkGray }
+        if ($cs) { Write-KeyValue -Key 'digest' -Value ($cs -join ' / ') -KeyWidth 12 -Width $width -ValueColor DarkGray }
         if (-not ($name -or $size -or $cs)) {
-            Write-Host '    (archive path not reachable from here - follow the release page link)' -ForegroundColor DarkGray
+            Write-ScreenNote -Text 'archive path not reachable from here - follow the release page link' -Tone DarkGray
         }
         Write-Host ''
     }

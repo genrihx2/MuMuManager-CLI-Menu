@@ -163,6 +163,14 @@ mumu-menu.cmd
 
 ## Что нового
 
+### v10.4.1 (25.10.2026)
+
+- Экран `[OI]` Offline installers переведён на общий набор оформления рабочих экранов: двойная рамка `Write-ScreenFrame` с заголовком и контекстом, секции `Write-MenuGroup` с линейками, выровненными по краям рамки, и все поля (`URL`, `name`, `size`, `digest`, `canonical`, `integrity`, `note`, `base`) в одинаковых колонках `Write-KeyValue` — длинные URL и подсказки переносятся внутри рамки, а не ломают её. Цвета унифицированы с остальными экранами (Cyan — рамка и секции, Yellow — только предупреждения, теперь внутриэкранные `Write-ScreenNote`).
+- Целостность показывается честно везде: дигест теперь извлекается и на пути резолвера (колонка `digest` в Windows-секции раньше не заполнялась никогда), а когда CDN не отдаёт заголовки, все секции печатают `integrity: headers did not expose a digest/length for this path` вместо молчаливого пропуска.
+- Tests: сьют 296 passed / 0 failed; регенерация README идемпотентна.
+
+**EN summary (v10.4.1):** The `[OI]` offline-installers screen joins the shared screen kit (frame, group rules, aligned key/value columns, wrapped values, unified colours); digest extraction now also runs on the resolver path, and an explicit `integrity` row appears whenever the CDN exposes no headers. Pester 296/296.
+
 ### v10.4.0 (24.10.2026)
 
 - Unified styling across the working screens: a shared kit (`Write-ScreenFrame`, `Write-MenuGroup`, `Write-KeyValue`, `Write-ScreenStatus`, `Write-ScreenStep`, `Write-ScreenNote`, `Write-ToolOutput`, `Write-ScreenChoices`, `Split-MenuWrappedText`) gives every screen the same double-ruled frame with a title and context line, aligned key/value columns, and colours by meaning (green = running, yellow = transitional, dim = stopped).
@@ -237,6 +245,7 @@ mumu-menu.cmd
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v10.4.1 | 25.10.2026 | [OI] offline installers restyled onto the shared frame/group/aligned-column kit; resolver-path digest extraction and an honest integrity fallback row |
 | v10.4.0 | 24.10.2026 | Unified styling for info/apps/settings, launch/shutdown/restart, ADB, APK install and window screens on a shared frame/status/step/note kit with aligned columns and colour-by-meaning |
 | v10.3.5 | 22.10.2026 | Startup fix: no more ObjectSecurity "already present" type-data dump when 5.1 inherits PowerShell 7's PSModulePath through an intermediate launcher (PowerShell/PowerShell#18530); the script repairs $env:PSModulePath on Desktop only. New Repair-DesktopModulePath unit tests |
 | v10.3.4 | 22.10.2026 | [V] reports the real Windows version (Windows 11 26H2 instead of "Windows 10.0"), Release workflow now explicitly dispatches the VirusTotal scan when published with GITHUB_TOKEN |
