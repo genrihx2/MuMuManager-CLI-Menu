@@ -163,6 +163,14 @@ mumu-menu.cmd
 
 ## Что нового
 
+### v10.4.6 (29.10.2026)
+
+- New: после успешного `[U]` меню само перезапускается на новой версии — окно больше не нужно закрывать и открывать вручную. Отложенный `mumu-menu.ps1.new` подменяется до запуска дочернего процесса: иначе тот разобрал бы старый файл и перезапуск ничего бы не изменил.
+- Fixed: перезапуск не срабатывает там, где его быть не должно — в пайпе или перенаправленном вводе (окна нет, а автоматизация ушла бы в цикл), при частично провалившемся обновлении (файлы могут быть несогласованы) и когда подмена `.new` или запуск процесса падает: тогда печатается прежняя строка «Restart the menu…». Всё прежнее поведение смешанного/частичного обновления сохранено.
+- Tests: 4 новых теста (обе функции на верхнем уровне скрипта, порядок «`.version` → перезапуск → запасное сообщение», реальная подмена `.new` и запуск, поведение без консоли); сьют 308 passed / 0 failed на Windows PowerShell 5.1 и на pwsh 7 — плюс end-to-end прогон в живой консоли на обоих движках (дочерний процесс выполнил уже новый код).
+
+**EN summary (v10.4.6):** A clean `[U]` update relaunches the menu on the new files instead of asking for a manual restart: the staged `mumu-menu.ps1.new` is applied before the child process starts, so the child really parses the new script. The restart is skipped for piped or redirected runs (no window, and automation must not loop), for partial updates, and whenever the swap or the launch fails — the old "Restart the menu…" line is printed instead. Pester 308/308 on Windows PowerShell 5.1 and pwsh 7.
+
 ### v10.4.5 (29.10.2026)
 
 - Fixed: сохранённый GitHub-токен снова используется. `Invoke-GitHubApiGet` передавал `-Token` даже когда его не задавали (пустой строкой), `Get-CurlGitHubArgs` считал токен явно заданным и не подхватывал `$GitHubToken` из скрипта — поэтому все запросы уходили анонимно и упирались в лимит 60/час даже с валидным токеном (проверено: токен из `.github-token.dpapi` валиден, лимит 5000/час, а меню всё равно получало 403).
@@ -282,6 +290,7 @@ mumu-menu.cmd
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v10.4.6 | 29.10.2026 | New: a clean `[U]` update relaunches the menu on the new files — the staged `.new` is applied before the child starts, so it parses the new script; piped, partial and failed-swap runs keep the manual "Restart the menu" message |
 | v10.4.5 | 29.10.2026 | Fix: the saved GitHub token was ignored by `Invoke-GitHubApiGet` (empty `-Token` blocked the fallback) so every API call ran anonymously; [RL] now uses that transport and shows GitHub's reason instead of "cannot reach" |
 | v10.4.4 | 29.10.2026 | Fix [RL]: renderer moved to script scope (was nested and unreachable), list parsing no longer uses PS7-only `-AsHashTable`/`.Values`, dates format correctly, Source note interpolates, changelog preview wraps per line |
 | v10.4.3 | 29.10.2026 | Fix: [K] and every GitHub curl call no longer report "network problem" when Schannel cannot check certificate revocation (CRYPT_E_REVOCATION_OFFLINE) — a process-scoped CURL_HOME/_curlrc repairs it |

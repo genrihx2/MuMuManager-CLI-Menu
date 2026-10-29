@@ -317,7 +317,7 @@ function Initialize-TokenStorage {
     # the token via menu [K] so it is recreated through this code path.
 }
 
-$scriptVer = '10.4.5'
+$scriptVer = '10.4.6'
 $InstalledVersion = $null
 
 # --- [WN] MuMu network + updater watcher (read-only, opt-in) -----------------
@@ -2266,6 +2266,88 @@ function Show-ReleaseList {
     Show-ReleaseList
 }
 
+# ── Self-restart after a successful [U] update ─────────────────────────
+# The running script cannot execute code that arrived after it was parsed,
+# so a fresh process is the only honest way to land on the new version.
+# Both helpers are TOP LEVEL on purpose: the menu loop calls them indirectly
+# through Update-FromGitHub, and a nested definition is invisible to its
+# caller (the [RL] "command not recognized" regression).
+function Test-MenuConsoleAttached {
+    # A piped or redirected run has no window to re-launch into: spawning a
+    # process there would leave an orphan console behind (and, in automation,
+    # loop forever). Same test the main loop uses to leave a piped run.
+    try { return (-not [Console]::IsInputRedirected) } catch { return $false }
+}
+
+function Restart-MenuProcess {
+    <#
+    .SYNOPSIS
+        Relaunch this menu in a fresh process, on the files just written.
+    .DESCRIPTION
+        Used at the end of a clean [U] update. A staged mumu-menu.ps1.new is
+        applied first: the child parses whatever sits on disk, so without the
+        swap the restart would re-parse the old script and change nothing.
+
+        Returns $true only when a replacement process was actually started.
+        Every other outcome (no console, no script path, the staged copy
+        cannot be swapped in, the launch throws) returns $false, and the
+        caller keeps its manual 'restart the menu' message.
+    .PARAMETER ScriptPath
+        Script to launch. Defaults to the running script; tests pass a copy.
+    .PARAMETER Quiet
+        Suppress the warnings when the swap or the launch fails.
+    #>
+    param([string]$ScriptPath, [switch]$Quiet)
+
+    if (-not (Test-MenuConsoleAttached)) { return $false }
+
+    if (-not $ScriptPath) {
+        $ScriptPath = $PSCommandPath
+        if (-not $ScriptPath) {
+            try { $ScriptPath = $MyInvocation.MyCommand.Path } catch { $ScriptPath = $null }
+        }
+    }
+    if (-not $ScriptPath -or -not (Test-Path -LiteralPath $ScriptPath -PathType Leaf)) { return $false }
+
+    # Staged self-update: verified bytes waiting for a process that can read
+    # them. Copy over the running file now (PowerShell closes the script file
+    # before executing it), then drop the staging copy so the child does not
+    # report it again at startup.
+    $pending = $ScriptPath + '.new'
+    if (Test-Path -LiteralPath $pending -PathType Leaf) {
+        try {
+            Copy-Item -LiteralPath $pending -Destination $ScriptPath -Force
+        } catch {
+            # The next start applies it (the startup block does), but this
+            # restart would run the old code - do not pretend otherwise.
+            if (-not $Quiet) {
+                Write-Host ('  New script could not be swapped in ({0}).' -f $_.Exception.Message) -ForegroundColor Yellow
+            }
+            return $false
+        }
+        Remove-Item -LiteralPath $pending -Force -ErrorAction SilentlyContinue
+    }
+
+    $exe = $null
+    try { $exe = [System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName } catch { $exe = $null }
+    if (-not $exe -or -not (Test-Path -LiteralPath $exe -PathType Leaf)) { return $false }
+
+    $dir = Split-Path -Parent $ScriptPath
+    try {
+        # New window on purpose: the parent console is about to close, and a
+        # child sharing it would be killed with it.
+        Start-Process -FilePath $exe -WorkingDirectory $dir -ArgumentList @(
+            '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"{0}"' -f $ScriptPath)
+        ) | Out-Null
+        return $true
+    } catch {
+        if (-not $Quiet) {
+            Write-Host ('  Could not start the new menu ({0}).' -f $_.Exception.Message) -ForegroundColor Yellow
+        }
+        return $false
+    }
+}
+
 function Update-FromGitHub {
     # Passive mode = read-only version check (used at startup).
     # Downloads happen only in interactive mode via menu option [U].
@@ -2936,9 +3018,16 @@ function Update-FromGitHub {
             Write-UpdateJournal -EventType 'update-ok' -From $localTag -To $tag -Detail ($fileResults -join ', ')
             [System.IO.File]::WriteAllText($VersionFile, $tag, (New-Object System.Text.UTF8Encoding($false)))
             Write-Host ''
-            Write-Host 'Update complete! Restart the menu to use the new version.' -ForegroundColor Green
+            Write-Host 'Update complete!' -ForegroundColor Green
         }
         Start-Sleep -Seconds 2
+        # A clean update relaunches the menu on the new files instead of making
+        # the user close the window and start it again. Piped runs have no
+        # console: Restart-MenuProcess returns $false there and the old
+        # instruction is printed instead.
+        if ($failed -eq 0 -and -not (Restart-MenuProcess)) {
+            Write-Host 'Restart the menu to use the new version.' -ForegroundColor Green
+        }
         exit
         } finally {
             # Release in finally: covers normal exit, update-fail paths and

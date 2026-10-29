@@ -3896,6 +3896,94 @@ Describe 'Show-ReleaseList ([RL] releases screen)' {
     }
 }
 
+Describe 'Restart-MenuProcess ([U] self-restart)' {
+
+    BeforeAll {
+        $script:restartFn = $script:ast.FindAll({
+            param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Restart-MenuProcess'
+        }, $true) | Select-Object -First 1
+        $script:consoleFn = $script:ast.FindAll({
+            param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Test-MenuConsoleAttached'
+        }, $true) | Select-Object -First 1
+        $script:updateFn = $script:ast.FindAll({
+            param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Update-FromGitHub'
+        }, $true) | Select-Object -First 1
+    }
+
+    It 'declares both helpers at top level - a nested one is invisible to the caller' {
+        $script:restartFn | Should -Not -BeNullOrEmpty
+        $script:consoleFn | Should -Not -BeNullOrEmpty
+        foreach ($f in @($script:restartFn, $script:consoleFn)) {
+            $enclosing = $f.Parent.Parent.Parent
+            ($enclosing -is [System.Management.Automation.Language.FunctionDefinitionAst]) | Should -BeFalse -Because "$($f.Name) is nested inside $($enclosing.Name) and cannot be called"
+            @($script:ast.FindAll({
+                param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $f.Name
+            }, $true)).Count | Should -Be 1
+        }
+    }
+
+    It 'restarts only after a clean update and keeps the manual message as fallback' {
+        $t = $script:updateFn.Extent.Text
+        $verAt = $t.IndexOf('[System.IO.File]::WriteAllText($VersionFile, $tag')
+        $callAt = $t.IndexOf('if ($failed -eq 0 -and -not (Restart-MenuProcess))')
+        $msgAt = $t.IndexOf("Write-Host 'Restart the menu to use the new version.'")
+        ($verAt) | Should -BeGreaterThan 0 -Because '.version must advance before a restart'
+        ($callAt) | Should -BeGreaterThan $verAt
+        ($msgAt) | Should -BeGreaterThan $callAt
+        # A partial update must not relaunch: files may be inconsistent.
+        ($t -match 'if \(\$failed -eq 0 -and -not \(Restart-MenuProcess\)\)') | Should -BeTrue
+    }
+
+    It 'swaps in the staged .new and launches the same script in a new process' {
+        $dir = Join-Path $TestDrive 'restart-ok'
+        $null = New-Item -ItemType Directory -Path $dir -Force
+        $menu = Join-Path $dir 'mumu-menu.ps1'
+        Set-Content -LiteralPath $menu -Value '# old' -Encoding UTF8
+        Set-Content -LiteralPath ($menu + '.new') -Value '# new' -Encoding UTF8
+
+        . ([scriptblock]::Create($script:consoleFn.Extent.Text))
+        . ([scriptblock]::Create($script:restartFn.Extent.Text))
+        function Test-MenuConsoleAttached { $true }
+        $script:started = $null
+        function Start-Process {
+            param($FilePath, $WorkingDirectory, $ArgumentList)
+            $script:started = [pscustomobject]@{ FilePath = $FilePath; WorkingDirectory = $WorkingDirectory; ArgumentList = $ArgumentList }
+        }
+
+        $ok = Restart-MenuProcess -ScriptPath $menu
+        $ok | Should -BeTrue
+        (Get-Content -LiteralPath $menu -Raw).Trim() | Should -Be '# new' -Because 'the child parses the file on disk'
+        (Test-Path -LiteralPath ($menu + '.new')) | Should -BeFalse -Because 'the staging copy must not be re-applied by the child'
+        $script:started | Should -Not -BeNullOrEmpty
+        $script:started.FilePath | Should -Be ([System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName)
+        $script:started.WorkingDirectory | Should -Be $dir
+        ($script:started.ArgumentList -contains '-File') | Should -BeTrue
+        ($script:started.ArgumentList -join ' ') | Should -Match ([regex]::Escape($menu))
+    }
+
+    It 'does nothing without a console and leaves the staged .new untouched' {
+        $dir = Join-Path $TestDrive 'restart-piped'
+        $null = New-Item -ItemType Directory -Path $dir -Force
+        $menu = Join-Path $dir 'mumu-menu.ps1'
+        Set-Content -LiteralPath $menu -Value '# old' -Encoding UTF8
+        Set-Content -LiteralPath ($menu + '.new') -Value '# new' -Encoding UTF8
+
+        . ([scriptblock]::Create($script:consoleFn.Extent.Text))
+        . ([scriptblock]::Create($script:restartFn.Extent.Text))
+        function Test-MenuConsoleAttached { $false }
+        $script:started = $null
+        function Start-Process {
+            param($FilePath, $WorkingDirectory, $ArgumentList)
+            $script:started = [pscustomobject]@{ FilePath = $FilePath; WorkingDirectory = $WorkingDirectory; ArgumentList = $ArgumentList }
+        }
+
+        (Restart-MenuProcess -ScriptPath $menu) | Should -BeFalse
+        $script:started | Should -BeNullOrEmpty -Because 'a piped run must not spawn a window'
+        (Test-Path -LiteralPath ($menu + '.new')) | Should -BeTrue
+        (Get-Content -LiteralPath $menu -Raw).Trim() | Should -Be '# old'
+    }
+}
+
 Describe 'Exit-code hygiene' {
     It 'script ends with an explicit trailing exit 0 (natural-completion path)' {
         $lines = Get-Content -LiteralPath $script:menuPath | Where-Object { $_.Trim() -ne '' }
