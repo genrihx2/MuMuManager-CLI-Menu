@@ -317,7 +317,7 @@ function Initialize-TokenStorage {
     # the token via menu [K] so it is recreated through this code path.
 }
 
-$scriptVer = '10.4.1'
+$scriptVer = '10.4.2'
 $InstalledVersion = $null
 
 # --- [WN] MuMu network + updater watcher (read-only, opt-in) -----------------
@@ -3603,7 +3603,7 @@ function Invoke-MumuManagerProbe {
     # PS 5.1's pipeline ConvertFrom-Json concatenates input lines, but pwsh 7
     # parses each pipeline item separately (every line alone is invalid JSON).
     try { $info = ($outLines -join "`n") | ConvertFrom-Json } catch { $r.error = 'output is not JSON'; return $r }
-    $total = 0; $running = 0; $adb = $false
+    $total = 0; $running = 0; $adb = $false; $adbState = ''
     foreach ($key in $info.PSObject.Properties.Name) {
         $inst = $info.$key
         if ($null -eq $inst -or -not $inst.PSObject.Properties['player_state']) { continue }
@@ -3613,7 +3613,12 @@ function Invoke-MumuManagerProbe {
             $running++
             $av = if ($inst.PSObject.Properties['adb_version']) { "$($inst.adb_version)" } else { '' }
             if ($av -and $av.Trim() -and $av -ne '0') {
+                # The instance itself reports adb_version, so its bridge is up.
+                # $adbState has to move with $adb: adbReady is derived from the
+                # state, and leaving it '' here claimed "ADB bridge NOT ready"
+                # for a healthy emulator in [1] and [DIAG].
                 $adb = $true
+                $adbState = 'ready'
             } else {
                 # v1.21.8 fix: some MuMu builds never report adb_version, which
                 # made the readiness flag a permanent false positive. Ask ADB
@@ -3673,7 +3678,7 @@ function Invoke-MumuManagerProbe {
     }
     $r.instances = $total
     $r.running = $running
-    $r.adbReady = ($adbState -eq 'ready')
+    $r.adbReady = ($adb -or $adbState -eq 'ready')
     $r.adbState = $adbState
     return $r
 }
@@ -4794,7 +4799,11 @@ function Format-Columns {
 }
 
 function Show-Menu {
-    Clear-Host
+    # Clear-Host throws on hosts without a console buffer (redirected stdin/
+    # stdout, a launcher capturing output): the menu must still draw, so the
+    # wipe is best-effort. Without this the very first screen tripped the
+    # menu trap with "Invalid argument" before any option could be picked.
+    try { Clear-Host } catch { Write-Debug "Clear-Host unavailable: $($_.Exception.Message)" }
 
     # The single screen the menu has always been: same keys, same order, same
     # wording. Only the presentation changed - a framed header carrying the
@@ -11863,7 +11872,7 @@ function Watcher-Tick {
         $state = $c.State
         if ($state -match 'SYN|ESTABLISHED|CLOSE_WAIT' -and $c.RemotePort -eq 16448) {
             $Lines.Add(('{0} | {1} | {2} | PID={3} | {4} | {5}:{6} | ADB SAME-PORT' -f $stamp, $tag, $name, $c.Pid, $mark, $c.RemoteAddress, $c.RemotePort))
-            $Lines.Add(('{0} |      | ADB state={1} -> guest forwarded port 16448 is the same loopback that the menu's probe connects to' -f $stamp, $state))
+            $Lines.Add(('{0} |      | ADB state={1} -> guest forwarded port 16448 is the same loopback that the menu''s probe connects to' -f $stamp, $state))
         } elseif ($state -match 'SYN|SENT|RCVD|CLOSE_WAIT') {
             $Lines.Add(('{0} | {1} | {2} | PID={3} | {4} | {5}:{6} | ADB PARTIAL' -f $stamp, $tag, $name, $c.Pid, $mark, $c.RemoteAddress, $c.RemotePort))
             $Lines.Add(('{0} |      | ADB state={1} -> handshake never completed; the guest port is refusing the connect' -f $stamp, $state))
@@ -11918,7 +11927,7 @@ function Start-MumuWatcher {
     }
     $script:WatcherLogFile = $logPath
 
-    $header = '===== MuMu Network + Updater Watcher (menu [WN]) | guest ADB bridge on loopback 16448: connect/device check, log every refused SYNs' ====='
+    $header = '===== MuMu Network + Updater Watcher (menu [WN]) | guest ADB bridge on loopback 16448: connect/device check, log every refused SYNs ====='
     if (-not (Test-Path -LiteralPath $logPath)) {
         $header | Set-Content -LiteralPath $logPath -Encoding UTF8
         "Started: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" |

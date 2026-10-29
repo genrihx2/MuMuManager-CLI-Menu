@@ -163,6 +163,17 @@ mumu-menu.cmd
 
 ## Что нового
 
+### v10.4.2 (29.10.2026)
+
+- New: `[RL]` — read-only список уже опубликованных релизов этого меню: тег, дата публикации, автор, статус stable / pre-release, число файлов в архиве и человекочитаемые release notes, всё на общем наборе оформления (`Write-ScreenFrame`, `Write-MenuGroup`, `Write-KeyValue`). Ничего не скачивается — экран показывает только то, что уже есть на GitHub.
+- Fixed: `mumu-menu.ps1` снова разбирается и запускается. В строке журнала `[WN]` стоял неэкранированный апостроф (`the menu's probe`) внутри строки в одинарных кавычках — он закрывал строку досрочно, и файл давал 17 ошибок разбора (`UnexpectedToken "s"`, «Отсутствует закрывающая скобка»), из-за чего меню не стартовало вообще. Апостроф удвоен (`menu''s`), как требует PowerShell.
+- Fixed: второе такое место — заголовок лога `[WN]` — кавычка стояла посреди фразы (`refused SYNs' ====='`) и обрывала строку; она перенесена в конец.
+- Fixed: `[1]` и `[DIAG]` больше не объявляют исправный эмулятор «ADB bridge NOT ready». Проба выставляла `$adb = $true` по полю `adb_version`, но `adbReady` вычислялся только из `$adbState`, который на этом пути оставался пустым; теперь оба признака двигаются вместе (и `adbReady` принимает любой из них).
+- Fixed: первый экран меню больше не падает с `SetValueInvocationException: CursorPosition — Invalid argument` там, где нет консольного буфера (перенаправленный ввод/вывод, лаунчер, захват вывода): `Clear-Host` стал best-effort, и меню рисуется в обоих режимах вместо ошибки в общем trap.
+- Tests: сьют 296 passed / 0 failed; файл разбирается и в pwsh 7, и в Windows PowerShell 5.1.
+
+**EN summary (v10.4.2):** The menu parses and starts again — an unescaped apostrophe in the `[WN]` log line (plus a misplaced quote in its header) broke the whole script with 17 parse errors. `[1]`/`[DIAG]` no longer report "ADB bridge NOT ready" for an emulator that reports `adb_version`, and the first screen survives hosts without a console buffer. Pester 296/296.
+
 ### v10.4.1 (25.10.2026)
 
 - Экран `[OI]` Offline installers переведён на общий набор оформления рабочих экранов: двойная рамка `Write-ScreenFrame` с заголовком и контекстом, секции `Write-MenuGroup` с линейками, выровненными по краям рамки, и все поля (`URL`, `name`, `size`, `digest`, `canonical`, `integrity`, `note`, `base`) в одинаковых колонках `Write-KeyValue` — длинные URL и подсказки переносятся внутри рамки, а не ломают её. Цвета унифицированы с остальными экранами (Cyan — рамка и секции, Yellow — только предупреждения, теперь внутриэкранные `Write-ScreenNote`).
@@ -245,6 +256,7 @@ mumu-menu.cmd
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v10.4.2 | 29.10.2026 | New [RL] read-only published-releases screen; fix: the menu parses again (unescaped apostrophe in the [WN] log line broke the whole script), [1]/[DIAG] ADB readiness false negative, first screen survives a host without a console buffer |
 | v10.4.1 | 25.10.2026 | [OI] offline installers restyled onto the shared frame/group/aligned-column kit; resolver-path digest extraction and an honest integrity fallback row |
 | v10.4.0 | 24.10.2026 | Unified styling for info/apps/settings, launch/shutdown/restart, ADB, APK install and window screens on a shared frame/status/step/note kit with aligned columns and colour-by-meaning |
 | v10.3.5 | 22.10.2026 | Startup fix: no more ObjectSecurity "already present" type-data dump when 5.1 inherits PowerShell 7's PSModulePath through an intermediate launcher (PowerShell/PowerShell#18530); the script repairs $env:PSModulePath on Desktop only. New Repair-DesktopModulePath unit tests |
