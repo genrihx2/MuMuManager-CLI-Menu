@@ -4194,7 +4194,7 @@ function Show-ProblemDiagnostics {
         $detail = "Problems found: {0} ({1} error(s), {2} warning(s), {3} info)" -f $findings.Count, $diag.errors, $diag.warns, $diag.infos
         Write-Host ("  {0} - {1}" -f $diag.verdict, $detail) -ForegroundColor $diag.color
     }
-    Write-Host ("  install: {0}" -f $ScriptDir) -ForegroundColor DarkGray
+    Write-Host ("  install: {0}" -f $MumuPath) -ForegroundColor DarkGray
     if ($drift -and @($drift.Installs).Count -ge 2) {
         Write-Host ''
         Write-Host '  MuMu installations:' -ForegroundColor Cyan
@@ -4242,7 +4242,7 @@ function Show-ProblemDiagnostics {
                 Write-Host '  Read-only scan - nothing was deleted; removing a folder is a manual decision.' -ForegroundColor DarkGray
             } else {
                 Write-Host ''
-                Write-Host '  Every vms instance folder is in use by the active install.' -ForegroundColor DarkGray
+                Write-Host ('  Every vms instance folder is in use by the active install. ({0})' -f $ScriptDir) -ForegroundColor DarkGray
             }
         } else {
             Write-Host ''
@@ -4502,7 +4502,7 @@ function Show-InstallStatus {
     } else {
         Write-Host '  Journal:                   none yet - no updates performed' -ForegroundColor DarkGray
     }
-    Write-Host ("  install: {0}" -f $ScriptDir) -ForegroundColor DarkGray
+    Write-Host ("  install: {0}" -f $MumuPath) -ForegroundColor DarkGray
     if (-not $Deep) {
         Write-Host '  Press d in the menu for a full drift check (network).' -ForegroundColor DarkGray
     }

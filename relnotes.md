@@ -68,6 +68,10 @@
 ## v10.0.0 (2026-10-14)
 
 - Мажорный релиз: семантический апстрим до `v10.0.0` как стабильный, production-ready веховый релиз.
+
+## v10.4.1 (2026-10-25)
+
+- [OI] offline installers restyled onto the shared frame/group/aligned-column kit; resolver-path digest extraction and an honest integrity fallback row.
 - Документация и release notes reorganised for clarity (relnotes.md и README.md).
 - Поведенческих изменений в рантайме скриптов в этом коммите нет — релиз в первую очередь фиксирует версионную веху и документационные правки.
 
