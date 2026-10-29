@@ -163,6 +163,14 @@ mumu-menu.cmd
 
 ## Что нового
 
+### v10.4.3 (29.10.2026)
+
+- Fixed: `[K]` (и все остальные запросы к GitHub через `curl.exe`) больше не отвечают «GitHub did not respond (network problem)» на машинах, где Windows-curl (Schannel) не может проверить отзыв сертификата: `schannel: CRYPT_E_REVOCATION_OFFLINE` (exit 35) обрывает рукопожатие до первого байта, а stderr отбрасывается — валидный токен выглядел как сетевой сбой. Проверено воспроизведением: обычный `curl.exe https://api.github.com/zen` → exit 35, с `--ssl-no-revoke` → exit 0.
+- Fix: отзыв чинится точечно и только для процесса меню. На старте один раз проверяется, падает ли обычный запрос и проходит ли тот же URL без проверки отзыва; только в этом случае в приватную temp-папку пишется `_curlrc` с `ssl-no-revoke` и выставляется `CURL_HOME` для этого процесса. Цепочка сертификатов и hostname проверяются по-прежнему; на здоровой сети проверка отзыва остаётся включённой, а если недоступна сама сеть (оба запроса падают) — не меняется ничего.
+- Tests: 3 новых Pester-теста на `Repair-CurlRevocation` (здоровая сеть — без изменений, только отзыв — `_curlrc` + `CURL_HOME`, мёртвая сеть — без изменений); сьют 299 passed / 0 failed.
+
+**EN summary (v10.4.3):** `[K]` and every other `curl.exe` GitHub call no longer report "GitHub did not respond (network problem)" when Windows curl (Schannel) cannot check certificate revocation (`CRYPT_E_REVOCATION_OFFLINE`, exit 35) — a valid token looked like a network outage. The menu probes once at startup and, only when the plain request fails while `--ssl-no-revoke` succeeds, points `CURL_HOME` at a private one-line `_curlrc` for its own process. Chain and hostname verification stay on; healthy networks keep full revocation checking. Pester 299/299.
+
 ### v10.4.2 (29.10.2026)
 
 - New: `[RL]` — read-only список уже опубликованных релизов этого меню: тег, дата публикации, автор, статус stable / pre-release, число файлов в архиве и человекочитаемые release notes, всё на общем наборе оформления (`Write-ScreenFrame`, `Write-MenuGroup`, `Write-KeyValue`). Ничего не скачивается — экран показывает только то, что уже есть на GitHub.
@@ -256,6 +264,7 @@ mumu-menu.cmd
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v10.4.3 | 29.10.2026 | Fix: [K] and every GitHub curl call no longer report "network problem" when Schannel cannot check certificate revocation (CRYPT_E_REVOCATION_OFFLINE) — a process-scoped CURL_HOME/_curlrc repairs it |
 | v10.4.2 | 29.10.2026 | New [RL] read-only published-releases screen; fix: the menu parses again (unescaped apostrophe in the [WN] log line broke the whole script), [1]/[DIAG] ADB readiness false negative, first screen survives a host without a console buffer |
 | v10.4.1 | 25.10.2026 | [OI] offline installers restyled onto the shared frame/group/aligned-column kit; resolver-path digest extraction and an honest integrity fallback row |
 | v10.4.0 | 24.10.2026 | Unified styling for info/apps/settings, launch/shutdown/restart, ADB, APK install and window screens on a shared frame/status/step/note kit with aligned columns and colour-by-meaning |

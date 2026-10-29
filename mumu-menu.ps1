@@ -317,7 +317,7 @@ function Initialize-TokenStorage {
     # the token via menu [K] so it is recreated through this code path.
 }
 
-$scriptVer = '10.4.2'
+$scriptVer = '10.4.3'
 $InstalledVersion = $null
 
 # --- [WN] MuMu network + updater watcher (read-only, opt-in) -----------------
@@ -407,6 +407,48 @@ if (Test-CurlRetrySupport) {
     $script:CurlRetryArgs += '--retry-all-errors'
     $script:CurlRetryStr += ' --retry-all-errors'
 }
+
+# Schannel - the TLS backend of the Windows curl build - checks CRL/OCSP
+# revocation on every handshake. On a network where the CA's revocation
+# endpoint is unreachable, EVERY HTTPS request dies with
+# `schannel: CRYPT_E_REVOCATION_OFFLINE` (exit 35) before a single byte is
+# read. Seen live on this repo's dev machine, where git needed
+# http.sslBackend=openssl for exactly the same reason; the menu turned it
+# into "Token check failed: GitHub did not respond (network problem)" and
+# refused a perfectly valid token, because curl's stderr is discarded.
+#
+# curl still verifies the certificate chain and the hostname with only the
+# revocation lookup off, and it reads options from `_curlrc` in $CURL_HOME,
+# so the repair is process-scoped: probe once, and only when the plain
+# request fails while --ssl-no-revoke succeeds, point CURL_HOME at a private
+# one-line config. A healthy network keeps full revocation checking, a curl
+# built without Schannel (OpenSSL) ignores the whole path, and an offline
+# host (both probes fail) is left untouched so real outages stay visible.
+function Repair-CurlRevocation {
+    param(
+        [string]$CurlExe = 'curl.exe',
+        [string]$ProbeUrl = 'https://api.github.com/zen',
+        [string]$ConfigDir = ''
+    )
+    try {
+        $null = & $CurlExe -s -o NUL --connect-timeout 10 --max-time 20 $ProbeUrl 2>$null
+        if ($LASTEXITCODE -eq 0) { return $false }
+        # Only a revocation-only failure can be repaired this way: the same
+        # URL must succeed once the lookup is skipped.
+        $null = & $CurlExe -s -o NUL --ssl-no-revoke --connect-timeout 10 --max-time 20 $ProbeUrl 2>$null
+        if ($LASTEXITCODE -ne 0) { return $false }
+        if (-not $ConfigDir) { $ConfigDir = Join-Path ([System.IO.Path]::GetTempPath()) 'mumu-curl-home' }
+        if (-not (Test-Path -LiteralPath $ConfigDir)) { New-Item -ItemType Directory -Path $ConfigDir -Force | Out-Null }
+        $cfg = Join-Path $ConfigDir '_curlrc'
+        [System.IO.File]::WriteAllText($cfg, "ssl-no-revoke`n", (New-Object System.Text.UTF8Encoding($false)))
+        $env:CURL_HOME = $ConfigDir
+        return $true
+    } catch {
+        Write-Debug "curl revocation probe failed: $($_.Exception.Message)"
+        return $false
+    }
+}
+$script:CurlRevocationRepaired = Repair-CurlRevocation
 
 # Builds a curl ARGUMENT ARRAY for a GitHub API GET. Always use this instead of
 # string interpolation like "-s$script:CurlRetryStr" - under PS 5.1 that
