@@ -3825,6 +3825,37 @@ Describe 'Show-MumuOfflineInstallers ([OI])' {
 }
 
 
+Describe 'Show-ReleaseList ([RL] releases screen)' {
+
+    It 'is defined at TOP LEVEL - a nested definition is invisible to the menu switch' {
+        # v10.4.3 shipped [RL] broken: the function was declared INSIDE
+        # Update-FromGitHub, so the menu's 'rl' dispatch died with
+        # "Show-ReleaseList is not recognized". Only a script-scope definition
+        # can be called from the main loop, so assert the nesting explicitly
+        # instead of trusting the source layout.
+        $f = $script:ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Show-ReleaseList'
+        }, $true) | Select-Object -First 1
+        $f | Should -Not -BeNullOrEmpty -Because '[RL] must have a renderer'
+        $enclosing = $f.Parent.Parent.Parent
+        ($enclosing -is [System.Management.Automation.Language.FunctionDefinitionAst]) | Should -BeFalse -Because "Show-ReleaseList is nested inside $($enclosing.Name) and the menu cannot call it"
+    }
+
+    It 'is wired: the Info group lists [RL] and the main switch dispatches rl' {
+        $src = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\mumu-menu.ps1'))
+        ($src -match "\[RL\] Release list") | Should -BeTrue
+        ([regex]::Matches($src, [regex]::Escape("'rl' { Show-ReleaseList }"))).Count | Should -Be 1
+    }
+
+    It 'interpolates the repo in the Source note instead of printing $GitHubRepo' {
+        $src = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\mumu-menu.ps1'))
+        # Single quotes left the literal '$GitHubRepo' on screen.
+        ($src -match "Write-ScreenNote -Text 'Source: https://github\.com/\`$GitHubRepo/releases'") | Should -BeFalse
+        ($src -match 'Write-ScreenNote -Text "Source: https://github\.com/\$GitHubRepo/releases"') | Should -BeTrue
+    }
+}
+
 Describe 'Exit-code hygiene' {
     It 'script ends with an explicit trailing exit 0 (natural-completion path)' {
         $lines = Get-Content -LiteralPath $script:menuPath | Where-Object { $_.Trim() -ne '' }

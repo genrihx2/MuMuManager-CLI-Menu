@@ -317,7 +317,7 @@ function Initialize-TokenStorage {
     # the token via menu [K] so it is recreated through this code path.
 }
 
-$scriptVer = '10.4.3'
+$scriptVer = '10.4.4'
 $InstalledVersion = $null
 
 # --- [WN] MuMu network + updater watcher (read-only, opt-in) -----------------
@@ -2108,6 +2108,144 @@ function Show-UpdatePlan {
     Write-Host '  Preview only - select [U] Check for updates and confirm (y) to apply.' -ForegroundColor Green
 }
 
+function Show-ReleaseList {
+    <#
+    .SYNOPSIS
+        Read-only list of the releases already published for this menu.
+    .DESCRIPTION
+        Fetches the release list from the GitHub API and renders every
+        entry with the shared screen kit: a framed title and context
+        line, menu-group rules and aligned key/value columns. Nothing is
+        downloaded; this screen only shows what already exists on the
+        remote.
+
+        Keys per release:
+          Tag        - the version tag (v10.4.0)
+          Date       - published date, HH:MM
+          Author     - who published it
+          Status     - normal / pre-release (pre-release in Yellow)
+          Files      - how many assets the archive contains
+          Note       - the human-written release body, wrapped inside
+                      the frame, one line per value row
+    .EXAMPLE
+        [RL] from the menu
+    #>
+    $page = "https://api.github.com/repos/$GitHubRepo/releases?per_page=30"
+
+    $width = Write-ScreenFrame -Title 'Releases' -Context 'published GitHub releases for this menu | read-only'
+    Write-ScreenNote -Text "Source: https://github.com/$GitHubRepo/releases" -Tone DarkGray
+
+    # 2 attempts mirrors every other read-only screen: a single TLS flake
+    # must not read as 'cannot list'.
+    $releases = $null
+    for ($attempt = 1; $attempt -le 2 -and -not $releases; $attempt++) {
+        try {
+            $body = Invoke-WebRequest -Uri $page -UseBasicParsing -TimeoutSec 15
+            # The list endpoint returns a JSON ARRAY. ConvertFrom-Json hands
+            # back Object[] and property access still works on every element;
+            # -AsHashTable is PowerShell 7-only, so on 5.1 it threw at the
+            # parameter binding, the catch swallowed it and the whole screen
+            # claimed 'cannot reach the GitHub API'. v10.4.4 also stopped
+            # reading .Values off the array (that surfaced as one giant
+            # stringified hashtable instead of the release list).
+            $parsed = $body.Content | ConvertFrom-Json
+            if ($parsed) { $releases = @($parsed) }
+        } catch {
+            if ($attempt -lt 2) { Start-Sleep -Seconds 2 }
+        }
+    }
+
+    if (-not $releases) {
+        Write-ScreenNote -Text 'cannot reach the GitHub API - is the host reachable?' -Tone Yellow
+        Write-Host ''
+        return
+    }
+
+    $normal = @($releases | Where-Object { -not $_.prerelease })
+    $pre    = @($releases | Where-Object { $_.prerelease })
+
+    $count = $normal.Count + $pre.Count
+    Write-Host ("  (total: {0} release(s) - {1} stable, {2} pre-release)" -f $count, $normal.Count, $pre.Count) -ForegroundColor DarkGray
+    Write-Host ''
+
+    Write-MenuGroup -Title 'Stable' -Width $width
+    foreach ($rel in @($normal)) {
+        $tag     = if ($rel.tag_name)     { $rel.tag_name }     else { '?' }
+        $author  = if ($rel.author -and $rel.author.login) { $rel.author.login } else { '?' }
+        # pwsh 7 hands published_at back as a [datetime] already, and parsing
+        # THAT throws (PowerShell stringifies it in the current culture first) -
+        # the old try/catch then fell back to the raw value and the screen showed
+        # the OS date format. Format a real DateTime directly, parse strings
+        # culture-invariantly (PS 5.1 keeps them strings).
+        $date    = if ($rel.published_at -is [datetime]) {
+            $rel.published_at.ToString('yyyy-MM-dd HH:mm')
+        } elseif ($rel.published_at) {
+            $rawDate = [string]$rel.published_at
+            try { ([datetime]::Parse($rawDate, [Globalization.CultureInfo]::InvariantCulture)).ToString('yyyy-MM-dd HH:mm') } catch { $rawDate }
+        } else { '?' }
+        $status  = if ($rel.prerelease) { 'pre-release' } else { 'stable' }
+        $size    = @($rel.assets).Count
+
+        Write-KeyValue -Key 'Tag'   -Value $tag -KeyWidth 12 -Width $width
+        Write-KeyValue -Key 'Date'  -Value $date   -KeyWidth 12 -Width $width -ValueColor DarkGray
+        Write-KeyValue -Key 'Author'-Value $author -KeyWidth 12 -Width $width -ValueColor DarkGray
+        Write-KeyValue -Key 'Status'-Value $status -KeyWidth 12 -Width $width -ValueColor $(if ($rel.prerelease) { 'DarkYellow' } else { 'DarkGray' })
+        Write-KeyValue -Key 'Files' -Value $size   -KeyWidth 12 -Width $width -ValueColor DarkGray
+        Write-Host ''
+    }
+
+    if ($pre.Count -gt 0) {
+        Write-MenuGroup -Title 'Pre-release' -Width $width
+        foreach ($rel in $pre) {
+            $tag  = if ($rel.tag_name)     { $rel.tag_name }     else { '?' }
+            $date = if ($rel.published_at -is [datetime]) {
+                $rel.published_at.ToString('yyyy-MM-dd HH:mm')
+            } elseif ($rel.published_at) {
+                $rawDate = [string]$rel.published_at
+                try { ([datetime]::Parse($rawDate, [Globalization.CultureInfo]::InvariantCulture)).ToString('yyyy-MM-dd HH:mm') } catch { $rawDate }
+            } else { '?' }
+
+            Write-KeyValue -Key 'Tag' -Value $tag -KeyWidth 12 -Width $width -ValueColor Yellow
+            Write-KeyValue -Key 'Date'-Value $date  -KeyWidth 12 -Width $width -ValueColor DarkGray
+            Write-KeyValue -Key 'Status'-Value 'pre-release' -KeyWidth 12 -Width $width -ValueColor DarkYellow
+            Write-KeyValue -Key 'URL' -Value "https://github.com/$GitHubRepo/releases/tag/$($rel.tag_name)" -KeyWidth 12 -Width $width -ValueColor DarkGray
+            Write-Host ''
+        }
+    }
+
+    Write-Host ''
+
+    # ---------- the manual release body (only for the top stable tag) ----------
+    $top = @($normal | Sort-Object { $_.published_at } -Descending | Select-Object -First 1)
+    if ($top.Count -gt 0 -and $top[0].body) {
+        Write-MenuGroup -Title 'What''s new' -Width $width
+        # A release body is many lines of markdown. Split on newlines first -
+        # Split-MenuWrappedText wraps ONE line and used to glue the whole body
+        # (newlines included) into a single paragraph - and stop at 30 rendered
+        # lines so one long changelog cannot scroll the frame off the screen.
+        $bodyLines = @(([string]$top[0].body) -split "`r?`n" | Where-Object { $_.Trim() })
+        $limit = 30
+        $shown = 0
+        foreach ($bl in $bodyLines) {
+            if ($shown -ge $limit) { break }
+            foreach ($chunk in @(Split-MenuWrappedText -Text $bl.Trim() -Width ($width - 8))) {
+                if ($shown -ge $limit) { break }
+                Write-Host "  $chunk" -ForegroundColor White
+                $shown++
+            }
+        }
+        if ($bodyLines.Count -gt $shown) {
+            Write-ScreenNote -Text ("{0} more line(s) - full notes: https://github.com/{1}/releases/tag/{2}" -f ($bodyLines.Count - $shown), $GitHubRepo, $top[0].tag_name) -Tone DarkGray
+        }
+        Write-Host ''
+    }
+
+    Write-Host '  [0] Back' -ForegroundColor Yellow
+    $choice = Read-Host 'Select'
+    if ($choice -eq '0') { return }
+    Show-ReleaseList
+}
+
 function Update-FromGitHub {
     # Passive mode = read-only version check (used at startup).
     # Downloads happen only in interactive mode via menu option [U].
@@ -2190,114 +2328,6 @@ function Update-FromGitHub {
         } else {
             Write-Host "  Update check failed: $($Reason.Message)" -ForegroundColor Yellow
         }
-    }
-
-    function Show-ReleaseList {
-        <#
-        .SYNOPSIS
-            Read-only list of the releases already published for this menu.
-        .DESCRIPTION
-            Fetches the release list from the GitHub API and renders every
-            entry with the shared screen kit: a framed title and context
-            line, menu-group rules and aligned key/value columns. Nothing is
-            downloaded; this screen only shows what already exists on the
-            remote.
-
-            Keys per release:
-              Tag        - the version tag (v10.4.0)
-              Date       - published date, HH:MM
-              Author     - who published it
-              Status     - normal / pre-release (pre-release in Yellow)
-              Files      - how many assets the archive contains
-              Note       - the human-written release body, wrapped inside
-                          the frame, one line per value row
-        .EXAMPLE
-            [RL] from the menu
-        #>
-        $page = "https://api.github.com/repos/$GitHubRepo/releases?per_page=30"
-
-        $width = Write-ScreenFrame -Title 'Releases' -Context 'published GitHub releases for this menu | read-only'
-        Write-ScreenNote -Text 'Source: https://github.com/$GitHubRepo/releases' -Tone DarkGray
-
-        # 2 attempts mirrors every other read-only screen: a single TLS flake
-        # must not read as 'cannot list'.
-        $releases = $null
-        for ($attempt = 1; $attempt -le 2 -and -not $releases; $attempt++) {
-            try {
-                $body = Invoke-WebRequest -Uri $page -UseBasicParsing -TimeoutSec 15
-                $releases = $body.Content | ConvertFrom-Json -AsHashTable
-            } catch {
-                if ($attempt -lt 2) { Start-Sleep -Seconds 2 }
-            }
-        }
-
-        if (-not $releases) {
-            Write-ScreenNote -Text 'cannot reach the GitHub API - is the host reachable?' -Tone Yellow
-            Write-Host ''
-            return
-        }
-
-        $normal = @($releases.Values | Where-Object { -not $_.prerelease })
-        $pre    = @($releases.Values | Where-Object { $_.prerelease })
-
-        $count = (@($normal).Count + @($pre).Count)
-        Write-Host ("  (total: $count release(s) - @($normal.Count) stable, @($pre.Count) pre-release)") -ForegroundColor DarkGray
-        Write-Host ''
-
-        Write-MenuGroup -Title 'Stable' -Width $width
-        foreach ($rel in @($normal)) {
-            $tag     = if ($rel.tag_name)     { $rel.tag_name }     else { '?' }
-            $author  = if ($rel.author -and $rel.author.login) { $rel.author.login } else { '?' }
-            $date    = if ($rel.published_at) {
-                try { [datetime]::Parse($rel.published_at).ToString('yyyy-MM-dd HH:mm') } catch { $rel.published_at }
-            } else { '?' }
-            $status  = if ($rel.prerelease) { 'pre-release' } else { 'stable' }
-            $size    = if ($rel.assets -and $rel.assets.Count) { $rel.assets.Count } else { 0 }
-
-            Write-KeyValue -Key 'Tag'   -Value $tag -KeyWidth 12 -Width $width
-            Write-KeyValue -Key 'Date'  -Value $date   -KeyWidth 12 -Width $width -ValueColor DarkGray
-            Write-KeyValue -Key 'Author'-Value $author -KeyWidth 12 -Width $width -ValueColor DarkGray
-            Write-KeyValue -Key 'Status'-Value $status -KeyWidth 12 -Width $width -ValueColor $(if ($rel.prerelease) { 'DarkYellow' } else { 'DarkGray' })
-            Write-KeyValue -Key 'Files' -Value $size   -KeyWidth 12 -Width $width -ValueColor DarkGray
-            Write-Host ''
-        }
-
-        if ($pre.Count -gt 0) {
-            Write-MenuGroup -Title 'Pre-release' -Width $width
-            foreach ($rel in $pre) {
-                $tag  = if ($rel.tag_name)     { $rel.tag_name }     else { '?' }
-                $date = if ($rel.published_at) {
-                    try { [datetime]::Parse($rel.published_at).ToString('yyyy-MM-dd HH:mm') } catch { $rel.published_at }
-                } else { '?' }
-
-                Write-KeyValue -Key 'Tag' -Value $tag -KeyWidth 12 -Width $width -ValueColor Yellow
-                Write-KeyValue -Key 'Date'-Value $date  -KeyWidth 12 -Width $width -ValueColor DarkGray
-                Write-KeyValue -Key 'Status'-Value 'pre-release' -KeyWidth 12 -Width $width -ValueColor DarkYellow
-                Write-KeyValue -Key 'URL' -Value "https://github.com/$GitHubRepo/releases/tag/$($rel.tag_name)" -KeyWidth 12 -Width $width -ValueColor DarkGray
-                Write-Host ''
-            }
-        }
-
-        Write-Host ''
-
-        # ---------- the manual release body (only for the top stable tag) ----------
-        $top = @($normal | Sort-Object { $_.published_at } -Descending | Select-Object -First 1)
-        if ($top) {
-            $body = $top.Body
-            if ($body) {
-                Write-MenuGroup -Title 'What''s new' -Width $width
-                $chunks = Split-MenuWrappedText -Text ([string]$body) -Width ($width - 8)
-                foreach ($chunk in $chunks) {
-                    Write-Host "  $chunk" -ForegroundColor White
-                }
-                Write-Host ''
-            }
-        }
-
-        Write-Host '  [0] Back' -ForegroundColor Yellow
-        $choice = Read-Host 'Select'
-        if ($choice -eq '0') { return }
-        Show-ReleaseList
     }
 
     try {

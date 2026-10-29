@@ -163,6 +163,16 @@ mumu-menu.cmd
 
 ## Что нового
 
+### v10.4.4 (29.10.2026)
+
+- Fixed: `[RL]` больше не падает с «Термин "Show-ReleaseList" не распознается». Функция была объявлена внутри `Update-FromGitHub`, а вложенные определения видны только на время работы родителя — меню из главного цикла её не находило. Определение перенесено на верхний уровень скрипта.
+- Fixed: список релизов теперь разбирается корректно. `ConvertFrom-Json -AsHashTable` есть только в PowerShell 7 (на 5.1 параметр не привязывается, `catch` его глотал, и экран что врал «cannot reach the GitHub API»), а `.Values` от JSON-массива давал одну гигантскую строку вместо списка. Экран читает массив напрямую и считает stable/pre-release по нему, `Files` берётся как `@($rel.assets).Count`.
+- Fixed: дата релиза печаталась в формате ОС (`10/29/2026 07:00:50`) — `[datetime]::Parse()` от готового `[datetime]` (его отдаёт pwsh 7) бросает исключение, и `catch` возвращал сырое значение. Теперь `[datetime]` форматируется напрямую, а строки парсятся culture-invariant (PS 5.1 оставляет их строками).
+- Fixed: две мелочи того же экрана — заметка «Source:» печатала буквальный `$GitHubRepo` (одинарные кавычки вместо двойных), а «What's new» склеивал весь changelog в один абзац: теперь текст идёт построчно, не более 30 строк, со ссылкой на остаток.
+- Tests: 3 регрессионных теста ([RL] объявлен на верхнем уровне, wiring `[RL]`/`rl`, интерполяция Source); сьют 302 passed / 0 failed.
+
+**EN summary (v10.4.4):** `[RL]` works again. The renderer was declared inside `Update-FromGitHub`, so the main switch could not see it ("Show-ReleaseList is not recognized"); the JSON list is no longer read through `.Values`/`-AsHashTable` (PS 7-only, and `.Values` turned the array into one string), release dates format correctly from the `[datetime]` pwsh 7 returns, the Source note interpolates the repo, and the changelog preview wraps line by line with a link to the rest. Pester 302/302.
+
 ### v10.4.3 (29.10.2026)
 
 - Fixed: `[K]` (и все остальные запросы к GitHub через `curl.exe`) больше не отвечают «GitHub did not respond (network problem)» на машинах, где Windows-curl (Schannel) не может проверить отзыв сертификата: `schannel: CRYPT_E_REVOCATION_OFFLINE` (exit 35) обрывает рукопожатие до первого байта, а stderr отбрасывается — валидный токен выглядел как сетевой сбой. Проверено воспроизведением: обычный `curl.exe https://api.github.com/zen` → exit 35, с `--ssl-no-revoke` → exit 0.
@@ -264,6 +274,7 @@ mumu-menu.cmd
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v10.4.4 | 29.10.2026 | Fix [RL]: renderer moved to script scope (was nested and unreachable), list parsing no longer uses PS7-only `-AsHashTable`/`.Values`, dates format correctly, Source note interpolates, changelog preview wraps per line |
 | v10.4.3 | 29.10.2026 | Fix: [K] and every GitHub curl call no longer report "network problem" when Schannel cannot check certificate revocation (CRYPT_E_REVOCATION_OFFLINE) — a process-scoped CURL_HOME/_curlrc repairs it |
 | v10.4.2 | 29.10.2026 | New [RL] read-only published-releases screen; fix: the menu parses again (unescaped apostrophe in the [WN] log line broke the whole script), [1]/[DIAG] ADB readiness false negative, first screen survives a host without a console buffer |
 | v10.4.1 | 25.10.2026 | [OI] offline installers restyled onto the shared frame/group/aligned-column kit; resolver-path digest extraction and an honest integrity fallback row |
