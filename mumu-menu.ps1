@@ -317,7 +317,7 @@ function Initialize-TokenStorage {
     # the token via menu [K] so it is recreated through this code path.
 }
 
-$scriptVer = '10.4.6'
+$scriptVer = '10.4.7'
 $InstalledVersion = $null
 
 # --- [WN] MuMu network + updater watcher (read-only, opt-in) -----------------
@@ -467,6 +467,29 @@ function Get-CurlGitHubArgs {
     return ,$curlArgs
 }
 
+# UTF-8-safe body capture for native curl. `$resp = & curl.exe ...` decodes the
+# child's stdout with [Console]::OutputEncoding - CP866 on a Russian Windows
+# console - so UTF-8 JSON carrying Cyrillic (release bodies, repository
+# descriptions) reached the screens as "╨Ш╨╜..." glyph salad instead of text.
+# Let curl write the body to a file and decode that file as UTF-8 explicitly.
+function Invoke-CurlUtf8 {
+    param([string[]]$CurlArgs = @(), [string]$Url)
+    $tmp = [System.IO.Path]::GetTempFileName()
+    try {
+        # Splat, never a bare array argument: a native command would receive
+        # the array as one argv entry and curl would reject the fused options.
+        # -o before the URL makes curl write the body instead of printing it.
+        $fileArgs = @($CurlArgs) + @('-o', $tmp)
+        & curl.exe @fileArgs $Url 2>$null | Out-Null
+        if (-not (Test-Path -LiteralPath $tmp -PathType Leaf)) { return '' }
+        # File.ReadAllText with an explicit encoding also strips a BOM; empty
+        # (transport failure / 304) comes back as '' and keeps the old contract.
+        return [System.IO.File]::ReadAllText($tmp, [System.Text.Encoding]::UTF8)
+    } finally {
+        Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+    }
+}
+
 # Shared GitHub API GET via argument array. Returns the raw body as a single
 # string; on a non-2xx/transport failure returns the JSON error body (callers
 # already treat parse failures / missing fields as failure).
@@ -482,7 +505,7 @@ function Invoke-GitHubApiGet {
     } else {
         Get-CurlGitHubArgs -ExtraArgs $ExtraArgs
     }
-    $resp = (& curl.exe @curlArgs $Url 2>$null | Out-String)
+    $resp = Invoke-CurlUtf8 -CurlArgs $curlArgs -Url $Url
     # Saved-token rejection: disable once at script scope and retry
     # anonymously (public repo) instead of handing 401 JSON to callers.
     # Explicit -Token callers ([K] validation) are exempt - their rejection
@@ -493,7 +516,7 @@ function Invoke-GitHubApiGet {
         $script:GitHubToken = ''
         Write-Host '  Saved token disabled for this session - re-save via menu [K].' -ForegroundColor DarkGray
         $curlArgs = Get-CurlGitHubArgs -ExtraArgs $ExtraArgs
-        $resp = (& curl.exe @curlArgs $Url 2>$null | Out-String)
+        $resp = Invoke-CurlUtf8 -CurlArgs $curlArgs -Url $Url
     }
     return $resp
 }

@@ -163,6 +163,14 @@ mumu-menu.cmd
 
 ## Что нового
 
+### v10.4.7 (29.10.2026)
+
+- Fixed: `[RL]` больше не показывает тело релиза как «╨Ш╨╜…». `Invoke-GitHubApiGet` читал stdout `curl.exe` через пайп, а Windows PowerShell 5.1 декодирует вывод нативных команд кодировкой консоли (CP866 на русской Windows) — UTF-8 JSON с кириллицей превращался в мусор. Ответ теперь пишется файлом (`curl -o`) и читается явно как UTF-8; пустой ответ/сетевой сбой по-прежнему дают прежний контракт `''`.
+- Fixed: тот же путь чинит любой текст, приходящий через `Invoke-GitHubApiGet`: сообщения GitHub об ошибках, описания и прочие кириллические поля экранов.
+- Tests: 2 новых теста (тело приходит только через `-o` и читается как UTF-8, в `Invoke-GitHubApiGet` больше нет `| Out-String`); сьют 310 passed / 0 failed на 5.1 и pwsh. Проверено A/B в консоли с кодовой страницей 866: старый файл давал `╨Ш╨╜╤В…`, новый — нормальный русский текст.
+
+**EN summary (v10.4.7):** `[RL]` release bodies no longer render as `╨Ш╨╜…`. `Invoke-GitHubApiGet` captured `curl.exe` stdout through a pipe, and Windows PowerShell 5.1 decodes native stdout with the console code page (CP866 on a Russian Windows), mangling UTF-8 JSON with Cyrillic. The body is now requested with `curl -o` and read explicitly as UTF-8; an empty or failed response keeps the old `''` contract. Pester 310/310 on 5.1 and pwsh 7.
+
 ### v10.4.6 (29.10.2026)
 
 - New: после успешного `[U]` меню само перезапускается на новой версии — окно больше не нужно закрывать и открывать вручную. Отложенный `mumu-menu.ps1.new` подменяется до запуска дочернего процесса: иначе тот разобрал бы старый файл и перезапуск ничего бы не изменил.
@@ -290,6 +298,7 @@ mumu-menu.cmd
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v10.4.7 | 29.10.2026 | Fix [RL]: the release body arrived as `╨Ш╨╜…` because `Invoke-GitHubApiGet` piped `curl.exe` stdout and PS 5.1 decodes native output with the console code page (CP866); the body now goes through `curl -o` and is read as UTF-8 |
 | v10.4.6 | 29.10.2026 | New: a clean `[U]` update relaunches the menu on the new files — the staged `.new` is applied before the child starts, so it parses the new script; piped, partial and failed-swap runs keep the manual "Restart the menu" message |
 | v10.4.5 | 29.10.2026 | Fix: the saved GitHub token was ignored by `Invoke-GitHubApiGet` (empty `-Token` blocked the fallback) so every API call ran anonymously; [RL] now uses that transport and shows GitHub's reason instead of "cannot reach" |
 | v10.4.4 | 29.10.2026 | Fix [RL]: renderer moved to script scope (was nested and unreachable), list parsing no longer uses PS7-only `-AsHashTable`/`.Values`, dates format correctly, Source note interpolates, changelog preview wraps per line |

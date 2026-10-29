@@ -36,7 +36,7 @@ BeforeAll {
                         'Get-DiagSummary', 'Show-UpdatePlan',
                         'Get-AutoDiagSummary', 'Invoke-StartupAutoDiag', 'Show-AutoDiagLine',
                         'Read-EtagCacheFile', 'Get-EtagCacheFileState', 'Save-EtagCacheFile', 'Invoke-EtagCacheMaintenance',
-                        'Test-CurlRetrySupport', 'Repair-CurlRevocation', 'Get-CurlGitHubArgs', 'Invoke-GitHubApiGet', 'Get-ReleaseInfo', 'Invoke-GitHubGet',
+                        'Test-CurlRetrySupport', 'Repair-CurlRevocation', 'Get-CurlGitHubArgs', 'Invoke-CurlUtf8', 'Invoke-GitHubApiGet', 'Get-ReleaseInfo', 'Invoke-GitHubGet',
                         'Get-MumuProcessSamples', 'Get-MumuResourceSnapshot', 'Show-ResourceMonitor', 'Get-InstanceProcessMap',
                         'Get-InstanceWritableSettings', 'Compare-Settings', 'Format-CompareValue',
                         'Update-ResourceStats', 'Get-ResourceStatsSummary', 'ConvertTo-ResourceExportLines', 'Export-ResourceSnapshot',
@@ -3847,6 +3847,52 @@ Describe 'Show-MumuOfflineInstallers ([OI])' {
     }
 }
 
+
+Describe 'Invoke-GitHubApiGet transport (UTF-8 bodies)' {
+
+    BeforeAll {
+        foreach ($name in @('Invoke-CurlUtf8', 'Invoke-GitHubApiGet', 'Get-CurlGitHubArgs')) {
+            $f = $script:ast.FindAll({
+                param($node)
+                $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
+            }, $true) | Select-Object -First 1
+            if (-not $f) { throw "$name function not found in mumu-menu.ps1" }
+            . ([scriptblock]::Create($f.Extent.Text))
+        }
+        $script:GitHubToken = $null
+        $script:CurlRetryArgs = @()
+    }
+
+    It 'reads the body from curl -o as UTF-8 instead of the console code page' {
+        # Regression: `$resp = & curl.exe ...` decoded the child's stdout with
+        # [Console]::OutputEncoding (CP866 on a Russian console), so a release
+        # body full of Cyrillic rendered as "╨Ш╨╜..." on [RL]. The stub prints
+        # nothing on stdout: only the -o file carries the answer, which is what
+        # api.github.com does with a UTF-8 JSON body.
+        function curl.exe {
+            param([Parameter(ValueFromRemainingArguments = $true)]$curlArgs)
+            $o = [array]::IndexOf($curlArgs, '-o')
+            if ($o -ge 0) {
+                $json = '{"body":"Интерактивное меню"}'
+                [System.IO.File]::WriteAllBytes($curlArgs[$o + 1], [System.Text.Encoding]::UTF8.GetBytes($json))
+            }
+            $global:LASTEXITCODE = 0
+        }
+
+        $raw = Invoke-GitHubApiGet -Url 'https://api.github.com/repos/o/r/releases'
+        $raw | Should -Match 'Интерактивное меню'
+        ($raw | ConvertFrom-Json).body | Should -Be 'Интерактивное меню'
+    }
+
+    It 'never pipes curl stdout into PowerShell for the API body' {
+        $f = $script:ast.FindAll({
+            param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Invoke-GitHubApiGet'
+        }, $true) | Select-Object -First 1
+        $body = $f.Extent.Text
+        ($body -match '\| Out-String') | Should -BeFalse -Because 'native stdout is decoded with the console code page'
+        ($body -match 'Invoke-CurlUtf8') | Should -BeTrue
+    }
+}
 
 Describe 'Show-ReleaseList ([RL] releases screen)' {
 
