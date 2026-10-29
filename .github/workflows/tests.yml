@@ -12,6 +12,7 @@ on:
       - 'bootstrap-update.ps1'
       - 'mumu-menu.ps1'
       - 'tests/**'
+      - 'release-files.txt'
       - '.github/workflows/tests.yml'
       - '.github/actions/**'
   pull_request:
@@ -19,6 +20,7 @@ on:
       - 'bootstrap-update.ps1'
       - 'mumu-menu.ps1'
       - 'tests/**'
+      - 'release-files.txt'
       - '.github/workflows/tests.yml'
       - '.github/actions/**'
   workflow_dispatch:
@@ -129,3 +131,85 @@ jobs:
           pester: 5.7.1
           shell: pwsh
           layout: deployed
+
+  installed-smoke:
+    # Installed-copy smoke (tests/test-installed-smoke.ps1). The release
+    # pipeline ships a ZIP users unpack, so the gate must exercise an
+    # INSTALLED layout, not the repo tree: the version sources in that copy
+    # agree, its own [RL] screen renders and lists the tag, and its own
+    # bootstrap-update.ps1 accepts an archive built the way release.yml
+    # builds it. v10.4.7 shipped a menu whose [RL] entry died with "command
+    # not recognized" - a repo-only check could not see that.
+    #
+    # PRE-RELEASE BY DESIGN: release.yml runs this gate BEFORE it builds the
+    # assets, so the tag under test has no release yet. -PreRelease relaxes
+    # exactly that one assertion (the tag is listed, or the newest published
+    # tag is older - a release in flight) and the archive is built here from
+    # the checkout instead of downloaded. A published tag NEWER than the
+    # install still fails the leg.
+    #
+    # One job, two engine steps - not a matrix: release.yml's gate matches
+    # Tests legs by EXACT NAME (REQUIRED_LEGS), and a matrix would rename
+    # them, blocking every future release.
+    name: installed-smoke
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Build an installed layout and a release-style archive
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # release-files.txt is the single source of truth for what ships
+          # (the Release workflow builds the ZIP from the same list).
+          $files = @(Get-Content -LiteralPath 'release-files.txt' -Encoding UTF8 |
+            ForEach-Object { $_.Trim() } |
+            Where-Object { $_ -and -not $_.StartsWith('#') })
+          if (-not $files.Count) { throw 'release-files.txt lists no files' }
+
+          $target = Join-Path $env:RUNNER_TEMP 'installed'
+          if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
+          New-Item -ItemType Directory -Path $target -Force | Out-Null
+          foreach ($f in $files) {
+            $src = Join-Path $env:GITHUB_WORKSPACE $f
+            if (-not (Test-Path -LiteralPath $src -PathType Leaf)) { throw "deployed file missing from the checkout: $f" }
+            Copy-Item -LiteralPath $src -Destination (Join-Path $target $f) -Force
+          }
+
+          # Same shape release.yml produces: archive root IS the file set
+          # (git archive | tar -x -C dist, then zip -r from dist).
+          $tag = (Get-Content -LiteralPath (Join-Path $target '.version') -Raw).Trim()
+          $zip = Join-Path $env:RUNNER_TEMP ("MuMuManager-CLI-Menu-$tag.zip")
+          if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = [System.IO.Compression.ZipFile]::Open($zip, 'Create')
+          try {
+            foreach ($f in $files) {
+              [void][System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+                $archive, (Join-Path $target $f), $f, [System.IO.Compression.CompressionLevel]::Optimal)
+            }
+          } finally { $archive.Dispose() }
+          $hash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLower()
+          # Bootstrap reads the first whitespace-separated token, so the
+          # two-space separator release.yml writes is cosmetic - keep it anyway.
+          Set-Content -LiteralPath ($zip + '.sha256') -Value ("$hash  " + (Split-Path -Leaf $zip)) -Encoding ascii
+
+          "SMOKE_TARGET=$target" >> $env:GITHUB_ENV
+          "SMOKE_ZIP=$zip" >> $env:GITHUB_ENV
+          Write-Host "installed layout : $target"
+          Write-Host "release archive  : $zip"
+          Write-Host "sha256           : $hash"
+
+      - name: Installed-copy smoke (pwsh)
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./tests/test-installed-smoke.ps1 -TargetDir $env:SMOKE_TARGET -ZipPath $env:SMOKE_ZIP -PreRelease -RequireNetwork
+
+      - name: Installed-copy smoke (Windows PowerShell 5.1)
+        shell: powershell
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./tests/test-installed-smoke.ps1 -TargetDir $env:SMOKE_TARGET -ZipPath $env:SMOKE_ZIP -PreRelease -RequireNetwork

@@ -28,10 +28,11 @@ tests/
   test-bootstrap-update.ps1
   test-changelog-sync.ps1  # relnotes = .version = scriptVer + README table sync
   test-deployed-layout.ps1 # Repo-vs-install drift guard: suite inside a fixture with ONLY the deployed files, both engines, RepoFiles excluded
+  test-installed-smoke.ps1 # Installed-copy smoke (-TargetDir): version sources agree, its own [RL] lists the tag, its bootstrap verifies the release ZIP
 PSScriptAnalyzerSettings.psd1
 .github/workflows/
   release.yml           # Tag-driven release; on main push derives tag from $scriptVer
-  tests.yml             # Pester matrix: PS 5.1 + pwsh on pinned Pester 5.7.1, plus a preinstalled-Pester canary, plus a deployed-layout fixture leg (.github/actions/pester-unit)
+  tests.yml             # Pester matrix: PS 5.1 + pwsh on pinned Pester 5.7.1, plus a preinstalled-Pester canary, plus a deployed-layout fixture leg (.github/actions/pester-unit), plus the installed-copy smoke leg (release gate)
   lint.yml              # actionlint for workflow files
   changelog-check.yml   # README/relnotes/.version consistency gate
   sync-readme.yml       # Auto-sync README menu block after script changes

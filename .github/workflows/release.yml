@@ -18,9 +18,9 @@ name: Release
 # runs against the tag blobs before anything is published, so a version whose
 # notes row/section is missing never ships with an incomplete release body.
 # Before publishing, the workflow runs and requires the named Tests legs
-# (bootstrap-detector, the three pester-unit matrix legs, the deployed-
-# layout leg - see REQUIRED_LEGS in the gate step) green on the exact
-# tag commit: it reuses an existing Tests run on that commit or
+# (bootstrap-detector, installed-smoke, the three pester-unit matrix legs,
+# the deployed-layout leg - see REQUIRED_LEGS in the gate step) green on the
+# exact tag commit: it reuses an existing Tests run on that commit or
 # dispatches one itself, then fails closed on red/missing/timeout.
 # Legs are matched by exact name, so a leg removed from tests.yml or
 # renamed out from under the gate blocks the release instead of
@@ -265,6 +265,7 @@ jobs:
           # a renamed or dropped leg surfaces as "missing" on the next
           # release instead of passing unnoticed.
           REQUIRED_LEGS='bootstrap-detector
+          installed-smoke
           pester-unit (5.7.1 / powershell)
           pester-unit (5.7.1 / pwsh)
           pester-unit (preinstalled / pwsh)
@@ -278,7 +279,7 @@ jobs:
           # the jq parse error is fatal for gh - the release would block
           # on "missing" (v1.22.43 lesson).
           gh api "repos/$REPO/commits/$TAG_SHA/check-runs?per_page=100" \
-            --jq ".check_runs[] | select(.name | test(\"^(bootstrap-detector|pester-unit)\")) | [.name, .status, (.conclusion // \"-\")] | @tsv" > runs.tsv
+            --jq ".check_runs[] | select(.name | test(\"^(bootstrap-detector|installed-smoke|pester-unit)\")) | [.name, .status, (.conclusion // \"-\")] | @tsv" > runs.tsv
           # Exact-name match per required leg; the LAST matching row wins
           # (a re-run appends new rows; keeping the first could see a red
           # row that later went green). A leg with no check-run yields an
