@@ -36,7 +36,7 @@ BeforeAll {
                         'Get-DiagSummary', 'Show-UpdatePlan',
                         'Get-AutoDiagSummary', 'Invoke-StartupAutoDiag', 'Show-AutoDiagLine',
                         'Read-EtagCacheFile', 'Get-EtagCacheFileState', 'Save-EtagCacheFile', 'Invoke-EtagCacheMaintenance',
-                        'Test-CurlRetrySupport', 'Get-CurlGitHubArgs', 'Invoke-GitHubApiGet', 'Get-ReleaseInfo', 'Invoke-GitHubGet',
+                        'Test-CurlRetrySupport', 'Repair-CurlRevocation', 'Get-CurlGitHubArgs', 'Invoke-GitHubApiGet', 'Get-ReleaseInfo', 'Invoke-GitHubGet',
                         'Get-MumuProcessSamples', 'Get-MumuResourceSnapshot', 'Show-ResourceMonitor', 'Get-InstanceProcessMap',
                         'Get-InstanceWritableSettings', 'Compare-Settings', 'Format-CompareValue',
                         'Update-ResourceStats', 'Get-ResourceStatsSummary', 'ConvertTo-ResourceExportLines', 'Export-ResourceSnapshot',
@@ -2555,6 +2555,56 @@ Describe 'GitHub API fetch via argument arrays (v1.22.3, [K] Token invalid fix)'
         Test-CurlRetrySupport -CurlExe $stub | Should -Be $false
         Set-Content -Path $stub -Value '@exit 35' -Encoding Ascii
         Test-CurlRetrySupport -CurlExe $stub | Should -Be $true
+    }
+
+    It 'Repair-CurlRevocation: a healthy host is left alone and keeps revocation checks' {
+        $dir = Join-Path $TestDrive 'curlrev-ok'
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        $stub = Join-Path $dir 'curl-ok.cmd'
+        Set-Content -Path $stub -Value '@exit 0' -Encoding Ascii
+        $cfgDir = Join-Path $dir 'cfg'
+        $saved = $env:CURL_HOME
+        try {
+            $env:CURL_HOME = 'sentinel'
+            Repair-CurlRevocation -CurlExe $stub -ConfigDir $cfgDir | Should -Be $false
+            $env:CURL_HOME | Should -Be 'sentinel'
+            (Test-Path -LiteralPath (Join-Path $cfgDir '_curlrc')) | Should -Be $false
+        } finally { $env:CURL_HOME = $saved }
+    }
+
+    It 'Repair-CurlRevocation: revocation-only failure writes a process-scoped _curlrc and points CURL_HOME at it' {
+        # Exit 35 without --ssl-no-revoke, 0 with it - the CRYPT_E_REVOCATION_OFFLINE
+        # shape: the same request succeeds once the CRL/OCSP lookup is skipped.
+        $dir = Join-Path $TestDrive 'curlrev-fix'
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        $stub = Join-Path $dir 'curl-rev.cmd'
+        $bat = "@echo off`r`necho %* | findstr /C:`"--ssl-no-revoke`" >nul`r`nif %errorlevel% equ 0 exit /b 0`r`nexit /b 35`r`n"
+        [System.IO.File]::WriteAllText($stub, $bat)
+        $cfgDir = Join-Path $dir 'cfg'
+        $saved = $env:CURL_HOME
+        try {
+            $env:CURL_HOME = ''
+            Repair-CurlRevocation -CurlExe $stub -ConfigDir $cfgDir | Should -Be $true
+            $env:CURL_HOME | Should -Be $cfgDir
+            $cfg = Join-Path $cfgDir '_curlrc'
+            (Test-Path -LiteralPath $cfg -PathType Leaf) | Should -Be $true
+            ([System.IO.File]::ReadAllText($cfg)).Trim() | Should -Be 'ssl-no-revoke'
+        } finally { $env:CURL_HOME = $saved }
+    }
+
+    It 'Repair-CurlRevocation: a dead network stays a failure (no silent revocation bypass)' {
+        $dir = Join-Path $TestDrive 'curlrev-dead'
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        $stub = Join-Path $dir 'curl-dead.cmd'
+        Set-Content -Path $stub -Value '@exit 7' -Encoding Ascii
+        $cfgDir = Join-Path $dir 'cfg'
+        $saved = $env:CURL_HOME
+        try {
+            $env:CURL_HOME = 'sentinel2'
+            Repair-CurlRevocation -CurlExe $stub -ConfigDir $cfgDir | Should -Be $false
+            $env:CURL_HOME | Should -Be 'sentinel2'
+            (Test-Path -LiteralPath (Join-Path $cfgDir '_curlrc')) | Should -Be $false
+        } finally { $env:CURL_HOME = $saved }
     }
 
     It 'the broken "-s$script:CurlRetryStr" interpolation pattern is gone from direct curl calls' {
