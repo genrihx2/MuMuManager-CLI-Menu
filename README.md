@@ -370,6 +370,7 @@ mumu-menu.cmd
   [RB] Rollback from backup
   [DL] Download repository
   [CR] Create release
+  [RL] Release list
   [FR] Fix release encoding
   [0] Exit
 ======================================
