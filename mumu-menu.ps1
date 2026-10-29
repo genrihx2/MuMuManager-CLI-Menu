@@ -2302,6 +2302,14 @@ function Test-MenuConsoleAttached {
     try { return (-not [Console]::IsInputRedirected) } catch { return $false }
 }
 
+# Single launch point for the relaunch. Kept as its own function so tests can
+# observe the exact arguments without redefining a built-in cmdlet - both an
+# analyzer warning and a crash source for Invoke-ScriptAnalyzer in CI.
+function Start-MenuHostProcess {
+    param([string]$FilePath, [string]$WorkingDirectory, [string[]]$ArgumentList)
+    Start-Process -FilePath $FilePath -WorkingDirectory $WorkingDirectory -ArgumentList $ArgumentList | Out-Null
+}
+
 function Restart-MenuProcess {
     <#
     .SYNOPSIS
@@ -2359,9 +2367,9 @@ function Restart-MenuProcess {
     try {
         # New window on purpose: the parent console is about to close, and a
         # child sharing it would be killed with it.
-        Start-Process -FilePath $exe -WorkingDirectory $dir -ArgumentList @(
+        Start-MenuHostProcess -FilePath $exe -WorkingDirectory $dir -ArgumentList @(
             '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"{0}"' -f $ScriptPath)
-        ) | Out-Null
+        )
         return $true
     } catch {
         if (-not $Quiet) {
