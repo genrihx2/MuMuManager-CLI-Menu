@@ -2150,6 +2150,114 @@ function Update-FromGitHub {
         }
     }
 
+    function Show-ReleaseList {
+        <#
+        .SYNOPSIS
+            Read-only list of the releases already published for this menu.
+        .DESCRIPTION
+            Fetches the release list from the GitHub API and renders every
+            entry with the shared screen kit: a framed title and context
+            line, menu-group rules and aligned key/value columns. Nothing is
+            downloaded; this screen only shows what already exists on the
+            remote.
+
+            Keys per release:
+              Tag        - the version tag (v10.4.0)
+              Date       - published date, HH:MM
+              Author     - who published it
+              Status     - normal / pre-release (pre-release in Yellow)
+              Files      - how many assets the archive contains
+              Note       - the human-written release body, wrapped inside
+                          the frame, one line per value row
+        .EXAMPLE
+            [RL] from the menu
+        #>
+        $page = "https://api.github.com/repos/$GitHubRepo/releases?per_page=30"
+
+        $width = Write-ScreenFrame -Title 'Releases' -Context 'published GitHub releases for this menu | read-only'
+        Write-ScreenNote -Text 'Source: https://github.com/$GitHubRepo/releases' -Tone DarkGray
+
+        # 2 attempts mirrors every other read-only screen: a single TLS flake
+        # must not read as 'cannot list'.
+        $releases = $null
+        for ($attempt = 1; $attempt -le 2 -and -not $releases; $attempt++) {
+            try {
+                $body = Invoke-WebRequest -Uri $page -UseBasicParsing -TimeoutSec 15
+                $releases = $body.Content | ConvertFrom-Json -AsHashTable
+            } catch {
+                if ($attempt -lt 2) { Start-Sleep -Seconds 2 }
+            }
+        }
+
+        if (-not $releases) {
+            Write-ScreenNote -Text 'cannot reach the GitHub API - is the host reachable?' -Tone Yellow
+            Write-Host ''
+            return
+        }
+
+        $normal = @($releases.Values | Where-Object { -not $_.prerelease })
+        $pre    = @($releases.Values | Where-Object { $_.prerelease })
+
+        $count = (@($normal).Count + @($pre).Count)
+        Write-Host ("  (total: $count release(s) - @($normal.Count) stable, @($pre.Count) pre-release)") -ForegroundColor DarkGray
+        Write-Host ''
+
+        Write-MenuGroup -Title 'Stable' -Width $width
+        foreach ($rel in @($normal)) {
+            $tag     = if ($rel.tag_name)     { $rel.tag_name }     else { '?' }
+            $author  = if ($rel.author -and $rel.author.login) { $rel.author.login } else { '?' }
+            $date    = if ($rel.published_at) {
+                try { [datetime]::Parse($rel.published_at).ToString('yyyy-MM-dd HH:mm') } catch { $rel.published_at }
+            } else { '?' }
+            $status  = if ($rel.prerelease) { 'pre-release' } else { 'stable' }
+            $size    = if ($rel.assets -and $rel.assets.Count) { $rel.assets.Count } else { 0 }
+
+            Write-KeyValue -Key 'Tag'   -Value $tag -KeyWidth 12 -Width $width
+            Write-KeyValue -Key 'Date'  -Value $date   -KeyWidth 12 -Width $width -ValueColor DarkGray
+            Write-KeyValue -Key 'Author'-Value $author -KeyWidth 12 -Width $width -ValueColor DarkGray
+            Write-KeyValue -Key 'Status'-Value $status -KeyWidth 12 -Width $width -ValueColor $(if ($rel.prerelease) { 'DarkYellow' } else { 'DarkGray' })
+            Write-KeyValue -Key 'Files' -Value $size   -KeyWidth 12 -Width $width -ValueColor DarkGray
+            Write-Host ''
+        }
+
+        if ($pre.Count -gt 0) {
+            Write-MenuGroup -Title 'Pre-release' -Width $width
+            foreach ($rel in $pre) {
+                $tag  = if ($rel.tag_name)     { $rel.tag_name }     else { '?' }
+                $date = if ($rel.published_at) {
+                    try { [datetime]::Parse($rel.published_at).ToString('yyyy-MM-dd HH:mm') } catch { $rel.published_at }
+                } else { '?' }
+
+                Write-KeyValue -Key 'Tag' -Value $tag -KeyWidth 12 -Width $width -ValueColor Yellow
+                Write-KeyValue -Key 'Date'-Value $date  -KeyWidth 12 -Width $width -ValueColor DarkGray
+                Write-KeyValue -Key 'Status'-Value 'pre-release' -KeyWidth 12 -Width $width -ValueColor DarkYellow
+                Write-KeyValue -Key 'URL' -Value "https://github.com/$GitHubRepo/releases/tag/$($rel.tag_name)" -KeyWidth 12 -Width $width -ValueColor DarkGray
+                Write-Host ''
+            }
+        }
+
+        Write-Host ''
+
+        # ---------- the manual release body (only for the top stable tag) ----------
+        $top = @($normal | Sort-Object { $_.published_at } -Descending | Select-Object -First 1)
+        if ($top) {
+            $body = $top.Body
+            if ($body) {
+                Write-MenuGroup -Title 'What''s new' -Width $width
+                $chunks = Split-MenuWrappedText -Text ([string]$body) -Width ($width - 8)
+                foreach ($chunk in $chunks) {
+                    Write-Host "  $chunk" -ForegroundColor White
+                }
+                Write-Host ''
+            }
+        }
+
+        Write-Host '  [0] Back' -ForegroundColor Yellow
+        $choice = Read-Host 'Select'
+        if ($choice -eq '0') { return }
+        Show-ReleaseList
+    }
+
     try {
         # Fetch structured release info via the Get-ReleaseInfo helper (the
         # single transport - token, Accept, ETag cache and retries all live
@@ -3480,7 +3588,7 @@ function Invoke-MumuManagerProbe {
             return $null
         }
     }
-    $r = @{ found = $false; instances = -1; running = -1; adbReady = $false; error = ''; rawFirstLine = ''; adbExeUsed = '' }
+    $r = @{ found = $false; instances = -1; running = -1; adbReady = $false; adbState = ''; adbPort = 0; error = ''; rawFirstLine = ''; adbExeUsed = '' }
     $exe = if ($MumuPathOverride) { $MumuPathOverride } else { $TargetPath }
     if (-not ($exe -and (Test-Path -LiteralPath $exe -PathType Leaf))) { $r.error = 'not found'; return $r }
     $r.found = $true
@@ -3531,6 +3639,7 @@ function Invoke-MumuManagerProbe {
                         }
                     }
                     $r.adbExeUsed = "$adbExe"
+                    $adbState = 'offline'
                     if ($adbExe) {
                         # v1.22.5: MuMu's bridge listens but adb does NOT attach to it
                         # automatically - plain `adb devices` stays empty (caught live:
@@ -3540,17 +3649,22 @@ function Invoke-MumuManagerProbe {
                         # daemon start can block for a long time and freeze the menu
                         # - so every adb call runs through the kill-on-timeout wrapper.
                         $null = Invoke-Quick -Exe $adbExe -ArgumentString "connect 127.0.0.1:$port" -TimeoutMs 5000 # DevSkim: ignore DS162092 - emulator ADB bridge on loopback is the product's core transport
+                        $connectResult = $LASTEXITCODE
                         foreach ($attempt in 1..2) {
                             $dev = Invoke-Quick -Exe $adbExe -ArgumentString "-s 127.0.0.1:$port devices" -TimeoutMs 5000 # DevSkim: ignore DS162092 - emulator ADB bridge on loopback
                             $dev = "$dev"
-                            if ($dev -match "127\.0\.0\.1:$port\s+device") { $adb = $true; break }
-                            if ($dev -match "127\.0\.0\.1:$port\s+(offline|unauthorized)") { break }
+                            if ($dev -match "127\.0\.0\.1:$port\s+device") { $adb = $true; $adbState = 'ready'; break }
+                            if ($dev -match "127\.0\.0\.1:$port\s+(offline|unauthorized)") { $adbState = 'offline'; break }
                             if ($attempt -eq 1) {
                                 # still not attached: try connect once more (cold adb
                                 # daemon sometimes drops the first attempt), then recheck
                                 $null = Invoke-Quick -Exe $adbExe -ArgumentString "connect 127.0.0.1:$port" -TimeoutMs 5000 # DevSkim: ignore DS162092 - emulator ADB bridge on loopback is the product's core transport
+                                $connectResult = $LASTEXITCODE
                                 Start-Sleep -Milliseconds 800
                             }
+                        }
+                        if ($adbState -eq 'offline' -and $connectResult -eq 1) {
+                            $adbState = 'refused'
                         }
                     }
                 }
@@ -3559,7 +3673,8 @@ function Invoke-MumuManagerProbe {
     }
     $r.instances = $total
     $r.running = $running
-    $r.adbReady = $adb
+    $r.adbReady = ($adbState -eq 'ready')
+    $r.adbState = $adbState
     return $r
 }
 
@@ -3857,9 +3972,11 @@ function Get-ProblemFindings {
                 } elseif ($probe.running -eq 0) {
                     & $add 'info' 'emulator' "$($probe.instances) instance(s) present, none running - launch with menu [2]"
                 } else {
-                    $adbNote = if ($probe.adbReady) { ', ADB bridge ready' } else { ', ADB bridge NOT ready' }
+                    $adbNote = if ($probe.adbReady) { ', ADB bridge ready' } else { ', ADB bridge NOT ready (' + $probe.adbState + ')' }
                     & $add 'info' 'emulator' "$($probe.running) of $($probe.instances) instance(s) running$adbNote"
-                    if (-not $probe.adbReady) {
+                    if ($probe.adbState -eq 'refused') {
+                        & $add 'warn' 'emulator' "ADB bridge refused the connect on port $($probe.adbPort) - the guest loopback is refusing it; run [MN] and check the forwarded ports, or restart the emulator (in-emulator adb commands will fail until the bridge accepts)"
+                    } elseif (-not $probe.adbReady) {
                         & $add 'warn' 'emulator' "ADB bridge not ready on the running instance - wait a moment or restart it; in-emulator commands (curl, adb shell) will fail until then"
                     }
                 }
@@ -4789,6 +4906,7 @@ function Show-Menu {
                 '[RB] Rollback from backup'
                 '[DL] Download repository'
                 '[CR] Create release'
+                '[RL] Release list'
                 '[FR] Fix release encoding'
                 '[0] Exit'
             )
@@ -10205,9 +10323,8 @@ function Show-MumuUpdateCheck {
     #>
     $page = 'https://www.mumuplayer.com/update/'
 
-    Write-Host ''
-    Write-Host '=== MuMu emulator update check (read-only) ===' -ForegroundColor Cyan
-    Write-Host ''
+    $width = Write-ScreenFrame -Title 'MuMu emulator update check (read-only)' -Context $page
+    Write-KeyValue -Key 'Source' -Value $page -KeyWidth 12 -Width $width -ValueColor DarkGray
 
     # Installed version - same source as the startup health check and [V].
     $local = $null
@@ -10221,14 +10338,14 @@ function Show-MumuUpdateCheck {
     } catch { $local = $null }
 
     if ($local) {
-        Write-Host "Installed MuMu: $localRaw" -ForegroundColor Green
+        Write-KeyValue -Key 'Installed' -Value $localRaw -KeyWidth 12 -Width $width -ValueColor Green
     } elseif ($localRaw) {
-        Write-Host "Installed MuMu: $localRaw (not parseable as a version)" -ForegroundColor Yellow
+        Write-KeyValue -Key 'Installed' -Value "$localRaw (not parseable as a version)" -KeyWidth 12 -Width $width -ValueColor Yellow
     } else {
-        Write-Host 'Installed MuMu: unknown (MuMuManager.exe not reachable)' -ForegroundColor Yellow
+        Write-KeyValue -Key 'Installed' -Value 'unknown (MuMuManager.exe not reachable)' -KeyWidth 12 -Width $width -ValueColor Yellow
     }
     if ($MinVersion) {
-        Write-Host "Minimum required by this menu: $MinVersion" -ForegroundColor DarkGray
+        Write-KeyValue -Key 'Min' -Value $MinVersion -KeyWidth 12 -Width $width -ValueColor DarkGray
     }
 
     # Latest official version - first Vx.y.z on the release-notes page
@@ -10247,39 +10364,51 @@ function Show-MumuUpdateCheck {
     }
 
     if (-not $latest) {
-        Write-Host 'Latest official: cannot check (offline or page layout changed)' -ForegroundColor DarkGray
-        Write-Host "  -> Check manually: $page" -ForegroundColor Cyan
+        Write-KeyValue -Key 'Latest' -Value 'cannot check (offline or page layout changed)' -KeyWidth 12 -Width $width -ValueColor DarkGray
+        Write-KeyValue -Key 'Manual' -Value $page -KeyWidth 12 -Width $width -ValueColor Cyan
         return
     }
-    Write-Host "Latest official: $latest ($page)" -ForegroundColor Green
+    Write-KeyValue -Key 'Latest' -Value $latest -KeyWidth 12 -Width $width -ValueColor Green
 
     if ($null -eq $local) {
-        Write-Host '  -> Cannot compare: installed version unknown' -ForegroundColor DarkGray
+        Write-KeyValue -Key 'Compare' -Value 'installed version unknown' -KeyWidth 12 -Width $width -ValueColor DarkGray
     } elseif ($local -lt $latest) {
-        Write-Host "  -> Update available: MuMu $local -> $latest" -ForegroundColor Yellow
-        Write-Host '     Upgrade through the built-in MuMu updater (Settings -> About -> Check for updates).' -ForegroundColor DarkGray
+        Write-KeyValue -Key 'Compare' -Value "$local -> $latest" -KeyWidth 12 -Width $width -ValueColor Yellow
+        Write-KeyValue -Key 'Hint' -Value 'upgrade through the built-in MuMu updater (Settings -> About -> Check for updates)' -KeyWidth 12 -Width $width -ValueColor DarkGray
     } elseif ($local -gt $latest) {
-        Write-Host "  -> Installed MuMu $local is ahead of the latest public release $latest" -ForegroundColor DarkGray
-        Write-Host '     (local/beta build, or a different release channel than the global page)' -ForegroundColor DarkGray
+        Write-KeyValue -Key 'Compare' -Value 'installed ahead of the public release' -KeyWidth 12 -Width $width -ValueColor DarkGray
+        Write-KeyValue -Key 'Hint' -Value 'local/beta build, or a different release channel than the global page' -KeyWidth 12 -Width $width -ValueColor DarkGray
     } else {
-        Write-Host '  -> Installed MuMu is up to date' -ForegroundColor Green
+        Write-KeyValue -Key 'Compare' -Value 'up to date' -KeyWidth 12 -Width $width -ValueColor Green
     }
 }
 
 function Show-VersionInfo {
-    Write-Host ''
-    Write-Host '=== MuMu Manager CLI Menu ===' -ForegroundColor Cyan
-    Write-Host ''
+    <#
+    .SYNOPSIS
+        Everything the menu knows about itself: script version, MuMu,
+    .DESCRIPTION
+        Renders every value through the shared screen kit - a framed card
+        with a dim context line and aligned key/value rows - so [V] looks
+        like [OI] and the other Info screens instead of a dump of
+        Write-Host lines. Read-only; no network result changes the layout.
+    .EXAMPLE
+        [V] from the menu
+    #>
+    $api  = "https://api.github.com/repos/$GitHubRepo/releases/latest"
+
+    $width = Write-ScreenFrame -Title 'Version info' -Context 'menu version | MuMu version | token status | OS'
+    Write-KeyValue -Key 'Type' -Value 'menu' -KeyWidth 12 -Width $width -ValueColor DarkGray
 
     # Script version (defined at script scope)
-    Write-Host "Script version: $scriptVer" -ForegroundColor Green
+    Write-KeyValue -Key 'Script' -Value $scriptVer -KeyWidth 12 -Width $width -ValueColor Green
 
     # Check for updates (2 attempts - a single TLS flake must not read as
     # "Cannot check updates"; mirrors the v1.21.9 retry hardening)
     $latest = $null
     for ($vAttempt = 1; $vAttempt -le 2 -and -not $latest; $vAttempt++) {
         try {
-            $latest = (Invoke-WebRequest -Uri "https://api.github.com/repos/$GitHubRepo/releases/latest" -UseBasicParsing -TimeoutSec 10).Content | ConvertFrom-Json
+            $latest = (Invoke-WebRequest -Uri $api -UseBasicParsing -TimeoutSec 10).Content | ConvertFrom-Json
         } catch {
             if ($vAttempt -lt 2) { Start-Sleep -Seconds 2 }
         }
@@ -10288,48 +10417,50 @@ function Show-VersionInfo {
         if ($latest -and $latest.tag_name) {
             $latestVer = $latest.tag_name -replace '^v',''
             if ($latestVer -ne $scriptVer) {
-                Write-Host "  -> Update available: $latestVer (run [U] to update)" -ForegroundColor Yellow
+                Write-KeyValue -Key 'Remote' -Value $latestVer -KeyWidth 12 -Width $width -ValueColor Yellow
+                Write-KeyValue -Key 'RemoteUrl' -Value "https://github.com/$GitHubRepo/releases/tag/$latestVer" -KeyWidth 12 -Width $width -ValueColor DarkGray
             } else {
-                Write-Host '  -> Up to date' -ForegroundColor DarkGray
+                Write-KeyValue -Key 'Remote' -Value 'up to date' -KeyWidth 12 -Width $width -ValueColor Green
             }
         } elseif ($latest -and $latest.message -match 'rate limit') {
-            Write-Host '  -> Rate limit exceeded - cannot check now' -ForegroundColor Yellow
-            Write-Host "     ($($(if ($GitHubToken) { 'token quota exhausted' } else { '60 req/hr without a token; add one via [K]' })))" -ForegroundColor DarkGray
+            Write-KeyValue -Key 'Remote' -Value 'rate limit exceeded - cannot check now' -KeyWidth 12 -Width $width -ValueColor Yellow
+            Write-KeyValue -Key 'Hint' -Value 'token quota exhausted; add one via [K]' -KeyWidth 12 -Width $width -ValueColor DarkGray
         } else {
-            Write-Host '  -> Cannot check updates' -ForegroundColor DarkGray
+            Write-KeyValue -Key 'Remote' -Value 'cannot check' -KeyWidth 12 -Width $width -ValueColor DarkGray
         }
     } catch {
-        Write-Host '  -> Cannot check updates' -ForegroundColor DarkGray
+        Write-KeyValue -Key 'Remote' -Value 'cannot check' -KeyWidth 12 -Width $width -ValueColor DarkGray
     }
 
     # MuMu version
     try {
         $verJson = & $MumuPath version 2>$null | ConvertFrom-Json
         $ver = $verJson.version
-        $minVer = [version]'4.0.0.3179'
-        $curVer = [version]$ver
-        if ($curVer -ge $minVer) {
-            Write-Host "MuMu version: $ver" -ForegroundColor Green
+        if ($ver) {
+            $minVer = [version]'4.0.0.3179'
+            $curVer = [version]$ver
+            Write-KeyValue -Key 'MuMu' -Value $ver -KeyWidth 12 -Width $width -ValueColor $(if ($curVer -ge $minVer) { 'Green' } else { 'Red' })
         } else {
-            Write-Host "MuMu version: $ver (OLD - minimum: $minVer)" -ForegroundColor Red
+            Write-KeyValue -Key 'MuMu' -Value 'unknown' -KeyWidth 12 -Width $width -ValueColor Yellow
         }
     } catch {
-        Write-Host 'MuMu version: unknown' -ForegroundColor Yellow
+        Write-KeyValue -Key 'MuMu' -Value 'unknown' -KeyWidth 12 -Width $width -ValueColor Yellow
     }
 
     # MuMu player/updater EXE versions - re-read from the installed files on
     # every [V] run (discovery + resolution cascade in Show-MumuExeVersions).
-    Write-Host 'MuMu EXE versions:' -ForegroundColor Cyan
+    Write-MenuGroup -Title 'EXE versions' -Width $width
     Show-MumuExeVersions
-    Write-Host 'Official MuMuPlayer release notes: https://www.mumuplayer.com/update' -ForegroundColor Cyan
+
+    Write-KeyValue -Key 'Update page' -Value 'https://www.mumuplayer.com/update' -KeyWidth 12 -Width $width -ValueColor Cyan
 
     # PowerShell version
     $psVer = $PSVersionTable.PSVersion
-    Write-Host "PowerShell: $psVer" -ForegroundColor $(if ($psVer -ge '5.1') { 'Green' } else { 'Yellow' })
+    Write-KeyValue -Key 'PowerShell' -Value $psVer -KeyWidth 12 -Width $width -ValueColor $(if ($psVer -ge '5.1') { 'Green' } else { 'Yellow' })
 
     # .NET version
     $dotnet = [System.Runtime.InteropServices.RuntimeInformation]::FrameworkDescription
-    Write-Host ".NET: $dotnet" -ForegroundColor DarkGray
+    Write-KeyValue -Key '.NET' -Value $dotnet -KeyWidth 12 -Width $width -ValueColor DarkGray
 
     # OS info: [Environment]::OSVersion reports 10.0 on every Windows 10/11,
     # and ProductName stays stale through in-place upgrades (a 26H2 machine
@@ -10349,21 +10480,21 @@ function Show-VersionInfo {
         if (-not $dvProp -or -not $dvProp.Value) { $dvProp = $cv.PSObject.Properties['ReleaseId'] }
         if ($dvProp -and $dvProp.Value) { $osLabel = "$osName $($dvProp.Value)" }
     }
-    Write-Host "OS: $osLabel (Build $build)" -ForegroundColor DarkGray
+    Write-KeyValue -Key 'OS' -Value "$osLabel (Build $build)" -KeyWidth 12 -Width $width -ValueColor DarkGray
 
     # Architecture
     $arch = if ([Environment]::Is64BitOperatingSystem) { 'x64' } else { 'x86' }
-    Write-Host "Arch: $arch" -ForegroundColor DarkGray
+    Write-KeyValue -Key 'Arch' -Value $arch -KeyWidth 12 -Width $width -ValueColor DarkGray
 
     # GitHub repo
-    Write-Host "Repository: $GitHubRepo" -ForegroundColor DarkGray
+    Write-KeyValue -Key 'Repo' -Value $GitHubRepo -KeyWidth 12 -Width $width -ValueColor DarkGray
 
     # Token status
     if ($GitHubToken) {
         $masked = $GitHubToken.Substring(0, [Math]::Min(4, $GitHubToken.Length)) + '***'
-        Write-Host "GitHub token: $masked (valid)" -ForegroundColor Green
+        Write-KeyValue -Key 'GitHub token' -Value "$masked (valid)" -KeyWidth 12 -Width $width -ValueColor Green
     } else {
-        Write-Host 'GitHub token: not configured' -ForegroundColor Yellow
+        Write-KeyValue -Key 'GitHub token' -Value 'not configured (add one with [K])' -KeyWidth 12 -Width $width -ValueColor Yellow
     }
 
     # Instances
@@ -10374,9 +10505,9 @@ function Show-VersionInfo {
         foreach ($key in $info.PSObject.Properties.Name) {
             if ($info.$key.is_process_started) { $running++ }
         }
-        Write-Host "Instances: $count ($running running)" -ForegroundColor Cyan
+        Write-KeyValue -Key 'Instances' -Value "$count ($running running)" -KeyWidth 12 -Width $width -ValueColor Cyan
     } catch {
-        Write-Host 'Instances: unknown' -ForegroundColor Yellow
+        Write-KeyValue -Key 'Instances' -Value 'cannot check' -KeyWidth 12 -Width $width -ValueColor Yellow
     }
 
     # ADB server
@@ -11729,8 +11860,17 @@ function Watcher-Tick {
         $name = $nameByPid[$c.Pid]
         if (-not $name) { $name = 'MuMu*' }
         $mark = if ($c.IsHttps) { 'TCP/443' } else { 'TCP' }
-        $Lines.Add(('{0} | {1} | {2} | PID={3} | {4} | {5}:{6}' -f $stamp, $tag, $name, $c.Pid, $mark, $c.RemoteAddress, $c.RemotePort))
-        $Lines.Add(('{0} |      | state={1} local={2}:{3}' -f $stamp, $c.State, $c.LocalAddress, $c.LocalPort))
+        $state = $c.State
+        if ($state -match 'SYN|ESTABLISHED|CLOSE_WAIT' -and $c.RemotePort -eq 16448) {
+            $Lines.Add(('{0} | {1} | {2} | PID={3} | {4} | {5}:{6} | ADB SAME-PORT' -f $stamp, $tag, $name, $c.Pid, $mark, $c.RemoteAddress, $c.RemotePort))
+            $Lines.Add(('{0} |      | ADB state={1} -> guest forwarded port 16448 is the same loopback that the menu's probe connects to' -f $stamp, $state))
+        } elseif ($state -match 'SYN|SENT|RCVD|CLOSE_WAIT') {
+            $Lines.Add(('{0} | {1} | {2} | PID={3} | {4} | {5}:{6} | ADB PARTIAL' -f $stamp, $tag, $name, $c.Pid, $mark, $c.RemoteAddress, $c.RemotePort))
+            $Lines.Add(('{0} |      | ADB state={1} -> handshake never completed; the guest port is refusing the connect' -f $stamp, $state))
+        } else {
+            $Lines.Add(('{0} | {1} | {2} | PID={3} | {4} | {5}:{6}' -f $stamp, $tag, $name, $c.Pid, $mark, $c.RemoteAddress, $c.RemotePort))
+            $Lines.Add(('{0} |      | state={1} local={2}:{3}' -f $stamp, $c.State, $c.LocalAddress, $c.LocalPort))
+        }
     }
 
     Watcher-ProcessUpdateTick -NameByPid $nameByPid -Seen $Seen -Lines $Lines -Connections $conns -Seed:$Seed
@@ -11778,7 +11918,7 @@ function Start-MumuWatcher {
     }
     $script:WatcherLogFile = $logPath
 
-    $header = '===== MuMu Network + Updater Watcher (menu [WN]) ====='
+    $header = '===== MuMu Network + Updater Watcher (menu [WN]) | guest ADB bridge on loopback 16448: connect/device check, log every refused SYNs' ====='
     if (-not (Test-Path -LiteralPath $logPath)) {
         $header | Set-Content -LiteralPath $logPath -Encoding UTF8
         "Started: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" |
@@ -12439,6 +12579,7 @@ do {
         'rb' { Show-RollbackFromBackup }
         'dl' { Download-Repository }
         'cr' { Create-GitHubRelease }
+        'rl' { Show-ReleaseList }
         'fr' { Fix-ReleaseEncoding }
         'crt' { Create-Certificate }
         'q' {
