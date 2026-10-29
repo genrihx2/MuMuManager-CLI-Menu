@@ -2547,6 +2547,29 @@ Describe 'GitHub API fetch via argument arrays (v1.22.3, [K] Token invalid fix)'
         (@($a | Where-Object { $_ -eq 'Authorization: token fallback-token' })).Count | Should -Be 0
     }
 
+    It 'Invoke-GitHubApiGet without -Token sends the SAVED token, not an anonymous request' {
+        # v10.4.4 passed -Token "" down to Get-CurlGitHubArgs, which then saw an
+        # explicitly-bound token, skipped its script-scope fallback and sent no
+        # Authorization header at all - a valid [K] token was silently ignored
+        # and [RL]/[U] kept hitting the anonymous 60/hour ceiling.
+        $calls = [System.Collections.Generic.List[string]]::new()
+        function curl.exe {
+            param([Parameter(ValueFromRemainingArguments = $true)]$curlArgs)
+            $calls.Add(($curlArgs -join ' ')) | Out-Null
+            '{"ok":true}'
+            $global:LASTEXITCODE = 0
+        }
+        $savedToken = $script:GitHubToken
+        try {
+            $script:GitHubToken = 'saved-token-123'
+            $null = Invoke-GitHubApiGet -Url 'https://api.github.com/zen'
+            ($calls | Select-Object -Last 1) | Should -Match 'Authorization: token saved-token-123'
+            # An explicit -Token still wins over the saved one.
+            $null = Invoke-GitHubApiGet -Url 'https://api.github.com/zen' -Token 'explicit-456'
+            ($calls | Select-Object -Last 1) | Should -Match 'Authorization: token explicit-456'
+        } finally { $script:GitHubToken = $savedToken }
+    }
+
     It 'Test-CurlRetrySupport: exit 2 means NOT supported, any network exit code means supported' {
         $dir = Join-Path $TestDrive 'curlprobe223'
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
@@ -3846,6 +3869,23 @@ Describe 'Show-ReleaseList ([RL] releases screen)' {
         $src = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\mumu-menu.ps1'))
         ($src -match "\[RL\] Release list") | Should -BeTrue
         ([regex]::Matches($src, [regex]::Escape("'rl' { Show-ReleaseList }"))).Count | Should -Be 1
+    }
+
+    It 'fetches through the token-aware Invoke-GitHubApiGet and surfaces the API reason' {
+        $f = $script:ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Show-ReleaseList'
+        }, $true) | Select-Object -First 1
+        $body = $f.Extent.Text
+        # Comment lines are allowed to mention the old transport; only real code matters.
+        $code = (($body -split "`r?`n") | Where-Object { $_.Trim() -notmatch '^#' }) -join "`n"
+        # A raw anonymous web request carries no Authorization header: a saved
+        # [K] token was ignored and the screen blamed the network on HTTP 403.
+        ($code -match 'Invoke-WebRequest') | Should -BeFalse
+        ($body -match 'Invoke-GitHubApiGet') | Should -BeTrue
+        # The 403 body from GitHub must reach the screen instead of a blanket
+        # 'cannot reach the GitHub API'.
+        ($body -match "PSObject\.Properties\['message'\]") | Should -BeTrue
     }
 
     It 'interpolates the repo in the Source note instead of printing $GitHubRepo' {

@@ -163,6 +163,14 @@ mumu-menu.cmd
 
 ## Что нового
 
+### v10.4.5 (29.10.2026)
+
+- Fixed: сохранённый GitHub-токен снова используется. `Invoke-GitHubApiGet` передавал `-Token` даже когда его не задавали (пустой строкой), `Get-CurlGitHubArgs` считал токен явно заданным и не подхватывал `$GitHubToken` из скрипта — поэтому все запросы уходили анонимно и упирались в лимит 60/час даже с валидным токеном (проверено: токен из `.github-token.dpapi` валиден, лимит 5000/час, а меню всё равно получало 403).
+- Fixed: `[RL]` берёт список релизов через тот же token-aware транспорт (`Invoke-GitHubApiGet`: токен, curl, повторы), а при отказе показывает причину от GitHub — например `API rate limit exceeded ...` — вместо общего «cannot reach the GitHub API».
+- Tests: 4 регрессионных теста ([RL] на верхнем уровне скрипта, wiring `[RL]`/`rl`, интерполяция Source, проброс сохранённого токена в `Invoke-GitHubApiGet`); сьют 304 passed / 0 failed.
+
+**EN summary (v10.4.5):** The saved GitHub token is used again — `Invoke-GitHubApiGet` bound `-Token` even when the caller passed nothing, so `Get-CurlGitHubArgs` never fell back to `$GitHubToken` and every request went out anonymously into the 60/hour limit. `[RL]` now fetches through that token-aware transport and reports GitHub's own reason ("API rate limit exceeded ...") instead of a blanket "cannot reach". Pester 304/304.
+
 ### v10.4.4 (29.10.2026)
 
 - Fixed: `[RL]` больше не падает с «Термин "Show-ReleaseList" не распознается». Функция была объявлена внутри `Update-FromGitHub`, а вложенные определения видны только на время работы родителя — меню из главного цикла её не находило. Определение перенесено на верхний уровень скрипта.
@@ -274,6 +282,7 @@ mumu-menu.cmd
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v10.4.5 | 29.10.2026 | Fix: the saved GitHub token was ignored by `Invoke-GitHubApiGet` (empty `-Token` blocked the fallback) so every API call ran anonymously; [RL] now uses that transport and shows GitHub's reason instead of "cannot reach" |
 | v10.4.4 | 29.10.2026 | Fix [RL]: renderer moved to script scope (was nested and unreachable), list parsing no longer uses PS7-only `-AsHashTable`/`.Values`, dates format correctly, Source note interpolates, changelog preview wraps per line |
 | v10.4.3 | 29.10.2026 | Fix: [K] and every GitHub curl call no longer report "network problem" when Schannel cannot check certificate revocation (CRYPT_E_REVOCATION_OFFLINE) — a process-scoped CURL_HOME/_curlrc repairs it |
 | v10.4.2 | 29.10.2026 | New [RL] read-only published-releases screen; fix: the menu parses again (unescaped apostrophe in the [WN] log line broke the whole script), [1]/[DIAG] ADB readiness false negative, first screen survives a host without a console buffer |

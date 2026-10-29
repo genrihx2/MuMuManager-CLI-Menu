@@ -317,7 +317,7 @@ function Initialize-TokenStorage {
     # the token via menu [K] so it is recreated through this code path.
 }
 
-$scriptVer = '10.4.4'
+$scriptVer = '10.4.5'
 $InstalledVersion = $null
 
 # --- [WN] MuMu network + updater watcher (read-only, opt-in) -----------------
@@ -472,7 +472,16 @@ function Get-CurlGitHubArgs {
 # already treat parse failures / missing fields as failure).
 function Invoke-GitHubApiGet {
     param([string]$Url, [string[]]$ExtraArgs = @(), [string]$Token)
-    $curlArgs = Get-CurlGitHubArgs -ExtraArgs $ExtraArgs -Token $Token
+    # Forward -Token ONLY when the caller bound it. Passing it unconditionally
+    # (even as '') made Get-CurlGitHubArgs treat the token as explicitly given,
+    # skip its script-scope fallback and send no Authorization header at all -
+    # so every call went out anonymously and a valid saved [K] token did
+    # nothing: [RL] and the update check kept hitting the 60/hour IP limit.
+    $curlArgs = if ($PSBoundParameters.ContainsKey('Token')) {
+        Get-CurlGitHubArgs -ExtraArgs $ExtraArgs -Token $Token
+    } else {
+        Get-CurlGitHubArgs -ExtraArgs $ExtraArgs
+    }
     $resp = (& curl.exe @curlArgs $Url 2>$null | Out-String)
     # Saved-token rejection: disable once at script scope and retry
     # anonymously (public repo) instead of handing 401 JSON to callers.
@@ -483,7 +492,7 @@ function Invoke-GitHubApiGet {
         Write-Host '  Token rejected — retrying without auth...' -ForegroundColor Yellow
         $script:GitHubToken = ''
         Write-Host '  Saved token disabled for this session - re-save via menu [K].' -ForegroundColor DarkGray
-        $curlArgs = Get-CurlGitHubArgs -ExtraArgs $ExtraArgs -Token $Token
+        $curlArgs = Get-CurlGitHubArgs -ExtraArgs $ExtraArgs
         $resp = (& curl.exe @curlArgs $Url 2>$null | Out-String)
     }
     return $resp
@@ -2138,25 +2147,36 @@ function Show-ReleaseList {
     # 2 attempts mirrors every other read-only screen: a single TLS flake
     # must not read as 'cannot list'.
     $releases = $null
+    $apiMessage = ''
     for ($attempt = 1; $attempt -le 2 -and -not $releases; $attempt++) {
         try {
-            $body = Invoke-WebRequest -Uri $page -UseBasicParsing -TimeoutSec 15
-            # The list endpoint returns a JSON ARRAY. ConvertFrom-Json hands
-            # back Object[] and property access still works on every element;
-            # -AsHashTable is PowerShell 7-only, so on 5.1 it threw at the
-            # parameter binding, the catch swallowed it and the whole screen
-            # claimed 'cannot reach the GitHub API'. v10.4.4 also stopped
-            # reading .Values off the array (that surfaced as one giant
-            # stringified hashtable instead of the release list).
-            $parsed = $body.Content | ConvertFrom-Json
-            if ($parsed) { $releases = @($parsed) }
+            # Token-aware transport: a token saved via [K] lifts the anonymous
+            # 60-requests/hour ceiling. The old raw Invoke-WebRequest sent no
+            # Authorization header at all, so a busy machine hit HTTP 403
+            # 'API rate limit exceeded' and the screen blamed the network.
+            $raw = Invoke-GitHubApiGet -Url $page
+            if ($raw -and $raw.Trim()) {
+                # The list endpoint returns a JSON ARRAY. ConvertFrom-Json hands
+                # back Object[] and property access still works on every
+                # element; -AsHashTable is PowerShell 7-only, so on 5.1 it threw
+                # at the parameter binding and the catch swallowed it.
+                $parsed = $raw | ConvertFrom-Json
+                $items = @($parsed | Where-Object { $_ -and $_.PSObject.Properties['tag_name'] })
+                if ($items.Count -gt 0) {
+                    $releases = $items
+                } elseif ($parsed -and $parsed.PSObject.Properties['message']) {
+                    $apiMessage = [string]$parsed.message
+                }
+            }
         } catch {
-            if ($attempt -lt 2) { Start-Sleep -Seconds 2 }
+            $apiMessage = $_.Exception.Message
         }
+        if (-not $releases -and $attempt -lt 2) { Start-Sleep -Seconds 2 }
     }
 
     if (-not $releases) {
-        Write-ScreenNote -Text 'cannot reach the GitHub API - is the host reachable?' -Tone Yellow
+        $why = if ($apiMessage) { $apiMessage } else { 'empty response' }
+        Write-ScreenNote -Text ("cannot list releases - {0}" -f $why) -Tone Yellow
         Write-Host ''
         return
     }
