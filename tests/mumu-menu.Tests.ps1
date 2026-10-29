@@ -3991,8 +3991,10 @@ Describe 'Restart-MenuProcess ([U] self-restart)' {
         . ([scriptblock]::Create($script:restartFn.Extent.Text))
         function Test-MenuConsoleAttached { $true }
         $script:started = $null
-        function Start-Process {
-            param($FilePath, $WorkingDirectory, $ArgumentList)
+        # Mock, not a `function Start-Process` stub: PSScriptAnalyzer flags an
+        # override of a built-in cmdlet (CodeQL alert #10/#11), and the mock
+        # intercepts the real call without redefining anything.
+        Mock Start-Process {
             $script:started = [pscustomobject]@{ FilePath = $FilePath; WorkingDirectory = $WorkingDirectory; ArgumentList = $ArgumentList }
         }
 
@@ -4005,6 +4007,7 @@ Describe 'Restart-MenuProcess ([U] self-restart)' {
         $script:started.WorkingDirectory | Should -Be $dir
         ($script:started.ArgumentList -contains '-File') | Should -BeTrue
         ($script:started.ArgumentList -join ' ') | Should -Match ([regex]::Escape($menu))
+        Should -Invoke Start-Process -Times 1 -Exactly
     }
 
     It 'does nothing without a console and leaves the staged .new untouched' {
@@ -4018,12 +4021,12 @@ Describe 'Restart-MenuProcess ([U] self-restart)' {
         . ([scriptblock]::Create($script:restartFn.Extent.Text))
         function Test-MenuConsoleAttached { $false }
         $script:started = $null
-        function Start-Process {
-            param($FilePath, $WorkingDirectory, $ArgumentList)
+        Mock Start-Process {
             $script:started = [pscustomobject]@{ FilePath = $FilePath; WorkingDirectory = $WorkingDirectory; ArgumentList = $ArgumentList }
         }
 
         (Restart-MenuProcess -ScriptPath $menu) | Should -BeFalse
+        Should -Invoke Start-Process -Times 0 -Exactly
         $script:started | Should -BeNullOrEmpty -Because 'a piped run must not spawn a window'
         (Test-Path -LiteralPath ($menu + '.new')) | Should -BeTrue
         (Get-Content -LiteralPath $menu -Raw).Trim() | Should -Be '# old'
