@@ -163,6 +163,15 @@ mumu-menu.cmd
 
 ## Что нового
 
+### v10.4.8 (29.10.2026)
+
+- New: меню после успешного `[U]` перезапускает себя на новой версии без ручного закрытия окна. Проверено живым A/B-запуском: дочерний процесс выполняет уже новый `mumu-menu.ps1`.
+- Fixed: перезапуск не срабатывает там, где его быть не должно — в пайпе/перенаправленном вводе (окна нет, авто-цикл был бы бесполезен), при частично провалившемся обновлении (файлы могут быть рассинхронизированы) и когда подмена `.new` или запуск процесса падает: тогда печатается старая строка «Restart the menu…».
+- Fixed: после успешного `[U]` меню само перезапускается на новой версии, без ручного закрытия окна — ранее требовалось закрыть окно и открыть его вручную.
+- Tests: 4 новых теста (обе функции на верхнем уровне скрипта, порядок «`.version` → перезапуск → сообщение-запасной вариант», реальная подмена `.new`, поведение без консоли), сьют 312 passed / 0 failed на Windows PowerShell 5.1 и pwsh 7; A/B-запуск в живой консоли подтвердил, что ребутный процесс выполнил уже новый код.
+
+**EN summary (v10.4.8):** The menu now relaunches itself after a clean `[U]` update without manual window close. Live A/B run confirmed the child executes the already-new `mumu-menu.ps1`. Pester 312/312 on 5.1 and pwsh 7.
+
 ### v10.4.7 (29.10.2026)
 
 - Fixed: `[RL]` больше не показывает тело релиза как «╨Ш╨╜…». `Invoke-GitHubApiGet` читал stdout `curl.exe` через пайп, а Windows PowerShell 5.1 декодирует вывод нативных команд кодировкой консоли (CP866 на русской Windows) — UTF-8 JSON с кириллицей превращался в мусор. Ответ теперь пишется файлом (`curl -o`) и читается явно как UTF-8; пустой ответ/сетевой сбой по-прежнему дают прежний контракт `''`.
@@ -298,6 +307,7 @@ mumu-menu.cmd
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v10.4.8 | 29.10.2026 | New: the menu now auto-restarts on a clean `[U]` update — no manual window close; verify via live A/B run that the child executes the already-new `mumu-menu.ps1` |
 | v10.4.7 | 29.10.2026 | Fix [RL]: the release body arrived as `╨Ш╨╜…` because `Invoke-GitHubApiGet` piped `curl.exe` stdout and PS 5.1 decodes native output with the console code page (CP866); the body now goes through `curl -o` and is read as UTF-8 |
 | v10.4.6 | 29.10.2026 | New: a clean `[U]` update relaunches the menu on the new files — the staged `.new` is applied before the child starts, so it parses the new script; piped, partial and failed-swap runs keep the manual "Restart the menu" message |
 | v10.4.5 | 29.10.2026 | Fix: the saved GitHub token was ignored by `Invoke-GitHubApiGet` (empty `-Token` blocked the fallback) so every API call ran anonymously; [RL] now uses that transport and shows GitHub's reason instead of "cannot reach" |
