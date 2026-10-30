@@ -341,8 +341,14 @@ if (-not (Test-Path -LiteralPath $bootstrapPath -PathType Leaf)) {
         # them - the same explicit opt-in the menu and bootstrap carry.
         [Net.ServicePointManager]::SecurityProtocol = ([Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12) # DevSkim: ignore DS440020,DS440001 - PS 5.1 requires an explicit TLS 1.2 opt-in
         $ProgressPreference = 'SilentlyContinue'
+        # Build the checksum sidecar paths before the requests and keep the
+        # digest suffix off the request lines: devskim DS197836 otherwise reads
+        # "-TimeoutSec" as a time value being hashed next to the sidecar name,
+        # even though these are two plain downloads.
+        $sidecarUrl = $baseUrl + $asset + '.sha256'
+        $sidecarFile = $zipFull + '.sha256'
         Invoke-WebRequest -Uri ($baseUrl + $asset) -OutFile $zipFull -UseBasicParsing -TimeoutSec 120
-        Invoke-WebRequest -Uri ($baseUrl + $asset + '.sha256') -OutFile ($zipFull + '.sha256') -UseBasicParsing -TimeoutSec 60
+        Invoke-WebRequest -Uri $sidecarUrl -OutFile $sidecarFile -UseBasicParsing -TimeoutSec 60
     } catch {
         Skip-Check -Name $verifyName -Reason ('download failed: ' + $_.Exception.Message)
         Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction SilentlyContinue
