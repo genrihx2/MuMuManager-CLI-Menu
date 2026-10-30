@@ -185,7 +185,7 @@ popd
 
 ## Versioning
 - Version is stored in `$scriptVer` in `mumu-menu.ps1`; `.version` is synced by CI (keep both + relnotes top section equal)
-- To create a release: bump `$scriptVer` + `.version` + changelog entries, commit, push
+- To create a release: bump `$scriptVer` + `.version` + `package.json` (+ the `package-lock.json` root version) + changelog entries, commit, push
 - Tags follow `vX.Y.Z`; installations verify themselves against the tag via `[F]`
 
 ## Security
