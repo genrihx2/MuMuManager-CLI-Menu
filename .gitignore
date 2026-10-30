@@ -55,3 +55,7 @@ MuMuManager-CLI-Menu-v*.zip.sha256
 
 # Local HTTP ETag cache written by the startup update check
 .etag-cache.json
+
+# Flattened absolute paths from a mis-expanded temp extract (a Windows
+# path that lost its separators, e.g. "UsersgenriAppDataLocalTemppester-5.7.1")
+*AppDataLocalTemp*
