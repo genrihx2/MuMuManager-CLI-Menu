@@ -317,7 +317,7 @@ function Initialize-TokenStorage {
     # the token via menu [K] so it is recreated through this code path.
 }
 
-$scriptVer = '10.4.8'
+$scriptVer = '10.4.9'
 $InstalledVersion = $null
 
 # --- [WN] MuMu network + updater watcher (read-only, opt-in) -----------------
@@ -9166,7 +9166,56 @@ function Show-Logs {
         return
     }
 
+    # Logcat rides the manager's adb bridge, not just a started player: a VM
+    # still reports start_finished while `adb --cmd connect` answers
+    # {"errcode":-202,"errmsg":"vm not ready, can not connect adb !!"}, and
+    # every --cmd then exits 0 with no output - which used to print the LIVE
+    # header and nothing else, indistinguishable from a quiet app. Probe once
+    # and say what is actually wrong.
+    function Resolve-LogcatTransport {
+        param([string]$Index)
+        $result = @{ ok = $false; transport = 'adb'; detail = '' }
+        $probe = (& $MumuPath adb --vmindex $Index --cmd 'shell echo ok' 2>&1 | Out-String).Trim()
+        if ($probe -eq 'ok') { $result.ok = $true; return $result }
+        # One explicit connect attempt: the manager owns the bridge and brings
+        # it up once the VM is ready, so a booting instance recovers here.
+        $connect = (& $MumuPath adb --vmindex $Index --cmd 'connect' 2>&1 | Out-String).Trim()
+        $again = (& $MumuPath adb --vmindex $Index --cmd 'shell echo ok' 2>&1 | Out-String).Trim()
+        if ($again -eq 'ok') { $result.ok = $true; return $result }
+        # Remote/streaming players expose no local adb port at all, but the
+        # manager's sh transport reaches the same guest shell - use it rather
+        # than telling the user logging is broken.
+        $shProbe = (& $MumuPath sh --vmindex $Index --cmd 'echo ok' 2>&1 | Out-String).Trim()
+        if ($shProbe -eq 'ok') {
+            $result.ok = $true
+            $result.transport = 'sh'
+            $result.detail = if ($connect) { $connect } else { $again }
+            return $result
+        }
+        $result.detail = if ($connect) { $connect } elseif ($again) { $again } else { 'MuMuManager returned no output' }
+        return $result
+    }
+
     if ($mode -eq '2' -or $mode -eq '3') {
+        $adbState = Resolve-LogcatTransport -Index $index
+        if (-not $adbState.ok) {
+            Write-Host '    ✗ adb bridge is not ready — logcat would stream nothing.' -ForegroundColor Red
+            Write-Host "      MuMuManager: $($adbState.detail)" -ForegroundColor DarkGray
+            Write-Host '      The player is started but its Android adb service does not answer, so' -ForegroundColor White
+            Write-Host '      both snapshot and live logcat return empty output with exit code 0.' -ForegroundColor White
+            Write-Host '      Fix: let the instance finish booting, or restart it ([3] shutdown, then' -ForegroundColor White
+            Write-Host '      [2] launch) and re-open [G]. Verify with:' -ForegroundColor White
+            Write-Host "        MuMuManager.exe adb --vmindex $index --cmd connect" -ForegroundColor DarkGray
+            Write-Host '      A working bridge answers errcode 0; -202 means the VM is not ready.' -ForegroundColor DarkGray
+            Write-Host '      The manager sh transport failed too, so the guest shell is unreachable.' -ForegroundColor DarkGray
+            return
+        }
+        $transport = $adbState.transport
+        if ($transport -eq 'sh') {
+            Write-Host ("    ! adb bridge unavailable " + [char]0x2014 + " streaming logcat over the manager's sh transport.") -ForegroundColor Yellow
+            Write-Host ("      " + ($adbState.detail -replace '\s+', ' ').Trim()) -ForegroundColor DarkGray
+        }
+
         Write-Host ''
         Write-Host 'Logcat filter:' -ForegroundColor Cyan
         Write-Host '  [1] All (no filter)' -ForegroundColor White
@@ -9219,9 +9268,13 @@ function Show-Logs {
             Write-Host ''
             Write-Host "=== adb logcat snapshot (last 200 lines, filter: $filterDesc) ===" -ForegroundColor Green
             $job = Start-Job -ScriptBlock {
-                param($mp, $idx, $flt)
-                & $mp adb --vmindex $idx --cmd "logcat -v time -d -t 200 $flt" 2>&1
-            } -ArgumentList $MumuPath, $index, $filter
+                param($mp, $idx, $flt, $tr)
+                if ($tr -eq 'sh') {
+                    & $mp sh --vmindex $idx --cmd "logcat -v time -d -t 200 $flt" 2>&1
+                } else {
+                    & $mp adb --vmindex $idx --cmd "logcat -v time -d -t 200 $flt" 2>&1
+                }
+            } -ArgumentList $MumuPath, $index, $filter, $transport
             if (Wait-Job $job -Timeout 30) {
                 $raw = Receive-Job $job
                 Remove-Job $job -Force
@@ -9254,7 +9307,7 @@ function Show-Logs {
                         Write-Host "  [stack] collapsed $($gLogState.collapsed) stack line(s) - each error printed once" -ForegroundColor DarkGray
                     }
                 } else {
-                    Write-Host 'Empty output — instance may be stopped, not authorized for adb, or no matching logs.' -ForegroundColor Yellow
+                    Write-Host 'Empty output — the adb bridge is not answering (verify: MuMuManager.exe adb --vmindex N --cmd connect) or nothing matches the filter.' -ForegroundColor Yellow
                 }
             } else {
                 Stop-Job $job -ErrorAction SilentlyContinue
@@ -9266,14 +9319,20 @@ function Show-Logs {
             Write-Host "=== adb logcat LIVE (Ctrl+C to stop, filter: $filterDesc) ===" -ForegroundColor Green
             Write-Host ''
             try {
-                $counter = @{ hidden = 0; matchCount = 0 }
+                $counter = @{ hidden = 0; matchCount = 0; lines = 0 }
                 # Stream directly into the loop: assigning 'cmd | stream' first
                 # would block on collection forever (logcat never exits),
                 # leaving the LIVE header printed with zero lines.
                 try {
-                    & $MumuPath adb --vmindex $index --cmd "logcat -v time $filter" 2>&1 |
+                    $stream = if ($transport -eq 'sh') {
+                        { param($mp, $idx, $flt) & $mp sh --vmindex $idx --cmd "logcat -v time $flt" 2>&1 }
+                    } else {
+                        { param($mp, $idx, $flt) & $mp adb --vmindex $idx --cmd "logcat -v time $flt" 2>&1 }
+                    }
+                    & $stream $MumuPath $index $filter |
                         ForEach-Object {
                         $s = [string]$_
+                        $counter.lines++
                         if ($quiet -and $s -match $noiseRx) { $counter.hidden++; return }
                         if ($searchNeedle -and $s.IndexOf($searchNeedle, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
                             $counter.matchCount++
@@ -9287,8 +9346,13 @@ function Show-Logs {
                         }
                     }
                 } finally {
-                    Stop-Logcat -Index $index
+                    Stop-Logcat -Index $index -Transport $transport
                 }
+
+                if ($counter.lines -eq 0) {
+                    Write-Host 'logcat produced no output on either transport (adb bridge and sh both silent).' -ForegroundColor Yellow
+                }
+
                 if ($searchNeedle) {
                     Write-Host ''
                     Write-Host "  [search] '$searchNeedle': $($counter.matchCount) matching line(s); non-matching shown dimmed" -ForegroundColor Cyan
@@ -9314,10 +9378,14 @@ function Show-Logs {
 # Close an active logcat live session cleanly: sends the "quit" command
 # to the MuMuManager's logcat subprocess so the log stream ends without a
 # hard kill. Safe to call even when no logcat is running - it just no-ops.
-function Stop-Logcat { param([string]$Index = '')
+function Stop-Logcat { param([string]$Index = '', [string]$Transport = 'adb')
     if ([string]::IsNullOrWhiteSpace($Index)) { return }
     try {
-        & $MumuPath adb --vmindex $Index --cmd 'logcat -c' 2>$null | Out-Null
+        if ($Transport -eq 'sh') {
+            & $MumuPath sh --vmindex $Index --cmd 'logcat -c' 2>$null | Out-Null
+        } else {
+            & $MumuPath adb --vmindex $Index --cmd 'logcat -c' 2>$null | Out-Null
+        }
     } catch { Write-Debug "Stop-Logcat: $($_.Exception.Message)" }
 }
 

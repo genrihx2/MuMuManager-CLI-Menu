@@ -163,6 +163,13 @@ mumu-menu.cmd
 
 ## Что нового
 
+### v10.4.9 (04.11.2026)
+
+- Fixed: `[G]` live-logcat больше не даёт пустой экран на инстансах без локального adb-моста. Remote/streaming-игроки отвечают на `MuMuManager adb --cmd connect` кодом `-202 vm not ready, can not connect adb`, а каждый `--cmd` возвращает пустой вывод с кодом 0 — раньше меню печатало заголовок LIVE и молчало. Теперь транспорт выбирается явно: adb, а если мост не отвечает — shell-транспорт `MuMuManager sh`; причина печатается в шапке.
+- Fixed: снапшот, живой поток, все фильтры (все / E / W / тег / quiet / поиск) и `Stop-Logcat` (`logcat -c`) работают через оба транспорта; пустой поток теперь даёт предупреждение вместо тишины.
+- Tests: 4 новых утверждения в тесте `[G]` (резервный транспорт, его причина, `Stop-Logcat -Transport`); `View logs [G]` + `Stop-Logcat` — 5 passed / 0 failed. Живая проверка на инстансе с `-202`: live 133 строки за 18 с, снапшот 56 строк, errors-only 26 строк.
+
+**EN summary (v10.4.9):** `[G]` live logcat no longer shows an empty screen on players without a local adb bridge (`adb --cmd connect` answers `-202 vm not ready` and every `--cmd` returns empty with exit 0). The screen now resolves a transport: adb when the bridge answers, otherwise the manager's `sh` transport, with the manager's reason printed above the filter. Snapshot, live stream, every filter and `Stop-Logcat` use the same transport. Pester `View logs`/`Stop-Logcat`: 5/5; the live run streamed 133 lines in 18 s.
 ### v10.4.8 (29.10.2026)
 
 - New: меню после успешного `[U]` перезапускает себя на новой версии без ручного закрытия окна. Проверено живым A/B-запуском: дочерний процесс выполняет уже новый `mumu-menu.ps1`.
@@ -307,6 +314,7 @@ mumu-menu.cmd
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v10.4.9 | 04.11.2026 | Fix [G]: live logcat was blank on remote/streaming players whose adb bridge answers `-202 vm not ready` — the screen now picks adb or the manager's `sh` transport and streams through it (133 lines in 18 s live) |
 | v10.4.8 | 29.10.2026 | New: the menu now auto-restarts on a clean `[U]` update — no manual window close; verify via live A/B run that the child executes the already-new `mumu-menu.ps1` |
 | v10.4.7 | 29.10.2026 | Fix [RL]: the release body arrived as `╨Ш╨╜…` because `Invoke-GitHubApiGet` piped `curl.exe` stdout and PS 5.1 decodes native output with the console code page (CP866); the body now goes through `curl -o` and is read as UTF-8 |
 | v10.4.6 | 29.10.2026 | New: a clean `[U]` update relaunches the menu on the new files — the staged `.new` is applied before the child starts, so it parses the new script; piped, partial and failed-swap runs keep the manual "Restart the menu" message |

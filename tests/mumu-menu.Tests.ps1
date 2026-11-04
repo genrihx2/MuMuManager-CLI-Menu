@@ -1575,6 +1575,13 @@ Describe 'View logs screen [G]' {
         $body.Contains('[stack] collapsed') | Should -BeTrue
         $body.Contains('$State.lastTag') | Should -BeTrue
         $body.Contains('^[\w.]+:\w+\(') | Should -BeTrue
+        # sh fallback: remote/streaming players expose no local adb port and
+        # answer -202, so logcat must fall back to the manager's sh transport
+        # instead of refusing to show logs.
+        $body.Contains('function Resolve-LogcatTransport') | Should -BeTrue
+        $body.Contains('$result.transport = ''sh''') | Should -BeTrue
+        $body.Contains('sh --vmindex') | Should -BeTrue
+        $body.Contains('Stop-Logcat -Index $index -Transport $transport') | Should -BeTrue
     }
 
     It 'Write-LogcatLine prints each Lua error as one line, collapsing stack frames and blank tails' {
