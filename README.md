@@ -163,6 +163,12 @@ mumu-menu.cmd
 
 ## Что нового
 
+### v10.4.11 (04.11.2026)
+
+- Fixed: `tests/mumu-menu.Tests.ps1` снова с UTF-8 BOM. Предыдущая правка записала файл без BOM, и Windows PowerShell 5.1 читал кириллицу как ANSI — 12 ошибок парсинга, красные ноги `pester-unit (5.7.1 / powershell)` и `deployed layout`, из-за чего Release v10.4.10 не опубликовался (тег создан, релиза нет). BOM восстановлен, парсер 5.1 — 0 ошибок.
+- Tests: целевые наборы (`View logs`, `ADB port`, `Ctrl+C`) — 5 passed / 0 failed на Windows PowerShell 5.1 и на pwsh.
+
+**EN summary (v10.4.11):** `tests/mumu-menu.Tests.ps1` carries its UTF-8 BOM again — without it Windows PowerShell 5.1 decodes Cyrillic as ANSI and failed with 12 parse errors, which reddened the 5.1 Pester leg and blocked the v10.4.10 publication (tag created, no release). BOM restored: 5.1 parser reports 0 errors and the targeted suites pass on both engines.
 ### v10.4.10 (04.11.2026)
 
 - Fixed: из live-логов `[G]` снова можно выйти по Ctrl+C. Обработчик `CancelKeyPress` ставил `e.Cancel = true` на всё время работы меню, поэтому Ctrl+C глотался и в потоке — закрыть его можно было только окном. Теперь у стража есть флаг `Enabled`: на время потока он снимается, Ctrl+C останавливает лог, печатается `logcat stopped (Ctrl+C).`, а защита возвращается в `finally` — остальное меню по-прежнему не закрывается случайным Ctrl+C.
@@ -321,6 +327,7 @@ mumu-menu.cmd
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v10.4.11 | 04.11.2026 | Fix CI: the test file was committed without its UTF-8 BOM, so Windows PowerShell 5.1 read Cyrillic as ANSI and failed to parse (12 errors, red 5.1 leg) — BOM restored, 5.1 parse 0 errors |
 | v10.4.10 | 04.11.2026 | Fix: Ctrl+C could not stop `[G]` live logcat (the menu-wide guard swallowed it) — the guard now carries an `Enabled` switch cleared for the stream and restored in `finally`; adb port is auto-detected across MuMu's 16384+32n block |
 | v10.4.9 | 04.11.2026 | Fix [G]: live logcat was blank on remote/streaming players whose adb bridge answers `-202 vm not ready` — the screen now picks adb or the manager's `sh` transport and streams through it (133 lines in 18 s live) |
 | v10.4.8 | 29.10.2026 | New: the menu now auto-restarts on a clean `[U]` update — no manual window close; verify via live A/B run that the child executes the already-new `mumu-menu.ps1` |

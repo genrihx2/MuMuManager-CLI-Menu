@@ -1,4 +1,4 @@
-#requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0' }
+﻿#requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0' }
 
 # Pester unit tests for mumu-menu.ps1 pure helpers (issue #20).
 # The functions are extracted from the script via AST - exactly the
