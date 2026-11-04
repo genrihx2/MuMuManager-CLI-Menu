@@ -1591,7 +1591,12 @@ Describe 'View logs screen [G]' {
         # is read through a Process the compiled handler can kill.
         $body.Contains('[System.Diagnostics.Process]::Start($psi)') | Should -BeTrue
         $body.Contains('$proc.StandardOutput.ReadLine()') | Should -BeTrue
-        $body.Contains('[MuMuMenuCtrlCGuard]::Stream = $proc') | Should -BeTrue    }
+        $body.Contains('[MuMuMenuCtrlCGuard]::Stream = $proc') | Should -BeTrue
+        # Killing only the parent left a child holding stdout, and the trailing
+        # native logcat -c hung on a stopped pipeline: both made Ctrl+C look
+        # frozen until a second press.
+        $body.Contains('if (-not $stoppedByCtrlC) { Stop-Logcat') | Should -BeTrue
+    }
 
     It 'Write-LogcatLine prints each Lua error as one line, collapsing stack frames and blank tails' {
         $f = $script:ast.FindAll({
@@ -4330,6 +4335,7 @@ Describe 'Ctrl+C guard (compiled delegate)' {
 
         $handler = [MuMuMenuCtrlCGuard]::Handler
         $handler.GetType().FullName | Should -Be 'System.ConsoleCancelEventHandler'
+        ($src -match 'taskkill') | Should -BeTrue -Because 'the handler must kill the whole tree, not just the parent'
 
         if (-not ('MuMuGuardProbe' -as [type])) {
             Add-Type -TypeDefinition @'

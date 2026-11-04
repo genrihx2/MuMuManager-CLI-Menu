@@ -163,6 +163,12 @@ mumu-menu.cmd
 
 ## Что нового
 
+### v10.4.13 (04.11.2026)
+
+- Fixed: выход из `[G]` по Ctrl+C больше не «зависает» до второго нажатия. Обработчик убивает всё дерево процессов (`taskkill /F /T /PID`): менеджер оставлял наследника с нашим stdout-хэндлом, пайп не закрывался, и чтение продолжало ждать. Плюс после Ctrl+C больше не запускается нативный `logcat -c` — на остановленном конвейере он висел и держал меню; буфер чистится только при естественном конце потока.
+- Tests: статические проверки на `taskkill` в обработчике и на пропуск `Stop-Logcat` при остановке по Ctrl+C; целевые наборы зелёные на 5.1 и pwsh.
+
+**EN summary (v10.4.13):** Ctrl+C in `[G]` no longer appears frozen until a second press. The handler kills the whole process tree (`taskkill /F /T /PID`) because a surviving child that inherited stdout kept the pipe open and the reader kept waiting, and the trailing native `logcat -c` is skipped after an interrupt since it hangs on a stopped pipeline.
 ### v10.4.12 (04.11.2026)
 
 - Fixed: `[G]` live-логи действительно останавливаются по Ctrl+C. Предыдущий фикс снимал защиту, но останавливал только конвейер PowerShell, а дочерний `MuMuManager` продолжал печатать в консоль, и выход выглядел мёртвым. Теперь поток читается через собственный `Process` с перенаправленным stdout, а скомпилированный обработчик `CancelKeyPress` убивает этот процесс на сигнальном потоке (runspace там нет) — ридер получает EOF, печатается `logcat stopped (Ctrl+C).`, страж возвращается в `finally`.
@@ -333,6 +339,7 @@ mumu-menu.cmd
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v10.4.13 | 04.11.2026 | Fix: Ctrl+C needed a second press — the handler now kills the whole process tree (a surviving child kept stdout open) and skips the native `logcat -c` that hung on a stopped pipeline |
 | v10.4.12 | 04.11.2026 | Fix: Ctrl+C still looked dead in `[G]` live logcat — the pipeline stopped but the native child kept printing; the stream is now read through an owned `Process` that the compiled handler kills |
 | v10.4.11 | 04.11.2026 | Fix CI: the test file was committed without its UTF-8 BOM, so Windows PowerShell 5.1 read Cyrillic as ANSI and failed to parse (12 errors, red 5.1 leg) — BOM restored, 5.1 parse 0 errors |
 | v10.4.10 | 04.11.2026 | Fix: Ctrl+C could not stop `[G]` live logcat (the menu-wide guard swallowed it) — the guard now carries an `Enabled` switch cleared for the stream and restored in `finally`; adb port is auto-detected across MuMu's 16384+32n block |

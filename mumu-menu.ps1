@@ -317,7 +317,7 @@ function Initialize-TokenStorage {
     # the token via menu [K] so it is recreated through this code path.
 }
 
-$scriptVer = '10.4.12'
+$scriptVer = '10.4.13'
 $InstalledVersion = $null
 
 # --- [WN] MuMu network + updater watcher (read-only, opt-in) -----------------
@@ -1188,6 +1188,17 @@ public static class MuMuMenuCtrlCGuard {
                 System.Diagnostics.Process p = Stream;
                 if (p != null) {
                     StreamStopped = true;
+                    try {
+                        // Kill the whole tree: the manager may leave a child
+                        // that inherited our stdout handle, and that child
+                        // keeps the pipe open, so the reader would keep
+                        // waiting and Ctrl+C would look frozen.
+                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+                            "taskkill", "/F /T /PID " + p.Id.ToString()) {
+                            UseShellExecute = false,
+                            CreateNoWindow = true
+                        });
+                    } catch { }
                     try { if (!p.HasExited) p.Kill(); } catch { }
                 }
             }
@@ -9438,7 +9449,11 @@ function Show-Logs {
                         if (-not $proc.HasExited) { $proc.Kill(); $null = $proc.WaitForExit(2000) }
                     } catch { Write-Debug "logcat stream stop: $($_.Exception.Message)" }
                     $proc.Dispose()
-                    Stop-Logcat -Index $index -Transport $transport
+                    # Ctrl+C already stopped the reader. A native logcat -c on a
+                    # stopped pipeline hangs until a second Ctrl+C, so the
+                    # buffer is only cleared when the stream ended on its own.
+                    $stoppedByCtrlC = ('MuMuMenuCtrlCGuard' -as [type]) -and [MuMuMenuCtrlCGuard]::StreamStopped
+                    if (-not $stoppedByCtrlC) { Stop-Logcat -Index $index -Transport $transport }
                 }
 
                 $stoppedByCtrlC = ('MuMuMenuCtrlCGuard' -as [type]) -and [MuMuMenuCtrlCGuard]::StreamStopped
