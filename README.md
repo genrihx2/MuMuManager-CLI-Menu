@@ -163,6 +163,12 @@ mumu-menu.cmd
 
 ## Что нового
 
+### v10.4.12 (04.11.2026)
+
+- Fixed: `[G]` live-логи действительно останавливаются по Ctrl+C. Предыдущий фикс снимал защиту, но останавливал только конвейер PowerShell, а дочерний `MuMuManager` продолжал печатать в консоль, и выход выглядел мёртвым. Теперь поток читается через собственный `Process` с перенаправленным stdout, а скомпилированный обработчик `CancelKeyPress` убивает этот процесс на сигнальном потоке (runspace там нет) — ридер получает EOF, печатается `logcat stopped (Ctrl+C).`, страж возвращается в `finally`.
+- Tests: новый тест «handler убивает привязанный поток» (реальный процесс `ping`, вызов обработчика с потока без runspace) плюс статические проверки чтения через `Process`; целевые наборы — 8 passed / 0 failed на Windows PowerShell 5.1 и на pwsh.
+
+**EN summary (v10.4.12):** Ctrl+C now really stops `[G]` live logcat. The previous fix only released the menu guard; PowerShell stopped its pipeline while the native `MuMuManager` child kept printing to the console. The stream is now read through an owned `Process`, and the compiled `CancelKeyPress` handler kills that process on the signal thread (no runspace there), so the reader hits EOF, `logcat stopped (Ctrl+C).` is printed and the guard is re-armed in `finally`.
 ### v10.4.11 (04.11.2026)
 
 - Fixed: `tests/mumu-menu.Tests.ps1` снова с UTF-8 BOM. Предыдущая правка записала файл без BOM, и Windows PowerShell 5.1 читал кириллицу как ANSI — 12 ошибок парсинга, красные ноги `pester-unit (5.7.1 / powershell)` и `deployed layout`, из-за чего Release v10.4.10 не опубликовался (тег создан, релиза нет). BOM восстановлен, парсер 5.1 — 0 ошибок.
@@ -327,6 +333,7 @@ mumu-menu.cmd
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v10.4.12 | 04.11.2026 | Fix: Ctrl+C still looked dead in `[G]` live logcat — the pipeline stopped but the native child kept printing; the stream is now read through an owned `Process` that the compiled handler kills |
 | v10.4.11 | 04.11.2026 | Fix CI: the test file was committed without its UTF-8 BOM, so Windows PowerShell 5.1 read Cyrillic as ANSI and failed to parse (12 errors, red 5.1 leg) — BOM restored, 5.1 parse 0 errors |
 | v10.4.10 | 04.11.2026 | Fix: Ctrl+C could not stop `[G]` live logcat (the menu-wide guard swallowed it) — the guard now carries an `Enabled` switch cleared for the stream and restored in `finally`; adb port is auto-detected across MuMu's 16384+32n block |
 | v10.4.9 | 04.11.2026 | Fix [G]: live logcat was blank on remote/streaming players whose adb bridge answers `-202 vm not ready` — the screen now picks adb or the manager's `sh` transport and streams through it (133 lines in 18 s live) |

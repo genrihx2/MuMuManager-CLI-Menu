@@ -317,7 +317,7 @@ function Initialize-TokenStorage {
     # the token via menu [K] so it is recreated through this code path.
 }
 
-$scriptVer = '10.4.11'
+$scriptVer = '10.4.12'
 $InstalledVersion = $null
 
 # --- [WN] MuMu network + updater watcher (read-only, opt-in) -----------------
@@ -1176,8 +1176,23 @@ public static class MuMuMenuCtrlCGuard {
     // user is expected to interrupt - live logcat - clear it for their run and
     // restore it afterwards, so "Ctrl+C to stop" is honest.
     public static volatile bool Enabled = true;
+    // A native child writes straight to the console, so stopping the PowerShell
+    // pipeline leaves logcat printing and Ctrl+C looks dead. The process the
+    // stream reads is attached here and the handler kills it; this runs on the
+    // signal thread, where no runspace exists, so the kill is compiled too.
+    public static System.Diagnostics.Process Stream;
+    public static volatile bool StreamStopped;
     public static readonly ConsoleCancelEventHandler Handler =
-        delegate (object sender, ConsoleCancelEventArgs e) { e.Cancel = Enabled; };
+        delegate (object sender, ConsoleCancelEventArgs e) {
+            if (!Enabled) {
+                System.Diagnostics.Process p = Stream;
+                if (p != null) {
+                    StreamStopped = true;
+                    try { if (!p.HasExited) p.Kill(); } catch { }
+                }
+            }
+            e.Cancel = Enabled;
+        };
 }
 '@ -ErrorAction Stop
     }
@@ -9373,6 +9388,7 @@ function Show-Logs {
             Write-Host "=== adb logcat LIVE (Ctrl+C to stop, filter: $filterDesc) ===" -ForegroundColor Green
             Write-Host ''
             $guardWasEnabled = $null
+            $stopMessagePrinted = $false
             try {
                 # The menu-wide Ctrl+C guard swallows Ctrl+C everywhere; release
                 # it for the stream so the documented "Ctrl+C to stop" stops it,
@@ -9382,24 +9398,33 @@ function Show-Logs {
                     [MuMuMenuCtrlCGuard]::Enabled = $false
                 }
                 $counter = @{ hidden = 0; matchCount = 0; lines = 0 }
-                # Stream directly into the loop: assigning 'cmd | stream' first
-                # would block on collection forever (logcat never exits),
-                # leaving the LIVE header printed with zero lines.
+                # Read the stream through a Process we own: the manager child
+                # writes straight to the console, so stopping the PowerShell
+                # pipeline alone left logcat printing and Ctrl+C looked dead.
+                # The compiled Ctrl+C handler kills this process; the reader
+                # then hits EOF and the loop ends.
+                $verb = if ($transport -eq 'sh') { 'sh' } else { 'adb' }
+                $psi = [System.Diagnostics.ProcessStartInfo]::new()
+                $psi.FileName = $MumuPath
+                $psi.Arguments = "$verb --vmindex $index --cmd `"logcat -v time $filter`""
+                $psi.UseShellExecute = $false
+                $psi.RedirectStandardOutput = $true
+                $psi.CreateNoWindow = $true
+                $psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+                $proc = [System.Diagnostics.Process]::Start($psi)
                 try {
-                    $stream = if ($transport -eq 'sh') {
-                        { param($mp, $idx, $flt) & $mp sh --vmindex $idx --cmd "logcat -v time $flt" 2>&1 }
-                    } else {
-                        { param($mp, $idx, $flt) & $mp adb --vmindex $idx --cmd "logcat -v time $flt" 2>&1 }
+                    if ('MuMuMenuCtrlCGuard' -as [type]) {
+                        [MuMuMenuCtrlCGuard]::StreamStopped = $false
+                        [MuMuMenuCtrlCGuard]::Stream = $proc
                     }
-                    & $stream $MumuPath $index $filter |
-                        ForEach-Object {
-                        $s = [string]$_
+                    while ($null -ne ($line = $proc.StandardOutput.ReadLine())) {
+                        $s = [string]$line
                         $counter.lines++
-                        if ($quiet -and $s -match $noiseRx) { $counter.hidden++; return }
+                        if ($quiet -and $s -match $noiseRx) { $counter.hidden++; continue }
                         if ($searchNeedle -and $s.IndexOf($searchNeedle, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
                             $counter.matchCount++
                             Write-SearchLine $s $searchNeedle
-                            return
+                            continue
                         }
                         if ($searchNeedle) {
                             Write-Host $s -ForegroundColor DarkGray
@@ -9408,10 +9433,20 @@ function Show-Logs {
                         }
                     }
                 } finally {
+                    if ('MuMuMenuCtrlCGuard' -as [type]) { [MuMuMenuCtrlCGuard]::Stream = $null }
+                    try {
+                        if (-not $proc.HasExited) { $proc.Kill(); $null = $proc.WaitForExit(2000) }
+                    } catch { Write-Debug "logcat stream stop: $($_.Exception.Message)" }
+                    $proc.Dispose()
                     Stop-Logcat -Index $index -Transport $transport
                 }
 
-                if ($counter.lines -eq 0) {
+                $stoppedByCtrlC = ('MuMuMenuCtrlCGuard' -as [type]) -and [MuMuMenuCtrlCGuard]::StreamStopped
+                if ($stoppedByCtrlC -and -not $stopMessagePrinted) {
+                    Write-Host ''
+                    Write-Host 'logcat stopped (Ctrl+C).' -ForegroundColor DarkGray
+                }
+                if ($counter.lines -eq 0 -and -not $stoppedByCtrlC) {
                     Write-Host 'logcat produced no output on either transport (adb bridge and sh both silent).' -ForegroundColor Yellow
                 }
 
@@ -9430,10 +9465,15 @@ function Show-Logs {
             } catch [System.Management.Automation.PipelineStoppedException] {
                 Write-Host ''
                 Write-Host 'logcat stopped (Ctrl+C).' -ForegroundColor DarkGray
+                $stopMessagePrinted = $true
             } catch {
-                if ($_.Exception -is [System.Management.Automation.PipelineStoppedException]) {
+                # Killing the child closes the pipe, so ReadLine can surface an
+                # IOException instead of EOF: treat that as the same stop.
+                $stoppedByCtrlC = ('MuMuMenuCtrlCGuard' -as [type]) -and [MuMuMenuCtrlCGuard]::StreamStopped
+                if ($stoppedByCtrlC -or $_.Exception -is [System.Management.Automation.PipelineStoppedException]) {
                     Write-Host ''
                     Write-Host 'logcat stopped (Ctrl+C).' -ForegroundColor DarkGray
+                    $stopMessagePrinted = $true
                 } else {
                     Write-Host "logcat interrupted or failed: $($_.Exception.Message)" -ForegroundColor Red
                 }

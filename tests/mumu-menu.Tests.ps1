@@ -1587,7 +1587,11 @@ Describe 'View logs screen [G]' {
         $body.Contains('[MuMuMenuCtrlCGuard]::Enabled = $false') | Should -BeTrue
         $body.Contains('[MuMuMenuCtrlCGuard]::Enabled = $guardWasEnabled') | Should -BeTrue
         $body.Contains('logcat stopped (Ctrl+C)') | Should -BeTrue
-    }
+        # A native child keeps printing after the pipeline stops, so the stream
+        # is read through a Process the compiled handler can kill.
+        $body.Contains('[System.Diagnostics.Process]::Start($psi)') | Should -BeTrue
+        $body.Contains('$proc.StandardOutput.ReadLine()') | Should -BeTrue
+        $body.Contains('[MuMuMenuCtrlCGuard]::Stream = $proc') | Should -BeTrue    }
 
     It 'Write-LogcatLine prints each Lua error as one line, collapsing stack frames and blank tails' {
         $f = $script:ast.FindAll({
@@ -2445,10 +2449,47 @@ Describe 'ADB port auto-detection' {
         } finally { $listener.Stop() }
     }
 
-    It 'returns none when no candidate answers' {
-        $r = Find-AdbPort -ReportedPort '1' -Index 3
+    It 'reports the port the manager claims when that port is the live one' {
+        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0) # DevSkim: ignore DS162092 - loopback fixture for the port probe
+        $listener.Start()
+        try {
+            $port = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
+            $r = Find-AdbPort -ReportedPort "$port" -Index 0
+            $r.Port | Should -Be $port
+            $r.Source | Should -Be 'reported'
+        } finally { $listener.Stop() }
+    }
+
+    It 'falls back to the instance block 16384 + 32*n when the reported port is dead' {
+        # A high index keeps the fixture away from real emulator ports: bind the
+        # first block start this machine actually has free.
+        $index = -1
+        $listener = $null
+        foreach ($idx in 20..40) {
+            try {
+                $candidate = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 16384 + 32 * $idx) # DevSkim: ignore DS162092 - loopback fixture for the block scan
+                $candidate.Start()
+                $listener = $candidate
+                $index = $idx
+                break
+            } catch { }
+        }
+        $listener | Should -Not -BeNullOrEmpty -Because 'a free 16384+32*n port is needed for this fixture'
+        try {
+            $expected = 16384 + 32 * $index
+            $r = Find-AdbPort -ReportedPort '1' -Index $index
+            $r.Port | Should -Be $expected
+            $r.Source | Should -Be 'scanned'
+        } finally { $listener.Stop() }
+    }
+
+    It 'returns none with the loopback host when no candidate answers' {
+        # Index 4000 puts every candidate above 65535, so the test cannot
+        # collide with a real emulator that happens to run on this machine.
+        $r = Find-AdbPort -ReportedPort '1' -Index 4000
         $r.Port | Should -Be 0
         $r.Source | Should -Be 'none'
+        $r.HostIp | Should -Be ([System.Net.IPAddress]::Loopback.ToString())
     }
 }
 Describe 'Emulator diagnostics (issue #32)' {
@@ -4313,5 +4354,56 @@ public static class MuMuGuardProbe {
         # args); what must never happen again is the runspace lookup failing.
         [MuMuGuardProbe]::Invoke($handler) |
             Should -Not -Be 'System.Management.Automation.PSInvalidOperationException'
+    }
+
+    It 'kills the attached stream process so Ctrl+C really ends the stream' {
+        $src = [System.IO.File]::ReadAllText((Join-Path (Join-Path $PSScriptRoot '..') 'mumu-menu.ps1'))
+        $m = [regex]::Match($src, "(?s)Add-Type -TypeDefinition @'\r?\n(.*?)\r?\n'@ -ErrorAction Stop")
+        $m.Success | Should -BeTrue
+        if (-not ('MuMuMenuCtrlCGuard' -as [type])) { Add-Type -TypeDefinition $m.Groups[1].Value }
+        if (-not ('MuMuGuardProbe' -as [type])) {
+            $probeSrc = @(
+                'using System;'
+                'using System.Threading;'
+                'public static class MuMuGuardProbe {'
+                '    public static string Invoke(Delegate d) {'
+                '        string res = "no-exception";'
+                '        var t = new Thread(() => {'
+                '            try { d.DynamicInvoke(new object[] { null, null }); }'
+                '            catch (Exception ex) {'
+                '                Exception e = ex; while (e.InnerException != null) e = e.InnerException;'
+                '                res = e.GetType().FullName;'
+                '            }'
+                '        });'
+                '        t.Start(); t.Join();'
+                '        return res;'
+                '    }'
+                '}'
+            ) -join "`n"
+            Add-Type -TypeDefinition $probeSrc
+        }
+
+        $psi = [System.Diagnostics.ProcessStartInfo]::new()
+        $psi.FileName = 'ping.exe'
+        $psi.Arguments = '-n 30 localhost'
+        $psi.UseShellExecute = $false
+        $psi.RedirectStandardOutput = $true
+        $psi.CreateNoWindow = $true
+        $proc = [System.Diagnostics.Process]::Start($psi)
+        try {
+            [MuMuMenuCtrlCGuard]::Enabled = $false
+            [MuMuMenuCtrlCGuard]::StreamStopped = $false
+            [MuMuMenuCtrlCGuard]::Stream = $proc
+            # Null args mirror the real signal-thread probe: the handler kills
+            # the stream before touching e.Cancel, so it must not need a runspace.
+            $null = [MuMuGuardProbe]::Invoke([MuMuMenuCtrlCGuard]::Handler)
+            [MuMuMenuCtrlCGuard]::StreamStopped | Should -BeTrue
+            $proc.WaitForExit(5000) | Should -BeTrue -Because 'the handler must kill the stream, not just flag it'
+        } finally {
+            [MuMuMenuCtrlCGuard]::Stream = $null
+            [MuMuMenuCtrlCGuard]::Enabled = $true
+            try { if (-not $proc.HasExited) { $proc.Kill() } } catch { }
+            $proc.Dispose()
+        }
     }
 }
