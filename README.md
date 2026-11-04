@@ -163,6 +163,12 @@ mumu-menu.cmd
 
 ## Что нового
 
+### v10.4.14 (04.11.2026)
+
+- Changed: после Ctrl+C в live-логах `[G]` сразу открывается главное меню — паузы «Press any key to continue...» больше нет. Флаг `$script:SkipContinuePause` выставляется только при остановке потока по Ctrl+C и сбрасывается в главном цикле, поэтому обычные действия сохраняют паузу.
+- Tests: статические проверки на флаг и на его обработку в главном цикле; целевые наборы зелёные на 5.1 и pwsh.
+
+**EN summary (v10.4.14):** After Ctrl+C stops `[G]` live logcat the main menu opens immediately — no "Press any key to continue..." pause. The one-shot `$script:SkipContinuePause` flag is set only for an interrupt and cleared by the main loop, so other actions keep their pause.
 ### v10.4.13 (04.11.2026)
 
 - Fixed: выход из `[G]` по Ctrl+C больше не «зависает» до второго нажатия. Обработчик убивает всё дерево процессов (`taskkill /F /T /PID`): менеджер оставлял наследника с нашим stdout-хэндлом, пайп не закрывался, и чтение продолжало ждать. Плюс после Ctrl+C больше не запускается нативный `logcat -c` — на остановленном конвейере он висел и держал меню; буфер чистится только при естественном конце потока.
@@ -339,6 +345,7 @@ mumu-menu.cmd
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v10.4.14 | 04.11.2026 | Change: Ctrl+C in `[G]` live logcat returns straight to the main menu — the one-shot `$script:SkipContinuePause` flag drops the "Press any key" pause for that case only |
 | v10.4.13 | 04.11.2026 | Fix: Ctrl+C needed a second press — the handler now kills the whole process tree (a surviving child kept stdout open) and skips the native `logcat -c` that hung on a stopped pipeline |
 | v10.4.12 | 04.11.2026 | Fix: Ctrl+C still looked dead in `[G]` live logcat — the pipeline stopped but the native child kept printing; the stream is now read through an owned `Process` that the compiled handler kills |
 | v10.4.11 | 04.11.2026 | Fix CI: the test file was committed without its UTF-8 BOM, so Windows PowerShell 5.1 read Cyrillic as ANSI and failed to parse (12 errors, red 5.1 leg) — BOM restored, 5.1 parse 0 errors |

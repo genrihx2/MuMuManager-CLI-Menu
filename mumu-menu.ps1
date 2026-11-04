@@ -317,7 +317,7 @@ function Initialize-TokenStorage {
     # the token via menu [K] so it is recreated through this code path.
 }
 
-$scriptVer = '10.4.13'
+$scriptVer = '10.4.14'
 $InstalledVersion = $null
 
 # --- [WN] MuMu network + updater watcher (read-only, opt-in) -----------------
@@ -9461,6 +9461,9 @@ function Show-Logs {
                     Write-Host ''
                     Write-Host 'logcat stopped (Ctrl+C).' -ForegroundColor DarkGray
                 }
+                # The interrupt already ended the screen, so [G] must land on
+                # the main menu instead of a "Press any key" pause.
+                if ($stoppedByCtrlC) { $script:SkipContinuePause = $true }
                 if ($counter.lines -eq 0 -and -not $stoppedByCtrlC) {
                     Write-Host 'logcat produced no output on either transport (adb bridge and sh both silent).' -ForegroundColor Yellow
                 }
@@ -13011,20 +13014,26 @@ do {
         }
     }
 
-    Write-Host ''
-    Write-Host 'Press any key to continue...' -ForegroundColor DarkGray
-    # Piped/redirected stdin has no key to wait for: waiting would hang the
-    # automation forever, and there is no console to close either - leave
-    # the menu cleanly instead. A missing console handle takes the catch.
-    $stdinRedirected = $false
-    try { $stdinRedirected = [Console]::IsInputRedirected } catch { $stdinRedirected = $true }
-    if ($stdinRedirected) {
-        Write-Host 'No interactive input available - leaving the menu.' -ForegroundColor DarkGray
-        break
-    }
-    try { $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') } catch {
-        Write-Host 'No interactive input available - leaving the menu.' -ForegroundColor DarkGray
-        break
+    # Ctrl+C in live logcat already ended that screen: return straight to the
+    # main menu once, without asking for another key.
+    $skipPause = $script:SkipContinuePause
+    $script:SkipContinuePause = $false
+    if (-not $skipPause) {
+        Write-Host ''
+        Write-Host 'Press any key to continue...' -ForegroundColor DarkGray
+        # Piped/redirected stdin has no key to wait for: waiting would hang the
+        # automation forever, and there is no console to close either - leave
+        # the menu cleanly instead. A missing console handle takes the catch.
+        $stdinRedirected = $false
+        try { $stdinRedirected = [Console]::IsInputRedirected } catch { $stdinRedirected = $true }
+        if ($stdinRedirected) {
+            Write-Host 'No interactive input available - leaving the menu.' -ForegroundColor DarkGray
+            break
+        }
+        try { $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') } catch {
+            Write-Host 'No interactive input available - leaving the menu.' -ForegroundColor DarkGray
+            break
+        }
     }
 
 } while ($true)

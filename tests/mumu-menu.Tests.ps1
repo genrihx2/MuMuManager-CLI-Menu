@@ -1596,6 +1596,10 @@ Describe 'View logs screen [G]' {
         # native logcat -c hung on a stopped pipeline: both made Ctrl+C look
         # frozen until a second press.
         $body.Contains('if (-not $stoppedByCtrlC) { Stop-Logcat') | Should -BeTrue
+        # A Ctrl+C stop returns to the main menu instead of a key wait.
+        $body.Contains('if ($stoppedByCtrlC) { $script:SkipContinuePause = $true }') | Should -BeTrue
+        $raw.Contains('if (-not $skipPause) {') | Should -BeTrue
+        $raw.Contains('$skipPause = $script:SkipContinuePause') | Should -BeTrue
     }
 
     It 'Write-LogcatLine prints each Lua error as one line, collapsing stack frames and blank tails' {
