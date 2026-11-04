@@ -163,6 +163,13 @@ mumu-menu.cmd
 
 ## Что нового
 
+### v10.4.10 (04.11.2026)
+
+- Fixed: из live-логов `[G]` снова можно выйти по Ctrl+C. Обработчик `CancelKeyPress` ставил `e.Cancel = true` на всё время работы меню, поэтому Ctrl+C глотался и в потоке — закрыть его можно было только окном. Теперь у стража есть флаг `Enabled`: на время потока он снимается, Ctrl+C останавливает лог, печатается `logcat stopped (Ctrl+C).`, а защита возвращается в `finally` — остальное меню по-прежнему не закрывается случайным Ctrl+C.
+- New: adb-порт определяется автоматически. `Find-AdbPort` проверяет сообщённый `adb_port` TCP-подключением, затем ищет слушателя в блоке MuMu `16384 + 32*n` и берёт первый живой порт; если не ответил никто — используется сообщённый. Проба отдаёт `adbPort`/`adbPortSource`, и DIAG показывает реально проверенный порт.
+- Tests: 2 новых теста автоопределения порта (живой loopback-слушатель выигрывает у устаревшего порта; без слушателей `Port=0`, `Source=none`), проверка `$p.adbPort` и 3 утверждения на снятие/возврат Ctrl+C-стража; затронутые наборы — 60 passed / 0 failed.
+
+**EN summary (v10.4.10):** Ctrl+C really stops `[G]` live logcat now: the menu-wide `CancelKeyPress` guard honours an `Enabled` flag that the stream clears and restores in `finally`, so the rest of the menu stays protected. The adb port is auto-detected (`Find-AdbPort`: the reported port, then MuMu's `16384+32*n` block probed over TCP) and the probe exposes `adbPort`/`adbPortSource`. Pester: 60/60 in the affected suites.
 ### v10.4.9 (04.11.2026)
 
 - Fixed: `[G]` live-logcat больше не даёт пустой экран на инстансах без локального adb-моста. Remote/streaming-игроки отвечают на `MuMuManager adb --cmd connect` кодом `-202 vm not ready, can not connect adb`, а каждый `--cmd` возвращает пустой вывод с кодом 0 — раньше меню печатало заголовок LIVE и молчало. Теперь транспорт выбирается явно: adb, а если мост не отвечает — shell-транспорт `MuMuManager sh`; причина печатается в шапке.
@@ -314,6 +321,7 @@ mumu-menu.cmd
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v10.4.10 | 04.11.2026 | Fix: Ctrl+C could not stop `[G]` live logcat (the menu-wide guard swallowed it) — the guard now carries an `Enabled` switch cleared for the stream and restored in `finally`; adb port is auto-detected across MuMu's 16384+32n block |
 | v10.4.9 | 04.11.2026 | Fix [G]: live logcat was blank on remote/streaming players whose adb bridge answers `-202 vm not ready` — the screen now picks adb or the manager's `sh` transport and streams through it (133 lines in 18 s live) |
 | v10.4.8 | 29.10.2026 | New: the menu now auto-restarts on a clean `[U]` update — no manual window close; verify via live A/B run that the child executes the already-new `mumu-menu.ps1` |
 | v10.4.7 | 29.10.2026 | Fix [RL]: the release body arrived as `╨Ш╨╜…` because `Invoke-GitHubApiGet` piped `curl.exe` stdout and PS 5.1 decodes native output with the console code page (CP866); the body now goes through `curl -o` and is read as UTF-8 |

@@ -317,7 +317,7 @@ function Initialize-TokenStorage {
     # the token via menu [K] so it is recreated through this code path.
 }
 
-$scriptVer = '10.4.9'
+$scriptVer = '10.4.10'
 $InstalledVersion = $null
 
 # --- [WN] MuMu network + updater watcher (read-only, opt-in) -----------------
@@ -1172,8 +1172,12 @@ try {
         Add-Type -TypeDefinition @'
 using System;
 public static class MuMuMenuCtrlCGuard {
+    // Armed by default: a stray Ctrl+C must never close the menu. Streams the
+    // user is expected to interrupt - live logcat - clear it for their run and
+    // restore it afterwards, so "Ctrl+C to stop" is honest.
+    public static volatile bool Enabled = true;
     public static readonly ConsoleCancelEventHandler Handler =
-        delegate (object sender, ConsoleCancelEventArgs e) { e.Cancel = true; };
+        delegate (object sender, ConsoleCancelEventArgs e) { e.Cancel = Enabled; };
 }
 '@ -ErrorAction Stop
     }
@@ -3753,6 +3757,47 @@ function Export-UpdateJournal {
 # version marker vs the script's own $scriptVer (the v1.20.5 wedge class),
 # the update lock, pending .new/.old files and the journal's health.
 
+function Find-AdbPort {
+    # Resolve the live adb endpoint for one instance instead of trusting the
+    # adb_port the manager reports: a crashed, cloned or imported VM can leave
+    # that value stale, and the bridge may sit elsewhere in MuMu's
+    # 16384+32*n block. Candidates are probed by TCP only (no child process,
+    # no adb server start) - the caller still confirms the device with adb.
+    # Returns @{ HostIp; Port; Source } where Source is reported|scanned|none.
+    param(
+        [string]$HostIp = '',
+        [string]$ReportedPort = '',
+        [int]$Index = -1,
+        [int[]]$ProbePorts = @()
+    )
+    if (-not $HostIp) { $HostIp = [System.Net.IPAddress]::Loopback.ToString() }
+    function Test-TcpOpen {
+        param([string]$H, [int]$P)
+        if ($P -le 0 -or $P -gt 65535) { return $false }
+        $client = $null
+        try {
+            $client = New-Object System.Net.Sockets.TcpClient
+            $ar = $client.BeginConnect($H, $P, $null, $null)
+            if (-not $ar.AsyncWaitHandle.WaitOne(200)) { return $false }
+            $client.EndConnect($ar)
+            return $true
+        } catch { return $false } finally { if ($client) { $client.Close() } }
+    }
+    $candidates = New-Object System.Collections.Generic.List[int]
+    if ($ReportedPort -match '^\d+$') { $candidates.Add([int]$ReportedPort) }
+    foreach ($p in $ProbePorts) { if ([int]$p -gt 0) { $candidates.Add([int]$p) } }
+    $start = if ($Index -ge 0) { 16384 + 32 * $Index } else { 16384 }
+    for ($i = 0; $i -lt 6; $i++) { $candidates.Add($start + 32 * $i) }
+    $seen = @{}
+    foreach ($cand in $candidates) {
+        if ($seen.ContainsKey($cand)) { continue }
+        $seen[$cand] = $true
+        if (-not (Test-TcpOpen -H $HostIp -P $cand)) { continue }
+        $isReported = ($ReportedPort -match '^\d+$' -and [int]$ReportedPort -eq $cand)
+        return @{ HostIp = $HostIp; Port = $cand; Source = $(if ($isReported) { 'reported' } else { 'scanned' }) }
+    }
+    return @{ HostIp = $HostIp; Port = 0; Source = 'none' }
+}
 function Invoke-MumuManagerProbe {
     # One MuMuManager info query, parsed into testable data (issue #32).
     # $MumuPathOverride is for tests (stub binary); production passes the
@@ -3800,7 +3845,7 @@ function Invoke-MumuManagerProbe {
             return $null
         }
     }
-    $r = @{ found = $false; instances = -1; running = -1; adbReady = $false; adbState = ''; adbPort = 0; error = ''; rawFirstLine = ''; adbExeUsed = '' }
+    $r = @{ found = $false; instances = -1; running = -1; adbReady = $false; adbState = ''; adbPort = 0; adbPortSource = ''; error = ''; rawFirstLine = ''; adbExeUsed = '' }
     $exe = if ($MumuPathOverride) { $MumuPathOverride } else { $TargetPath }
     if (-not ($exe -and (Test-Path -LiteralPath $exe -PathType Leaf))) { $r.error = 'not found'; return $r }
     $r.found = $true
@@ -3835,8 +3880,17 @@ function Invoke-MumuManagerProbe {
                 # v1.21.8 fix: some MuMu builds never report adb_version, which
                 # made the readiness flag a permanent false positive. Ask ADB
                 # itself, per instance, via its adb_port (local socket only).
-                $port = if ($inst.PSObject.Properties['adb_port']) { "$($inst.adb_port)" } else { '' }
-                if ($port -and $port -ne '0') {
+                $reportedPort = if ($inst.PSObject.Properties['adb_port']) { "$($inst.adb_port)" } else { '' }
+                $instIndex = if ("$key" -match '^\d+$') { [int]$key } else { -1 }
+                # Auto-detect the live port: after a crash or a clone/import the
+                # reported adb_port can be stale. Find-AdbPort probes TCP, so a
+                # detected port is one that is actually listening; when nothing
+                # answers, keep the reported value for the adb attempt below.
+                $adbEndpoint = Find-AdbPort -ReportedPort $reportedPort -Index $instIndex
+                $port = if ($adbEndpoint.Port -gt 0) { "$($adbEndpoint.Port)" } elseif ($reportedPort -and $reportedPort -ne '0') { $reportedPort } else { '' }
+                if ($port) {
+                    $r.adbPort = [int]$port
+                    $r.adbPortSource = $adbEndpoint.Source
                     # adb.exe candidates: next to MuMuManager itself (nx_main layout,
                     # caught live in v1.22.5), the classic shell\ subfolder above it,
                     # then PATH. Derive from -TargetPath or -MumuPathOverride (tests).
@@ -9318,7 +9372,15 @@ function Show-Logs {
             Write-Host ''
             Write-Host "=== adb logcat LIVE (Ctrl+C to stop, filter: $filterDesc) ===" -ForegroundColor Green
             Write-Host ''
+            $guardWasEnabled = $null
             try {
+                # The menu-wide Ctrl+C guard swallows Ctrl+C everywhere; release
+                # it for the stream so the documented "Ctrl+C to stop" stops it,
+                # then re-arm in finally (the menu stays protected afterwards).
+                if ('MuMuMenuCtrlCGuard' -as [type]) {
+                    $guardWasEnabled = [MuMuMenuCtrlCGuard]::Enabled
+                    [MuMuMenuCtrlCGuard]::Enabled = $false
+                }
                 $counter = @{ hidden = 0; matchCount = 0; lines = 0 }
                 # Stream directly into the loop: assigning 'cmd | stream' first
                 # would block on collection forever (logcat never exits),
@@ -9365,8 +9427,18 @@ function Show-Logs {
                     Write-Host ''
                     Write-Host "  [stack] collapsed $($gLogState.collapsed) stack line(s) - each error printed once" -ForegroundColor DarkGray
                 }
+            } catch [System.Management.Automation.PipelineStoppedException] {
+                Write-Host ''
+                Write-Host 'logcat stopped (Ctrl+C).' -ForegroundColor DarkGray
             } catch {
-                Write-Host "logcat interrupted or failed: $($_.Exception.Message)" -ForegroundColor Red
+                if ($_.Exception -is [System.Management.Automation.PipelineStoppedException]) {
+                    Write-Host ''
+                    Write-Host 'logcat stopped (Ctrl+C).' -ForegroundColor DarkGray
+                } else {
+                    Write-Host "logcat interrupted or failed: $($_.Exception.Message)" -ForegroundColor Red
+                }
+            } finally {
+                if ($null -ne $guardWasEnabled) { [MuMuMenuCtrlCGuard]::Enabled = $guardWasEnabled }
             }
         }
         return

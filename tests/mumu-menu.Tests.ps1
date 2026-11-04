@@ -1,4 +1,4 @@
-﻿#requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0' }
+#requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0' }
 
 # Pester unit tests for mumu-menu.ps1 pure helpers (issue #20).
 # The functions are extracted from the script via AST - exactly the
@@ -31,7 +31,7 @@ BeforeAll {
                         'Get-JournalArrow', 'Show-UpdateJournal',
                         'Test-UpdateLockStale', 'Get-UpdateLockMessage', 'New-UpdateLock', 'Remove-UpdateLock',
                         'ConvertTo-JournalMarkdown', 'ConvertTo-JournalCsv', 'ConvertTo-JournalJson', 'Export-UpdateJournal',
-                        'Get-ProblemFindings', 'Get-InstallStatus', 'Get-IntegrityVerdict', 'Invoke-MumuManagerProbe',
+                        'Get-ProblemFindings', 'Get-InstallStatus', 'Get-IntegrityVerdict', 'Find-AdbPort', 'Invoke-MumuManagerProbe',
                         'Get-BackupFolders', 'Build-RollbackPlan', 'Invoke-Rollback', 'Test-CurlCapability',
                         'Get-DiagSummary', 'Show-UpdatePlan',
                         'Get-AutoDiagSummary', 'Invoke-StartupAutoDiag', 'Show-AutoDiagLine',
@@ -1582,6 +1582,11 @@ Describe 'View logs screen [G]' {
         $body.Contains('$result.transport = ''sh''') | Should -BeTrue
         $body.Contains('sh --vmindex') | Should -BeTrue
         $body.Contains('Stop-Logcat -Index $index -Transport $transport') | Should -BeTrue
+        # Ctrl+C must really stop the live stream: the menu-wide guard is
+        # disarmed for the run and restored in finally.
+        $body.Contains('[MuMuMenuCtrlCGuard]::Enabled = $false') | Should -BeTrue
+        $body.Contains('[MuMuMenuCtrlCGuard]::Enabled = $guardWasEnabled') | Should -BeTrue
+        $body.Contains('logcat stopped (Ctrl+C)') | Should -BeTrue
     }
 
     It 'Write-LogcatLine prints each Lua error as one line, collapsing stack frames and blank tails' {
@@ -2406,6 +2411,7 @@ Describe 'Rollback from backup (issue #27)' {
         [System.IO.File]::WriteAllText($stub, $bat)
         $p = Invoke-MumuManagerProbe -MumuPathOverride $stub -AdbPathOverride $fakeAdb
         $p.adbReady | Should -BeTrue
+        $p.adbPort | Should -Be 16384
     }
 
     It 'the probe ADB fallback does not crash without any adb binary and stays honest' {
@@ -2426,6 +2432,25 @@ Describe 'Rollback from backup (issue #27)' {
     }
 }
 
+Describe 'ADB port auto-detection' {
+
+    It 'prefers a listening port over the stale reported one' {
+        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0) # DevSkim: ignore DS162092 - loopback fixture for the port probe
+        $listener.Start()
+        try {
+            $port = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
+            $r = Find-AdbPort -ReportedPort '1' -Index 0 -ProbePorts @($port)
+            $r.Port | Should -Be $port
+            $r.Source | Should -Be 'scanned'
+        } finally { $listener.Stop() }
+    }
+
+    It 'returns none when no candidate answers' {
+        $r = Find-AdbPort -ReportedPort '1' -Index 3
+        $r.Port | Should -Be 0
+        $r.Source | Should -Be 'none'
+    }
+}
 Describe 'Emulator diagnostics (issue #32)' {
 
     BeforeAll {
