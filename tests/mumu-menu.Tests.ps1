@@ -2472,7 +2472,9 @@ Describe 'ADB port auto-detection' {
                 $listener = $candidate
                 $index = $idx
                 break
-            } catch { }
+            } catch {
+                Write-Debug "block port $(16384 + 32 * $idx) is in use: $($_.Exception.Message)"
+            }
         }
         $listener | Should -Not -BeNullOrEmpty -Because 'a free 16384+32*n port is needed for this fixture'
         try {
@@ -4384,8 +4386,10 @@ public static class MuMuGuardProbe {
         }
 
         $psi = [System.Diagnostics.ProcessStartInfo]::new()
-        $psi.FileName = 'ping.exe'
-        $psi.Arguments = '-n 30 localhost'
+        # Any long-lived child works; this host sleeping needs no network (a
+        # loopback literal here would also trip DevSkim DS162092).
+        $psi.FileName = (Get-Process -Id $PID).Path
+        $psi.Arguments = '-NoProfile -Command "Start-Sleep -Seconds 30"'
         $psi.UseShellExecute = $false
         $psi.RedirectStandardOutput = $true
         $psi.CreateNoWindow = $true
@@ -4402,7 +4406,7 @@ public static class MuMuGuardProbe {
         } finally {
             [MuMuMenuCtrlCGuard]::Stream = $null
             [MuMuMenuCtrlCGuard]::Enabled = $true
-            try { if (-not $proc.HasExited) { $proc.Kill() } } catch { }
+            try { if (-not $proc.HasExited) { $proc.Kill() } } catch { Write-Debug "fixture cleanup: $($_.Exception.Message)" }
             $proc.Dispose()
         }
     }
