@@ -101,6 +101,24 @@ mumu-menu.cmd
 
 Меню предоставляет удобный интерактивный интерфейс для выбора инстанса и выполнения операций (ADB, установка APK, бэкап/рестор, spoofing, просмотр логов и т.д.).
 
+### Неинтерактивный режим
+
+Для скриптов, CI и циклов по всем инстансам есть `-Action`: ни одного вопроса, код возврата `0` только когда все запрошенные инстансы отработали.
+
+```powershell
+.\mumu-menu.ps1 -Action launch  -Instance all        # запустить все и дождаться загрузки
+.\mumu-menu.ps1 -Action stop    -Instance 0,2        # остановить два конкретных
+.\mumu-menu.ps1 -Action restart -Instance all -Json  # перезапуск, машинный вывод
+.\mumu-menu.ps1 -Action logs    -Instance 0 -Lines 50  # снапшот logcat
+```
+
+- `-Instance` — `all` (по умолчанию), один индекс или список через запятую; неизвестный индекс — ошибка, а не тишина.
+- `-Lines` — сколько строк logcat брать для `logs` (по умолчанию 200).
+- `-TimeoutSec` — сколько ждать загрузки для `launch`/`restart` (по умолчанию 300; интерактивное меню ждёт 120).
+- `-Json` — вместо строк выводит объект (`action`, `ok`, `failed`, `instances[]`).
+
+Стартовая проверка обновлений и баннер при `-Action` не выполняются, поэтому stdout остаётся пригодным для разбора.
+
 ## Порядок помощи
 
 Если что-то не работает, используйте такой порядок:
@@ -163,6 +181,21 @@ mumu-menu.cmd
 
 ## Что нового
 
+### v10.4.16 (06.11.2026)
+
+- Fixed: `[G]` больше не упирается в тупик на незапущенном инстансе. Меню различает три состояния — `RUNNING ✓`, `STARTING ◐` (процесс плеера поднят, Android ещё грузится) и `STOPPED ○` — а при выборе `[2]`/`[3]` предлагает запустить инстанс и дожидается загрузки, после чего сразу показывает logcat. Раньше `starting_rom` считался остановленным, и живой мост объявлялся недоступным.
+- Fixed: подсказка об остановленном инстансе ссылалась на `[2]`, хотя `[2]` — это снапшот logcat, а не Launch; теперь она указывает на `[2] Launch` главного меню.
+- Fixed: `[MU]` больше не может зависнуть на чтении страницы. У `Invoke-WebRequest` в Windows PowerShell 5.1 `-TimeoutSec` ограничивает только получение заголовков, а тело читается с `ReadWriteTimeout` (300 с по умолчанию) — плюс выводится прогресс-бар «Чтение веб-отклика», который Ctrl+C не прерывает. Страницы теперь тянутся через `Get-WebText` на `HttpClient` с жёстким дедлайном на весь обмен, включая тело, и с выключенным прогрессом.
+- Added: неинтерактивный режим `-Action launch|stop|restart|logs` с `-Instance all|0|0,2`, `-Lines`, `-TimeoutSec` и `-Json`: ни одного `Read-Host`, проверка результата по фактическому состоянию инстанса, код возврата `0` только при успехе по всем целям. Стартовые баннер и проверка обновлений на этом пути пропускаются.
+- Tests: статические проверки на `STARTING ◐`, на запуск через `control -v ... launch`, на `Wait-Boot`, на отсутствие старой подсказки, на `Get-WebText` вместо `Invoke-WebRequest` для страниц и на отсутствие интерактивных вызовов в неинтерактивном пути; набор 317/317 зелёный на pwsh и 5.1.
+
+**EN summary (v10.4.16):** `[MU]` can no longer hang while reading a page: `Invoke-WebRequest`'s `-TimeoutSec` bounds only the headers on Windows PowerShell 5.1, the body is read under `ReadWriteTimeout` (300 s), and its "reading web response" bar ignores Ctrl+C. Pages now go through `Get-WebText`, which caps the whole exchange with `HttpClient` and keeps the progress bar out. `[G]` no longer dead-ends on an instance that is not up. The screen tells three states apart — `RUNNING ✓`, `STARTING ◐` (player process up, Android still booting) and `STOPPED ○` — and for `[2]`/`[3]` it offers to start the instance, waits for boot and then streams logcat. A booting VM used to be reported as stopped, and the old hint pointed at `[2]`, which is the snapshot action, not Launch.
+### v10.4.15 (04.11.2026)
+
+- Fixed: Ctrl+C в `[G]` теперь гарантированно возвращает в главное меню. Обработчик больше не отдаёт нажатие хосту (`e.Cancel = true`): остановку выполняет убийство дерева процессов, а ридер выходит по EOF, поэтому нативный поток не может пережить разрыв конвейера и печатать поверх меню.
+- Tests: статическая проверка `e.Cancel = true` плюс существующие проверки на `taskkill` и пропуск `logcat -c`; целевые наборы зелёные на 5.1 и pwsh.
+
+**EN summary (v10.4.15):** Ctrl+C in `[G]` reliably returns to the main menu. The handler always sets `e.Cancel = true` and ends the stream by killing the process tree; the reader exits on EOF, so the native child cannot survive a pipeline teardown and keep printing over the menu.
 ### v10.4.14 (04.11.2026)
 
 - Changed: после Ctrl+C в live-логах `[G]` сразу открывается главное меню — паузы «Press any key to continue...» больше нет. Флаг `$script:SkipContinuePause` выставляется только при остановке потока по Ctrl+C и сбрасывается в главном цикле, поэтому обычные действия сохраняют паузу.
@@ -345,6 +378,8 @@ mumu-menu.cmd
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v10.4.16 | 06.11.2026 | Fix [G]: a stopped or booting instance dead-ended logcat (a `starting_rom` VM read as stopped) with a hint pointing at `[2]`, which is the snapshot action — the screen now offers to start it, waits for boot, and shows a separate `STARTING` state |
+| v10.4.15 | 04.11.2026 | Fix: Ctrl+C now always returns to the main menu — the handler keeps the keystroke (`e.Cancel = true`) and ends the stream via the process-tree kill, so nothing keeps printing over the menu |
 | v10.4.14 | 04.11.2026 | Change: Ctrl+C in `[G]` live logcat returns straight to the main menu — the one-shot `$script:SkipContinuePause` flag drops the "Press any key" pause for that case only |
 | v10.4.13 | 04.11.2026 | Fix: Ctrl+C needed a second press — the handler now kills the whole process tree (a surviving child kept stdout open) and skips the native `logcat -c` that hung on a stopped pipeline |
 | v10.4.12 | 04.11.2026 | Fix: Ctrl+C still looked dead in `[G]` live logcat — the pipeline stopped but the native child kept printing; the stream is now read through an owned `Process` that the compiled handler kills |

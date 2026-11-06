@@ -1550,8 +1550,16 @@ Describe 'View logs screen [G]' {
         $body.Contains('RUNNING ✓') | Should -BeTrue
         $body.Contains('STOPPED ○') | Should -BeTrue
         ($body -match 'is_android_started') | Should -BeTrue
-        # Guard: logcat modes refused with an actionable message when stopped.
-        $body.Contains('Instance is not running - logcat needs a running Android') | Should -BeTrue
+        # Guard: a stopped instance no longer dead-ends - the menu offers to
+        # start it and waits for boot, and a booting player reads STARTING
+        # instead of STOPPED.
+        $body.Contains('STARTING ◐') | Should -BeTrue
+        $body.Contains('Instance is stopped - logcat needs a booted Android. Start it now? (Y/n)') | Should -BeTrue
+        $body.Contains('control -v $index launch') | Should -BeTrue
+        $body.Contains('Wait-Boot -Index $index') | Should -BeTrue
+        ($body -match 'is_process_started') | Should -BeTrue
+        # The old hint pointed at [2], which is the snapshot action, not Launch.
+        ($body.Contains('launch via [2] first')) | Should -BeFalse
         # Severity coloring for logcat -v time lines (E/F red, W yellow).
         # Regression (caught live): -v time puts the level right after the
         # timestamp ("...858 W/Tag( 3012):"), NOT after pid/tid like threadtime.
@@ -2288,7 +2296,9 @@ Describe 'Persistent ETag cache (issue #28)' {
         $src = [System.IO.File]::ReadAllText($script:menuPath)
         ($src.Contains("'.etag-cache.json'")) | Should -Be $true
         ($src.Contains('EtagCacheFile = Join-Path')) | Should -Be $true
-        ($src.Contains('param([switch]$Force)')) | Should -Be $true
+        # -Force is still a declared parameter; the param block also carries the
+        # -Action/-Instance batch parameters now, so match the switch itself.
+        ($src.Contains('[switch]$Force')) | Should -Be $true
         ($src.Contains("BoundParameters.Keys -contains 'Force'")) | Should -Be $true
     }
 
@@ -4340,6 +4350,7 @@ Describe 'Ctrl+C guard (compiled delegate)' {
         $handler = [MuMuMenuCtrlCGuard]::Handler
         $handler.GetType().FullName | Should -Be 'System.ConsoleCancelEventHandler'
         ($src -match 'taskkill') | Should -BeTrue -Because 'the handler must kill the whole tree, not just the parent'
+        ($src -match 'e\.Cancel = true;') | Should -BeTrue -Because 'the host must not tear the stream down under the menu'
 
         if (-not ('MuMuGuardProbe' -as [type])) {
             Add-Type -TypeDefinition @'
@@ -4419,5 +4430,57 @@ public static class MuMuGuardProbe {
             try { if (-not $proc.HasExited) { $proc.Kill() } } catch { Write-Debug "fixture cleanup: $($_.Exception.Message)" }
             $proc.Dispose()
         }
+    }
+}
+
+Describe 'Bounded web fetch' {
+
+    It 'Get-WebText caps the whole exchange, body included, and hides the progress bar' {
+        $raw = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'mumu-menu.ps1') -Raw -Encoding UTF8
+        $fnAt = $raw.IndexOf('function Get-WebText {')
+        $stopAt = $raw.IndexOf('function Show-MumuUpdateCheck {')
+        ($fnAt -ge 0 -and $stopAt -gt $fnAt) | Should -BeTrue
+        $body = $raw.Substring($fnAt, $stopAt - $fnAt)
+        # HttpClient.Timeout bounds the response body too; Invoke-WebRequest's
+        # -TimeoutSec does not on 5.1 (ReadWriteTimeout, 300 s), which left [MU]
+        # frozen behind a "reading web response" bar.
+        $body.Contains('HttpClient') | Should -BeTrue
+        $body.Contains('$client.Timeout = [TimeSpan]::FromSeconds($TimeoutSec)') | Should -BeTrue
+        $body.Contains("`$ProgressPreference = 'SilentlyContinue'") | Should -BeTrue
+        # 5.1 does not load System.Net.Http on demand.
+        $body.Contains('Add-Type -AssemblyName System.Net.Http') | Should -BeTrue
+        # The page scrapes must go through it, not the unbounded call.
+        $raw.Contains('$html = Get-WebText -Uri $page') | Should -BeTrue
+        ($raw.Contains('Invoke-WebRequest -Uri $page -UseBasicParsing')) | Should -BeFalse
+    }
+}
+
+Describe 'Non-interactive mode (-Action)' {
+
+    It 'exposes launch/stop/restart/logs without a single prompt and reports by exit code' {
+        $raw = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'mumu-menu.ps1') -Raw -Encoding UTF8
+        # Parameters a caller can drive from a script or CI.
+        $raw.Contains("[ValidateSet('launch', 'stop', 'restart', 'logs')]") | Should -BeTrue
+        $raw.Contains("[string]`$Instance = 'all'") | Should -BeTrue
+        $raw.Contains('[switch]$Json') | Should -BeTrue
+        $raw.Contains('[int]$TimeoutSec = 300') | Should -BeTrue
+        # The batch path must stay prompt-free: a Read-Host there would hang a
+        # piped run exactly like the interactive screens do.
+        $fnAt = $raw.IndexOf('function Resolve-TargetIndices {')
+        $loopAt = $raw.IndexOf('# Main loop')
+        ($fnAt -ge 0 -and $loopAt -gt $fnAt) | Should -BeTrue
+        $batch = $raw.Substring($fnAt, $loopAt - $fnAt)
+        ($batch.Contains('Read-Host')) | Should -BeFalse
+        # Exit status travels in a script variable: a returned number would be
+        # swallowed together with the -Json object on the caller's pipeline.
+        $batch.Contains('$script:BatchExitCode = if ($failed.Count -gt 0) { 1 } else { 0 }') | Should -BeTrue
+        $raw.Contains('exit $script:BatchExitCode') | Should -BeTrue
+        # Unknown indices fail loudly instead of acting on nothing.
+        $batch.Contains('unknown instance index') | Should -BeTrue
+        # logcat uses the same two transports as [G]; this MuMu build answers
+        # `adb --cmd` with an empty exit-127 no-op.
+        $batch.Contains('sh --vmindex') | Should -BeTrue
+        # Startup banner/update check must not pollute machine-readable output.
+        $raw.Contains('if (-not $Action) {') | Should -BeTrue
     }
 }

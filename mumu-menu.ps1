@@ -1,7 +1,20 @@
 ﻿# PSScriptAnalyzer -Disable PSUseApprovedVerbs, PSUseDeclaredVarsMoreThanAssignments
 # -Force: repair mode - the persistent ETag cache (issue #28) is suppressed
 # so a repair run always fetches fresh content over the wire.
-param([switch]$Force)
+param(
+    [switch]$Force,
+    # Non-interactive mode. With -Action the menu runs one batch operation and
+    # exits with a status code instead of drawing a screen and waiting for a
+    # keystroke: -Instance accepts all (default), one index or a comma list.
+    [ValidateSet('launch', 'stop', 'restart', 'logs')]
+    [string]$Action,
+    [string]$Instance = 'all',
+    [int]$Lines = 200,
+    # Boot wait for launch/restart. A single VM took ~190 s on the reference
+    # machine, so the interactive 120 s budget is too tight for a batch run.
+    [int]$TimeoutSec = 300,
+    [switch]$Json
+)
 # MuMuManager CLI - Interactive Menu for Netease MuMu Emulator (Windows)
 # Project:  https://github.com/genrihx2/MuMuManager-CLI-Menu
 # License:  Open Source - MIT (see LICENSE)
@@ -317,7 +330,7 @@ function Initialize-TokenStorage {
     # the token via menu [K] so it is recreated through this code path.
 }
 
-$scriptVer = '10.4.14'
+$scriptVer = '10.4.16'
 $InstalledVersion = $null
 
 # --- [WN] MuMu network + updater watcher (read-only, opt-in) -----------------
@@ -1202,7 +1215,10 @@ public static class MuMuMenuCtrlCGuard {
                     try { if (!p.HasExited) p.Kill(); } catch { }
                 }
             }
-            e.Cancel = Enabled;
+            // Always swallow the keystroke: letting the host tear the pipeline
+            // down could leave the native child printing over the menu, so the
+            // stream is ended by the kill above and the reader exits on EOF.
+            e.Cancel = true;
         };
 }
 '@ -ErrorAction Stop
@@ -3175,8 +3191,12 @@ try {
     Write-Debug ".old cleanup failed: $($_.Exception.Message)"
 }
 
-# Read-only update check at startup; installs only via menu option [U]
-try { Update-FromGitHub -Passive } catch { Write-Debug "Startup update check failed: $($_.Exception.Message)" }
+# Read-only update check at startup; installs only via menu option [U].
+# Skipped for -Action runs: a batch caller asked for one operation, not for a
+# network round-trip and banner noise mixed into its output.
+if (-not $Action) {
+    try { Update-FromGitHub -Passive } catch { Write-Debug "Startup update check failed: $($_.Exception.Message)" }
+}
 
 # Auto-detected versions of the player/updater EXEs (never manual input).
 # The install location is DISCOVERED, not assumed: MuMuManager's own
@@ -3430,19 +3450,23 @@ $MinVersion = [version]'4.0.0.3179'
 try {
     $verJson = & $MumuPath version 2>$null | ConvertFrom-Json
     if ($verJson.version) { $InstalledVersion = [version]$verJson.version }
-    if ($InstalledVersion -lt $MinVersion) {
-        Write-Host ''
-        Write-Host "WARNING: MuMu version $InstalledVersion is too old!" -ForegroundColor Red
-        Write-Host "Minimum required: $MinVersion" -ForegroundColor Yellow
-        Write-Host 'Some commands may not work. Please update MuMu.' -ForegroundColor Yellow
-        Write-Host ''
-        Start-Sleep -Seconds 3
-    } else {
-        Write-Host "MuMu $InstalledVersion OK" -ForegroundColor DarkGray
+    # -Action runs are machine-facing: stdout carries the result only, and a
+    # 3 s warning sleep would just delay a batch caller.
+    if (-not $Action) {
+        if ($InstalledVersion -lt $MinVersion) {
+            Write-Host ''
+            Write-Host "WARNING: MuMu version $InstalledVersion is too old!" -ForegroundColor Red
+            Write-Host "Minimum required: $MinVersion" -ForegroundColor Yellow
+            Write-Host 'Some commands may not work. Please update MuMu.' -ForegroundColor Yellow
+            Write-Host ''
+            Start-Sleep -Seconds 3
+        } else {
+            Write-Host "MuMu $InstalledVersion OK" -ForegroundColor DarkGray
+        }
+        Show-MumuExeVersions
     }
-    Show-MumuExeVersions
 } catch {
-    Write-Host 'Could not check MuMu version' -ForegroundColor Yellow
+    if (-not $Action) { Write-Host 'Could not check MuMu version' -ForegroundColor Yellow }
 }
 
 $script:QuickStatusCache = $null
@@ -6624,7 +6648,7 @@ function Test-Network {
     Write-Host ''
     Write-Host '[5] CDN mirror freshness (host-side)' -ForegroundColor Yellow
     $cdnVer = ''
-    try { $cdnVer = ("$((Invoke-WebRequest -Uri 'https://cdn.jsdelivr.net/gh/genrihx2/MuMuManager-CLI-Menu@main/.version' -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop).Content)").Trim() } catch { Write-Debug "CDN .version fetch failed: $($_.Exception.Message)" }
+    try { $cdnVer = ("$(Get-WebText -Uri 'https://cdn.jsdelivr.net/gh/genrihx2/MuMuManager-CLI-Menu@main/.version' -TimeoutSec 10)").Trim() } catch { Write-Debug "CDN .version fetch failed: $($_.Exception.Message)" }
     $apiVer = ''
     # .tag_name must sit INSIDE the $( ) subexpression - outside it the
     # object is stringified wholesale and $apiVer becomes the whole release
@@ -9109,13 +9133,19 @@ function Show-Logs {
     if (-not $index) { return }
 
     # --- header + instance state ---
+    # Three states, not two: the player process can already be up while
+    # Android is still booting (player_state starting_rom). Reporting that as
+    # "stopped" dead-ended [2]/[3] on an instance that was seconds away from
+    # answering logcat.
     $instName = "Instance $index"
-    $running = $false
+    $androidUp = $false
+    $procUp = $false
     try {
         $info = & $MumuPath info -v $index 2>$null | ConvertFrom-Json
         if ($info.$index) { $info = $info.$index }
         if ($info.name) { $instName = $info.name }
-        if ($info.is_android_started -eq $true -or $info.is_process_started -eq $true) { $running = $true }
+        if ($info.is_android_started -eq $true) { $androidUp = $true }
+        if ($info.is_process_started -eq $true) { $procUp = $true }
     } catch { Write-Debug "info read failed: $($_.Exception.Message)" }
 
     Write-Host ''
@@ -9123,13 +9153,17 @@ function Show-Logs {
     Write-Host ("  │  View logs: {0,-32}│" -f $instName) -ForegroundColor Cyan
     Write-Host '  └─────────────────────────────────────────────┘' -ForegroundColor Cyan
     Write-Host ''
-    if ($running) {
+    if ($androidUp) {
         Write-Host '    ● Instance: ' -NoNewline
         Write-Host 'RUNNING ✓' -ForegroundColor Green
+    } elseif ($procUp) {
+        Write-Host '    ● Instance: ' -NoNewline
+        Write-Host 'STARTING ◐' -ForegroundColor Yellow
+        Write-Host '      Player is up, Android is still booting - logcat begins once it finishes.' -ForegroundColor DarkGray
     } else {
         Write-Host '    ● Instance: ' -NoNewline
         Write-Host 'STOPPED ○' -ForegroundColor DarkGray
-        Write-Host '      logcat unavailable; static files and [2] Launch still work.' -ForegroundColor DarkGray
+        Write-Host '      logcat needs a booted Android; static files still work and it can be started from here.' -ForegroundColor DarkGray
     }
     Write-Host ''
     Write-Host '    Actions:' -ForegroundColor DarkGray
@@ -9141,11 +9175,25 @@ function Show-Logs {
 
     if ($mode -eq '0' -or $mode -eq '') { return }
 
-    if (($mode -eq '2' -or $mode -eq '3') -and -not $running) {
+    if (($mode -eq '2' -or $mode -eq '3') -and -not $androidUp) {
         Write-Host ''
-        Write-Host '    ✗ Instance is not running - logcat needs a running Android.' -ForegroundColor Red
-        Write-Host '      Static log files [1] still work, or launch via [2] first.' -ForegroundColor White
-        return
+        if ($procUp) {
+            # Already booting: nothing to ask, just wait it out.
+            Write-Host '    ● Instance is starting - waiting for Android to finish booting.' -ForegroundColor Yellow
+        } else {
+            $start = Read-Host '    ✗ Instance is stopped - logcat needs a booted Android. Start it now? (Y/n)'
+            if ($start -eq 'n' -or $start -eq 'N') {
+                Write-Host '      Static log files [1] still work; launch it from the main menu with [2] Launch.' -ForegroundColor White
+                return
+            }
+            Write-Host '    Starting emulator...' -ForegroundColor Cyan
+            & $MumuPath control -v $index launch 2>&1 | Out-Null
+        }
+        if (-not (Wait-Boot -Index $index)) {
+            Write-Host '    ✗ Android did not finish booting - logcat needs a booted Android.' -ForegroundColor Red
+            Write-Host '      Static log files [1] still work; run [G] again once it shows RUNNING.' -ForegroundColor White
+            return
+        }
     }
 
     # Prints one log line with every case-insensitive occurrence of $Needle
@@ -10513,7 +10561,7 @@ function Show-MumuOfflineInstallers {
     while ($htmlAttempt -lt 2 -and -not $html) {
         $htmlAttempt++
         try {
-            $html = (Invoke-WebRequest -Uri $page -UseBasicParsing -TimeoutSec 12).Content
+            $html = Get-WebText -Uri $page -TimeoutSec 12
         } catch {
             if ($htmlAttempt -lt 2) { Start-Sleep -Seconds 2 }
         }
@@ -10726,6 +10774,43 @@ function Show-MumuOfflineInstallers {
     Write-Host ''
 }
 
+function Get-WebText {
+    # Bounded text fetch. Invoke-WebRequest's -TimeoutSec only bounds
+    # GetResponse on Windows PowerShell 5.1: the body is read through a stream
+    # whose timeout is ReadWriteTimeout (300 s by default). A page that sends a
+    # few KB and then stalls therefore froze [MU] behind a "reading web
+    # response" bar that Ctrl+C cannot break, because the menu-wide guard
+    # swallows the keystroke. HttpClient.Timeout covers the whole exchange,
+    # body included, on both hosts.
+    # Returns the body as a string; throws on timeout/HTTP failure so callers
+    # keep their existing retry-and-report handling.
+    param(
+        [Parameter(Mandatory)][string]$Uri,
+        [int]$TimeoutSec = 10
+    )
+    $previousProgress = $ProgressPreference
+    $ProgressPreference = 'SilentlyContinue'
+    $client = $null
+    try {
+        # 5.1 can still negotiate TLS 1.0 by default on some hosts.
+        try { [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 } catch { Write-Debug "TLS 1.2 not set: $($_.Exception.Message)" }
+        # Windows PowerShell 5.1 does not load System.Net.Http on demand.
+        if (-not ('System.Net.Http.HttpClient' -as [type])) { Add-Type -AssemblyName System.Net.Http -ErrorAction Stop }
+        $client = New-Object System.Net.Http.HttpClient
+        $client.Timeout = [TimeSpan]::FromSeconds($TimeoutSec)
+        $task = $client.GetStringAsync($Uri)
+        if (-not $task.Wait([TimeSpan]::FromSeconds($TimeoutSec + 2))) {
+            throw "timed out after ${TimeoutSec}s: $Uri"
+        }
+        return $task.Result
+    } finally {
+        if ($client) {
+            try { $client.CancelPendingRequests(); $client.Dispose() } catch { Write-Debug "web client dispose failed: $($_.Exception.Message)" }
+        }
+        $ProgressPreference = $previousProgress
+    }
+}
+
 function Show-MumuUpdateCheck {
     <#
     .SYNOPSIS
@@ -10773,7 +10858,7 @@ function Show-MumuUpdateCheck {
     $latest = $null
     for ($mAttempt = 1; $mAttempt -le 2 -and -not $latest; $mAttempt++) {
         try {
-            $html = (Invoke-WebRequest -Uri $page -UseBasicParsing -TimeoutSec 10).Content
+            $html = Get-WebText -Uri $page -TimeoutSec 10
             if ($html -match '\bV(\d+\.\d+(?:\.\d+){1,2})\b') {
                 try { $latest = [version]$Matches[1] } catch { $latest = $null }
             }
@@ -10827,7 +10912,7 @@ function Show-VersionInfo {
     $latest = $null
     for ($vAttempt = 1; $vAttempt -le 2 -and -not $latest; $vAttempt++) {
         try {
-            $latest = (Invoke-WebRequest -Uri $api -UseBasicParsing -TimeoutSec 10).Content | ConvertFrom-Json
+            $latest = (Get-WebText -Uri $api -TimeoutSec 10) | ConvertFrom-Json
         } catch {
             if ($vAttempt -lt 2) { Start-Sleep -Seconds 2 }
         }
@@ -12923,6 +13008,203 @@ function Show-ResourceMonitor {
         Write-Host ''
         Write-Host ('Resource monitor stopped ({0} frame(s) rendered).' -f $frames) -ForegroundColor Cyan
     }
+}
+
+# ---------------------------------------------------------------------------
+# Non-interactive mode: -Action launch|stop|restart|logs [-Instance all|0,2]
+# Every screen in this menu ends in Read-Host, which is exactly what a caller
+# in CI or a loop cannot answer. This path reuses the same manager calls the
+# [B]/[D]/[R] batch screens and the [G] snapshot use, prints no menu, asks
+# nothing, and exits with 0 only when every requested instance succeeded.
+# ---------------------------------------------------------------------------
+function Resolve-TargetIndices {
+    # -Instance is validated against the live instance list, so a typo fails
+    # loudly instead of quietly acting on nothing.
+    param([string]$Instance)
+    $known = @(Get-AllIndices | ForEach-Object { "$_" })
+    if ($known.Count -eq 0) { throw 'no MuMu instances found' }
+    if (-not $Instance -or $Instance -eq 'all') { return $known }
+    $asked = @($Instance -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ } | Select-Object -Unique)
+    if ($asked.Count -eq 0) { throw "-Instance '$Instance' names no index (use all, 0 or 0,2)" }
+    $unknown = @($asked | Where-Object { $known -notcontains $_ })
+    if ($unknown.Count) { throw "unknown instance index: $($unknown -join ', ') (known: $($known -join ', '))" }
+    return $asked
+}
+
+function Get-InstanceState {
+    # One manager query, flattened for the batch path. Kept separate from
+    # Invoke-MumuManagerProbe (which asks about the install, not one VM).
+    param([string]$Index)
+    $state = @{ name = "Instance $Index"; player = ''; android = $false; process = $false }
+    try {
+        $raw = & $MumuPath info -v $Index 2>$null | ConvertFrom-Json
+        if ($raw.$Index) { $raw = $raw.$Index }
+        if ($raw.name) { $state.name = "$($raw.name)" }
+        if ($raw.player_state) { $state.player = "$($raw.player_state)" }
+        if ($raw.is_android_started -eq $true) { $state.android = $true }
+        if ($raw.is_process_started -eq $true) { $state.process = $true }
+    } catch { Write-Debug "state read failed for ${Index}: $($_.Exception.Message)" }
+    return $state
+}
+
+function Start-InstanceSet {
+    # Launch every index, then poll until each one reports a booted Android.
+    # Wait-Boot draws a progress bar and stops at the first timeout; a batch
+    # run needs one quiet poll over the whole set.
+    param([string[]]$Indices, [int]$TimeoutSec = 120, [int]$IntervalSec = 3)
+    foreach ($idx in $Indices) { & $MumuPath control -v $idx launch 2>&1 | Out-Null }
+    $pending = New-Object System.Collections.Generic.List[string]
+    foreach ($i in $Indices) { $pending.Add($i) }
+    $elapsed = 0
+    while ($pending.Count -gt 0 -and $elapsed -lt $TimeoutSec) {
+        Start-Sleep -Seconds $IntervalSec
+        $elapsed += $IntervalSec
+        foreach ($i in @($pending)) {
+            if ((Get-InstanceState -Index $i).android) { $pending.Remove($i) }
+        }
+    }
+    $map = @{}
+    foreach ($i in $Indices) { $map[$i] = (Get-InstanceState -Index $i).android }
+    return $map
+}
+
+function Stop-InstanceSet {
+    # Shutdown is asynchronous: the CLI returns before the VM is down, so the
+    # result is the state read back, never the exit code.
+    param([string[]]$Indices, [int]$TimeoutSec = 60, [int]$IntervalSec = 2)
+    foreach ($idx in $Indices) { & $MumuPath control -v $idx shutdown 2>&1 | Out-Null }
+    $pending = New-Object System.Collections.Generic.List[string]
+    foreach ($i in $Indices) { $pending.Add($i) }
+    $elapsed = 0
+    while ($pending.Count -gt 0 -and $elapsed -lt $TimeoutSec) {
+        Start-Sleep -Seconds $IntervalSec
+        $elapsed += $IntervalSec
+        foreach ($i in @($pending)) {
+            if (-not (Get-InstanceState -Index $i).process) { $pending.Remove($i) }
+        }
+    }
+    $map = @{}
+    foreach ($i in $Indices) { $map[$i] = (-not (Get-InstanceState -Index $i).process) }
+    return $map
+}
+
+function Get-LogcatSnapshotText {
+    # Same two transports as Resolve-LogcatTransport, minus the interactive
+    # echo probe: this MuMu build answers `adb --cmd` with an empty exit-127
+    # no-op, while the manager's sh path still reaches the guest shell.
+    param([string]$Index, [int]$Lines = 200)
+    $cmd = "logcat -d -t $Lines"
+    $text = (& $MumuPath adb --vmindex $Index --cmd $cmd 2>&1 | Out-String).Trim()
+    if (-not $text) { $text = (& $MumuPath sh --vmindex $Index --cmd $cmd 2>&1 | Out-String).Trim() }
+    return $text
+}
+
+function Invoke-BatchAction {
+    # Runs one -Action over the resolved indices and sets $script:BatchExitCode.
+    param([string]$Action, [string]$Instance, [int]$Lines = 200, [int]$TimeoutSec = 300, [switch]$Json)
+    $indices = @(Resolve-TargetIndices -Instance $Instance)
+    $results = @()
+
+    switch ($Action) {
+        'launch' {
+            $map = Start-InstanceSet -Indices $indices -TimeoutSec $TimeoutSec
+            foreach ($idx in $indices) {
+                $st = Get-InstanceState -Index $idx
+                $ok = [bool]$map[$idx]
+                $results += [PSCustomObject]@{
+                    index = "$idx"; name = $st.name; ok = $ok; state = $st.player
+                    detail = $(if ($ok) { 'android booted' } else { "not booted within ${TimeoutSec}s" })
+                }
+            }
+        }
+        'stop' {
+            $map = Stop-InstanceSet -Indices $indices
+            foreach ($idx in $indices) {
+                $st = Get-InstanceState -Index $idx
+                $ok = [bool]$map[$idx]
+                $results += [PSCustomObject]@{
+                    index = "$idx"; name = $st.name; ok = $ok; state = $st.player
+                    detail = $(if ($ok) { 'stopped' } else { 'still running after 60s' })
+                }
+            }
+        }
+        'restart' {
+            $null = Stop-InstanceSet -Indices $indices
+            # The manager needs its main services back before a relaunch.
+            Start-Sleep -Seconds 5
+            $map = Start-InstanceSet -Indices $indices -TimeoutSec $TimeoutSec
+            foreach ($idx in $indices) {
+                $st = Get-InstanceState -Index $idx
+                $ok = [bool]$map[$idx]
+                $results += [PSCustomObject]@{
+                    index = "$idx"; name = $st.name; ok = $ok; state = $st.player
+                    detail = $(if ($ok) { 'restarted, android booted' } else { "not booted within ${TimeoutSec}s" })
+                }
+            }
+        }
+        'logs' {
+            foreach ($idx in $indices) {
+                $st = Get-InstanceState -Index $idx
+                $text = ''
+                if ($st.process) { $text = Get-LogcatSnapshotText -Index $idx -Lines $Lines }
+                $ok = [bool]$text
+                $detail = if (-not $st.process) { 'not running' }
+                          elseif (-not $ok) { 'no logcat output' }
+                          else { "$(($text -split "`n").Count) line(s)" }
+                $results += [PSCustomObject]@{
+                    index = "$idx"; name = $st.name; ok = $ok; state = $st.player
+                    detail = $detail; text = $text
+                }
+            }
+        }
+    }
+
+    $failed = @($results | Where-Object { -not $_.ok })
+    if ($Json) {
+        [PSCustomObject]@{
+            action = $Action
+            ok = ($failed.Count -eq 0)
+            failed = $failed.Count
+            total = $results.Count
+            generated = (Get-Date).ToString('s')
+            instances = @($results)
+        } | ConvertTo-Json -Depth 5
+    } else {
+        foreach ($r in $results) {
+            $mark = if ($r.ok) { 'OK  ' } else { 'FAIL' }
+            $color = if ($r.ok) { 'Green' } else { 'Red' }
+            Write-Host ("[{0}] {1} {2} - {3}" -f $mark, $r.index, $r.name, $r.detail) -ForegroundColor $color
+            if ($r.text) {
+                # The manager returns CRLF; splitting on LF alone would leave a
+                # stray CR that doubles up when the output is redirected.
+                $logLines = @(($r.text -replace "`r`n", "`n") -split "`n")
+                # Prefix with the index only when more than one instance is in
+                # play, so a single-instance tail stays copy-pasteable.
+                if ($indices.Count -gt 1) {
+                    foreach ($line in $logLines) { Write-Host ("  [$($r.index)] $line") }
+                } else {
+                    foreach ($line in $logLines) { Write-Host $line }
+                }
+            }
+        }
+        Write-Host ("{0}: {1} ok, {2} failed" -f $Action, ($results.Count - $failed.Count), $failed.Count)
+    }
+    # The code travels through a script variable, not the pipeline: -Json
+    # writes an object to the success stream, and a returned number would be
+    # swallowed by the caller's assignment along with that object.
+    $script:BatchExitCode = if ($failed.Count -gt 0) { 1 } else { 0 }
+}
+
+if ($Action) {
+    # No banner, no status line, no update check: stdout stays parseable.
+    $script:BatchExitCode = 1
+    try {
+        Invoke-BatchAction -Action $Action -Instance $Instance -Lines $Lines -TimeoutSec $TimeoutSec -Json:$Json
+    } catch {
+        Write-Host ("error: {0}" -f $_.Exception.Message)
+        $script:BatchExitCode = 1
+    }
+    exit $script:BatchExitCode
 }
 
 # Main loop
