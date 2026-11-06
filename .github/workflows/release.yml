@@ -148,7 +148,9 @@ jobs:
         # published body is built from the README's «Что нового» sections, so
         # a table row without a matching section silently drops that version
         # from the notes (the v1.19.1 regression), and a lagging
-        # relnotes/.version/$scriptVer triple ships stale text (#31).
+        # relnotes/.version/$scriptVer triple ships stale text (#31), and a
+        # release that forgets package.json / the lockfile leaves them to
+        # drift (both sat at 10.3.4 through v10.4.8).
         # The check reads the TAG blobs (git archive), not the working tree,
         # so a dispatch of an older tag is judged on its own content, and it
         # runs only when we are about to publish - an already-published
@@ -161,7 +163,15 @@ jobs:
           dir="$RUNNER_TEMP/changelog-gate"
           rm -rf "$dir"
           mkdir -p "$dir"
-          git archive "$TAG" README.md relnotes.md .version mumu-menu.ps1 | tar -x -C "$dir"
+          # package.json / package-lock.json are repo-only (an installed copy
+          # has neither), so they are archived only when the tag carries them:
+          # an older tag must not fail the archive step, and the checker skips
+          # a manifest path that does not exist.
+          files=(README.md relnotes.md .version mumu-menu.ps1)
+          for f in package.json package-lock.json; do
+            if git cat-file -e "$TAG:$f" 2>/dev/null; then files+=("$f"); fi
+          done
+          git archive "$TAG" "${files[@]}" | tar -x -C "$dir"
 
           # The checker itself is taken from the checked-out ref; a tag cut
           # before it existed still gets the default-branch copy.
@@ -170,14 +180,22 @@ jobs:
             git show "origin/main:tests/test-changelog-sync.ps1" > "$SCRIPT"
           fi
 
+          # A tag cut before the manifest check existed ships a checker that
+          # would reject the new switches, so pass them only when supported.
+          MANIFEST_ARGS=()
+          if grep -q 'PackagePath' "$SCRIPT"; then
+            MANIFEST_ARGS=(-PackagePath "$dir/package.json" -LockPath "$dir/package-lock.json")
+          fi
+
           pwsh -NoProfile -File "$SCRIPT" \
             -ReadmePath   "$dir/README.md" \
             -RelnotesPath "$dir/relnotes.md" \
             -VersionPath  "$dir/.version" \
             -MenuPath     "$dir/mumu-menu.ps1" \
+            "${MANIFEST_ARGS[@]}" \
             || {
                  echo "Changelog / release version sources at $TAG are inconsistent - refusing to release." >&2
-                 echo "Fix the missing table row or «Что нового» section, and bump relnotes.md + .version + \$scriptVer together." >&2
+                 echo "Fix the missing table row or «Что нового» section, and bump relnotes.md + .version + \$scriptVer + package.json/lockfile together." >&2
                  exit 1
                }
 

@@ -5,9 +5,10 @@ name: Changelog check
 # changelog table row without a matching section silently drops that
 # version from the release notes (happened to v1.19.1). Fails when any
 # table row has no matching section, when a section has no row, when
-# either side has duplicates - and when the three release version sources
-# (relnotes.md top section, .version, mumu-menu.ps1 $scriptVer) disagree
-# (issue #31).
+# either side has duplicates - and when the release version sources
+# (relnotes.md top section, .version, mumu-menu.ps1 $scriptVer, plus
+# package.json / the package-lock.json root version when present) disagree
+# (issue #31; the manifests froze at 10.3.4 for nine releases).
 
 on:
   push:
@@ -17,6 +18,8 @@ on:
       - 'relnotes.md'
       - '.version'
       - 'mumu-menu.ps1'
+      - 'package.json'
+      - 'package-lock.json'
       - 'tests/test-changelog-sync.ps1'
       - '.github/workflows/changelog-check.yml'
   pull_request:
@@ -25,6 +28,8 @@ on:
       - 'relnotes.md'
       - '.version'
       - 'mumu-menu.ps1'
+      - 'package.json'
+      - 'package-lock.json'
       - 'tests/test-changelog-sync.ps1'
       - '.github/workflows/changelog-check.yml'
   workflow_dispatch:
@@ -40,6 +45,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - name: Check changelog consistency + release version sync (relnotes / .version / scriptVer)
+      - name: Check changelog consistency + release version sync (relnotes / .version / scriptVer / manifests)
         shell: pwsh
         run: ./tests/test-changelog-sync.ps1

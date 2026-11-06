@@ -26,7 +26,7 @@ tests/
   mumu-menu.Tests.ps1   # Pester suite (150+ tests; the repo-file-dependent test is tagged RepoFiles)
   run-pester.ps1        # Test runner
   test-bootstrap-update.ps1
-  test-changelog-sync.ps1  # relnotes = .version = scriptVer + README table sync
+  test-changelog-sync.ps1  # relnotes = .version = scriptVer = package.json/lockfile + README table sync
   test-deployed-layout.ps1 # Repo-vs-install drift guard: suite inside a fixture with ONLY the deployed files, both engines, RepoFiles excluded
   test-installed-smoke.ps1 # Installed-copy smoke (-TargetDir): version sources agree, its own [RL] lists the tag, its bootstrap verifies the release ZIP
 PSScriptAnalyzerSettings.psd1
