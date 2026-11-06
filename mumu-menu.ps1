@@ -46,6 +46,11 @@ param(
 # Launch:   .\mumu-menu.ps1
 #
 # ========================================================================
+# Version header. Kept up here on purpose: tests/test-changelog-sync.ps1
+# scans the first 320 lines of this file for $scriptVer, so moving it below
+# that window makes the release gate report "scriptVer = NOT FOUND".
+$scriptVer = '10.4.16'
+
 function Repair-DesktopModulePath {
     # Fixes PowerShell/PowerShell#18530: when Windows PowerShell 5.1 (Desktop)
     # is launched through an intermediate process (cmd from mumu-menu.cmd,
@@ -330,7 +335,6 @@ function Initialize-TokenStorage {
     # the token via menu [K] so it is recreated through this code path.
 }
 
-$scriptVer = '10.4.16'
 $InstalledVersion = $null
 
 # --- [WN] MuMu network + updater watcher (read-only, opt-in) -----------------
