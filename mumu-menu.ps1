@@ -10797,7 +10797,7 @@ function Get-WebText {
     $client = $null
     try {
         # 5.1 can still negotiate TLS 1.0 by default on some hosts.
-        try { [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 } catch { Write-Debug "TLS 1.2 not set: $($_.Exception.Message)" }
+        try { [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 } catch { Write-Debug "TLS 1.2 not set: $($_.Exception.Message)" }   # DevSkim: ignore DS440001,DS440020 - PS 5.1 needs the explicit TLS 1.2 opt-in; no credential or user data involved
         # Windows PowerShell 5.1 does not load System.Net.Http on demand.
         if (-not ('System.Net.Http.HttpClient' -as [type])) { Add-Type -AssemblyName System.Net.Http -ErrorAction Stop }
         $client = New-Object System.Net.Http.HttpClient

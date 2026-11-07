@@ -53,7 +53,7 @@ Write-Host ("DevSkim suppressions: {0} comment(s) checked, {1} unknown rule refe
 # Mirror the rule's own regex and scope: matched per line, code only. Comment
 # lines and inline-suppressed lines are ignored, so prose that mentions sha256
 # next to a timestamp does not fail the build.
-$hashThenTime = '(MD4|MD5|(SHA(1|224|256|384|512))).*Time'
+$hashThenTime = '(MD4|MD5|(SHA(1|224|256|384|512))).*Time'   # DevSkim: ignore DS126858,DS197836 - mirrors the scanner's own regex, nothing is hashed here
 $selfPath = $MyInvocation.MyCommand.Path
 $skipPath = '/(node_modules|\.git|\.tools|\.cloud-attachments)/'
 $hits = 0

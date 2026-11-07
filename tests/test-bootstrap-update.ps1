@@ -226,20 +226,21 @@ try {
             }
         } catch {
             # Listener stopped by the parent - nothing left to serve.
+            Write-Verbose 'probe listener stopped by the parent'
         }
     }).AddArgument($listener).AddArgument($probeBody)
     $probeHandle = $probe.BeginInvoke()
 
     try {
         $token = 'ghp_invalidtoken' + ('x' * 27)   # any Authorization value is rejected here (DevSkim DS173237)
-        $body3b = Invoke-CurlGet "http://127.0.0.1:$probePort/repos/$Repo/releases/latest"
+        $body3b = Invoke-CurlGet "http://127.0.0.1:$probePort/repos/$Repo/releases/latest"   # DevSkim: ignore DS162092,DS137138 - loopback-only probe, deliberately plain HTTP
         Assert-True -Name 'public endpoint still delivered via the no-auth retry' -Condition ($body3b -match 'tag_name') -Detail ("returned: " + $(if ($body3b) { $body3b.Substring(0, [Math]::Min(60, $body3b.Length)) } else { '<null>' }))
         Assert-True -Name 'token disabled for the run after the 401 fallback' -Condition ($null -eq $script:token) -Detail 'script-scoped token still set'
     } finally {
         $token = $null
-        try { $listener.Stop() } catch { }
-        try { $null = $probeHandle.AsyncWaitHandle.WaitOne(5000) } catch { }
-        try { $probe.Dispose() } catch { }
+        try { $listener.Stop() } catch { Write-Verbose 'probe listener already stopped' }
+        try { $null = $probeHandle.AsyncWaitHandle.WaitOne(5000) } catch { Write-Verbose 'probe runspace did not stop in time' }
+        try { $probe.Dispose() } catch { Write-Verbose 'probe runspace already disposed' }
     }
 
     # ── T3c: the 5.1 terminating-quirk guard - no 2>$null anywhere ────────
