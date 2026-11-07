@@ -227,19 +227,46 @@ jobs:
           # otherwise dispatches tests.yml at the tag ref, then polls the
           # run to completion before auditing its check-runs. Requires
           # actions: write (dispatch) and checks: read (check-runs audit).
-          RUN_ID=$(gh api "repos/$REPO/actions/runs?head_sha=$TAG_SHA&per_page=100" \
-            --jq '[(.workflow_runs[]? | select(.name == "Tests"))] | sort_by(.created_at) | reverse | .[0].id // ""' || true)
+          # Newest Tests run on the tag commit, as id<TAB>status<TAB>conclusion.
+          latest_tests_run() {
+            gh api "repos/$REPO/actions/runs?head_sha=$TAG_SHA&per_page=100" \
+              --jq '[(.workflow_runs[]? | select(.name == "Tests"))] | sort_by(.created_at) | reverse | .[0] | [.id, .status, (.conclusion // "-")] | @tsv' 2>/dev/null || true
+          }
+          LATEST=$(latest_tests_run)
+          RUN_ID=$(printf '%s' "$LATEST" | cut -f1)
+          RUN_STATUS=$(printf '%s' "$LATEST" | cut -f2)
+          RUN_CONCLUSION=$(printf '%s' "$LATEST" | cut -f3)
+
+          NEED_DISPATCH=false
           if [ -z "$RUN_ID" ]; then
             echo "No Tests run on $TAG_SHA - dispatching tests.yml at ref $SHA..."
+            NEED_DISPATCH=true
+          elif [ "$RUN_STATUS" = "completed" ] && [ "$RUN_CONCLUSION" != "success" ]; then
+            # A completed RED run on exactly this commit is stale for this
+            # attempt. Reusing it made the documented remedy below ("fix the
+            # failing checks, then re-run this workflow") impossible: every
+            # re-run picked the same red run back up, so one flake pinned the
+            # tag forever (v10.4.16 was blocked by a single rate-limited
+            # probe in bootstrap-detector that no re-run could replace).
+            # Re-run the suite once and judge THAT result - a genuine
+            # failure still blocks the release at the audit below.
+            echo "Newest Tests run on $TAG_SHA concluded '$RUN_CONCLUSION' - re-running tests.yml at ref $SHA..."
+            NEED_DISPATCH=true
+          else
+            echo "Reusing an existing Tests run on $TAG_SHA ($RUN_STATUS)"
+          fi
+
+          if [ "$NEED_DISPATCH" = "true" ]; then
+            STALE_RUN_ID="$RUN_ID"
             gh workflow run tests.yml --repo "$REPO" --ref "$SHA"
+            RUN_ID=""
             for _ in 1 2 3 4 5 6; do
               sleep 10
-              RUN_ID=$(gh api "repos/$REPO/actions/runs?head_sha=$TAG_SHA&per_page=100" \
-                --jq '[(.workflow_runs[]? | select(.name == "Tests"))] | sort_by(.created_at) | reverse | .[0].id // ""' || true)
-              if [ -n "$RUN_ID" ]; then break; fi
+              NEW_ID=$(latest_tests_run | cut -f1)
+              # The fresh run is only visible once it exists: never fall back
+              # to the stale run this branch decided to replace.
+              if [ -n "$NEW_ID" ] && [ "$NEW_ID" != "$STALE_RUN_ID" ]; then RUN_ID="$NEW_ID"; break; fi
             done
-          else
-            echo "Reusing an existing Tests run on $TAG_SHA"
           fi
           case "$RUN_ID" in '' | *[!0-9]*) echo "No Tests run could be found or started on $TAG_SHA" >&2; exit 1 ;; esac
           echo "Tests run: ${GITHUB_SERVER_URL:-https://github.com}/$REPO/actions/runs/$RUN_ID"

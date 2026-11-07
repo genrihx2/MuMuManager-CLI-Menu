@@ -16,10 +16,14 @@
 #       (via a local file:// URL, so no network flakiness) - must be rejected.
 #   T3. Feeds it a "Bad credentials" JSON body with a token configured -
 #       must be rejected after the without-auth retry.
-#   T3b. Live 401 fallback (v10.2.0 field report): --fail suppresses the
+#   T3b. Real 401 fallback (v10.2.0 field report): --fail suppresses the
 #       HTTP-error body, so the T3 body check cannot see a real 401 -
 #       Invoke-CurlGet must detect the rejected token via its no-auth
 #       retry, disable the token for the run, and still deliver the body.
+#       The endpoint is a LOOPBACK socket (401 whenever an Authorization
+#       header is present, JSON when it is not), so the leg verifies the
+#       transition instead of depending on the CI runner IP's ANONYMOUS
+#       GitHub quota - that dependency went red on every dispatch.
 #   T3c. No native stderr redirection (2>$null) anywhere in the script:
 #       under PS 5.1 + ErrorActionPreference=Stop redirected native
 #       stderr is marshaled as a terminating error on the first curl
@@ -165,7 +169,16 @@ try {
     $token  = $null
     Assert-True -Name 'bad-credentials JSON rejected (returns 0)' -Condition ($size3 -eq 0) -Detail "returned size: $size3"
 
-    # ── T3b: real HTTP 401 must disable the token and complete anonymously ──
+    # ── T3b: HTTP 401 must disable the token and complete anonymously ────
+    # The probe endpoint is LOOPBACK, not api.github.com. With the rejected
+    # token attached curl exits 22, and the no-auth retry used to hit the
+    # REAL API from a shared CI runner IP whose anonymous quota is routinely
+    # exhausted: the retry got a 403, delivered no body, and the token was
+    # (correctly) never blamed - so both assertions failed for a reason
+    # unrelated to the code under test (v10.4.16 release gate, red on every
+    # dispatch). The behaviour under test is the 401 -> anonymous
+    # transition, so serve it deterministically: 401 whenever an
+    # Authorization header is present, the JSON body when it is absent.
     Write-Host 'T3b: rejected token (HTTP 401) must fall back to anonymous' -ForegroundColor Cyan
     $icgFn = $ast.FindAll({
         param($node)
@@ -173,14 +186,58 @@ try {
     }, $true) | Select-Object -First 1
     if (-not $icgFn) { throw 'Invoke-CurlGet function not found in bootstrap-update.ps1' }
     . ([scriptblock]::Create($icgFn.Extent.Text))
-    $script:CurlRetryArgs = @('--retry', '1', '--retry-delay', '1')   # keep the live probe fast
+    $script:CurlRetryArgs = @('--retry', '1', '--retry-delay', '1')   # keep the probe fast
     $maxRetries = 2
     $retryDelay = 1
-    $token = 'ghp_invalidtoken' + ('x' * 27)   # guaranteed 401; assembled from parts (DevSkim DS173237)
-    $body3b = Invoke-CurlGet "https://api.github.com/repos/$Repo/releases/latest"
-    Assert-True -Name 'public endpoint still delivered via the no-auth retry' -Condition ($body3b -match 'tag_name') -Detail ("returned: " + $(if ($body3b) { $body3b.Substring(0, [Math]::Min(60, $body3b.Length)) } else { '<null>' }))
-    Assert-True -Name 'token disabled for the run after the 401 fallback' -Condition ($null -eq $script:token) -Detail 'script-scoped token still set'
-    $token = $null
+
+    $probeBody = '{"tag_name":"v10.4.16","name":"probe"}'
+    $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+    $listener.Start()
+    $probePort = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
+    # Served from a runspace: curl has to reach the socket while this
+    # thread is blocked inside Invoke-CurlGet.
+    $probe = [System.Management.Automation.PowerShell]::Create()
+    $null = $probe.AddScript({
+        param($listener, $body)
+        try {
+            for ($i = 0; $i -lt 8; $i++) {
+                $client = $listener.AcceptTcpClient()
+                try {
+                    $stream  = $client.GetStream()
+                    $reader  = New-Object System.IO.StreamReader($stream)
+                    $hasAuth = $false
+                    while ($true) {
+                        $line = $reader.ReadLine()
+                        if (-not $line) { break }
+                        if ($line -match '^Authorization:') { $hasAuth = $true }
+                    }
+                    if ($hasAuth) {
+                        $resp = "HTTP/1.1 401 Unauthorized`r`nContent-Length: 0`r`nConnection: close`r`n`r`n"
+                    } else {
+                        $resp = "HTTP/1.1 200 OK`r`nContent-Type: application/json`r`nContent-Length: $($body.Length)`r`nConnection: close`r`n`r`n$body"
+                    }
+                    $bytes = [System.Text.Encoding]::UTF8.GetBytes($resp)
+                    $stream.Write($bytes, 0, $bytes.Length)
+                    $stream.Flush()
+                } finally { $client.Close() }
+            }
+        } catch {
+            # Listener stopped by the parent - nothing left to serve.
+        }
+    }).AddArgument($listener).AddArgument($probeBody)
+    $probeHandle = $probe.BeginInvoke()
+
+    try {
+        $token = 'ghp_invalidtoken' + ('x' * 27)   # any Authorization value is rejected here (DevSkim DS173237)
+        $body3b = Invoke-CurlGet "http://127.0.0.1:$probePort/repos/$Repo/releases/latest"
+        Assert-True -Name 'public endpoint still delivered via the no-auth retry' -Condition ($body3b -match 'tag_name') -Detail ("returned: " + $(if ($body3b) { $body3b.Substring(0, [Math]::Min(60, $body3b.Length)) } else { '<null>' }))
+        Assert-True -Name 'token disabled for the run after the 401 fallback' -Condition ($null -eq $script:token) -Detail 'script-scoped token still set'
+    } finally {
+        $token = $null
+        try { $listener.Stop() } catch { }
+        try { $null = $probeHandle.AsyncWaitHandle.WaitOne(5000) } catch { }
+        try { $probe.Dispose() } catch { }
+    }
 
     # ── T3c: the 5.1 terminating-quirk guard - no 2>$null anywhere ────────
     Write-Host 'T3c: native stderr must stay unredirected (PS 5.1 guard)' -ForegroundColor Cyan
