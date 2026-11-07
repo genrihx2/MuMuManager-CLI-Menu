@@ -61,3 +61,6 @@ MuMuManager-CLI-Menu-v*.zip.sha256
 # Flattened absolute paths from a mis-expanded temp extract (a Windows
 # path that lost its separators, e.g. "UsersgenriAppDataLocalTemppester-5.7.1")
 *AppDataLocalTemp*
+
+# Archil experiment generated output (regenerated via npm run release:notes in archil/)
+archil/release-notes.json
