@@ -106,3 +106,35 @@ jobs:
           else
             echo "**Status: PASS**" >> "$GITHUB_STEP_SUMMARY"
           fi
+
+      - name: Fail the check on findings
+        # Uploading SARIF does NOT gate a pull request: the alerts land in the
+        # Security tab (and a fork PR cannot upload at all - its token has no
+        # security-events: write), while the check run stays green. A finding
+        # therefore became visible only AFTER the merge to main - exactly what
+        # happened to the four empty-catch alerts. This step turns the same
+        # SARIF into the check's own verdict, so a new alert blocks the PR.
+        # The repo carries zero unsuppressed findings today, so anything this
+        # reports is new; silence a deliberate one with the project's inline
+        # form (see tests/test-devskim-suppressions.ps1 for the rule ids)
+        # instead of blanking this gate.
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ ! -f results.sarif ]; then
+            echo "::error::PSScriptAnalyzer produced no SARIF output - the scan did not run"
+            exit 1
+          fi
+          COUNT=$(jq '[.runs[] | (.results // []) | length] | add // 0' results.sarif)
+          if [ "$COUNT" -gt 0 ]; then
+            {
+              echo "### PSScriptAnalyzer: $COUNT finding(s) - this check FAILS"
+              echo ''
+              echo '```'
+              jq -r '.runs[] | (.results // [])[] | "\(.ruleId)  \(.locations[0].physicalLocation.artifactLocation.uri):\(.locations[0].physicalLocation.region.startLine)"' results.sarif | head -40
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            jq -r '.runs[] | (.results // [])[] | "::error file=\(.locations[0].physicalLocation.artifactLocation.uri),line=\(.locations[0].physicalLocation.region.startLine)::\(.ruleId): \(.message.text)"' results.sarif | head -20
+            exit 1
+          fi
+          echo 'PSScriptAnalyzer: 0 findings - check passes'

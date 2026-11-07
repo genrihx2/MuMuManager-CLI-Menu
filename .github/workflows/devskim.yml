@@ -37,3 +37,34 @@ jobs:
         with:
           sarif_file: devskim-results.sarif
           category: devskim
+
+      - name: Fail the check on findings
+        # Uploading SARIF does NOT gate a pull request: the alerts land in the
+        # Security tab (and a fork PR cannot upload at all - its token has no
+        # security-events: write), while the check run stays green. A finding
+        # became visible only AFTER the merge to main. This step turns the same
+        # SARIF into the check's own verdict, so a new DevSkim note fails the PR
+        # the same way a test failure would. The repo carries zero unsuppressed
+        # findings today (every accepted one has an inline
+        # `# DevSkim: ignore DSxxxxxx` - validated by
+        # tests/test-devskim-suppressions.ps1), so anything reported here is new.
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ ! -f devskim-results.sarif ]; then
+            echo "::error::DevSkim produced no SARIF output - the scan did not run"
+            exit 1
+          fi
+          COUNT=$(jq '[.runs[] | (.results // []) | length] | add // 0' devskim-results.sarif)
+          if [ "$COUNT" -gt 0 ]; then
+            {
+              echo "### DevSkim: $COUNT finding(s) - this check FAILS"
+              echo ''
+              echo '```'
+              jq -r '.runs[] | (.results // [])[] | "\(.ruleId)  \(.locations[0].physicalLocation.artifactLocation.uri):\(.locations[0].physicalLocation.region.startLine)"' devskim-results.sarif | head -40
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            jq -r '.runs[] | (.results // [])[] | "::error file=\(.locations[0].physicalLocation.artifactLocation.uri),line=\(.locations[0].physicalLocation.region.startLine)::\(.ruleId): \(.message.text)"' devskim-results.sarif | head -20
+            exit 1
+          fi
+          echo 'DevSkim: 0 findings - check passes'
