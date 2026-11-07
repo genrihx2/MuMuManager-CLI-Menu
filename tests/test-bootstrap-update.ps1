@@ -8,10 +8,12 @@
 # body actually starts with '{'.
 #
 # What this test does:
-#   T1. Downloads mumu-menu.ps1 from the real GitHub contents API through the
-#       REAL Download-File function (extracted from bootstrap-update.ps1 via
-#       AST - no copied detector logic that could drift from production).
-#       The download must succeed and the content must be the valid script.
+#   T1. Downloads the checkout's own mumu-menu.ps1 through the REAL
+#       Download-File function (extracted from bootstrap-update.ps1 via AST -
+#       no copied detector logic that could drift from production) and checks
+#       the content is the valid script. Offline: the live fetch validated
+#       `?ref=main` on a tag run (i.e. the wrong file) and went red whenever
+#       the runner IP's quota ran out.
 #   T2. Feeds Download-File a deterministic GitHub-style JSON metadata body
 #       (via a local file:// URL, so no network flakiness) - must be rejected.
 #   T3. Feeds it a "Bad credentials" JSON body with a token configured -
@@ -95,29 +97,30 @@ if (-not $fn) { throw 'Download-File function not found in bootstrap-update.ps1'
 # Dot-source the real function into this script's scope.
 . ([scriptblock]::Create($fn.Extent.Text))
 
-# Production-equivalent environment for the extracted function.
-# GITHUB_TOKEN: on shared CI runners the anonymous 60 req/hr GitHub quota is
-# routinely exhausted by other tenants, so T1's live-API download fails with
-# size 0. The workflow passes its own token; locally the variable is usually
-# unset (anonymous) or may point to any valid PAT.
+# Production-equivalent environment for the extracted function. No leg below
+# touches the network: every response is a file:// fixture, a loopback socket
+# or a stubbed helper, so GITHUB_TOKEN no longer changes what this harness
+# measures - a token that turned a detector test into a quota test is exactly
+# what went red on every v10.4.16 release run.
 $maxRetries = 2
 $retryDelay = 1
-$ciToken = $env:GITHUB_TOKEN
-if ($ciToken) {
-    $token = $ciToken
-    Write-Host 'T1 auth: using GITHUB_TOKEN from environment' -ForegroundColor DarkGray
-} else {
-    $token = $null   # public API; anonymous is fine from residential IPs
-}
+$token = $null
 
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('bsreg-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $tmp -Force | Out-Null
 
 try {
-    # ── T1: real download through the production function ────────────
-    Write-Host "T1: Download-File against real API ($Repo @ $Ref)" -ForegroundColor Cyan
+    # ── T1: the production download path over the shipped file ────────────
+    # Served from the CHECKOUT, not the live API: Download-File still runs
+    # end to end (curl, temp file, size, JSON detector) - but on the exact
+    # bytes this commit ships. `?ref=main` made a tag run judge main's file
+    # instead of the tag's, and an exhausted anonymous quota made it judge
+    # the runner's IP instead of the detector.
+    Write-Host "T1: Download-File accepts this checkout's mumu-menu.ps1 (offline; $Repo @ $Ref)" -ForegroundColor Cyan
     $dest1 = Join-Path $tmp 'mumu-menu.ps1'
-    $url1  = "https://api.github.com/repos/$Repo/contents/mumu-menu.ps1?ref=$Ref"
+    $src1  = Join-Path $root 'mumu-menu.ps1'
+    if (-not (Test-Path -LiteralPath $src1 -PathType Leaf)) { throw "Not found: $src1" }
+    $url1  = 'file:///' + ($src1 -replace '\\', '/')
     $size1 = Download-File $url1 $dest1
     Assert-True -Name 'raw mumu-menu.ps1 accepted (not flagged as JSON)' -Condition ($size1 -gt 100000) -Detail "returned size: $size1"
 
