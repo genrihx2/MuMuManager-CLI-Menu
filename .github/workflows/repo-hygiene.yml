@@ -1,0 +1,37 @@
+name: Repo hygiene
+
+# A tracked root-level script must be referenced by the pipeline, the tests, a
+# doc or another script - or be declared a shipped file in release-files.txt.
+# The root kept collecting one-off helpers (run-tests.ps1, check-functions.ps1,
+# rl-check.ps1) that nothing called and that still read like part of the
+# product; tests/test-orphan-files.ps1 makes that visible in review.
+#
+# No paths filter on purpose: the failure mode is a NEW file nobody wired up,
+# so a trigger limited to existing paths would never see it.
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  orphan-files:
+    name: Root scripts are referenced or shipped
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Tracked root-level scripts must be referenced or shipped
+        # The checker reads the git index (git ls-files / git grep), so it
+        # needs a real checkout, not an archive of the tree.
+        shell: pwsh
+        run: ./tests/test-orphan-files.ps1
