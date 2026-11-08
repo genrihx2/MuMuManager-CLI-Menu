@@ -19,7 +19,12 @@ param(
     [string]$RepoSlug = 'genrihx2/MuMuManager-CLI-Menu',
 
     # GitHub token; anonymous works but is rate-limited hard on shared runners.
-    [string]$Token = $env:GITHUB_TOKEN
+    [string]$Token = $env:GITHUB_TOKEN,
+
+    # Offline fixture: read the releases payload from this JSON file (or
+    # directory of page-1.json, page-2.json, ...) instead of the API. Only for
+    # local dry runs; the Release workflow never passes it.
+    [string]$ReleasesJson = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -81,40 +86,52 @@ $headers = @{
 }
 if ($Token) { $headers['Authorization'] = "Bearer $Token" }
 
+# Payload: the offline fixture when given, otherwise the live API, page by page.
+$payload = New-Object System.Collections.ArrayList
+if ($ReleasesJson) {
+    $fixture = if ([System.IO.Path]::IsPathRooted($ReleasesJson)) { $ReleasesJson } else { Join-Path $root $ReleasesJson }
+    if (-not (Test-Path -LiteralPath $fixture -PathType Leaf)) {
+        throw "Releases fixture not found: $fixture"
+    }
+    $parsed = ConvertFrom-Json -InputObject ([System.IO.File]::ReadAllText($fixture, [System.Text.Encoding]::UTF8))
+    foreach ($item in @($parsed)) { [void]$payload.Add($item) }
+}
+else {
+    $page = 1
+    while ($page -le 20) {
+        $uri = "https://api.github.com/repos/$RepoSlug/releases?per_page=100&page=$page"
+        try {
+            # Bind first: @(Invoke-RestMethod ...) does not enumerate the returned
+            # JSON array, it wraps the whole array as ONE item.
+            $fetched = Invoke-RestMethod -Uri $uri -Headers $headers -Method Get
+        }
+        catch {
+            throw "GitHub releases request failed (page $page): $($_.Exception.Message)"
+        }
+        $batch = @($fetched)
+        if ($batch.Count -eq 0) { break }
+        foreach ($item in $batch) { [void]$payload.Add($item) }
+        if ($batch.Count -lt 100) { break }
+        $page++
+    }
+}
+
 $releases = @{}
 $published = 0
-$page = 1
-while ($page -le 20) {
-    $uri = "https://api.github.com/repos/$RepoSlug/releases?per_page=100&page=$page"
-    try {
-        # Bind first: @(Invoke-RestMethod ...) does not enumerate the returned
-        # JSON array, it wraps the whole array as ONE item.
-        $fetched = Invoke-RestMethod -Uri $uri -Headers $headers -Method Get
+foreach ($r in $payload) {
+    if (-not $r) { continue }
+    if ($r.draft) { continue }
+    if (-not $r.tag_name) { throw "Release $($r.id) has no tag_name" }
+    if (-not $r.published_at) { throw "Release '$($r.tag_name)' has no published_at" }
+
+    $zip = @($r.assets | Where-Object { $_.name -like '*.zip' }) | Select-Object -First 1
+    $sha = '—'
+    if ($zip -and $zip.digest) { $sha = ("$($zip.digest)" -replace '^sha256:', '') }
+
+    $releases["$($r.tag_name)"] = [pscustomobject]@{
+        Date = ([datetimeoffset]$r.published_at).UtcDateTime.ToString('yyyy-MM-dd')
+        Sha  = $sha
     }
-    catch {
-        throw "GitHub releases request failed (page $page): $($_.Exception.Message)"
-    }
-    $batch = @($fetched)
-    if ($batch.Count -eq 0) { break }
-
-    foreach ($r in $batch) {
-        if (-not $r) { continue }
-        if ($r.draft) { continue }
-        if (-not $r.tag_name) { throw "Release $($r.id) has no tag_name" }
-        if (-not $r.published_at) { throw "Release '$($r.tag_name)' has no published_at" }
-
-        $zip = @($r.assets | Where-Object { $_.name -like '*.zip' }) | Select-Object -First 1
-        $sha = '—'
-        if ($zip -and $zip.digest) { $sha = ("$($zip.digest)" -replace '^sha256:', '') }
-
-        $releases["$($r.tag_name)"] = [pscustomobject]@{
-            Date = ([datetimeoffset]$r.published_at).UtcDateTime.ToString('yyyy-MM-dd')
-            Sha  = $sha
-        }
-    }
-
-    if ($batch.Count -lt 100) { break }
-    $page++
 }
 
 # --- 3. Render the table ----------------------------------------------------
