@@ -72,7 +72,7 @@ if ($tags.Count -eq 0) { throw 'No tags found - refusing to write an empty index
 # --- 2. Published releases from the GitHub API ------------------------------
 # Windows PowerShell 5.1 defaults to SSL3/TLS1.0 on some hosts.
 if ($PSVersionTable.PSVersion.Major -lt 6) {
-    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 # DevSkim: ignore DS440020,DS440001 - Windows PowerShell 5.1 needs the explicit TLS 1.2 opt-in for the releases API
 }
 
 $headers = @{
