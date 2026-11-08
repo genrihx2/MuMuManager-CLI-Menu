@@ -402,6 +402,8 @@ mumu-menu.cmd
 
 Полный список релизов и подробный changelog хранится в `relnotes.md` и в релизах GitHub: https://github.com/genrihx2/MuMuManager-CLI-Menu/releases
 
+Короткий индекс всех тегов — дата тега, дата публикации и SHA-256 ZIP-архива каждого релиза: [RELEASES.md](https://github.com/genrihx2/MuMuManager-CLI-Menu/blob/main/RELEASES.md). Файл генерируется после каждого релиза, правки руками внутри маркеров `RELEASES:AUTO` перезаписываются.
+
 ## Wiki
 
 Расширенная документация — roadmap, статус проекта, гайды — живёт в wiki репозитория:
