@@ -630,3 +630,62 @@ jobs:
             echo "  release-guard audit follows after the VT verdicts land."
           } | tee -a "$GITHUB_STEP_SUMMARY"
           echo "URL: https://github.com/${GITHUB_REPOSITORY}/releases/tag/$TAG"
+
+  # Keep RELEASES.md in step with the tags and the published releases.
+  #
+  # Needs the release job, so the release and its ZIP assets already exist by
+  # the time the index is rendered; update-releases.ps1 is idempotent, so a
+  # re-run over the same tag (or a push to main that re-releases nothing)
+  # rewrites nothing and commits nothing.
+  docs-index:
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Regenerate RELEASES.md
+        id: sync
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          ./update-releases.ps1
+          $changed = git status --porcelain RELEASES.md
+          if ($changed) {
+            "changed=true" >> $env:GITHUB_OUTPUT
+            Write-Host 'RELEASES.md has changes'
+          } else {
+            "changed=false" >> $env:GITHUB_OUTPUT
+            Write-Host 'RELEASES.md already up to date'
+          }
+
+      - name: Commit and push
+        if: steps.sync.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add RELEASES.md
+          # [skip ci]: this workflow has no paths filter, so keep a docs-only
+          # commit from ever queueing another release run.
+          git commit -m "docs: auto-sync RELEASES.md with tags and published releases [skip ci]"
+          # Another sync bot can land a commit between our check and our push -
+          # retry the rebase+push pair a few times, same as sync-readme.yml.
+          ok=""
+          for i in 1 2 3 4; do
+            if git push origin main; then ok=1; break; fi
+            git pull --rebase origin main
+            sleep $((i * 3))
+          done
+          if [ -z "$ok" ]; then
+            echo "RELEASES.md push failed after retries"
+            exit 1
+          fi
+          echo "RELEASES.md synced and pushed"

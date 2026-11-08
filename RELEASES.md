@@ -5,6 +5,11 @@
 `release-files.txt`, рядом с ним публикуется `.sha256`-сайдкар. Хеши ниже —
 SHA-256 самого ZIP-архива. Даты — UTC.
 
+Таблица между маркерами `RELEASES:AUTO` генерируется скриптом
+`update-releases.ps1` (джоб `docs-index` в `.github/workflows/release.yml`)
+после каждой публикации: правки руками внутри маркеров будут перезаписаны.
+
+<!-- RELEASES:AUTO:START -->
 | Тег | Дата тега | Опубликован | SHA-256 ZIP |
 |---|---|---|---|
 | [v10.4.16](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/tag/v10.4.16) | 2026-11-07 | 2026-11-07 | `675a1999bcbc80c26a7a96d2c2259e99b6c08c177fe2a3c8015735d69fb023f3` |
@@ -29,6 +34,7 @@ SHA-256 самого ZIP-архива. Даты — UTC.
 | [v10.0.0](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/tag/v10.0.0) | 2026-10-15 | 2026-10-15 | `3a1f0fb57c1ddf44abe0cacfcbe15dd26919621d869ebfb7f3e25ec2626d509d` |
 
 Итого: 20 тегов, 19 опубликованных релизов.
+<!-- RELEASES:AUTO:END -->
 
 ## Особые случаи
 
