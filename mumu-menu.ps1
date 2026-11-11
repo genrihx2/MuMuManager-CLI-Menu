@@ -5285,6 +5285,18 @@ function Show-Menu {
 function Get-InstanceIndex {
     param([string]$Prompt = 'Enter instance index')
 
+    # Startup validates the path once, but [IN] can re-point the session at a
+    # copy that was moved or deleted afterwards; $MumuPath then holds '' and
+    # `& $MumuPath` throws the opaque "expression after '&' ... not valid"
+    # from the script-level trap instead of naming the real problem.
+    $manager = Get-MuMuActiveManagerPath
+    if (-not ($manager -and (Test-Path -LiteralPath $manager -PathType Leaf))) {
+        Write-Host ''
+        Write-Host 'MuMuManager.exe not found - pick a valid install with [IN] or set $MumuPath.' -ForegroundColor Red
+        Write-Host ''
+        return $null
+    }
+
     $info = & $MumuPath info -v all 2>$null | ConvertFrom-Json
     $instances = @()
 
@@ -5322,6 +5334,12 @@ function Get-InstanceIndex {
 
 function Invoke-Mumu {
     param([string[]]$MumuArgs)
+    # Same guard as Get-InstanceIndex: never let a stale/empty path reach '&'.
+    $manager = Get-MuMuActiveManagerPath
+    if (-not ($manager -and (Test-Path -LiteralPath $manager -PathType Leaf))) {
+        Write-Host 'MuMuManager.exe not found - pick a valid install with [IN] or set $MumuPath.' -ForegroundColor Red
+        return
+    }
     & $MumuPath @MumuArgs
 }
 
