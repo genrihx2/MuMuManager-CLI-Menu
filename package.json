@@ -12,6 +12,7 @@
     "disk": "1.8.0"
   },
   "overrides": {
-    "undici": "8.12.3"
+    "undici": "8.12.3",
+    "fast-xml-parser": "^5.12.0"
   }
 }
