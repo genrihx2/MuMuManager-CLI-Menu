@@ -181,6 +181,13 @@ mumu-menu.cmd
 
 ## Что нового
 
+### v10.4.17 (11.11.2026)
+
+- Fixed: `[2]`/`[3]`/`[4]` больше не показывают служебную ошибку `The expression after '&' in a pipeline element produced an object that was not valid`. Путь к `MuMuManager.exe` проверялся только на старте, поэтому перемещённая или удалённая установка (в том числе после переключения через `[IN]`) доходила до `& $MumuPath info -v all` пустой строкой — исключение срабатывало до вывода списка инстансов и печаталось общим `trap` как «Error (the menu stays open)». Теперь `Get-InstanceIndex` и `Invoke-Mumu` сначала проверяют путь и сообщают `MuMuManager.exe not found - pick a valid install with [IN] or set $MumuPath.`, после чего меню остаётся открытым.
+- Tests: обе функции выделены из AST и вызваны отдельно с мёртвым и с пустым путём — сообщение печатается, возврат `$null`, исключения нет; сквозной прогон `[2]` на рабочей установке по-прежнему печатает список инстансов; PSScriptAnalyzer без замечаний.
+
+**EN summary (v10.4.17):** `[2]`/`[3]`/`[4]` no longer surface the raw "expression after '&' ... was not valid" trap. The `MuMuManager.exe` path was validated only at startup, so an install that was moved or deleted afterwards (including an `[IN]` switch to a stale copy) reached `& $MumuPath info -v all` as an empty string; the exception fired before the instance list, and the script-level trap printed it as "Error (the menu stays open)". `Get-InstanceIndex` and `Invoke-Mumu` now check the path first and print `MuMuManager.exe not found - pick a valid install with [IN] or set $MumuPath.`, keeping the menu open.
+
 ### v10.4.16 (06.11.2026)
 
 - Fixed: `[G]` больше не упирается в тупик на незапущенном инстансе. Меню различает три состояния — `RUNNING ✓`, `STARTING ◐` (процесс плеера поднят, Android ещё грузится) и `STOPPED ○` — а при выборе `[2]`/`[3]` предлагает запустить инстанс и дожидается загрузки, после чего сразу показывает logcat. Раньше `starting_rom` считался остановленным, и живой мост объявлялся недоступным.
@@ -373,6 +380,7 @@ mumu-menu.cmd
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v10.4.17 | 11.11.2026 | Fix: [2]/[3]/[4] surfaced the raw "expression after '&' ... was not valid" trap when the MuMuManager.exe path went stale after startup — `Get-InstanceIndex` and `Invoke-Mumu` now validate the path and name the real problem instead |
 | v10.4.16 | 06.11.2026 | Fix [G]: a stopped or booting instance dead-ended logcat (a `starting_rom` VM read as stopped) with a hint pointing at `[2]`, which is the snapshot action — the screen now offers to start it, waits for boot, and shows a separate `STARTING` state; Ctrl+C in `[G]` now always returns to the main menu (the handler keeps the keystroke, `e.Cancel = true`, and ends the stream via the process-tree kill) |
 | v10.4.14 | 04.11.2026 | Change: Ctrl+C in `[G]` live logcat returns straight to the main menu — the one-shot `$script:SkipContinuePause` flag drops the "Press any key" pause for that case only |
 | v10.4.13 | 04.11.2026 | Fix: Ctrl+C needed a second press — the handler now kills the whole process tree (a surviving child kept stdout open) and skips the native `logcat -c` that hung on a stopped pipeline |
