@@ -15,6 +15,7 @@ on:
     branches: [ main ]
     paths:
       - 'README.md'
+      - 'SECURITY.md'
       - 'relnotes.md'
       - '.version'
       - 'mumu-menu.ps1'
@@ -26,6 +27,7 @@ on:
   pull_request:
     paths:
       - 'README.md'
+      - 'SECURITY.md'
       - 'relnotes.md'
       - '.version'
       - 'mumu-menu.ps1'
