@@ -51,10 +51,18 @@ jobs:
         shell: pwsh
         run: ./tests/test-changelog-sync.ps1
 
-      # The overrides in package.json closed Dependabot alerts #1-#4; without
-      # this step a later "unused override" cleanup, or an install that never
-      # ran, would quietly restore the vulnerable versions. -SelfTest proves
-      # the gate still catches each regression shape before trusting its green.
-      - name: Check dependency overrides resolve at or above their patched versions
+      # The overrides in package.json closed Dependabot alerts #1-#4. The gate
+      # has no package table: the structural layer checks every override against
+      # the lockfile, and the advisory layer asks npm audit about the resolved
+      # tree, so a NEW advisory fails CI without a code change here. A registry
+      # outage fails the step closed instead of passing it quietly.
+      - name: Check overrides and npm advisories (structural + npm audit)
+        shell: pwsh
+        run: ./tests/test-dependency-overrides.ps1
+
+      # Offline: proves the gate still catches a lowered/removed override, a
+      # stale or nested lockfile entry, a range instead of a floor, and a new
+      # advisory - using synthetic audit reports, no network.
+      - name: Self-test the dependency gate
         shell: pwsh
         run: ./tests/test-dependency-overrides.ps1 -SelfTest

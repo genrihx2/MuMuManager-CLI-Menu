@@ -27,6 +27,7 @@ tests/
   run-pester.ps1        # Test runner
   test-bootstrap-update.ps1
   test-changelog-sync.ps1  # relnotes = .version = scriptVer = package.json/lockfile + README table sync
+  test-dependency-overrides.ps1 # package.json override floors vs package-lock.json + npm audit scan (no package table: a new advisory fails on its own)
   test-deployed-layout.ps1 # Repo-vs-install drift guard: suite inside a fixture with ONLY the deployed files, both engines, RepoFiles excluded
   test-installed-smoke.ps1 # Installed-copy smoke (-TargetDir): version sources agree, its own [RL] lists the tag, its bootstrap verifies the release ZIP
 PSScriptAnalyzerSettings.psd1
