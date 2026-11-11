@@ -6,7 +6,7 @@
 
 ## Русский
 
-> Актуально для **v10.3.5** (обновлено 2026-10-22).
+> Актуально для **v10.4.17** (обновлено 2026-11-11).
 
 ### Поддерживаемые версии
 
@@ -17,6 +17,11 @@
 | актуальный релиз ([Releases/latest](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest)) | ✅ |
 | предыдущие версии | ❌ |
 
+
+### v10.4.17 (2026-11-11)
+
+- Зависимости репозитория: закрыты Dependabot-алерты #1-#4 — транзитивные `undici` 8.10.2 (одна high, две medium) и `fast-xml-parser` 5.11.2 (low) поднимаются override-ами в `package.json` (`undici` → 8.12.3, `fast-xml-parser` → 5.12.0). Это дерево npm только для тулинга репозитория: релизный ZIP везёт `.ps1`/`.md`, ни `node_modules`, ни манифестов в нём нет, так что установленные копии правка не затрагивает. `npm audit` — 0 уязвимостей.
+- CI: новый гейт `tests/test-dependency-overrides.ps1`. Структурный слой сверяет каждый `overrides`-пол с `package-lock.json` (включая вложенные копии: вложенная = override не применился), advisory-слой спрашивает `npm audit` о резолвнутом дереве. Хардкод-таблицы пакетов нет: **новый advisory валит CI сам**, без правки теста. Нечитаемый отчёт третируется как fail-closed, а не как «чисто»; `-SelfTest` — 8 офлайновых сценариев. Гейт входит в тот же job `changelog-sync`, что и релизный `REQUIRED_LEGS`-гейт.
 
 ### v10.3.4 (2026-10-22)
 
@@ -71,7 +76,7 @@
 | Критичные уязвимости | патч вне очереди, emergency-релиз |
 | Подтверждение получения | **до 24 часов** |
 
-**Постоянный автоматизированный контроль:** еженедельный PSScriptAnalyzer с загрузкой SARIF в Security-таб (пн 06:00 UTC), CI VirusTotal-скан каждого релиза, еженедельный Release guard по комплектности релизов **и побайтовой сверке ZIP последнего релиза с содержимым тега**, групповые Dependabot-обновления экшенов, actionlint + shellcheck на все workflows.
+**Постоянный автоматизированный контроль:** еженедельный PSScriptAnalyzer с загрузкой SARIF в Security-таб (пн 06:00 UTC), CI VirusTotal-скан каждого релиза, еженедельный Release guard по комплектности релизов **и побайтовой сверке ZIP последнего релиза с содержимым тега**, групповые Dependabot-обновления экшенов, actionlint + shellcheck на все workflows, гейт зависимостей репозитория: `tests/test-dependency-overrides.ps1` — структурная сверка override-ов с `package-lock.json` плюс `npm audit` по резолвнутому дереву, с падением на любой новый advisory без правки самого теста и fail-closed при недоступном отчёте.
 
 ### Архитектура безопасности
 
@@ -219,7 +224,7 @@
 - **VirusTotal**: каждый релиз сканируется в CI (3 файла), вердикты публикуются в теле релиза
 - **Release guard**: еженедельный CI-аудит — каждый релиз новее v1.18.6 обязан иметь ZIP + SHA256 + VT-вердикты, latest release сверяется с `.version`; расхождения открывают идемпотентный issue
 - **Зависимости экшенов**: еженедельные групповые Dependabot-обновления
-- **CI-гейты**: PSScriptAnalyzer, Pester (281 тест), bootstrap-регрессия, changelog-sync
+- **CI-гейты**: PSScriptAnalyzer, Pester (281 тест), bootstrap-регрессия, changelog-sync, dependency gate (полы override-ов в lockfile + `npm audit` по дереву, без хардкода списка пакетов)
 
 ### Управление ADB
 
@@ -388,7 +393,7 @@ The script uses Invoke-WebRequest/curl only to access GitHub API for auto-update
 
 ## English
 
-> Current for **v10.3.5** (updated 2026-10-22).
+> Current for **v10.4.17** (updated 2026-11-11).
 
 ### Supported Versions
 
@@ -398,6 +403,11 @@ Security fixes are released only for the latest release.
 | --- | --- |
 | latest release ([Releases/latest](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest)) | ✅ |
 | older | ❌ |
+
+### v10.4.17 (2026-11-11)
+
+- Repo dependencies: Dependabot alerts #1-#4 are closed - transitive `undici` 8.10.2 (one high, two medium) and `fast-xml-parser` 5.11.2 (low) are lifted by `package.json` overrides (`undici` -> 8.12.3, `fast-xml-parser` -> 5.12.0). This npm tree is repo tooling only: the release ZIP ships `.ps1`/`.md`, no `node_modules` and no manifests, so installed copies are unaffected. `npm audit` reports 0 vulnerabilities.
+- CI: new `tests/test-dependency-overrides.ps1` gate. Its structural layer compares every `overrides` floor against `package-lock.json` (nested copies included - a nested copy means the override did not apply); its advisory layer asks `npm audit` about the resolved tree. There is no hard-coded package table: **a new advisory fails CI on its own**, with no test change. An unreadable report is treated as fail-closed, never as clean; `-SelfTest` covers 8 offline scenarios. The gate runs in the same `changelog-sync` job that the release-time REQUIRED_LEGS gate audits.
 
 ### v10.3.4 (2026-10-22)
 
@@ -442,7 +452,7 @@ Please include: description and impact, reproduction steps (PoC welcome), affect
 | Critical vulnerabilities | emergency patch, out-of-band release |
 | Receipt confirmation | **within 24 hours** |
 
-**Continuous automated monitoring:** weekly PSScriptAnalyzer with SARIF upload to the Security tab (Mon 06:00 UTC), CI VirusTotal scan of every release, weekly Release guard audit (release completeness **plus a byte-for-byte comparison of the latest release ZIP against its tag content**), grouped Dependabot action updates, actionlint + shellcheck on all workflows.
+**Continuous automated monitoring:** weekly PSScriptAnalyzer with SARIF upload to the Security tab (Mon 06:00 UTC), CI VirusTotal scan of every release, weekly Release guard audit (release completeness **plus a byte-for-byte comparison of the latest release ZIP against its tag content**), grouped Dependabot action updates, actionlint + shellcheck on all workflows, and a repo-dependency gate (`tests/test-dependency-overrides.ps1`): every `overrides` floor is checked against `package-lock.json`, and `npm audit` reports on the resolved tree, so a new advisory fails CI without editing the test itself; an unavailable report fails closed instead of passing silently.
 
 ### Security Architecture
 
@@ -454,7 +464,7 @@ Please include: description and impact, reproduction steps (PoC welcome), affect
 
 **ADB management:** File transfer (`push/pull`), screen capture, interactive shell — all require explicit user consent. Commands are parameterized with argument escaping. Executes only inside the emulator VM.
 
-**Release pipeline security:** tag-driven Release workflow (ZIP + `.sha256` sidecar), CI VirusTotal scan with verdicts in the release body, weekly **Release guard** audit (every release newer than v1.18.6 must ship ZIP + SHA256 + VT verdicts; latest release must match `.version`; the latest release ZIP is compared byte-for-byte against its tag content; discrepancies open an idempotent issue), grouped weekly Dependabot action updates, CI gates: PSScriptAnalyzer + Pester (281 tests) + bootstrap regression + changelog-sync.
+**Release pipeline security:** tag-driven Release workflow (ZIP + `.sha256` sidecar), CI VirusTotal scan with verdicts in the release body, weekly **Release guard** audit (every release newer than v1.18.6 must ship ZIP + SHA256 + VT verdicts; latest release must match `.version`; the latest release ZIP is compared byte-for-byte against its tag content; discrepancies open an idempotent issue), grouped weekly Dependabot action updates, CI gates: PSScriptAnalyzer + Pester (281 tests) + bootstrap regression + changelog-sync + the dependency gate (override floors against the lockfile plus `npm audit` on the tree, with no hard-coded package list).
 
 ### Network Endpoints
 
