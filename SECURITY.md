@@ -21,7 +21,7 @@
 ### v10.4.17 (2026-11-11)
 
 - Зависимости репозитория: закрыты Dependabot-алерты #1-#4 — транзитивные `undici` 8.10.2 (одна high, две medium) и `fast-xml-parser` 5.11.2 (low) поднимаются override-ами в `package.json` (`undici` → 8.12.3, `fast-xml-parser` → 5.12.0). Это дерево npm только для тулинга репозитория: релизный ZIP везёт `.ps1`/`.md`, ни `node_modules`, ни манифестов в нём нет, так что установленные копии правка не затрагивает. `npm audit` — 0 уязвимостей.
-- CI: новый гейт `tests/test-dependency-overrides.ps1`. Структурный слой сверяет каждый `overrides`-пол с `package-lock.json` (включая вложенные копии: вложенная = override не применился), advisory-слой спрашивает `npm audit` о резолвнутом дереве. Хардкод-таблицы пакетов нет: **новый advisory валит CI сам**, без правки теста. Нечитаемый отчёт третируется как fail-closed, а не как «чисто»; `-SelfTest` — 8 офлайновых сценариев. Гейт входит в тот же job `changelog-sync`, что и релизный `REQUIRED_LEGS`-гейт.
+- CI: новый гейт `tests/test-dependency-overrides.ps1`. Структурный слой сверяет каждый `overrides`-пол с `package-lock.json` (включая вложенные копии: вложенная = override не применился), advisory-слой спрашивает `npm audit` о резолвнутом дереве. Хардкод-таблицы пакетов нет: **новый advisory валит CI сам**, без правки теста. Нечитаемый отчёт трактуется как fail-closed, а не как «чисто»; `-SelfTest` — 8 офлайновых сценариев. Гейт входит в тот же job `changelog-sync`, что и релизный `REQUIRED_LEGS`-гейт.
 
 ### v10.3.4 (2026-10-22)
 
@@ -124,7 +124,7 @@
 
 ### Сетевые эндпоинты
 
-Скрипт обращается к следующим доменам (сверено с полным списком URL-литералов кода, v1.22.12):
+Скрипт обращается к следующим доменам (сверено с полным списком URL-литералов кода, v10.4.17, 2026-11-11):
 
 | Домен | Протокол | Использование | Аутентификация |
 |-------|----------|---------------|----------------|
@@ -132,6 +132,10 @@
 | `cdn.jsdelivr.net` | HTTPS (TLS 1.2+) | Транспортный фолбэк обновлений: одна повторная попытка того же pinned-коммита, если `api.github.com` недоступен; тело проходит тот же SHA-256-гейт (issue #20) | нет — никогда; токен не отправляется зеркалу |
 | `www.virustotal.com` | HTTPS (TLS 1.2+) | `[VF]` загрузка файлов, проверка результатов сканирования | `x-apikey` (VT API key) |
 | `github.com` | HTTPS | `[DL]` git clone репозитория, ссылки на страницы релизов, цель [TN] HTTP-теста | нет |
+| `www.mumuplayer.com` | HTTPS | `[MU]` Offline installers — чтение официальной страницы release notes (только текст, без загрузки файлов); также URL, который открывает `[MU]` | нет |
+| `api.mumuplayer.com` | HTTPS | `[MU]` резолвер установщиков: `HEAD` на `/api/dl/win` и `/api/dl/mac`, отдаёт конечный URL в `Location` | нет |
+| `a11.gdl.easebar.com` | HTTPS | `[MU]` APK-архив (телеграфия-бесплатный алиас NetEase CDN): `HEAD`-проверка доступности и отпечатка файла, без скачивания | нет |
+| `down.mumuplayer.com` | HTTPS | `[MU]` база ссылок на архивные сборки эмулятора (вывод в экран, без загрузки) | нет |
 | `timestamp.digicert.com` | HTTP (только метка времени) | `[CRT]` timestamp-сервер при подписании | нет |
 
 **Диагностические пробы [TN]** (явное действие пользователя, только проверка связности, без передачи данных): ICMP-ping до `8.8.8.8`, `1.1.1.1`, `223.5.5.5`, `google.com`, `github.com`; DNS-резолв `google.com`, `github.com`, `baidu.com`; HTTP GET до `http://connectivitycheck.gstatic.com/generate_204` (captive-portal-зонд), `http://www.baidu.com`, `https://github.com`; host-side проверка свежести CDN-зеркала — чтение `.version` с `cdn.jsdelivr.net` и тега релиза с `api.github.com/releases/latest`.
@@ -209,7 +213,7 @@
 ```
 
 **Гарантии:**
-- Загрузка только текстовых файлов (`.ps1`, `.md`) — никаких исполняемых
+- Загрузка только текстовых файлов (`.ps1`, `.md`, `.cjs`, `.version`) — никаких исполняемых
 - Зеркало cdn.jsdelivr.net — только транспорт: тот же immutable pinned-коммит, без токена, без следования редиректам (301 невозможен), каждый байт проходит SHA-256-гейт
 - Никаких скрытых загрузок; каждое действие подтверждается пользователем или журналируется
 - Несовпадение хеша = update-fail: `.version` не двигается, установка остаётся консистентной (issue #20)
@@ -222,9 +226,9 @@
 
 - **Tag-driven Release workflow**: релиз собирается только из тега; ZIP + `.sha256`-сайдкар публикуются автоматически
 - **VirusTotal**: каждый релиз сканируется в CI (3 файла), вердикты публикуются в теле релиза
-- **Release guard**: еженедельный CI-аудит — каждый релиз новее v1.18.6 обязан иметь ZIP + SHA256 + VT-вердикты, latest release сверяется с `.version`; расхождения открывают идемпотентный issue
+- **Release guard**: еженедельный CI-аудит — каждый релиз новее baseline v10.0.0 обязан иметь ZIP + SHA256 + VT-вердикты, latest release сверяется с `.version`; расхождения открывают идемпотентный issue
 - **Зависимости экшенов**: еженедельные групповые Dependabot-обновления
-- **CI-гейты**: PSScriptAnalyzer, Pester (281 тест), bootstrap-регрессия, changelog-sync, dependency gate (полы override-ов в lockfile + `npm audit` по дереву, без хардкода списка пакетов)
+- **CI-гейты**: PSScriptAnalyzer, Pester (317 тестов), bootstrap-регрессия, changelog-sync, dependency gate (полы override-ов в lockfile + `npm audit` по дереву, без хардкода списка пакетов)
 
 ### Управление ADB
 
@@ -300,7 +304,7 @@ Set-ExecutionPolicy -Scope LocalMachine -ExecutionPolicy RemoteSigned
 
 1. **Microsoft Defender:** Windows Security → Protection history → кликните на детект → «See details» → «Submit a false positive»
 2. **VirusTotal:** открите страницу скана файла → нажмите «False positive» (требуется аккаунт)
-3. **Автоматически:** сканер [VT] в меню загружает файл на VirusTotal — еслиVT ещё не сканировал, результат появится через несколько минут
+3. **Автоматически:** сканер [VT] в меню загружает файл на VirusTotal — если VT ещё не сканировал, результат появится через несколько минут
 
 **Шаблон текста для appeal (English):**
 
@@ -335,7 +339,7 @@ The script uses Invoke-WebRequest/curl only to access GitHub API for auto-update
 
 ### Что НЕ считается уязвимостью
 
-Это задокументированные возможности проекта (см. «Примечание для AV-аналитиков» в README):
+Это задокументированные возможности проекта (полный разбор ложных срабатываний — в разделах «YARA/Sigma False Positives» ниже и в блоке «SIGMA RULE EXCLUSIONS» шапки mumu-menu.ps1):
 
 **Функции приватности (явное действие пользователя):**
 - Спуфинг модели устройства и генерация IMEI / Android ID / MAC — для **собственных** инстансов
@@ -366,7 +370,7 @@ The script uses Invoke-WebRequest/curl only to access GitHub API for auto-update
 
 **YARA False Positives:**
 - **Y1** (`Windows_API_Function`): сигнатура детектирует использование Windows API (CreateFile, ReadFile и т.д.) — PowerShell скрипты **легитимно** используют .NET-обёртки над WinAPI. Правило само указывает: «not an indication of malicious behavior on executables». Скрипт НЕ содержит embedded executables
-- **Y2** (`INDICATOR_SUSPICIOUS_PWSH_B64Encoded_Concatenated_FileEXEC`): матчит паттерны base64 + ejecution. В нашем случае это DPAPI-операции (`.NET [System.Security.Cryptography.ProtectedData]`) и VT-загрузка через `curl.exe --data-binary @file` — **legitimate operations**, не obfuscated payload
+- **Y2** (`INDICATOR_SUSPICIOUS_PWSH_B64Encoded_Concatenated_FileEXEC`): матчит паттерны base64 + execution. В нашем случае это DPAPI-операции (`.NET [System.Security.Cryptography.ProtectedData]`) и VT-загрузка через `curl.exe --data-binary @file` — **legitimate operations**, не obfuscated payload
 
 **Sigma False Positives:**
 - **#1** (`DMP/HDMP File Creation`): скрипт **НЕ создаёт** .dmp/.hdmp файлы. DPAPI хранит зашифрованный текст — это не memory dump
@@ -375,9 +379,9 @@ The script uses Invoke-WebRequest/curl only to access GitHub API for auto-update
 - **#4** (`New Root/CA Certificate`): `[CRT]` добавляет self-signed CodeSigning сертификат в Trusted Root — **явное действие пользователя**, **не** тихая установка
 - **#5** (`ADB Shell Commands`): `adb shell` / `adb push` / `adb pull` для управления эмулятором — **явное действие пользователя**, **без** выполнения кода на хост-машине
 - **#6** (`Device Model Modification`): `MuMuManager.exe modify` изменяет модель устройства для **собственных** инстансов — функция приватности, **не** подмена чужих устройств
-- **#7** (`File Upload to External Service`): `[VF] VirusTotal Upload` — загрузка файла на VirusTotal для анализа, **явное действие пользователя**, файл上传 только на `www.virustotal.com`, лимит 32 MB
+- **#7** (`File Upload to External Service`): `[VF] VirusTotal Upload` — загрузка файла на VirusTotal для анализа, **явное действие пользователя**, файл уходит только на `www.virustotal.com`, лимит 32 MB
 - **#8** (`NTFS Alternate Data Stream`): до v1.18.8 MIME-литерал в коде загрузки VT давал подстроку «-stream», которая вместе с `Set-Content` в том же скриптблоке попадала под правило; **скрипт никогда не читает и не пишет ADS**. С v1.18.9 загрузка идёт через `curl.exe` multipart, литерал удалён
-- **#9** (`Malicious Nishang PowerShell Commandlets`): Nishang — фреймворк для пентеста. Матчит `Invoke-WebRequest`, `DownloadString`, `EncodedCommand` —通用 cmdlets. В нашем случае: `Invoke-WebRequest` только для проверки версии `[V]`, `curl.exe` для обновлений. Нет Nishang-специфичных функций (`Get-PSUTCM`, `Invoke-PowerShellTcp` и т.д.)
+- **#9** (`Malicious Nishang PowerShell Commandlets`): Nishang — фреймворк для пентеста. Матчит `Invoke-WebRequest`, `DownloadString`, `EncodedCommand` — generic cmdlets. В нашем случае: `Invoke-WebRequest` только для проверки версии `[V]`, `curl.exe` для обновлений. Нет Nishang-специфичных функций (`Get-PSUTCM`, `Invoke-PowerShellTcp` и т.д.)
 - **#10** (`Malicious PowerShell Commandlets - ScriptBlock`): аналогично #9 — generic detection exploitation frameworks. Скрипт **не содержит** ни одной эксплойт-функции
 - **#11** (`Suspicious Curl.EXE Download`): `curl.exe` используется для скачивания обновлений (contents API) и загрузки на VT. Все запросы — HTTPS к задокументированным эндпоинтам (`api.github.com`, `www.virustotal.com`, `cdn.jsdelivr.net`). Нет загрузки исполняемых файлов
 - **#12** (`Automated Collection Command PowerShell`): скрипт собирает информацию об инстансах MuMu (`MuMuManager.exe list`) и системной информации (`[V] Version info`) — **legitimate management operations**, не data exfiltration
@@ -460,11 +464,11 @@ Please include: description and impact, reproduction steps (PoC welcome), affect
 
 **Code signing:** Self-signed certificate via `[CRT]`, Code Signing EKU (1.3.6.1.5.5.7.3.3), added to Trusted Root (explicit user action), Authenticode signature on `mumu-menu.ps1`.
 
-**Update integrity:** HTTPS only (TLS 1.2+), `api.github.com` contents API primary (never `raw.githubusercontent.com`, never `main`), `cdn.jsdelivr.net` transport fallback of the same pinned commit (no token, no redirect-following), tag pinned to its commit SHA in bootstrap and `[F]`, SHA-256 of every downloaded file verified against the tag content before `.version` is advanced (issue #20), single-flight lock (issue #24), retry with backoff (3 attempts), backup before overwrite (last 5 kept), dry-run plan modes (`[UP]`, bootstrap `-WhatIf`). Only `.ps1` and `.md` files are downloaded.
+**Update integrity:** HTTPS only (TLS 1.2+), `api.github.com` contents API primary (never `raw.githubusercontent.com`, never `main`), `cdn.jsdelivr.net` transport fallback of the same pinned commit (no token, no redirect-following), tag pinned to its commit SHA in bootstrap and `[F]`, SHA-256 of every downloaded file verified against the tag content before `.version` is advanced (issue #20), single-flight lock (issue #24), retry with backoff (3 attempts), backup before overwrite (last 5 kept), dry-run plan modes (`[UP]`, bootstrap `-WhatIf`). Only text files are downloaded (`.ps1`, `.md`, `.cjs`, `.version`) - no binaries.
 
 **ADB management:** File transfer (`push/pull`), screen capture, interactive shell — all require explicit user consent. Commands are parameterized with argument escaping. Executes only inside the emulator VM.
 
-**Release pipeline security:** tag-driven Release workflow (ZIP + `.sha256` sidecar), CI VirusTotal scan with verdicts in the release body, weekly **Release guard** audit (every release newer than v1.18.6 must ship ZIP + SHA256 + VT verdicts; latest release must match `.version`; the latest release ZIP is compared byte-for-byte against its tag content; discrepancies open an idempotent issue), grouped weekly Dependabot action updates, CI gates: PSScriptAnalyzer + Pester (281 tests) + bootstrap regression + changelog-sync + the dependency gate (override floors against the lockfile plus `npm audit` on the tree, with no hard-coded package list).
+**Release pipeline security:** tag-driven Release workflow (ZIP + `.sha256` sidecar), CI VirusTotal scan with verdicts in the release body, weekly **Release guard** audit (every release newer than the v10.0.0 baseline must ship ZIP + SHA256 + VT verdicts; latest release must match `.version`; the latest release ZIP is compared byte-for-byte against its tag content; discrepancies open an idempotent issue), grouped weekly Dependabot action updates, CI gates: PSScriptAnalyzer + Pester (317 tests) + bootstrap regression + changelog-sync + the dependency gate (override floors against the lockfile plus `npm audit` on the tree, with no hard-coded package list).
 
 ### Network Endpoints
 
@@ -476,11 +480,13 @@ The script connects **only** to:
 | `cdn.jsdelivr.net` | HTTPS (TLS 1.2+) | Transport fallback for updates: one retry of the same pinned commit when `api.github.com` is unreachable; the body still passes the SHA-256 gate (issue #20) | none — ever; the token is never sent to the mirror |
 | `www.virustotal.com` | HTTPS (TLS 1.2+) | `[VF]` file upload, scan result lookup | `x-apikey` (VT API key) |
 | `github.com` | HTTPS | `[DL]` git clone of the repo, release-page links, `[TN]` HTTP test target | none |
+| `www.mumuplayer.com` | HTTPS | `[MU]` Offline installers: reads the official release-notes page (text only, no file downloads); also the URL `[MU]` opens | none |
+| `api.mumuplayer.com` | HTTPS | `[MU]` installer resolver: `HEAD` to `/api/dl/win` and `/api/dl/mac`, returns the final URL in `Location` | none |
+| `a11.gdl.easebar.com` | HTTPS | `[MU]` APK archive (telemetry-free NetEase CDN alias): `HEAD` reachability and file-thumbprint check, no download | none |
+| `down.mumuplayer.com` | HTTPS | `[MU]` archive base for older emulator builds (printed links only, no download) | none |
 | `timestamp.digicert.com` | HTTP (timestamps only) | `[CRT]` timestamp server during signing | none |
 
 **[TN] diagnostic probes** (explicit user action, connectivity checks only, no data transfer): ICMP ping to `8.8.8.8`, `1.1.1.1`, `223.5.5.5`, `google.com`, `github.com`; DNS resolution of `google.com`, `github.com`, `baidu.com`; HTTP GET to `http://connectivitycheck.gstatic.com/generate_204` (captive-portal probe), `http://www.baidu.com`, `https://github.com`; host-side CDN mirror freshness check — reads `.version` from `cdn.jsdelivr.net` and the release tag from `api.github.com/releases/latest`.
-
-**Request mechanisms:** updates and GitHub API — `curl.exe` only (argument arrays, no shell strings); VT integration — `Invoke-RestMethod` (to `www.virustotal.com` only); version check in `[V]` — a single `Invoke-WebRequest` to `api.github.com/releases/latest`.
 
 **Request mechanisms:** updates and GitHub API — `curl.exe` only (argument arrays, no shell strings); VT integration — `Invoke-RestMethod` (to `www.virustotal.com` only); version check in `[V]` — a single `Invoke-WebRequest` to `api.github.com/releases/latest`; pre-update reachability probe — anonymous `curl` GET of `api.github.com/zen`; rate-limit view — `api.github.com/rate_limit`.
 
@@ -597,7 +603,7 @@ The script uses Invoke-WebRequest/curl only to access GitHub API for auto-update
 
 ### Out of Scope
 
-Documented features are not vulnerabilities (see "Note for AV analysts" in README):
+Documented features are not vulnerabilities (full false-positive breakdown in the YARA/Sigma False Positives sections below and the SIGMA RULE EXCLUSIONS block in the mumu-menu.ps1 header):
 
 **Privacy features (explicit user action):**
 - Device-model spoofing and random identifier generation (IMEI/Android ID/MAC) for user-owned instances
