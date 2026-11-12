@@ -289,7 +289,7 @@ Set-ExecutionPolicy -Scope LocalMachine -ExecutionPolicy RemoteSigned
    ```
    Ожидаемый результат для релизных файлов: **0 замечаний** (эталон — CI-джоба `psscriptanalyzer` на последнем коммите `main`).
 
-2. **VirusTotal:** проверьте файлы на [virustotal.com](https://www.virustotal.com) (0/75 — чисто)
+2. **VirusTotal:** проверьте файлы на [virustotal.com](https://www.virustotal.com) — актуальные вердикты CI-скана (0 malicious / 0 suspicious) лежат в теле последнего релиза, в блоке «VirusTotal verdicts», вместе с SHA-256 и ссылкой на отчёт. Общее число движков VT меняется от скана к скану, поэтому «N/75» здесь больше не фиксируется — смотреть надо на релизный блок
 
 3. **Подпись:** `[V] Version info` → статус подписи должен быть `Valid`
    Условие: сертификат `[CRT]` создан. С v1.22.21 подпись выживает обновления автоматически: и bootstrap, и `[U]` после успешного применения ищут сертификат `MuMuManager-CLI-Menu-Token` (не истёкший) и переподписывают `mumu-menu.ps1` (SHA-256, timestamp digicert, гейт по `Valid`). Best-effort: без сертификата скрипт остаётся неподписанным — это не деградация безопасности, целостность обновлений гарантирована SHA-256-пином и VT-вердиктами
@@ -553,7 +553,7 @@ To verify script security:
    ```
    Expected result for release files: **0 findings** (reference: the `psscriptanalyzer` CI job on the latest `main` commit).
 
-2. **VirusTotal:** check files at [virustotal.com](https://www.virustotal.com) (0/75 — clean)
+2. **VirusTotal:** check files at [virustotal.com](https://www.virustotal.com) - the current CI-scan verdicts (0 malicious / 0 suspicious) live in the latest release body, in the "VirusTotal verdicts" block, together with the SHA-256 and a report link. The number of VT engines changes from scan to scan, so a fixed "N/75" is no longer stated here
 
 3. **Signature:** `[V] Version info` → signature status should be `Valid`
    Prerequisite: a `[CRT]` certificate exists. Since v1.22.21 the signature survives updates automatically: both bootstrap and `[U]` look for the unexpired `MuMuManager-CLI-Menu-Token` certificate after a successful apply and re-sign `mumu-menu.ps1` (SHA-256, digicert timestamp, Valid-status gate). Best-effort: without a certificate the script stays unsigned - that is not a security regression, update integrity is guaranteed by the SHA-256 pin and the release VT verdicts

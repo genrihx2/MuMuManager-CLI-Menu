@@ -11,3 +11,20 @@ updates:
           - "*"
     labels:
       - "chore"
+
+  # The npm tree is repo tooling only - the release ZIP ships no node_modules -
+  # but it still carries real advisories: Dependabot alerts #1-#4 came from
+  # transitive packages pinned by disk@1.8.0. Bumps arrive as one weekly PR.
+  # The security overrides in package.json stay authoritative, and
+  # tests/test-dependency-overrides.ps1 fails if a bump breaks their floors.
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      npm:
+        patterns:
+          - "*"
+    labels:
+      - "chore"
