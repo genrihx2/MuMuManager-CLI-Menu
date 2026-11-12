@@ -4132,6 +4132,37 @@ Describe 'Restart-MenuProcess ([U] self-restart)' {
     }
 }
 
+Describe 'Update-FromGitHub: failed-download reporting' {
+    # Why: a real [U] run under pwsh 7 that hit the anonymous API rate limit
+    # journaled "0 ok, 8 failed ()" - the counter was incremented in the catch
+    # block but nothing recorded WHICH files failed or WHY, so the journal
+    # could not distinguish a network fault from a hash-gate rejection.
+    BeforeAll {
+        $script:updFn = $script:ast.FindAll({
+            param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Update-FromGitHub'
+        }, $true) | Select-Object -First 1
+    }
+
+    It 'keeps a per-file failure list next to the success list' {
+        $t = $script:updFn.Extent.Text
+        $t.Contains('$failedFiles = @()') | Should -BeTrue
+        ($t -match '\$failedFiles \+= \("\{0\}: \{1\}" -f \$f') | Should -BeTrue -Because 'the catch block must record the file and the engine message'
+    }
+
+    It 'journals and prints the reasons instead of an empty parenthesis' {
+        $t = $script:updFn.Extent.Text
+        $t.Contains('$failSummary = @($failedFiles) -join ''; ''') | Should -BeTrue
+        $t.Contains('-Detail "$okFiles ok, $failed failed ($failSummary)"') | Should -BeTrue
+        $t.Contains('foreach ($line in $failedFiles)') | Should -BeTrue -Because 'the user needs the failing files on screen, not only in the journal'
+    }
+
+    It 'records verification failures too (missing file, hash mismatch)' {
+        $t = $script:updFn.Extent.Text
+        $t.Contains('$failedFiles += "$f`: missing after download"') | Should -BeTrue
+        $t.Contains('$failedFiles += "$f`: hash mismatch"') | Should -BeTrue
+    }
+}
+
 Describe 'Exit-code hygiene' {
     It 'script ends with an explicit trailing exit 0 (natural-completion path)' {
         $lines = Get-Content -LiteralPath $script:menuPath | Where-Object { $_.Trim() -ne '' }

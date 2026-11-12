@@ -2907,6 +2907,9 @@ function Update-FromGitHub {
         $failed = 0
         $okFiles = 0
         $fileResults = @()
+        # Per-file failure reasons, kept apart from the success sizes so the
+        # journal and the summary can name what broke and why.
+        $failedFiles = @()
         $downloadedOk = New-Object 'System.Collections.Generic.HashSet[string]'
         # Helper: download a file via curl with token fallback, rate-limit retry and
         # a cdn.jsdelivr.net transport fallback. With -NoAuth the token is never
@@ -3061,6 +3064,11 @@ function Update-FromGitHub {
                 Write-Host "    Failed: $errMsg" -ForegroundColor Red
                 if ($tmpDl -and (Test-Path $tmpDl)) { Remove-Item $tmpDl -Force -ErrorAction SilentlyContinue }
                 $failed++
+                # Keep the cause: a run that failed on all 8 files (anonymous
+                # API rate limit) journaled "0 ok, 8 failed ()" and named
+                # neither the files nor the reason, so the journal could not
+                # say whether it was the network, the token or the hash gate.
+                $failedFiles += ("{0}: {1}" -f $f, (($errMsg -replace '\s+', ' ').Trim()))
             }
         }
 
@@ -3079,6 +3087,7 @@ function Update-FromGitHub {
                     Write-Host ("    {0,-22} MISSING after download" -f $f) -ForegroundColor Red
                     $failed++
                     $fileResults += "$f=verify:missing"
+                    $failedFiles += "$f`: missing after download"
                     continue
                 }
                 $actual = Get-ContentHash ([System.IO.File]::ReadAllText($checkPath))
@@ -3088,13 +3097,16 @@ function Update-FromGitHub {
                     Write-Host ("    {0,-22} HASH MISMATCH (expected {1}..., got {2}...)" -f $f, $expectedHashes[$f].Substring(0, 16), $actual.Substring(0, 16)) -ForegroundColor Red
                     $failed++
                     $fileResults += "$f=verify:mismatch"
+                    $failedFiles += "$f`: hash mismatch"
                 }
             }
         }
 
         if ($failed -gt 0) {
-            Write-UpdateJournal -EventType 'update-fail' -From $localTag -To $tag -Detail "$okFiles ok, $failed failed ($($fileResults -join ', '))"
+            $failSummary = @($failedFiles) -join '; '
+            Write-UpdateJournal -EventType 'update-fail' -From $localTag -To $tag -Detail "$okFiles ok, $failed failed ($failSummary)"
             Write-Host "Update finished with $failed failed file(s). Restore from backup if needed." -ForegroundColor Red
+            foreach ($line in $failedFiles) { Write-Host "  $line" -ForegroundColor DarkGray }
         } else {
             Write-UpdateJournal -EventType 'update-ok' -From $localTag -To $tag -Detail ($fileResults -join ', ')
             [System.IO.File]::WriteAllText($VersionFile, $tag, (New-Object System.Text.UTF8Encoding($false)))
