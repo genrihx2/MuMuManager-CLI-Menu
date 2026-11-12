@@ -67,14 +67,27 @@ export async function runCommand(command, id = diskId()) {
   return disk.exec(command);
 }
 
-/** Write a file on the disk through the object API. */
+function validateObjectKey(key) {
+  if (typeof key !== 'string') {
+    throw new TypeError('Object key must be a string.');
+  }
+  // The SDK leaves literal ".." segments in URLs, where Request normalization
+  // can remove the selected disk id. Reject them before any SDK operation.
+  if (key.split('/').includes('..')) {
+    throw new Error('Object key must not contain parent-directory ("..") segments.');
+  }
+}
+
+/** Write a file on the disk through the object API. Rejects parent segments. */
 export async function writeFile(key, body, id = diskId()) {
+  validateObjectKey(key);
   const disk = await getDisk(id);
   return disk.putObject(key, body);
 }
 
-/** Read a file from the disk through the object API, decoded to a string. */
+/** Read a file as a string through the object API. Rejects parent segments. */
 export async function readFile(key, id = diskId()) {
+  validateObjectKey(key);
   const disk = await getDisk(id);
   const bytes = await disk.getObject(key);
   return new TextDecoder().decode(bytes);
