@@ -6,7 +6,7 @@
 
 ## Русский
 
-> Актуально для **v10.4.17** (обновлено 2026-11-11).
+> Актуально для **v10.4.18** (обновлено 2026-11-12).
 
 ### Поддерживаемые версии
 
@@ -17,6 +17,11 @@
 | актуальный релиз ([Releases/latest](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest)) | ✅ |
 | предыдущие версии | ❌ |
 
+
+### v10.4.18 (2026-11-12)
+
+- Журнал `[U]` больше не теряет причину сбоя: список неудач (файл + сообщение движка) теперь попадает в `update-journal.log` и печатается на экран. Это диагностика, а не изменение поверхности: набор сетевых эндпоинтов и способ аутентификации не менялись, новых хостов нет.
+- Тулинг репозитория: Dependabot отслеживает и npm-дерево (weekly, одна группа `npm`); `SECURITY.md` больше не фиксирует число движков VirusTotal — оно меняется от скана к скану, вместо цифры стоит ссылка на блок вердиктов в теле последнего релиза.
 
 ### v10.4.17 (2026-11-11)
 
@@ -124,7 +129,7 @@
 
 ### Сетевые эндпоинты
 
-Скрипт обращается к следующим доменам (сверено с полным списком URL-литералов кода, v10.4.17, 2026-11-11):
+Скрипт обращается к следующим доменам (сверено с полным списком URL-литералов кода, v10.4.18, 2026-11-12):
 
 | Домен | Протокол | Использование | Аутентификация |
 |-------|----------|---------------|----------------|
@@ -397,7 +402,7 @@ The script uses Invoke-WebRequest/curl only to access GitHub API for auto-update
 
 ## English
 
-> Current for **v10.4.17** (updated 2026-11-11).
+> Current for **v10.4.18** (updated 2026-11-12).
 
 ### Supported Versions
 
@@ -407,6 +412,11 @@ Security fixes are released only for the latest release.
 | --- | --- |
 | latest release ([Releases/latest](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest)) | ✅ |
 | older | ❌ |
+
+### v10.4.18 (2026-11-12)
+
+- The `[U]` journal no longer loses the failure cause: the failure list (file + engine message) now lands in `update-journal.log` and on screen. This is diagnostics, not a surface change: the endpoint set and the authentication path are unchanged, and no new host is contacted.
+- Repo tooling: Dependabot also watches the npm tree (weekly, one `npm` group); `SECURITY.md` no longer states a VirusTotal engine count - it changes per scan, so the text points at the verdict block in the latest release body instead.
 
 ### v10.4.17 (2026-11-11)
 

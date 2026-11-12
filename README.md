@@ -181,6 +181,14 @@ mumu-menu.cmd
 
 ## Что нового
 
+### v10.4.18 (12.11.2026)
+
+- Fixed: `[U]` больше не рапортует `0 ok, N failed ()` без единой подробности. Счётчик неудач в `Update-FromGitHub` увеличивался, а имя файла и текст ошибки никуда не попадали — журнал `update-journal.log` не позволял отличить сетевой сбой или исчерпанный лимит GitHub API (60 запросов в час без токена) от отказа хеш-гейта. Теперь каждая неудача идёт в журнал и на экран как `<файл>: <причина>`, а промахи верификации — как `missing after download` и `hash mismatch`.
+- Tests: три новых Pester-теста — на список неудач, на его попадание в строку журнала и на вывод причин на экран; набор 320/320 зелёный на pwsh и 5.1.
+- Docs/CI: Dependabot теперь следит и за npm-деревом репозитория (weekly, одна группа `npm`); из `SECURITY.md` убрано число движков VirusTotal (оно меняется от скана к скану) — вместо него ссылка на блок вердиктов в теле последнего релиза; подтянуты дрейфы (счётчик тестов, baseline Release-гейта, список хостов `[MU]`).
+
+**EN summary (v10.4.18):** `[U]` no longer reports `0 ok, N failed ()` with nothing behind it. `Update-FromGitHub` bumped a failure counter but recorded neither the file nor the reason, so `update-journal.log` could not tell a network fault or an exhausted GitHub API limit (60 requests/hour without a token) from a hash-gate rejection. Every failure now lands in the journal and on screen as `<file>: <reason>`, and verification misses as `missing after download` / `hash mismatch`. Repo tooling: Dependabot now watches the npm tree, and `SECURITY.md` no longer states a VirusTotal engine count (it changes per scan) — it points at the verdict block in the latest release body instead.
+
 ### v10.4.17 (11.11.2026)
 
 - Fixed: `[2]`/`[3]`/`[4]` больше не показывают служебную ошибку `The expression after '&' in a pipeline element produced an object that was not valid`. Путь к `MuMuManager.exe` проверялся только на старте, поэтому перемещённая или удалённая установка (в том числе после переключения через `[IN]`) доходила до `& $MumuPath info -v all` пустой строкой — исключение срабатывало до вывода списка инстансов и печаталось общим `trap` как «Error (the menu stays open)». Теперь `Get-InstanceIndex` и `Invoke-Mumu` сначала проверяют путь и сообщают `MuMuManager.exe not found - pick a valid install with [IN] or set $MumuPath.`, после чего меню остаётся открытым.
@@ -380,6 +388,7 @@ mumu-menu.cmd
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v10.4.18 | 12.11.2026 | Fix: `[U]` failures now name the file and the reason (`<file>: <reason>`) instead of journaling `0 ok, N failed ()`, so a rate-limited or blocked run is distinguishable from a hash-gate rejection |
 | v10.4.17 | 11.11.2026 | Fix: [2]/[3]/[4] surfaced the raw "expression after '&' ... was not valid" trap when the MuMuManager.exe path went stale after startup — `Get-InstanceIndex` and `Invoke-Mumu` now validate the path and name the real problem instead |
 | v10.4.16 | 06.11.2026 | Fix [G]: a stopped or booting instance dead-ended logcat (a `starting_rom` VM read as stopped) with a hint pointing at `[2]`, which is the snapshot action — the screen now offers to start it, waits for boot, and shows a separate `STARTING` state; Ctrl+C in `[G]` now always returns to the main menu (the handler keeps the keystroke, `e.Cancel = true`, and ends the stream via the process-tree kill) |
 | v10.4.14 | 04.11.2026 | Change: Ctrl+C in `[G]` live logcat returns straight to the main menu — the one-shot `$script:SkipContinuePause` flag drops the "Press any key" pause for that case only |
