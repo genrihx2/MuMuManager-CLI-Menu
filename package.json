@@ -9,7 +9,7 @@
     "check:archil": "node check-archil-persistence.mjs"
   },
   "dependencies": {
-    "disk": "1.8.0"
+    "disk": "1.12.0"
   },
   "overrides": {
     "undici": "8.12.3",
