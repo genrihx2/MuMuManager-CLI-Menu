@@ -6,7 +6,7 @@
 
 ## Русский
 
-> Актуально для **v10.4.18** (обновлено 2026-11-12).
+> Актуально для **v10.4.18** (обновлено 2026-11-16).
 
 ### Поддерживаемые версии
 
@@ -17,6 +17,11 @@
 | актуальный релиз ([Releases/latest](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest)) | ✅ |
 | предыдущие версии | ❌ |
 
+
+### Состояние тулинга на main (2026-11-16)
+
+- npm-дерево репозитория служит только тулингу: `disk` 1.12.1 тянет `@archildata/api-types` и `undici` — три пакета всего. С линии 1.12.x `fast-xml-parser` в дереве отсутствует, поэтому его override удалён; из `overrides` остался один пол — `undici` → 8.12.3. Гейт `tests/test-dependency-overrides.ps1` по-прежнему сверяет этот override с `package-lock.json` и прогоняет `npm audit` по резолвнутому дереву, так что возврат уязвимой версии покраснеет и без явного override.
+- Тесты: Pester — **320** тестов; второй набор — npm-скрипт `tests/archil-storage.test.mjs` (**6** тестов) в отдельном job `node-test (archil-storage)`. Он поднимает локальный HTTP-стаб и работает без сети и без ключей, поэтому гоняется на каждый push и PR.
 
 ### v10.4.18 (2026-11-12)
 
@@ -81,7 +86,7 @@
 | Критичные уязвимости | патч вне очереди, emergency-релиз |
 | Подтверждение получения | **до 24 часов** |
 
-**Постоянный автоматизированный контроль:** еженедельный PSScriptAnalyzer с загрузкой SARIF в Security-таб (пн 06:00 UTC), CI VirusTotal-скан каждого релиза, еженедельный Release guard по комплектности релизов **и побайтовой сверке ZIP последнего релиза с содержимым тега**, групповые Dependabot-обновления экшенов, actionlint + shellcheck на все workflows, гейт зависимостей репозитория: `tests/test-dependency-overrides.ps1` — структурная сверка override-ов с `package-lock.json` плюс `npm audit` по резолвнутому дереву, с падением на любой новый advisory без правки самого теста и fail-closed при недоступном отчёте.
+**Постоянный автоматизированный контроль:** еженедельный PSScriptAnalyzer с загрузкой SARIF в Security-таб (пн 06:00 UTC), CI VirusTotal-скан каждого релиза, еженедельный Release guard по комплектности релизов **и побайтовой сверке ZIP последнего релиза с содержимым тега**, групповые Dependabot-обновления экшенов, actionlint + shellcheck на все workflows, гейт зависимостей репозитория: `tests/test-dependency-overrides.ps1` — структурная сверка override-ов с `package-lock.json` плюс `npm audit` по резолвнутому дереву, с падением на любой новый advisory без правки самого теста и fail-closed при недоступном отчёте, плюс npm-набор `tests/archil-storage.test.mjs` (6 тестов) отдельным job `node-test (archil-storage)`.
 
 ### Архитектура безопасности
 
@@ -233,7 +238,7 @@
 - **VirusTotal**: каждый релиз сканируется в CI (3 файла), вердикты публикуются в теле релиза
 - **Release guard**: еженедельный CI-аудит — каждый релиз новее baseline v10.0.0 обязан иметь ZIP + SHA256 + VT-вердикты, latest release сверяется с `.version`; расхождения открывают идемпотентный issue
 - **Зависимости экшенов**: еженедельные групповые Dependabot-обновления
-- **CI-гейты**: PSScriptAnalyzer, Pester (317 тестов), bootstrap-регрессия, changelog-sync, dependency gate (полы override-ов в lockfile + `npm audit` по дереву, без хардкода списка пакетов)
+- **CI-гейты**: PSScriptAnalyzer, Pester (320 тестов), npm-набор archil-storage (6 тестов), bootstrap-регрессия, changelog-sync, dependency gate (полы override-ов в lockfile + `npm audit` по дереву, без хардкода списка пакетов)
 
 ### Управление ADB
 
@@ -402,7 +407,7 @@ The script uses Invoke-WebRequest/curl only to access GitHub API for auto-update
 
 ## English
 
-> Current for **v10.4.18** (updated 2026-11-12).
+> Current for **v10.4.18** (updated 2026-11-16).
 
 ### Supported Versions
 
@@ -412,6 +417,11 @@ Security fixes are released only for the latest release.
 | --- | --- |
 | latest release ([Releases/latest](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest)) | ✅ |
 | older | ❌ |
+
+### Repo tooling on main (2026-11-16)
+
+- The npm tree exists for repo tooling only: `disk` 1.12.1 pulls `@archildata/api-types` and `undici` - three packages in total. In the 1.12.x line `fast-xml-parser` is no longer in the tree, so its override was removed; the only remaining floor is `undici` -> 8.12.3. `tests/test-dependency-overrides.ps1` still checks that override against `package-lock.json` and runs `npm audit` over the resolved tree, so a vulnerable version coming back fails CI even without an explicit override.
+- Tests: Pester - **320** tests; the second suite is the npm script `tests/archil-storage.test.mjs` (**6** tests) in its own `node-test (archil-storage)` job. It runs against a loopback HTTP stub, needing neither network nor credentials, so it runs on every push and PR.
 
 ### v10.4.18 (2026-11-12)
 
@@ -466,7 +476,7 @@ Please include: description and impact, reproduction steps (PoC welcome), affect
 | Critical vulnerabilities | emergency patch, out-of-band release |
 | Receipt confirmation | **within 24 hours** |
 
-**Continuous automated monitoring:** weekly PSScriptAnalyzer with SARIF upload to the Security tab (Mon 06:00 UTC), CI VirusTotal scan of every release, weekly Release guard audit (release completeness **plus a byte-for-byte comparison of the latest release ZIP against its tag content**), grouped Dependabot action updates, actionlint + shellcheck on all workflows, and a repo-dependency gate (`tests/test-dependency-overrides.ps1`): every `overrides` floor is checked against `package-lock.json`, and `npm audit` reports on the resolved tree, so a new advisory fails CI without editing the test itself; an unavailable report fails closed instead of passing silently.
+**Continuous automated monitoring:** weekly PSScriptAnalyzer with SARIF upload to the Security tab (Mon 06:00 UTC), CI VirusTotal scan of every release, weekly Release guard audit (release completeness **plus a byte-for-byte comparison of the latest release ZIP against its tag content**), grouped Dependabot action updates, actionlint + shellcheck on all workflows, and a repo-dependency gate (`tests/test-dependency-overrides.ps1`): every `overrides` floor is checked against `package-lock.json`, and `npm audit` reports on the resolved tree, so a new advisory fails CI without editing the test itself; an unavailable report fails closed instead of passing silently, and the npm suite `tests/archil-storage.test.mjs` (6 tests) runs as its own `node-test (archil-storage)` job.
 
 ### Security Architecture
 
@@ -478,7 +488,7 @@ Please include: description and impact, reproduction steps (PoC welcome), affect
 
 **ADB management:** File transfer (`push/pull`), screen capture, interactive shell — all require explicit user consent. Commands are parameterized with argument escaping. Executes only inside the emulator VM.
 
-**Release pipeline security:** tag-driven Release workflow (ZIP + `.sha256` sidecar), CI VirusTotal scan with verdicts in the release body, weekly **Release guard** audit (every release newer than the v10.0.0 baseline must ship ZIP + SHA256 + VT verdicts; latest release must match `.version`; the latest release ZIP is compared byte-for-byte against its tag content; discrepancies open an idempotent issue), grouped weekly Dependabot action updates, CI gates: PSScriptAnalyzer + Pester (317 tests) + bootstrap regression + changelog-sync + the dependency gate (override floors against the lockfile plus `npm audit` on the tree, with no hard-coded package list).
+**Release pipeline security:** tag-driven Release workflow (ZIP + `.sha256` sidecar), CI VirusTotal scan with verdicts in the release body, weekly **Release guard** audit (every release newer than the v10.0.0 baseline must ship ZIP + SHA256 + VT verdicts; latest release must match `.version`; the latest release ZIP is compared byte-for-byte against its tag content; discrepancies open an idempotent issue), grouped weekly Dependabot action updates, CI gates: PSScriptAnalyzer + Pester (320 tests) + the archil-storage npm suite (6 tests) + bootstrap regression + changelog-sync + the dependency gate (override floors against the lockfile plus `npm audit` on the tree, with no hard-coded package list).
 
 ### Network Endpoints
 
