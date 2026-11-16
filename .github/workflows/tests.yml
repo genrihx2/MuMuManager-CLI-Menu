@@ -226,9 +226,9 @@ jobs:
     # so a test that only worked against one `disk` transport passed review and
     # broke silently on the next dependency bump. The suite stubs the transport
     # with a loopback HTTP server, so it needs no credentials and no network.
-    # The name deliberately does not start with bootstrap-detector /
-    # installed-smoke / pester-unit: release.yml REQUIRED_LEGS matches Tests
-    # legs by that prefix, and this leg is not part of a release audit.
+    # The name starts with node-test, which release.yml REQUIRED_LEGS requires
+    # by exact name and lists in its check-run prefix filter, so a red storage
+    # test blocks a release instead of only this workflow.
     name: node-test (archil-storage)
     runs-on: ubuntu-latest
     timeout-minutes: 10
