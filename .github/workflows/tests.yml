@@ -13,6 +13,9 @@ on:
       - 'mumu-menu.ps1'
       - 'tests/**'
       - 'release-files.txt'
+      - 'archil-storage.mjs'
+      - 'package.json'
+      - 'package-lock.json'
       - '.github/workflows/tests.yml'
       - '.github/actions/**'
   pull_request:
@@ -21,6 +24,9 @@ on:
       - 'mumu-menu.ps1'
       - 'tests/**'
       - 'release-files.txt'
+      - 'archil-storage.mjs'
+      - 'package.json'
+      - 'package-lock.json'
       - '.github/workflows/tests.yml'
       - '.github/actions/**'
   workflow_dispatch:
@@ -213,3 +219,31 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./tests/test-installed-smoke.ps1 -TargetDir $env:SMOKE_TARGET -ZipPath $env:SMOKE_ZIP -PreRelease -RequireNetwork
+
+  node-test:
+    # archil-storage.mjs is server-side Node code that no Pester leg can reach.
+    # Its regression suite used to be invisible to CI - no npm script, no step -
+    # so a test that only worked against one `disk` transport passed review and
+    # broke silently on the next dependency bump. The suite stubs the transport
+    # with a loopback HTTP server, so it needs no credentials and no network.
+    # The name deliberately does not start with bootstrap-detector /
+    # installed-smoke / pester-unit: release.yml REQUIRED_LEGS matches Tests
+    # legs by that prefix, and this leg is not part of a release audit.
+    name: node-test (archil-storage)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@0a44ba7841725637a19e28fa30b79a866c81b0a6  # v4.0.4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run archil-storage tests
+        run: npm test

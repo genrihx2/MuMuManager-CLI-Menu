@@ -17,7 +17,16 @@ export const DEFAULT_REGION = 'aws-us-east-1';
 let configured = false;
 const diskCache = new Map();
 
-/** Configure the SDK once, from ARCHIL_API_KEY and ARCHIL_REGION. */
+/**
+ * Configure the SDK once, from ARCHIL_API_KEY and ARCHIL_REGION.
+ *
+ * ARCHIL_BASE_URL / ARCHIL_S3_BASE_URL, when set, replace the control-plane and
+ * object endpoints. The SDK already reads ARCHIL_S3_BASE_URL itself but has no
+ * environment fallback for the control plane, so both are forwarded here: that
+ * keeps a self-hosted or emulated endpoint reachable, and it is how the test
+ * suite points the real SDK at a loopback stub instead of patching SDK
+ * internals.
+ */
 export function configure() {
   const apiKey = process.env.ARCHIL_API_KEY;
   if (!apiKey) {
@@ -26,9 +35,13 @@ export function configure() {
         'from https://console.archil.com/api-keys.',
     );
   }
+  const baseUrl = process.env.ARCHIL_BASE_URL;
+  const s3BaseUrl = process.env.ARCHIL_S3_BASE_URL;
   archil.configure({
     apiKey,
     region: process.env.ARCHIL_REGION || DEFAULT_REGION,
+    ...(baseUrl ? { baseUrl } : {}),
+    ...(s3BaseUrl ? { s3BaseUrl } : {}),
   });
   configured = true;
 }
@@ -67,14 +80,27 @@ export async function runCommand(command, id = diskId()) {
   return disk.exec(command);
 }
 
-/** Write a file on the disk through the object API. */
+function validateObjectKey(key) {
+  if (typeof key !== 'string') {
+    throw new TypeError('Object key must be a string.');
+  }
+  // The SDK leaves literal ".." segments in URLs, where Request normalization
+  // can remove the selected disk id. Reject them before any SDK operation.
+  if (key.split('/').includes('..')) {
+    throw new Error('Object key must not contain parent-directory ("..") segments.');
+  }
+}
+
+/** Write a file on the disk through the object API. Rejects parent segments. */
 export async function writeFile(key, body, id = diskId()) {
+  validateObjectKey(key);
   const disk = await getDisk(id);
   return disk.putObject(key, body);
 }
 
-/** Read a file from the disk through the object API, decoded to a string. */
+/** Read a file as a string through the object API. Rejects parent segments. */
 export async function readFile(key, id = diskId()) {
+  validateObjectKey(key);
   const disk = await getDisk(id);
   const bytes = await disk.getObject(key);
   return new TextDecoder().decode(bytes);

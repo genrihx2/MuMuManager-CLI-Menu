@@ -6,7 +6,8 @@
   "description": "Archil disk storage integration for the MuMuManager CLI Menu repo",
   "scripts": {
     "menu": "node mumu-menu.cjs",
-    "check:archil": "node check-archil-persistence.mjs"
+    "check:archil": "node check-archil-persistence.mjs",
+    "test": "node --test tests/archil-storage.test.mjs"
   },
   "dependencies": {
     "disk": "1.8.0"
