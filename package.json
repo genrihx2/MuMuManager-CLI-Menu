@@ -10,7 +10,7 @@
     "test": "node --test tests/archil-storage.test.mjs"
   },
   "dependencies": {
-    "disk": "1.8.0"
+    "disk": "1.12.1"
   },
   "overrides": {
     "undici": "8.12.3",
