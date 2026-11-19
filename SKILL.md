@@ -95,10 +95,11 @@ other operation over to `mumu-menu.ps1`, which stays the reference implementatio
 - `[L]` asks for the per-row count (2-6, Enter = 3, `a` = MuMu `layout_window`) and arranges the running
   player windows over the screen work area (margin = gap = 10 px, left to right, top to bottom).
   Sizing is shrink-to-fit: `scale = min(1, (W-2M-(C-1)G)/(C*w), (H-2M-(R-1)G)/(R*h))` with
-  `C = min(cols, N)` and `R = ceil(N/C)`. Windows that already fit keep their original width and height
-  (measured from the real window rectangle, so the title bar and borders are included) and are only moved;
-  only what does not fit is shrunk, never enlarged, and both sides share one factor so the aspect ratio
-  survives. One `control -v all show_window` raise follows the layout - no always-on-top.
+  `C = min(cols, N)` and `R = ceil(N/C)`. The base `w`/`h` is the window size MuMu saves for the instance
+  (`<vms>/<instance>/configs/customer_config.json`, `setting.player.window*`, `-1` = auto), plus the live
+  title bar and borders, so a window shrunk by an earlier run is restored instead of being adopted as the
+  new original. Windows that already fit are only moved; only what does not fit is shrunk, never enlarged
+  beyond the original, and both sides share one factor so the aspect ratio survives. One `control -v all show_window` raise follows the layout - no always-on-top.
 
 ### Tools / ADB
 - `[S]` Screenshot — `[A]` ADB command — `[AF]` ADB file transfer — `[AS]` ADB screen capture — `[AH]` ADB interactive shell

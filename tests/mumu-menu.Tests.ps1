@@ -42,7 +42,7 @@ BeforeAll {
                         'Update-ResourceStats', 'Get-ResourceStatsSummary', 'ConvertTo-ResourceExportLines', 'Export-ResourceSnapshot',
                         'Get-MuMuInstallCandidateDirs', 'Get-MuMuActiveManagerPath', 'Get-MuMuInstalls',
                         'Get-MuMuInstallLabel', 'Get-MuMuInstallChoicePath', 'Read-MuMuInstallChoice', 'Save-MuMuInstallChoice',
-                        'Get-MuMuVmsRoot', 'Get-MuMuInstanceAndroidVersion', 'Get-MuMuInstanceDir',
+                        'Get-MuMuVmsRoot', 'Get-MuMuInstanceAndroidVersion', 'Get-MuMuInstanceDir', 'Get-SavedWindowSize', 'Get-WindowBaseSize',
                         'Get-MuMuOrphanInstanceDirs',
                         'Get-AuthenticodeSignerName', 'Get-MuMuInstallDrift', 'Switch-MuMuActiveInstall',
                         'Resolve-MuMuInstall', 'Update-MumuInstallState',
@@ -4575,6 +4575,59 @@ Describe 'Non-interactive mode (-Action)' {
     }
 }
 
+Describe 'Window base size for [L]' {
+
+    # [L] must not adopt its own shrunken result as the new "original": MuMu
+    # saves the window size in the instance config and reopens at that size, so
+    # the saved client size - not the live rectangle - is what the grid scales.
+    BeforeAll {
+        function New-InstanceCfg {
+            param([string]$Root, [object]$Window, [object]$Landscape, [object]$Vertical)
+            $dir = Join-Path $Root 'MuMuPlayerGlobal-15.0-0'
+            New-Item -ItemType Directory -Path (Join-Path $dir 'configs') -Force | Out-Null
+            $cfg = @{ setting = @{ player = @{ window = $Window; window_landscape = $Landscape; window_vertical = $Vertical } } } | ConvertTo-Json -Depth 6
+            Set-Content -LiteralPath (Join-Path $dir 'configs\customer_config.json') -Value $cfg -Encoding UTF8
+            return $dir
+        }
+    }
+
+    It 'reads the saved landscape window size' {
+        $inst = New-InstanceCfg -Root (Join-Path $TestDrive ("vms_" + [Guid]::NewGuid().ToString('N'))) `
+            -Window @{ width = -1; height = -1 } `
+            -Landscape @{ width = 958; height = 515 } `
+            -Vertical @{ width = -1; height = -1 }
+        $saved = @(Get-SavedWindowSize -InstanceDir $inst)
+        $saved.Count | Should -Be 2
+        $saved[0] | Should -Be 958
+        $saved[1] | Should -Be 515
+    }
+
+    It 'takes the first positive pair and never the -1 auto marker' {
+        $inst = New-InstanceCfg -Root (Join-Path $TestDrive ("vms_" + [Guid]::NewGuid().ToString('N'))) `
+            -Window @{ width = 1200; height = 700 } `
+            -Landscape @{ width = -1; height = -1 } `
+            -Vertical @{ width = -1; height = -1 }
+        $saved = @(Get-SavedWindowSize -InstanceDir $inst)
+        $saved[0] | Should -Be 1200
+        $saved[1] | Should -Be 700
+    }
+
+    It 'returns nothing when only -1 (MuMu auto) is saved' {
+        $inst = New-InstanceCfg -Root (Join-Path $TestDrive ("vms_" + [Guid]::NewGuid().ToString('N'))) `
+            -Window @{ width = -1; height = -1 } `
+            -Landscape @{ width = -1; height = -1 } `
+            -Vertical @{ width = -1; height = -1 }
+        @(Get-SavedWindowSize -InstanceDir $inst).Count | Should -Be 0
+    }
+
+    It 'returns nothing when the instance has no config' {
+        $dir = Join-Path $TestDrive ("vms_" + [Guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        @(Get-SavedWindowSize -InstanceDir $dir).Count | Should -Be 0
+        @(Get-SavedWindowSize -InstanceDir '').Count | Should -Be 0
+    }
+}
+
 Describe 'Window grid [L] and close-all [D]' {
 
     BeforeAll {
@@ -4594,6 +4647,23 @@ Describe 'Window grid [L] and close-all [D]' {
         $helper.Contains('EnumWindows') | Should -BeTrue
         $helper.Contains('SetWindowPos') | Should -BeTrue
         $helper.Contains('System.Windows.Forms') | Should -BeTrue
+    }
+
+    It 'bases the grid on the size MuMu opens the instance with, not the last shrink' {
+        $body = Get-Body -Name 'Set-WindowLayout' -Next 'Save-Screenshot'
+        $body.Contains('Get-WindowBaseSize') | Should -BeTrue
+        $body.Contains('ClientBounds') | Should -BeTrue
+        $body.Contains('Restoring') | Should -BeTrue
+        # The base size, not the measured rectangle, drives the grid.
+        $body.Contains('$win.Width * $scale') | Should -BeTrue
+        $body.Contains('Width  = [int]$base.Width') | Should -BeTrue
+        $base = Get-Body -Name 'Get-WindowBaseSize' -Next 'Set-WindowLayout'
+        $base.Contains('Get-SavedWindowSize') | Should -BeTrue
+        # Chrome (title bar + borders) is re-added to the saved client size.
+        $base.Contains('$chromeW') | Should -BeTrue
+        $savedBody = Get-Body -Name 'Get-SavedWindowSize' -Next 'Get-WindowBaseSize'
+        $savedBody.Contains('customer_config.json') | Should -BeTrue
+        $savedBody.Contains("'window', 'window_landscape', 'window_vertical'") | Should -BeTrue
     }
 
     It 'Set-WindowLayout asks for the per-row count and arranges that grid' {

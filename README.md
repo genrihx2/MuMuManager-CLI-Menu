@@ -31,7 +31,7 @@
 - 💻 Интерактивная ADB-сессия (прямой shell)
 - 🔐 Цифровая подпись скрипта (self-signed CodeSigning сертификат)
 - 🪟 Управление окнами: показать/скрыть все, закрыть все инстансы одним вызовом
-- 🧩 Сетка окон `[L]` — shrink-to-fit: считается один коэффициент `scale = min(1, (W-2M-(C-1)G)/(C*w), (H-2M-(R-1)G)/(R*h))` по рабочей области экрана (M = G = 10 px, `C = min(окон в ряд, N)`, `R = ceil(N/C)`). Окна, которые уже помещаются, сохраняют исходный размер (включая заголовок и рамки) и только переставляются; уменьшаются только те, что не влезают, увеличения нет, пропорции сохраняются, порядок — слева направо и сверху вниз. После раскладки окна один раз поднимаются наверх (без always-on-top).
+- 🧩 Сетка окон `[L]` — shrink-to-fit: считается один коэффициент `scale = min(1, (W-2M-(C-1)G)/(C*w), (H-2M-(R-1)G)/(R*h))` по рабочей области экрана (M = G = 10 px, `C = min(окон в ряд, N)`, `R = ceil(N/C)`). «Исходный размер» — тот, с которым MuMu открывает окно инстанса (он хранится в `customer_config.json` самого инстанса), поэтому окно, ранее уменьшенное раскладкой, возвращается к нормальному размеру, а не остаётся маленьким. Увеличивать сверх этого размера скрипт не умеет, пропорции сохраняются, порядок — слева направо и сверху вниз. После раскладки окна один раз поднимаются наверх (без always-on-top).
 - 🔄 Массовые операции (все инстансы)
 - 📋 Просмотр логов (статические файлы + **adb logcat**: снапшот, live-стрим, фильтр по уровню/тегу)
 - 🛡️ Менеджер GitHub-токена (DPAPI-шифрование)
@@ -182,8 +182,15 @@ mumu-menu.cmd
 
 ## Что нового
 
-### v10.4.21 (19.11.2026)
+### v10.4.22 (19.11.2026)
 
+- Fixed: `[L]` брал за «исходный размер» текущий прямоугольник окна, а MuMu сохраняет геометрию инстанса у себя и переоткрывает окно именно с неё. После первого сжатия уменьшенный размер становился новым «исходным», и сетка на каждом прогоне уменьшала окна ещё немного — в итоге одно окно оказывалось крошечным и вернуть его было нечем. Теперь база берётся из `<vms>/<инстанс>/configs/customer_config.json` (`setting.player.window` / `window_landscape` / `window_vertical`, значение `-1` = «авто» пропускается), к сохранённому клиентскому размеру возвращаются рамка и заголовок из живого окна, и перед раскладкой окно восстанавливается до размера, с которым MuMu его открывает. Правила прежние: не увеличивать сверх исходного, уменьшать только то, что не влезает, пропорции сохранять, порядок слева направо и сверху вниз.
+- Поведение без конфига не изменилось: если `customer_config.json` нет или в нём только `-1`, базой остаётся живой прямоугольник.
+- Tests: пять новых Pester-тестов (`Get-SavedWindowSize` + контракт `Set-WindowLayout`), набор 331/331 на pwsh и 5.1. Живая проверка: окно, развёрнутое на 1936×1048, даёт базу 966×519; после ручного сжатия до 500×300 база осталась 966×519 и окно восстановилось ровно в 966×519.
+
+**EN summary (v10.4.22):** `[L]` used the live window rectangle as the "original" size, but MuMu stores each instance's window geometry in its own config and reopens at that size. After the first shrink the smaller size became the new original, so every run shrank a bit more until a window was unusably small with no way back. The base now comes from `<vms>/<instance>/configs/customer_config.json` (`setting.player.window` / `window_landscape` / `window_vertical`, where `-1` means auto and is skipped), the title bar and border thickness of the live window are added back to that saved client size, and a previously shrunken window is restored before the grid is laid out. The rules are unchanged: never grow beyond the original, shrink only what does not fit, keep the aspect ratio, place left to right and top to bottom. Without a readable config the old behaviour (live rectangle) is kept.
+
+### v10.4.21 (19.11.2026)
 - Fixed: `mmor-run.ps1` не попал в ZIP релиза 10.4.20. Архив собирается не «по всему тегу», а ровно по списку `release-files.txt`, поэтому новый файл, не внесённый в этот список, в него не попадает — в архиве 10.4.20 было 9 файлов из 10. Файл добавлен в `release-files.txt` и в оба автообновляемых списка (`mumu-menu.ps1`, `bootstrap-update.ps1`), в whitelist восстановления `Repair-Installation` и в набор `Build-RollbackPlan`; теперь он есть и в архиве, и в наборе `[U]`.
 - Гейты обновлены под 10 файлов: проверка ZIP ждёт `file set: OK (10 files)`, фикстуры развёрнутой установки, откатa и проверки дрейфа содержат новый файл, чтобы отсутствие строки не выдавалось за дрейф.
 - Tests: 326/326 Pester, `test-bootstrap-update.ps1` и `test-deployed-layout.ps1` зелёные на pwsh и 5.1, PSScriptAnalyzer — 0 замечаний.
@@ -414,6 +421,7 @@ mumu-menu.cmd
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v10.4.22 | 19.11.2026 | Fix `[L]`: the grid took the live window rectangle as "original", so every run adopted its own shrunken result and a window could end up tiny; the base is now the size MuMu saves for the instance (`customer_config.json`), the title bar and borders are re-added, and a previously shrunken window is restored before the grid is laid out |
 | v10.4.21 | 19.11.2026 | Fix: `mmor-run.ps1` was missing from the 10.4.20 ZIP — the archive is built from the explicit `release-files.txt` list, not the whole tag, so a new file only ships once it is listed; the file now ships and is part of the `[U]` update set, the repair whitelist and the rollback/file-set checks (10 files) |
 | v10.4.20 | 19.11.2026 | New `mmor-run.ps1`: probe/record/apply driver for native `.mmor` playback — probe lists the instance windows and their UIA elements and presses nothing, record captures the normalized click points for the recorder and Play, apply focuses the instance, opens the recorder and presses Play, refusing to run without a calibrated config; no `[U]` set change yet |
 | v10.4.19 | 19.11.2026 | Fix `[G]`: live logcat no longer dropped back to the menu with a blank screen — the stream is opened without `-d`/`-t` and retried up to three times when the bridge closes with no output; `Get-InstanceIndex` re-asks with the valid range on non-numeric input instead of "not found"; `[L]` arranges running windows into a grid of n per row (2-6, default 3) with a never-enlarge `min(1, …)` scale (10 px margins and gaps), then raises them once, `[D]` closes every running instance with one `control -v all shutdown` call |

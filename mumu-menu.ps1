@@ -49,7 +49,7 @@ param(
 # Version header. Kept up here on purpose: tests/test-changelog-sync.ps1
 # scans the first 320 lines of this file for $scriptVer, so moving it below
 # that window makes the release gate report "scriptVer = NOT FOUND".
-$scriptVer = '10.4.21'
+$scriptVer = '10.4.22'
 
 function Repair-DesktopModulePath {
     # Fixes PowerShell/PowerShell#18530: when Windows PowerShell 5.1 (Desktop)
@@ -11168,6 +11168,7 @@ public class MuMuWindowGrid {
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder s, int n);
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT r);
+    [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr hWnd, out RECT r);
     [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int cmd);
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
@@ -11220,6 +11221,15 @@ public class MuMuWindowGrid {
         RECT r;
         if (!GetWindowRect(new IntPtr(long.Parse(handle)), out r)) return null;
         return new int[] { r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top };
+    }
+
+    // Client area size (title bar and borders excluded). Bounds minus this is
+    // the chrome the MuMu config never stores, so [L] can turn a saved client
+    // size back into the outer size the window really needs.
+    public static int[] ClientBounds(string handle) {
+        RECT r;
+        if (!GetClientRect(new IntPtr(long.Parse(handle)), out r)) return null;
+        return new int[] { r.Right, r.Bottom };
     }
 
     public static string Rect(string handle) {
@@ -11303,6 +11313,75 @@ function Hide-Windows {
     Write-Host ''
 }
 
+function Get-SavedWindowSize {
+    # Client size MuMu saves for an instance (setting.player.window,
+    # window_landscape or window_vertical - whichever carries a positive pair;
+    # -1 means "auto" and is skipped). Returns @(width, height) or @().
+    param([string]$InstanceDir)
+    if (-not $InstanceDir) { return @() }
+    $cfgPath = Join-Path (Join-Path $InstanceDir 'configs') 'customer_config.json'
+    if (-not (Test-Path -LiteralPath $cfgPath -PathType Leaf)) { return @() }
+    try {
+        $cfg = Get-Content -LiteralPath $cfgPath -Raw -ErrorAction Stop | ConvertFrom-Json
+    } catch { return @() }
+    $player = $cfg.setting.player
+    if (-not $player) { return @() }
+    foreach ($key in @('window', 'window_landscape', 'window_vertical')) {
+        $node = $player.$key
+        if (-not $node) { continue }
+        $w = 0
+        $h = 0
+        [void][int]::TryParse([string]$node.width, [ref]$w)
+        [void][int]::TryParse([string]$node.height, [ref]$h)
+        if ($w -gt 0 -and $h -gt 0) { return @($w, $h) }
+    }
+    return @()
+}
+
+function Get-WindowBaseSize {
+    # Size [L] must treat as the window's original: what MuMu itself opens the
+    # instance with. MuMu stores it per instance in
+    # <vms>/<instance>/configs/customer_config.json (setting.player.window,
+    # window_landscape, window_vertical - whichever holds a positive pair) and
+    # restores it on the next launch, so it is the only stable "original".
+    # The live rectangle is NOT: a previous [L] run writes its shrunken result
+    # into that same config, and adopting the live size as the base made every
+    # run shrink a little further until one window came out unusable.
+    # Falls back to the live frame when the config is missing or unreadable,
+    # which keeps the old behaviour on foreign layouts.
+    param(
+        [string]$Index,
+        [int[]]$Frame,
+        [int[]]$Client
+    )
+    $frameW = 0
+    $frameH = 0
+    if ($Frame -and $Frame.Count -ge 4) { $frameW = [int]$Frame[2]; $frameH = [int]$Frame[3] }
+    if ($frameW -le 0 -or $frameH -le 0) { return $null }
+
+    $saved = @()
+    try {
+        $vmsRoot = Get-MuMuVmsRoot
+        foreach ($dir in @(Get-MuMuInstanceDir -Index $Index -VmsRoot $vmsRoot)) {
+            $saved = @(Get-SavedWindowSize -InstanceDir $dir)
+            if ($saved.Count -eq 2) { break }
+        }
+    } catch { $saved = @() }
+
+    if ($saved.Count -ne 2) {
+        return [pscustomobject]@{ Width = $frameW; Height = $frameH; Source = 'window' }
+    }
+    # The config holds the client area; carry the live chrome (title bar and
+    # borders) over so the outer size is restored, not the inner one.
+    $chromeW = 0
+    $chromeH = 0
+    if ($Client -and $Client.Count -ge 2) {
+        if ($frameW -gt [int]$Client[0]) { $chromeW = $frameW - [int]$Client[0] }
+        if ($frameH -gt [int]$Client[1]) { $chromeH = $frameH - [int]$Client[1] }
+    }
+    return [pscustomobject]@{ Width = $saved[0] + $chromeW; Height = $saved[1] + $chromeH; Source = 'config' }
+}
+
 function Set-WindowLayout {
     $null = Write-ScreenFrame -Title 'Layout windows:' -Context 'grid of running instances'
 
@@ -11352,17 +11431,25 @@ function Set-WindowLayout {
     $map = Get-InstanceWindowMap -Indices $running
     $windows = @()
     $missing = @()
+    $restored = 0
     foreach ($idx in $running) {
         $win = $map[[string]$idx]
         if (-not $win) { $missing += $idx; continue }
         $rect = [MuMuWindowGrid]::Bounds($win.Handle)
         if (-not $rect -or $rect[2] -le 0 -or $rect[3] -le 0) { $missing += $idx; continue }
+        # Base on the size MuMu opens the instance with, not on the live
+        # rectangle: the rectangle may already be a previous [L]'s shrunken
+        # result, and adopting it as the new original made the grid ratchet
+        # down until a window became unusable.
+        $base = Get-WindowBaseSize -Index $idx -Frame $rect -Client ([MuMuWindowGrid]::ClientBounds($win.Handle))
+        if (-not $base) { $missing += $idx; continue }
+        if (([int]$base.Width -ne [int]$rect[2]) -or ([int]$base.Height -ne [int]$rect[3])) { $restored++ }
         $windows += [PSCustomObject]@{
             Index  = $idx
             Handle = $win.Handle
             Title  = $win.Title
-            Width  = [int]$rect[2]
-            Height = [int]$rect[3]
+            Width  = [int]$base.Width
+            Height = [int]$base.Height
         }
     }
 
@@ -11398,6 +11485,9 @@ function Set-WindowLayout {
     $cellW = [int][Math]::Floor($maxW * $scale)
     $cellH = [int][Math]::Floor($maxH * $scale)
     $percent = [int][Math]::Round($scale * 100)
+    if ($restored -gt 0) {
+        Write-ScreenStep -Text ("Restoring {0} window(s) to the size MuMu opens them with..." -f $restored)
+    }
     if ($scale -lt 1) {
         Write-ScreenStep -Text ("Shrinking to {0}% ({1}x{2} -> {3}x{4}), {5} x {6} grid, {7} px margin, {8} px gap..." -f $percent, $maxW, $maxH, $cellW, $cellH, $cols, $rows, $margin, $gap)
     } else {

@@ -12,15 +12,23 @@
 
 | Версия | Дата | Примечание |
 |--------|------|------------|
-| v10.4.21 | 2026-11-19 | Latest |
+| v10.4.22 | 2026-11-19 | Latest |
+| v10.4.21 | 2026-11-19 | — |
 | v10.4.20 | 2026-11-19 | — |
 | v10.4.19 | 2026-11-19 | — |
 | v10.4.18 | 2026-11-12 | — |
 | v10.4.17 | 2026-11-11 | — |
 | v10.4.16 | 2026-11-06 | — |
 
-## v10.4.21 (2026-11-19)
+## v10.4.22 (2026-11-19)
 
+- Fixed: `[L]` считал «исходным» текущий размер окна, а MuMu хранит геометрию инстанса у себя (`<vms>/<инстанс>/configs/customer_config.json`) и переоткрывает окно с неё. После первого сжатия уменьшенный размер становился новым «исходным», и каждый следующий прогон уменьшал окна ещё сильнее — в итоге одно окно становилось крошечным, и вернуть его было нечем. Теперь база берётся из конфига (`setting.player.window` / `window_landscape` / `window_vertical`, `-1` = «авто» пропускается), к сохранённому клиентскому размеру возвращаются рамка и заголовок живого окна, и перед раскладкой окно восстанавливается до размера, с которым его открывает MuMu.
+- Правила раскладки не изменились: `scale = min(1, (W-2M-(C-1)G)/(C*w), (H-2M-(R-1)G)/(R*h))`, M = G = 10 px, `C = min(окон в ряд, N)`, `R = ceil(N/C)`, порядок слева направо и сверху вниз, однократный подъём наверх без always-on-top. Если конфиг недоступен или в нём только `-1`, базой остаётся живой прямоугольник — то есть поведение на «чужих» раскладках прежнее.
+- Tests: пять новых Pester-тестов (`Get-SavedWindowSize` на фикстурах конфига и контракт `Set-WindowLayout`), набор 331/331 на pwsh и 5.1. Живая проверка: развёрнутое окно 1936×1048 даёт базу 966×519 (958×515 клиент + рамка), после ручного сжатия до 500×300 база не изменилась, окно восстановилось в 966×519.
+
+**EN summary (v10.4.22):** `[L]` treated the live rectangle as the original size, while MuMu keeps each instance's window geometry in `customer_config.json` and reopens at that size - so the first shrink became the new original and every later run shrank the wall a little more, until a window was too small to use. The base is read from the instance config now (`setting.player.window` / `window_landscape` / `window_vertical`, skipping `-1` auto pairs), the live chrome is added back to the saved client size, and a shrunken window is restored before the grid is applied. Layout rules are unchanged: one `min(1, ...)` scale, 10 px margin and gap, left to right and top to bottom, a single raise, no always-on-top. Unreadable config falls back to the live rectangle.
+
+## v10.4.21 (2026-11-19)
 - Fixed: `mmor-run.ps1` не попал в ZIP релиза 10.4.20. Архив собирается не «по всему тегу», а ровно по списку `release-files.txt` — новый файл, не внесённый в этот список, в архив не попадает, и в 10.4.20 их оказалось 9 вместо 10. Файл добавлен в `release-files.txt` и в оба автообновляемых списка (`mumu-menu.ps1` и `bootstrap-update.ps1`), в whitelist восстановления `Repair-Installation` и в набор `Build-RollbackPlan`; теперь он есть и в архиве, и в наборе `[U]`.
 - Гейты: проверка ZIP ждёт `file set: OK (10 files)`; фикстуры развёрнутой установки, откатa и проверки дрейфа дополнены новым файлом — иначе его отсутствие в тестовом каталоге выдавалось за дрейф.
 - Tests: 326/326 Pester, `test-bootstrap-update.ps1` и `test-deployed-layout.ps1` зелёные на pwsh и 5.1, PSScriptAnalyzer по репозиторию — 0 замечаний.

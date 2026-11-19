@@ -6,7 +6,7 @@
 
 ## Русский
 
-> Актуально для **v10.4.21** (обновлено 2026-11-19).
+> Актуально для **v10.4.22** (обновлено 2026-11-19).
 
 ### Поддерживаемые версии
 
@@ -21,7 +21,11 @@
 ### Состояние тулинга на main (2026-11-19)
 
 - npm-дерево репозитория служит только тулингу: `disk` 1.12.1 тянет `@archildata/api-types` и `undici` — три пакета всего. С линии 1.12.x `fast-xml-parser` в дереве отсутствует, поэтому его override удалён; из `overrides` остался один пол — `undici` → 8.12.3. Гейт `tests/test-dependency-overrides.ps1` по-прежнему сверяет этот override с `package-lock.json` и прогоняет `npm audit` по резолвнутому дереву, так что возврат уязвимой версии покраснеет и без явного override.
-- Тесты: Pester — **326** тестов; второй набор — npm-скрипт `tests/archil-storage.test.mjs` (**6** тестов) в отдельном job `node-test (archil-storage)`. Он поднимает локальный HTTP-стаб и работает без сети и без ключей, поэтому гоняется на каждый push и PR.
+- Тесты: Pester — **331** тестов; второй набор — npm-скрипт `tests/archil-storage.test.mjs` (**6** тестов) в отдельном job `node-test (archil-storage)`. Он поднимает локальный HTTP-стаб и работает без сети и без ключей, поэтому гоняется на каждый push и PR.
+
+### v10.4.22 (2026-11-19)
+
+- `[L]` читает `<vms>/<инстанс>/configs/customer_config.json` активной установки, чтобы взять сохранённый размер окна. Это локальное чтение файла того же пользователя, без записи и без сети; если файл недоступен, скрипт ведёт себя как раньше — берёт живой прямоугольник окна. Границы доверия и привилегии не меняются.
 
 ### v10.4.21 (2026-11-19)
 
@@ -422,7 +426,7 @@ The script uses Invoke-WebRequest/curl only to access GitHub API for auto-update
 
 ## English
 
-> Current for **v10.4.21** (updated 2026-11-19).
+> Current for **v10.4.22** (updated 2026-11-19).
 
 ### Supported Versions
 
@@ -436,7 +440,11 @@ Security fixes are released only for the latest release.
 ### Repo tooling on main (2026-11-19)
 
 - The npm tree exists for repo tooling only: `disk` 1.12.1 pulls `@archildata/api-types` and `undici` - three packages in total. In the 1.12.x line `fast-xml-parser` is no longer in the tree, so its override was removed; the only remaining floor is `undici` -> 8.12.3. `tests/test-dependency-overrides.ps1` still checks that override against `package-lock.json` and runs `npm audit` over the resolved tree, so a vulnerable version coming back fails CI even without an explicit override.
-- Tests: Pester - **326** tests; the second suite is the npm script `tests/archil-storage.test.mjs` (**6** tests) in its own `node-test (archil-storage)` job. It runs against a loopback HTTP stub, needing neither network nor credentials, so it runs on every push and PR.
+- Tests: Pester - **331** tests; the second suite is the npm script `tests/archil-storage.test.mjs` (**6** tests) in its own `node-test (archil-storage)` job. It runs against a loopback HTTP stub, needing neither network nor credentials, so it runs on every push and PR.
+
+### v10.4.22 (2026-11-19)
+
+- `[L]` reads `<vms>/<instance>/configs/customer_config.json` of the active install to get the saved window size. That is a local read of the user's own file - no write, no network; when it is unreadable the script behaves as before and uses the live window rectangle. No trust-boundary or privilege change.
 
 ### v10.4.21 (2026-11-19)
 
