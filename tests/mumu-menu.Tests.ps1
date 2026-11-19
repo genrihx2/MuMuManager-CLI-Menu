@@ -1633,7 +1633,9 @@ Describe 'View logs screen [G]' {
         $script:promptAnswers.Enqueue('-')
         $script:promptAnswers.Enqueue('1')
         $script:promptCount = 0
-        function Read-Host { param([string]$Prompt) $script:promptCount++; $script:promptAnswers.Dequeue() }
+        # A Pester mock, not a redefined cmdlet: overriding Read-Host trips
+        # PSScriptAnalyzer's PSAvoidOverwritingBuiltInCmdlets in the security scan.
+        Mock Read-Host { $script:promptCount++; $script:promptAnswers.Dequeue() }
         $out = Get-InstanceIndex 'Select instance' 6>&1
         $text = ($out | Out-String)
         $script:promptCount | Should -Be 2
