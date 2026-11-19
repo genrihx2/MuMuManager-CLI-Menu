@@ -49,7 +49,7 @@ param(
 # Version header. Kept up here on purpose: tests/test-changelog-sync.ps1
 # scans the first 320 lines of this file for $scriptVer, so moving it below
 # that window makes the release gate report "scriptVer = NOT FOUND".
-$scriptVer = '10.4.18'
+$scriptVer = '10.4.19'
 
 function Repair-DesktopModulePath {
     # Fixes PowerShell/PowerShell#18530: when Windows PowerShell 5.1 (Desktop)
@@ -5183,7 +5183,7 @@ function Show-Menu {
             Items = @(
                 '[W] Show all windows'
                 '[H] Hide all windows'
-                '[L] Layout windows'
+                '[L] Layout windows (grid, n per row)'
             )
         }
         @{
@@ -5334,6 +5334,13 @@ function Get-InstanceIndex {
         if ($index -eq 'q' -or $index -eq 'Q') { return $null }
 
         if (-not $index -and $instances.Count -gt 0) { $index = $instances[0].Index }
+
+        # Non-numeric input (a stray '-' or a typo) is not a missing instance:
+        # re-ask with the valid range instead of "Instance - not found!".
+        if ($index -notmatch '^\d+$') {
+            Write-Host "Enter an instance number ($validRange) or q to cancel." -ForegroundColor Yellow
+            continue
+        }
 
         $exists = $instances | Where-Object { $_.Index -eq $index }
         if ($exists) {
@@ -9491,54 +9498,69 @@ function Show-Logs {
                     [MuMuMenuCtrlCGuard]::Enabled = $false
                 }
                 $counter = @{ hidden = 0; matchCount = 0; lines = 0 }
-                # Read the stream through a Process we own: the manager child
-                # writes straight to the console, so stopping the PowerShell
-                # pipeline alone left logcat printing and Ctrl+C looked dead.
-                # The compiled Ctrl+C handler kills this process; the reader
-                # then hits EOF and the loop ends.
-                $verb = if ($transport -eq 'sh') { 'sh' } else { 'adb' }
-                $psi = [System.Diagnostics.ProcessStartInfo]::new()
-                $psi.FileName = $MumuPath
-                $psi.Arguments = "$verb --vmindex $index --cmd `"logcat -v time $filter`""
-                $psi.UseShellExecute = $false
-                $psi.RedirectStandardOutput = $true
-                $psi.CreateNoWindow = $true
-                $psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
-                $proc = [System.Diagnostics.Process]::Start($psi)
-                try {
-                    if ('MuMuMenuCtrlCGuard' -as [type]) {
-                        [MuMuMenuCtrlCGuard]::StreamStopped = $false
-                        [MuMuMenuCtrlCGuard]::Stream = $proc
-                    }
-                    while ($null -ne ($line = $proc.StandardOutput.ReadLine())) {
-                        $s = [string]$line
-                        $counter.lines++
-                        if ($quiet -and $s -match $noiseRx) { $counter.hidden++; continue }
-                        if ($searchNeedle -and $s.IndexOf($searchNeedle, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
-                            $counter.matchCount++
-                            Write-SearchLine $s $searchNeedle
-                            continue
-                        }
-                        if ($searchNeedle) {
-                            Write-Host $s -ForegroundColor DarkGray
-                        } else {
-                            Write-LogcatLine $s $gLogState
-                        }
-                    }
-                } finally {
-                    if ('MuMuMenuCtrlCGuard' -as [type]) { [MuMuMenuCtrlCGuard]::Stream = $null }
+                # Live mode never passes -d/-t: the stream must stay open until
+                # Ctrl+C. The bridge sometimes returns at once with no output -
+                # the transport probe answers but logcat is not attached yet - so
+                # an empty run is restarted instead of dropping the user back
+                # into the menu on a blank screen.
+                $liveArgs = "logcat -v time $filter"
+                $liveMaxAttempts = 3
+                for ($liveAttempt = 1; $liveAttempt -le $liveMaxAttempts; $liveAttempt++) {
+                    # Read the stream through a Process we own: the manager child
+                    # writes straight to the console, so stopping the PowerShell
+                    # pipeline alone left logcat printing and Ctrl+C looked dead.
+                    # The compiled Ctrl+C handler kills this process; the reader
+                    # then hits EOF and the loop ends.
+                    $verb = if ($transport -eq 'sh') { 'sh' } else { 'adb' }
+                    $psi = [System.Diagnostics.ProcessStartInfo]::new()
+                    $psi.FileName = $MumuPath
+                    $psi.Arguments = "$verb --vmindex $index --cmd `"$liveArgs`""
+                    $psi.UseShellExecute = $false
+                    $psi.RedirectStandardOutput = $true
+                    $psi.CreateNoWindow = $true
+                    $psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+                    $proc = [System.Diagnostics.Process]::Start($psi)
                     try {
-                        if (-not $proc.HasExited) { $proc.Kill(); $null = $proc.WaitForExit(2000) }
-                    } catch { Write-Debug "logcat stream stop: $($_.Exception.Message)" }
-                    $proc.Dispose()
-                    # Ctrl+C already stopped the reader. A native logcat -c on a
-                    # stopped pipeline hangs until a second Ctrl+C, so the
-                    # buffer is only cleared when the stream ended on its own.
+                        if ('MuMuMenuCtrlCGuard' -as [type]) {
+                            [MuMuMenuCtrlCGuard]::StreamStopped = $false
+                            [MuMuMenuCtrlCGuard]::Stream = $proc
+                        }
+                        while ($null -ne ($line = $proc.StandardOutput.ReadLine())) {
+                            $s = [string]$line
+                            $counter.lines++
+                            if ($quiet -and $s -match $noiseRx) { $counter.hidden++; continue }
+                            if ($searchNeedle -and $s.IndexOf($searchNeedle, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+                                $counter.matchCount++
+                                Write-SearchLine $s $searchNeedle
+                                continue
+                            }
+                            if ($searchNeedle) {
+                                Write-Host $s -ForegroundColor DarkGray
+                            } else {
+                                Write-LogcatLine $s $gLogState
+                            }
+                        }
+                    } finally {
+                        if ('MuMuMenuCtrlCGuard' -as [type]) { [MuMuMenuCtrlCGuard]::Stream = $null }
+                        try {
+                            if (-not $proc.HasExited) { $proc.Kill(); $null = $proc.WaitForExit(2000) }
+                        } catch { Write-Debug "logcat stream stop: $($_.Exception.Message)" }
+                        $proc.Dispose()
+                        # Ctrl+C already stopped the reader. A native logcat -c on a
+                        # stopped pipeline hangs until a second Ctrl+C, so the
+                        # buffer is only cleared when the stream ended on its own.
+                        $stoppedByCtrlC = ('MuMuMenuCtrlCGuard' -as [type]) -and [MuMuMenuCtrlCGuard]::StreamStopped
+                        if (-not $stoppedByCtrlC) { Stop-Logcat -Index $index -Transport $transport }
+                    }
+
                     $stoppedByCtrlC = ('MuMuMenuCtrlCGuard' -as [type]) -and [MuMuMenuCtrlCGuard]::StreamStopped
-                    if (-not $stoppedByCtrlC) { Stop-Logcat -Index $index -Transport $transport }
+                    if ($stoppedByCtrlC -or $counter.lines -gt 0) { break }
+                    if ($liveAttempt -lt $liveMaxAttempts) {
+                        Write-Host ("    logcat closed without output - restarting the stream (attempt {0} of {1})..." -f ($liveAttempt + 1), $liveMaxAttempts) -ForegroundColor DarkGray
+                        Start-Sleep -Milliseconds 1000
+                    }
                 }
 
-                $stoppedByCtrlC = ('MuMuMenuCtrlCGuard' -as [type]) -and [MuMuMenuCtrlCGuard]::StreamStopped
                 if ($stoppedByCtrlC -and -not $stopMessagePrinted) {
                     Write-Host ''
                     Write-Host 'logcat stopped (Ctrl+C).' -ForegroundColor DarkGray
@@ -9547,7 +9569,8 @@ function Show-Logs {
                 # the main menu instead of a "Press any key" pause.
                 if ($stoppedByCtrlC) { $script:SkipContinuePause = $true }
                 if ($counter.lines -eq 0 -and -not $stoppedByCtrlC) {
-                    Write-Host 'logcat produced no output on either transport (adb bridge and sh both silent).' -ForegroundColor Yellow
+                    Write-Host ("logcat produced no output after {0} attempt(s) on transport '$transport'." -f $liveAttempt) -ForegroundColor Yellow
+                    Write-Host '  The bridge answers echo but logcat streams nothing - re-run [G] once Android has settled, or use the snapshot [2].' -ForegroundColor DarkGray
                 }
 
                 if ($searchNeedle) {
@@ -9651,20 +9674,60 @@ function Stop-All {
     Write-Host ''
     Write-Host "Found $($indices.Count) instances" -ForegroundColor Cyan
 
+    # One manager call closes every running player at once. The per-instance
+    # loop only reports and verifies, so six instances cost one shutdown round
+    # trip instead of six sequential calls with a sleep after each.
+    $running = @()
+    $names = @{}
     foreach ($idx in $indices) {
         $info = & $MumuPath info -v $idx 2>$null | ConvertFrom-Json
-        $name = $info.name
-        $running = $info.is_process_started
-        if ($running) {
-            Write-Host "  [$idx] $name - shutting down..." -ForegroundColor Yellow
-            & $MumuPath api -v $idx shutdown_player 2>&1 | Out-Null
-            Start-Sleep -Seconds 2
-        } else {
-            Write-Host "  [$idx] $name - already stopped" -ForegroundColor DarkGray
+        $names[[string]$idx] = [string]$info.name
+        if ($info.is_process_started) { $running += [string]$idx }
+    }
+    if ($running.Count -eq 0) {
+        foreach ($idx in $indices) {
+            Write-Host "  [$idx] $($names[[string]$idx]) - already stopped" -ForegroundColor DarkGray
+        }
+        Write-Host ''
+        Write-Host 'Nothing to close.' -ForegroundColor Yellow
+        return
+    }
+
+    Write-Host "  closing $($running.Count) running instance(s)..." -ForegroundColor Yellow
+    $null = & $MumuPath control -v all shutdown 2>&1
+
+    # Shutdown is asynchronous: the result is the state read back, never the
+    # manager's exit code.
+    $pending = @($running)
+    $elapsed = 0
+    while ($pending.Count -gt 0 -and $elapsed -lt 60) {
+        Start-Sleep -Seconds 2
+        $elapsed += 2
+        $still = @()
+        foreach ($idx in $pending) {
+            $state = & $MumuPath info -v $idx 2>$null | ConvertFrom-Json
+            if ($state.is_process_started) {
+                $still += $idx
+            } else {
+                Write-Host "  [$idx] $($names[$idx]) - closed" -ForegroundColor Green
+            }
+        }
+        $pending = $still
+    }
+    foreach ($idx in $pending) {
+        Write-Host "  [$idx] $($names[$idx]) - still running after 60 s" -ForegroundColor Red
+    }
+    foreach ($idx in $indices) {
+        if ($running -notcontains [string]$idx) {
+            Write-Host "  [$idx] $($names[[string]$idx]) - already stopped" -ForegroundColor DarkGray
         }
     }
     Write-Host ''
-    Write-Host 'All instances shut down!' -ForegroundColor Green
+    if ($pending.Count -eq 0) {
+        Write-Host 'All instances shut down!' -ForegroundColor Green
+    } else {
+        Write-Host 'Some instances are still running - close them from the player window and re-run.' -ForegroundColor Yellow
+    }
 }
 
 function Restart-All {
@@ -11084,6 +11147,134 @@ function Show-VersionInfo {
     Write-Host ''
 }
 
+function Initialize-WindowGrid {
+    # Win32 geometry for [L]. Add-Type compiles once per session, so a second
+    # [L] reuses the loaded type instead of paying the compiler again.
+    if ('MuMuWindowGrid' -as [type]) { return }
+    if (-not ('System.Windows.Forms.SystemInformation' -as [type])) {
+        Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
+    }
+    Add-Type -TypeDefinition @'
+using System;
+using System.Text;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+
+public class MuMuWindowGrid {
+    [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc cb, IntPtr lParam);
+    public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassName(IntPtr hWnd, StringBuilder s, int n);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder s, int n);
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT r);
+    [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
+    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int cmd);
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+
+    // Every visible player window: MuMu's own player process owns the Qt
+    // window that carries the instance name as its title. A window that is
+    // hidden (or belongs to an instance stuck in 'stopping') is skipped on
+    // purpose - touching it can block the whole arrange, so the screen names
+    // the instance and points at [W] instead. Handles travel as strings
+    // because an IntPtr does not survive a PowerShell hashtable round-trip,
+    // and the menu only ever passes them straight back here.
+    public static List<string[]> Players() {
+        var found = new List<string[]>();
+        EnumWindows(delegate(IntPtr h, IntPtr l) {
+            if (!IsWindowVisible(h)) return true;
+            var cls = new StringBuilder(256);
+            GetClassName(h, cls, 256);
+            if (!cls.ToString().StartsWith("Qt", StringComparison.Ordinal)) return true;
+            uint pid;
+            GetWindowThreadProcessId(h, out pid);
+            string name = "";
+            try { name = System.Diagnostics.Process.GetProcessById((int)pid).ProcessName; } catch { }
+            if (!name.Equals("MuMuNxDevice", StringComparison.OrdinalIgnoreCase)) return true;
+            var title = new StringBuilder(512);
+            GetWindowText(h, title, 512);
+            found.Add(new string[] { h.ToString(), title.ToString(), pid.ToString() });
+            return true;
+        }, IntPtr.Zero);
+        return found;
+    }
+
+    public static bool Place(string handle, int x, int y, int w, int h) {
+        var hwnd = new IntPtr(long.Parse(handle));
+        ShowWindow(hwnd, 9);   // SW_RESTORE: a minimised player ignores SetWindowPos geometry
+        // SWP_NOZORDER keeps the wall from shuffling while it is being built;
+        // the raise happens once, after every window has its geometry.
+        return SetWindowPos(hwnd, IntPtr.Zero, x, y, w, h, 0x0040 | 0x0004);
+    }
+
+    public static bool Activate(string handle) {
+        return SetForegroundWindow(new IntPtr(long.Parse(handle)));
+    }
+
+    // Outer rectangle of a window, title bar and borders included - the
+    // screen space it really takes, not the client area inside it.
+    public static int[] Bounds(string handle) {
+        RECT r;
+        if (!GetWindowRect(new IntPtr(long.Parse(handle)), out r)) return null;
+        return new int[] { r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top };
+    }
+
+    public static string Rect(string handle) {
+        var b = Bounds(handle);
+        if (b == null) return "";
+        return String.Format("{0},{1} {2}x{3}", b[0], b[1], b[2], b[3]);
+    }
+}
+'@ -ErrorAction Stop
+}
+
+function Get-InstanceWindowMap {
+    # Window per running instance. The player window's title is the instance
+    # name the manager reports, so a name match is the fast path; renamed or
+    # duplicated titles fall back to the '-v <index>' / '--vm ...-<index>'
+    # suffix on the MuMuNxDevice command line.
+    param([string[]]$Indices)
+
+    $windows = @()
+    foreach ($w in [MuMuWindowGrid]::Players()) {
+        $windows += [PSCustomObject]@{ Handle = [string]$w[0]; Title = [string]$w[1]; Pid = [string]$w[2] }
+    }
+    $map = @{}
+    $left = @($windows)
+
+    foreach ($idx in $Indices) {
+        $info = & $MumuPath info -v $idx 2>$null | ConvertFrom-Json
+        $name = [string]$info.name
+        if (-not $name) { continue }
+        $hit = @($left | Where-Object { $_.Title.Trim() -eq $name.Trim() } | Select-Object -First 1)
+        if ($hit.Count -eq 1) {
+            $map[[string]$idx] = $hit[0]
+            $left = @($left | Where-Object { $_.Handle -ne $hit[0].Handle })
+        }
+    }
+
+    if ($left.Count -eq 0) { return $map }
+
+    $procs = @(Get-CimInstance Win32_Process -Filter "Name='MuMuNxDevice.exe'" -ErrorAction SilentlyContinue)
+    foreach ($proc in $procs) {
+        $cmd = [string]$proc.CommandLine
+        $guess = $null
+        if ($cmd -match '--vm\s+\S*-(\d+)\s*$') { $guess = $Matches[1] }
+        elseif ($cmd -match '-v\s+(\d+)') { $guess = $Matches[1] }
+        if (-not $guess -or $map.ContainsKey($guess)) { continue }
+        $hit = @($left | Where-Object { $_.Pid -eq [string]$proc.ProcessId } | Select-Object -First 1)
+        if ($hit.Count -eq 1) {
+            $map[$guess] = $hit[0]
+            $left = @($left | Where-Object { $_.Handle -ne $hit[0].Handle })
+        }
+        if ($left.Count -eq 0) { break }
+    }
+    return $map
+}
+
 function Show-Windows {
     $null = Write-ScreenFrame -Title 'Show all windows:' -Context 'every running instance'
     Write-ScreenStep -Text 'Showing every emulator window...'
@@ -11113,15 +11304,142 @@ function Hide-Windows {
 }
 
 function Set-WindowLayout {
-    $null = Write-ScreenFrame -Title 'Layout windows:' -Context 'every running instance'
-    Write-ScreenStep -Text 'Arranging every emulator window...'
-    $output = & $MumuPath control -v all layout_window 2>&1 | Out-String
-    if ($output -match 'height') {
-        Write-ScreenNote -Text 'Windows arranged.' -Tone Green
-    } elseif ($output -match 'not running') {
+    $null = Write-ScreenFrame -Title 'Layout windows:' -Context 'grid of running instances'
+
+    try {
+        Initialize-WindowGrid
+    } catch {
+        Write-ScreenNote -Text "Win32 window helpers are unavailable: $($_.Exception.Message)" -Tone Red
+        Write-Host ''
+        return
+    }
+
+    $indices = @(Get-AllIndices)
+    $running = @()
+    foreach ($idx in $indices) {
+        $info = & $MumuPath info -v $idx 2>$null | ConvertFrom-Json
+        if ($info.is_process_started) { $running += [string]$idx }
+    }
+    if ($running.Count -eq 0) {
         Write-ScreenNote -Text 'No running emulators found.' -Tone Yellow
+        Write-Host ''
+        return
+    }
+
+    # Per-row count decides the whole grid: n=3 gives the familiar 3x2 wall on
+    # six players, n=2 gives 2x3. 'a' keeps MuMu's own layout_window.
+    $cols = 3
+    while ($true) {
+        $answer = (Read-Host "  Windows per row (2-6, Enter = $cols, a = MuMu auto-arrange)").Trim()
+        if (-not $answer) { break }
+        if ($answer -eq 'a') {
+            Write-ScreenStep -Text 'Arranging every emulator window (MuMu layout)...'
+            $output = & $MumuPath control -v all layout_window 2>&1 | Out-String
+            if ($output -match 'height') {
+                Write-ScreenNote -Text 'Windows arranged.' -Tone Green
+            } elseif ($output -match 'not running') {
+                Write-ScreenNote -Text 'No running emulators found.' -Tone Yellow
+            } else {
+                Write-ToolOutput -Lines ($output -split "`r?`n")
+            }
+            Write-Host ''
+            return
+        }
+        if ($answer -match '^\d+$' -and [int]$answer -ge 2 -and [int]$answer -le 6) { $cols = [int]$answer; break }
+        Write-ScreenNote -Text 'Enter a number from 2 to 6, or a for the built-in auto-arrange.' -Tone Yellow
+    }
+
+    $map = Get-InstanceWindowMap -Indices $running
+    $windows = @()
+    $missing = @()
+    foreach ($idx in $running) {
+        $win = $map[[string]$idx]
+        if (-not $win) { $missing += $idx; continue }
+        $rect = [MuMuWindowGrid]::Bounds($win.Handle)
+        if (-not $rect -or $rect[2] -le 0 -or $rect[3] -le 0) { $missing += $idx; continue }
+        $windows += [PSCustomObject]@{
+            Index  = $idx
+            Handle = $win.Handle
+            Title  = $win.Title
+            Width  = [int]$rect[2]
+            Height = [int]$rect[3]
+        }
+    }
+
+    if ($windows.Count -eq 0) {
+        Write-ScreenNote -Text 'No emulator window could be measured - use [W] Show all windows and try again.' -Tone Yellow
+        Write-Host ''
+        return
+    }
+
+    $count = $windows.Count
+    if ($cols -gt $count) { $cols = $count }
+    $rows = [int][Math]::Ceiling($count / $cols)
+    $margin = 10
+    $gap = 10
+    $area = [System.Windows.Forms.SystemInformation]::WorkingArea
+
+    # One scale for the whole grid, computed from the largest original window:
+    # min(1, width fit, height fit). The 1 is what keeps small windows small -
+    # a grid never enlarges anything, it only shrinks what does not fit.
+    $maxW = 0
+    $maxH = 0
+    foreach ($win in $windows) {
+        if ($win.Width -gt $maxW) { $maxW = $win.Width }
+        if ($win.Height -gt $maxH) { $maxH = $win.Height }
+    }
+    $fitW = ($area.Width - (2 * $margin) - (($cols - 1) * $gap)) / ($cols * $maxW)
+    $fitH = ($area.Height - (2 * $margin) - (($rows - 1) * $gap)) / ($rows * $maxH)
+    $scale = [Math]::Min(1.0, [Math]::Min($fitW, $fitH))
+
+    # The cell is the scaled size of the largest window; every window is
+    # scaled by the same factor, so its own aspect ratio survives even when the
+    # players are not all the same size.
+    $cellW = [int][Math]::Floor($maxW * $scale)
+    $cellH = [int][Math]::Floor($maxH * $scale)
+    $percent = [int][Math]::Round($scale * 100)
+    if ($scale -lt 1) {
+        Write-ScreenStep -Text ("Shrinking to {0}% ({1}x{2} -> {3}x{4}), {5} x {6} grid, {7} px margin, {8} px gap..." -f $percent, $maxW, $maxH, $cellW, $cellH, $cols, $rows, $margin, $gap)
     } else {
-        Write-ToolOutput -Lines ($output -split "`r?`n")
+        Write-ScreenStep -Text ("Original size {0}x{1} fits - arranging without resizing, {2} x {3} grid, {4} px margin, {5} px gap..." -f $maxW, $maxH, $cols, $rows, $margin, $gap)
+    }
+
+    $placed = 0
+    $position = 0
+    $lastHandle = $null
+    foreach ($win in $windows) {
+        $col = $position % $cols
+        $row = [int][Math]::Floor($position / $cols)
+        $x = $area.X + $margin + ($col * ($cellW + $gap))
+        $y = $area.Y + $margin + ($row * ($cellH + $gap))
+        $w = [int][Math]::Floor($win.Width * $scale)
+        $h = [int][Math]::Floor($win.Height * $scale)
+
+        if ([MuMuWindowGrid]::Place($win.Handle, $x, $y, $w, $h)) {
+            $placed++
+            $lastHandle = $win.Handle
+            Write-Host ("  [$($win.Index)] $($win.Title) -> $x,$y ${w}x${h}") -ForegroundColor DarkGray
+        } else {
+            Write-ScreenNote -Text "[$($win.Index)] $($win.Title) - the window refused the new geometry" -Tone Red
+        }
+        $position++
+        Start-Sleep -Milliseconds 150
+    }
+
+    # One raise for the whole wall, after the geometry is in place: the players
+    # come to the front but stay ordinary windows, so other programs can cover
+    # them again immediately.
+    if ($placed -gt 0) {
+        $null = & $MumuPath control -v all show_window 2>&1
+        if ($lastHandle) { $null = [MuMuWindowGrid]::Activate($lastHandle) }
+    }
+
+    if ($placed -gt 0) {
+        $sizeText = if ($scale -lt 1) { "${cellW}x${cellH} ($percent% of the original)" } else { "${cellW}x${cellH} (unresized)" }
+        Write-ScreenNote -Text "Arranged $placed window(s) in a ${cols} x $rows grid, $sizeText." -Tone Green
+    }
+    if ($missing.Count -gt 0) {
+        Write-ScreenNote -Text "No player window for instance(s) $($missing -join ', ') - use [W] to show every window." -Tone Yellow
     }
     Write-Host ''
 }

@@ -1610,6 +1610,60 @@ Describe 'View logs screen [G]' {
         $raw.Contains('$skipPause = $script:SkipContinuePause') | Should -BeTrue
     }
 
+    It 'Get-InstanceIndex re-asks with the valid range on non-numeric input instead of "Instance - not found!"' {
+        $raw = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'mumu-menu.ps1') -Raw -Encoding UTF8
+        $fnAt = $raw.IndexOf('function Get-InstanceIndex {')
+        $nextAt = $raw.IndexOf('function Invoke-Mumu {')
+        ($fnAt -ge 0 -and $nextAt -gt $fnAt) | Should -BeTrue
+        $body = $raw.Substring($fnAt, $nextAt - $fnAt)
+        # A typo is not a missing instance: the range hint replaces the
+        # "Instance - <input> not found!" line for anything non-numeric.
+        $body.Contains('Enter an instance number') | Should -BeTrue
+        ($body -match "-notmatch '\^\\d\+\$'") | Should -BeTrue
+
+        # Behaviour: "-" then "1" must re-prompt once, print the hint and
+        # return 1 without ever naming an instance called "-".
+        . ([scriptblock]::Create($body))
+        $MumuPath = 'FakeManagerForPromptTest'
+        function FakeManagerForPromptTest {
+            '{"0":{"name":"Android Device","player_state":"start_finished"},"1":{"name":"Android Device-1","player_state":"stopped"}}'
+        }
+        function Get-MuMuActiveManagerPath { Join-Path (Join-Path $PSScriptRoot '..') 'mumu-menu.ps1' }
+        $script:promptAnswers = New-Object System.Collections.Queue
+        $script:promptAnswers.Enqueue('-')
+        $script:promptAnswers.Enqueue('1')
+        $script:promptCount = 0
+        function Read-Host { param([string]$Prompt) $script:promptCount++; $script:promptAnswers.Dequeue() }
+        $out = Get-InstanceIndex 'Select instance' 6>&1
+        $text = ($out | Out-String)
+        $script:promptCount | Should -Be 2
+        $text.Contains('Enter an instance number') | Should -BeTrue
+        $text.Contains('Instance - not found') | Should -BeFalse
+        ($out | Where-Object { $_ -is [string] }) | Should -Be '1'
+    }
+
+    It 'live logcat [3] streams without -d and restarts an empty run instead of returning to the menu' {
+        $raw = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'mumu-menu.ps1') -Raw -Encoding UTF8
+        $fnAt = $raw.IndexOf('function Show-Logs {')
+        $nextAt = $raw.IndexOf('function Get-AllIndices {')
+        ($fnAt -ge 0 -and $nextAt -gt $fnAt) | Should -BeTrue
+        $body = $raw.Substring($fnAt, $nextAt - $fnAt)
+        # Live mode must not carry -d/-t (that is the snapshot) - it holds the
+        # stream open until Ctrl+C.
+        $liveAt = $body.IndexOf('$liveArgs = ')
+        ($liveAt -ge 0) | Should -BeTrue
+        $liveLine = ($body.Substring($liveAt, 120) -split "`n")[0]
+        $liveLine.Contains('logcat -v time $filter') | Should -BeTrue
+        $liveLine.Contains('-d') | Should -BeFalse
+        $body.Contains('--cmd `"$liveArgs`"') | Should -BeTrue
+        # An empty run is retried, not silently ended: only output or Ctrl+C
+        # break the loop, and the give-up message names the attempt count.
+        $body.Contains('$liveMaxAttempts = 3') | Should -BeTrue
+        ($body -match 'if \(\$stoppedByCtrlC -or \$counter\.lines -gt 0\) \{ break \}') | Should -BeTrue
+        $body.Contains('restarting the stream (attempt') | Should -BeTrue
+        $body.Contains('logcat produced no output after') | Should -BeTrue
+    }
+
     It 'Write-LogcatLine prints each Lua error as one line, collapsing stack frames and blank tails' {
         $f = $script:ast.FindAll({
             param($node)
@@ -4513,5 +4567,63 @@ Describe 'Non-interactive mode (-Action)' {
         $batch.Contains('sh --vmindex') | Should -BeTrue
         # Startup banner/update check must not pollute machine-readable output.
         $raw.Contains('if (-not $Action) {') | Should -BeTrue
+    }
+}
+
+Describe 'Window grid [L] and close-all [D]' {
+
+    BeforeAll {
+        $script:raw = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'mumu-menu.ps1') -Raw -Encoding UTF8
+        function Get-Body {
+            param([string]$Name, [string]$Next)
+            $fnAt = $script:raw.IndexOf("function $Name {")
+            $nextAt = $script:raw.IndexOf("function $Next {")
+            ($fnAt -ge 0 -and $nextAt -gt $fnAt) | Should -BeTrue
+            return $script:raw.Substring($fnAt, $nextAt - $fnAt)
+        }
+    }
+
+    It 'the grid helper is a compiled Win32 type with the calls the layout needs' {
+        $helper = Get-Body -Name 'Initialize-WindowGrid' -Next 'Get-InstanceWindowMap'
+        $helper.Contains('MuMuWindowGrid') | Should -BeTrue
+        $helper.Contains('EnumWindows') | Should -BeTrue
+        $helper.Contains('SetWindowPos') | Should -BeTrue
+        $helper.Contains('System.Windows.Forms') | Should -BeTrue
+    }
+
+    It 'Set-WindowLayout asks for the per-row count and arranges that grid' {
+        $body = Get-Body -Name 'Set-WindowLayout' -Next 'Save-Screenshot'
+        $body.Contains('Windows per row') | Should -BeTrue
+        $body.Contains('SystemInformation') | Should -BeTrue
+        $body.Contains('WorkingArea') | Should -BeTrue
+        $body.Contains('control -v all show_window') | Should -BeTrue
+        $body.Contains('[MuMuWindowGrid]::Place') | Should -BeTrue
+        $body.Contains('$position % $cols') | Should -BeTrue
+        # Same formula as the request: min(1, ...) so a grid never enlarges,
+        # 10 px margin and 10 px gap, and the aspect ratio is scaled, not forced.
+        $body.Contains('$scale = [Math]::Min(1.0') | Should -BeTrue
+        $body.Contains('$margin = 10') | Should -BeTrue
+        $body.Contains('$gap = 10') | Should -BeTrue
+        $body.Contains('$win.Width * $scale') | Should -BeTrue
+        $body.Contains('$win.Height * $scale') | Should -BeTrue
+        $body.Contains('[MuMuWindowGrid]::Bounds') | Should -BeTrue
+        # 'a' keeps the built-in manager layout as an explicit fallback.
+        $body.Contains('layout_window') | Should -BeTrue
+    }
+
+    It 'the window-to-instance map matches by name and falls back to the command line' {
+        $body = Get-Body -Name 'Get-InstanceWindowMap' -Next 'Show-Windows'
+        $body.Contains('MuMuNxDevice') | Should -BeTrue
+        $body.Contains('Get-CimInstance Win32_Process') | Should -BeTrue
+        $body.Contains('-v\s+(\d+)') | Should -BeTrue
+    }
+
+    It 'Stop-All closes every running instance with one manager call' {
+        $body = Get-Body -Name 'Stop-All' -Next 'Restart-All'
+        $body.Contains('control -v all shutdown') | Should -BeTrue
+        $body.Contains('is_process_started') | Should -BeTrue
+        # No per-instance shutdown loop with a fixed sleep any more.
+        $body.Contains('shutdown_player') | Should -BeFalse
+        $body.Contains('Nothing to close.') | Should -BeTrue
     }
 }
