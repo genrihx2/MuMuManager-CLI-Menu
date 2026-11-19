@@ -287,6 +287,7 @@ Describe 'Test-ReleaseZip (ZIP self-test)' {
                     'Watch-MumuConnections.ps1' = "# watcher`n"
                     'Test-MumuTunnelAB.ps1'     = "# ab`n"
                     'Diag-MumuNx.ps1'           = "# diag`n"
+                    'mmor-run.ps1'         = "# mmor`n"
                     '.version'             = "v$Ver"
                 }
                 foreach ($name in $bodies.Keys) {
@@ -314,7 +315,7 @@ Describe 'Test-ReleaseZip (ZIP self-test)' {
         $r.Ok | Should -BeTrue
         $r.ZipHash | Should -Be $r.SidecarHash
         $r.ZipVersion | Should -Be '1.20.0'
-        @($r.Checks) | Should -Contain 'file set: OK (9 files)'
+        @($r.Checks) | Should -Contain 'file set: OK (10 files)'
     }
 
     It 'fails a tampered ZIP on the sha256 check' {
@@ -588,7 +589,7 @@ Describe 'Update-FromGitHub: tag pinning for downloads and fingerprints (stale-C
         # downloader stayed on the pre-trio 4-file list, so new files never
         # reached existing installs via [U].
         $src = Get-Content -Raw $script:menuPath
-        $expected = "`$files = @('mumu-menu.ps1', 'mumu-menu.cjs', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1')"
+        $expected = "`$files = @('mumu-menu.ps1', 'mumu-menu.cjs', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1', 'mmor-run.ps1')"
         ($src -match [regex]::Escape($expected)) | Should -Be $true
         # Rollback defaults cover the same set (no stale 4-file defaults left).
         ($src -match [regex]::Escape("`$FileSet = @('mumu-menu.ps1', 'SKILL.md', 'README.md', 'bootstrap-update.ps1')")) | Should -Be $false
@@ -2380,6 +2381,7 @@ Describe 'Rollback from backup (issue #27)' {
             Set-Content -LiteralPath (Join-Path $d 'Watch-MumuConnections.ps1') -Value 'x'
             Set-Content -LiteralPath (Join-Path $d 'Test-MumuTunnelAB.ps1') -Value 'x'
             Set-Content -LiteralPath (Join-Path $d 'Diag-MumuNx.ps1') -Value 'x'
+            Set-Content -LiteralPath (Join-Path $d 'mmor-run.ps1') -Value 'x'
             Set-Content -LiteralPath (Join-Path $d '.version') -Value 'v1.21.7' -NoNewline
             return $d
         }
@@ -2396,6 +2398,7 @@ Describe 'Rollback from backup (issue #27)' {
                 Set-Content -LiteralPath (Join-Path $b 'Watch-MumuConnections.ps1') -Value 'x'
                 Set-Content -LiteralPath (Join-Path $b 'Test-MumuTunnelAB.ps1') -Value 'x'
                 Set-Content -LiteralPath (Join-Path $b 'Diag-MumuNx.ps1') -Value 'x'
+                Set-Content -LiteralPath (Join-Path $b 'mmor-run.ps1') -Value 'x'
             } else {
                 Set-Content -LiteralPath (Join-Path $b 'SKILL.md') -Value 'x'
             }
@@ -2423,7 +2426,7 @@ Describe 'Rollback from backup (issue #27)' {
         $b = New-RbBackup -InstallDir $d -Ver '1.20.9'
         $plan = Build-RollbackPlan -BackupDir $b -InstallDir $d
         $plan.Ok | Should -BeTrue
-        $plan.Files.Count | Should -Be 8   # deployed set minus .version (written from content)
+        $plan.Files.Count | Should -Be 9   # deployed set minus .version (written from content)
         $plan.MarkerWrite | Should -BeTrue
         $plan.MarkerTo | Should -Be 'v1.20.9'
         $bad = Build-RollbackPlan -BackupDir (Join-Path $d 'backup\nope') -InstallDir $d
@@ -4269,7 +4272,7 @@ Describe 'Repair-Installation ([F] auto-repair, v10.2.0)' {
     It 'whitelists the release file set, rejects JSON metadata, never redirects native stderr' {
         $t = $script:repairFn.Extent.Text
         # Whitelist: every shipped file, plus .version - nothing else can pass.
-        foreach ($name in @('mumu-menu\.ps1', 'SKILL\.md', 'README\.md', 'bootstrap-update\.ps1', 'Watch-MumuConnections\.ps1', 'Test-MumuTunnelAB\.ps1', 'Diag-MumuNx\.ps1', '\.version')) {
+        foreach ($name in @('mumu-menu\.ps1', 'SKILL\.md', 'README\.md', 'bootstrap-update\.ps1', 'Watch-MumuConnections\.ps1', 'Test-MumuTunnelAB\.ps1', 'Diag-MumuNx\.ps1', 'mmor-run\.ps1', '\.version')) {
             $t.Contains($name) | Should -Be $true -Because "whitelist must contain $name"
         }
         ($t -match 'JSON metadata instead of raw content') | Should -Be $true

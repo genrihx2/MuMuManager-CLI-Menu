@@ -49,7 +49,7 @@ param(
 # Version header. Kept up here on purpose: tests/test-changelog-sync.ps1
 # scans the first 320 lines of this file for $scriptVer, so moving it below
 # that window makes the release gate report "scriptVer = NOT FOUND".
-$scriptVer = '10.4.20'
+$scriptVer = '10.4.21'
 
 function Repair-DesktopModulePath {
     # Fixes PowerShell/PowerShell#18530: when Windows PowerShell 5.1 (Desktop)
@@ -1711,7 +1711,7 @@ function Test-InstallationIntegrity {
             }
         }
 
-        $files = @('mumu-menu.ps1', 'mumu-menu.cjs', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1')
+        $files = @('mumu-menu.ps1', 'mumu-menu.cjs', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1', 'mmor-run.ps1')
         $verFile = Join-Path $ScriptDir '.version'
         $localTag = ''
         if (Test-Path -LiteralPath $verFile) {
@@ -1846,7 +1846,7 @@ function Test-ReleaseZip {
         [Parameter(Mandatory = $true)] [string]$ExpectedTag,
         [string]$SidecarPath = "$ZipPath.sha256"
     )
-    $expectedFiles = @('mumu-menu.ps1', 'mumu-menu.cjs', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', '.version', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1')
+    $expectedFiles = @('mumu-menu.ps1', 'mumu-menu.cjs', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', '.version', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1', 'mmor-run.ps1')
     $checks = @()
     $ok = $true
     $zipVer = ''
@@ -2019,7 +2019,7 @@ function Show-InstallVerify {
 function Repair-Installation {
     param([string]$Tag, [string[]]$BadFiles)
     # Whitelist: repair never writes a file the release itself ships.
-    $bad = @($BadFiles | Where-Object { $_ -match '^(mumu-menu\.ps1|SKILL\.md|README\.md|bootstrap-update\.ps1|Watch-MumuConnections\.ps1|Test-MumuTunnelAB\.ps1|Diag-MumuNx\.ps1|\.version)$' })
+    $bad = @($BadFiles | Where-Object { $_ -match '^(mumu-menu\.ps1|SKILL\.md|README\.md|bootstrap-update\.ps1|Watch-MumuConnections\.ps1|Test-MumuTunnelAB\.ps1|Diag-MumuNx\.ps1|mmor-run\.ps1|\.version)$' })
     if (-not $Tag -or $bad.Count -eq 0) {
         Write-Host '  Repair: nothing to repair (no recognized files requested).' -ForegroundColor DarkGray
         return $false
@@ -2151,7 +2151,7 @@ function Show-UpdatePlan {
         [AllowEmptyString()] [string]$LocalTag
     )
 
-    $files = @('mumu-menu.ps1', 'mumu-menu.cjs', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1')
+    $files = @('mumu-menu.ps1', 'mumu-menu.cjs', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1', 'mmor-run.ps1')
     $present = 0
     $updateSize = 0
     foreach ($f in $files) {
@@ -2464,7 +2464,7 @@ function Update-FromGitHub {
     # joined in v10.3.0), so [U] can
     # deliver files introduced after v1.22.45 (diagnostics trio) to existing
     # installs. .version is written by the updater itself after a verified run.
-    $files = @('mumu-menu.ps1', 'mumu-menu.cjs', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1')
+    $files = @('mumu-menu.ps1', 'mumu-menu.cjs', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1', 'mmor-run.ps1')
 
     # Updates are sourced ONLY from tagged GitHub Releases, never from the
     # mutable main branch. Get-RemoteFile closes over the resolved tag.
@@ -4385,7 +4385,7 @@ function Build-RollbackPlan {
     param(
         [Parameter(Mandatory = $true)] [string]$BackupDir,
         [Parameter(Mandatory = $true)] [string]$InstallDir,
-        [string[]]$FileSet = @('mumu-menu.ps1', 'mumu-menu.cjs', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1')
+        [string[]]$FileSet = @('mumu-menu.ps1', 'mumu-menu.cjs', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1', 'mmor-run.ps1')
     )
     $r = @{ Ok = $false; Reason = ''; Files = @(); MarkerTo = ''; MarkerWrite = $false }
     if (-not ($BackupDir -and (Test-Path -LiteralPath $BackupDir -PathType Container))) { $r.Reason = "backup folder not found: $BackupDir"; return $r }
@@ -4412,7 +4412,7 @@ function Invoke-Rollback {
         [Parameter(Mandatory = $true)] [string]$BackupDir,
         [Parameter(Mandatory = $true)] [string]$InstallDir,
         [string]$VersionFile = '',
-        [string[]]$FileSet = @('mumu-menu.ps1', 'mumu-menu.cjs', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1')
+        [string[]]$FileSet = @('mumu-menu.ps1', 'mumu-menu.cjs', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1', 'mmor-run.ps1')
     )
     if (-not $VersionFile) { $VersionFile = Join-Path $InstallDir '.version' }
     $markerBefore = ''
