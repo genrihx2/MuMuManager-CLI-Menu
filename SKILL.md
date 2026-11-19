@@ -92,6 +92,13 @@ other operation over to `mumu-menu.ps1`, which stays the reference implementatio
 
 ### Window
 - `[W]` Show all windows — `[H]` Hide all — `[L]` Layout windows
+- `[L]` asks for the per-row count (2-6, Enter = 3, `a` = MuMu `layout_window`) and arranges the running
+  player windows over the screen work area (margin = gap = 10 px, left to right, top to bottom).
+  Sizing is shrink-to-fit: `scale = min(1, (W-2M-(C-1)G)/(C*w), (H-2M-(R-1)G)/(R*h))` with
+  `C = min(cols, N)` and `R = ceil(N/C)`. Windows that already fit keep their original width and height
+  (measured from the real window rectangle, so the title bar and borders are included) and are only moved;
+  only what does not fit is shrunk, never enlarged, and both sides share one factor so the aspect ratio
+  survives. One `control -v all show_window` raise follows the layout - no always-on-top.
 
 ### Tools / ADB
 - `[S]` Screenshot — `[A]` ADB command — `[AF]` ADB file transfer — `[AS]` ADB screen capture — `[AH]` ADB interactive shell
