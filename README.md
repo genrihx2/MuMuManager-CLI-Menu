@@ -478,7 +478,7 @@ mumu-menu.cmd
   --- Window ---
   [W] Show all windows
   [H] Hide all windows
-  [L] Layout windows
+  [L] Layout windows (grid, n per row)
 
   --- Tools ---
   [S] Take screenshot
