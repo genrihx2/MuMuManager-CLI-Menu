@@ -6,7 +6,7 @@
 
 ## Русский
 
-> Актуально для **v10.4.18** (обновлено 2026-11-16).
+> Актуально для **v10.4.19** (обновлено 2026-11-19).
 
 ### Поддерживаемые версии
 
@@ -18,10 +18,16 @@
 | предыдущие версии | ❌ |
 
 
-### Состояние тулинга на main (2026-11-16)
+### Состояние тулинга на main (2026-11-19)
 
 - npm-дерево репозитория служит только тулингу: `disk` 1.12.1 тянет `@archildata/api-types` и `undici` — три пакета всего. С линии 1.12.x `fast-xml-parser` в дереве отсутствует, поэтому его override удалён; из `overrides` остался один пол — `undici` → 8.12.3. Гейт `tests/test-dependency-overrides.ps1` по-прежнему сверяет этот override с `package-lock.json` и прогоняет `npm audit` по резолвнутому дереву, так что возврат уязвимой версии покраснеет и без явного override.
-- Тесты: Pester — **320** тестов; второй набор — npm-скрипт `tests/archil-storage.test.mjs` (**6** тестов) в отдельном job `node-test (archil-storage)`. Он поднимает локальный HTTP-стаб и работает без сети и без ключей, поэтому гоняется на каждый push и PR.
+- Тесты: Pester — **322** теста; второй набор — npm-скрипт `tests/archil-storage.test.mjs` (**6** тестов) в отдельном job `node-test (archil-storage)`. Он поднимает локальный HTTP-стаб и работает без сети и без ключей, поэтому гоняется на каждый push и PR.
+
+### v10.4.19 (2026-11-19)
+
+- `[G]` live-логи: поток открывается без `-d`/`-t` и перезапускается до трёх раз, если мост закрылся без вывода. Поверхность не менялась — те же локальные вызовы `MuMuManager.exe adb|sh --vmindex ... --cmd`, новых сетевых путей нет.
+- `Get-InstanceIndex` проверяет ввод: нецифровой ответ повторяет запрос с диапазоном, а не уходит в ветку «инстанс не найден». Отказоустойчивость, не изменение привилегий.
+- `[L]` работает с окнами того же пользователя через `EnumWindows`/`SetWindowPos` и ничего не запускает в обход менеджера; `[D]` по-прежнему закрывает только собственные инстансы MuMu одним вызовом `control -v all shutdown`.
 
 ### v10.4.18 (2026-11-12)
 
@@ -238,7 +244,7 @@
 - **VirusTotal**: каждый релиз сканируется в CI (3 файла), вердикты публикуются в теле релиза
 - **Release guard**: еженедельный CI-аудит — каждый релиз новее baseline v10.0.0 обязан иметь ZIP + SHA256 + VT-вердикты, latest release сверяется с `.version`; расхождения открывают идемпотентный issue
 - **Зависимости экшенов**: еженедельные групповые Dependabot-обновления
-- **CI-гейты**: PSScriptAnalyzer, Pester (320 тестов), npm-набор archil-storage (6 тестов), bootstrap-регрессия, changelog-sync, dependency gate (полы override-ов в lockfile + `npm audit` по дереву, без хардкода списка пакетов)
+- **CI-гейты**: PSScriptAnalyzer, Pester (322 теста), npm-набор archil-storage (6 тестов), bootstrap-регрессия, changelog-sync, dependency gate (полы override-ов в lockfile + `npm audit` по дереву, без хардкода списка пакетов)
 
 ### Управление ADB
 
@@ -407,7 +413,7 @@ The script uses Invoke-WebRequest/curl only to access GitHub API for auto-update
 
 ## English
 
-> Current for **v10.4.18** (updated 2026-11-16).
+> Current for **v10.4.19** (updated 2026-11-19).
 
 ### Supported Versions
 
@@ -418,10 +424,16 @@ Security fixes are released only for the latest release.
 | latest release ([Releases/latest](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/latest)) | ✅ |
 | older | ❌ |
 
-### Repo tooling on main (2026-11-16)
+### Repo tooling on main (2026-11-19)
 
 - The npm tree exists for repo tooling only: `disk` 1.12.1 pulls `@archildata/api-types` and `undici` - three packages in total. In the 1.12.x line `fast-xml-parser` is no longer in the tree, so its override was removed; the only remaining floor is `undici` -> 8.12.3. `tests/test-dependency-overrides.ps1` still checks that override against `package-lock.json` and runs `npm audit` over the resolved tree, so a vulnerable version coming back fails CI even without an explicit override.
-- Tests: Pester - **320** tests; the second suite is the npm script `tests/archil-storage.test.mjs` (**6** tests) in its own `node-test (archil-storage)` job. It runs against a loopback HTTP stub, needing neither network nor credentials, so it runs on every push and PR.
+- Tests: Pester - **322** tests; the second suite is the npm script `tests/archil-storage.test.mjs` (**6** tests) in its own `node-test (archil-storage)` job. It runs against a loopback HTTP stub, needing neither network nor credentials, so it runs on every push and PR.
+
+### v10.4.19 (2026-11-19)
+
+- `[G]` live logcat: the stream is opened without `-d`/`-t` and restarted up to three times when the bridge closes with no output. No surface change - the same local `MuMuManager.exe adb|sh --vmindex ... --cmd` calls, no new network paths.
+- `Get-InstanceIndex` validates its input: a non-numeric answer re-asks with the valid range instead of falling into the "instance not found" branch. Robustness, not a privilege change.
+- `[L]` touches windows of the same user through `EnumWindows`/`SetWindowPos` and starts nothing outside the manager; `[D]` still closes only the user's own MuMu instances, with one `control -v all shutdown` call.
 
 ### v10.4.18 (2026-11-12)
 
@@ -488,7 +500,7 @@ Please include: description and impact, reproduction steps (PoC welcome), affect
 
 **ADB management:** File transfer (`push/pull`), screen capture, interactive shell — all require explicit user consent. Commands are parameterized with argument escaping. Executes only inside the emulator VM.
 
-**Release pipeline security:** tag-driven Release workflow (ZIP + `.sha256` sidecar), CI VirusTotal scan with verdicts in the release body, weekly **Release guard** audit (every release newer than the v10.0.0 baseline must ship ZIP + SHA256 + VT verdicts; latest release must match `.version`; the latest release ZIP is compared byte-for-byte against its tag content; discrepancies open an idempotent issue), grouped weekly Dependabot action updates, CI gates: PSScriptAnalyzer + Pester (320 tests) + the archil-storage npm suite (6 tests) + bootstrap regression + changelog-sync + the dependency gate (override floors against the lockfile plus `npm audit` on the tree, with no hard-coded package list).
+**Release pipeline security:** tag-driven Release workflow (ZIP + `.sha256` sidecar), CI VirusTotal scan with verdicts in the release body, weekly **Release guard** audit (every release newer than the v10.0.0 baseline must ship ZIP + SHA256 + VT verdicts; latest release must match `.version`; the latest release ZIP is compared byte-for-byte against its tag content; discrepancies open an idempotent issue), grouped weekly Dependabot action updates, CI gates: PSScriptAnalyzer + Pester (326 tests) + the archil-storage npm suite (6 tests) + bootstrap regression + changelog-sync + the dependency gate (override floors against the lockfile plus `npm audit` on the tree, with no hard-coded package list).
 
 ### Network Endpoints
 

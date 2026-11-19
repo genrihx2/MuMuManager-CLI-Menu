@@ -181,6 +181,16 @@ mumu-menu.cmd
 
 ## Что нового
 
+### v10.4.19 (19.11.2026)
+
+- Fixed: `[G]` live-логи больше не выходят в меню с пустым экраном. Поток открывался с `-d` (снапшот), поэтому мост, который отвечает на эхо-пробу, но ещё не подключил logcat, закрывался сразу с нулём строк. Live-ветка больше не передаёт `-d`/`-t` и перезапускает пустой поток до трёх раз; вместо общего «no output on either transport» печатаются транспорт, число попыток и подсказка на снапшот `[2]`.
+- Fixed: `Get-InstanceIndex` на нецифровой ввод повторяет запрос с диапазоном вместо `Instance - not found!`.
+- New: `[L]` раскладывает окна запущенных инстансов в сетку — число окон в ряд спрашивается (2-6, Enter = 3), поля 10 px, зазор 10 px, `scale = min(1, …)`: помещающиеся окна не меняют размер, маленькие не увеличиваются, пропорции сохраняются, уменьшается только то, что не влезает. После раскладки окна один раз поднимаются наверх через `control -v all show_window` (без always-on-top). `a` оставляет встроенный `layout_window`.
+- Changed: `[D]` закрывает все запущенные инстансы одним вызовом `control -v all shutdown` и проверяет состояние каждого — вместо последовательного `shutdown_player` с паузой после каждого.
+- Tests: шесть новых Pester-тестов (live-логи, ввод инстанса, сетка окон, закрытие всех); набор 326/326 на pwsh и 5.1.
+
+**EN summary (v10.4.19):** `[G]` live logcat no longer drops back to the menu with a blank screen. The live branch opened the stream with the snapshot hint (`-d`), so a bridge that answers the echo probe but has not attached logcat closed immediately with zero lines. Live mode now passes neither `-d` nor `-t`, restarts an empty stream up to three times, and names the transport, the attempt count and the `[2]` snapshot fallback instead of a generic "no output on either transport". `Get-InstanceIndex` also re-asks with the instance range on non-numeric input instead of claiming "not found". `[L]` now arranges the running player windows into a grid with a per-row count (2-6, default 3) using `scale = min(1, (W-2M-(C-1)G)/(C*w), (H-2M-(R-1)G)/(R*h))` over the screen work area with 10 px margins and gaps: windows that already fit are only moved, smaller ones are never enlarged, and the aspect ratio is preserved because both sides are scaled by the same factor. One `show_window` raise follows the layout - no always-on-top. `[D]` closes every running instance with a single `control -v all shutdown` call and verifies the state of each one.
+
 ### v10.4.18 (12.11.2026)
 
 - Fixed: `[U]` больше не рапортует `0 ok, N failed ()` без единой подробности. Счётчик неудач в `Update-FromGitHub` увеличивался, а имя файла и текст ошибки никуда не попадали — журнал `update-journal.log` не позволял отличить сетевой сбой или исчерпанный лимит GitHub API (60 запросов в час без токена) от отказа хеш-гейта. Теперь каждая неудача идёт в журнал и на экран как `<файл>: <причина>`, а промахи верификации — как `missing after download` и `hash mismatch`.
@@ -388,6 +398,7 @@ mumu-menu.cmd
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v10.4.19 | 19.11.2026 | Fix `[G]`: live logcat no longer dropped back to the menu with a blank screen — the stream is opened without `-d`/`-t` and retried up to three times when the bridge closes with no output; `Get-InstanceIndex` re-asks with the valid range on non-numeric input instead of "not found"; `[L]` arranges running windows into a grid of n per row (2-6, default 3) with a never-enlarge `min(1, …)` scale (10 px margins and gaps), then raises them once, `[D]` closes every running instance with one `control -v all shutdown` call |
 | v10.4.18 | 12.11.2026 | Fix: `[U]` failures now name the file and the reason (`<file>: <reason>`) instead of journaling `0 ok, N failed ()`, so a rate-limited or blocked run is distinguishable from a hash-gate rejection |
 | v10.4.17 | 11.11.2026 | Fix: [2]/[3]/[4] surfaced the raw "expression after '&' ... was not valid" trap when the MuMuManager.exe path went stale after startup — `Get-InstanceIndex` and `Invoke-Mumu` now validate the path and name the real problem instead |
 | v10.4.16 | 06.11.2026 | Fix [G]: a stopped or booting instance dead-ended logcat (a `starting_rom` VM read as stopped) with a hint pointing at `[2]`, which is the snapshot action — the screen now offers to start it, waits for boot, and shows a separate `STARTING` state; Ctrl+C in `[G]` now always returns to the main menu (the handler keeps the keystroke, `e.Cancel = true`, and ends the stream via the process-tree kill) |
