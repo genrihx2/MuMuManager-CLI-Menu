@@ -12,10 +12,20 @@
 
 | Версия | Дата | Примечание |
 |--------|------|------------|
-| v10.4.19 | 2026-11-19 | Latest |
+| v10.4.20 | 2026-11-19 | Latest |
+| v10.4.19 | 2026-11-19 | — |
 | v10.4.18 | 2026-11-12 | — |
 | v10.4.17 | 2026-11-11 | — |
 | v10.4.16 | 2026-11-06 | — |
+
+## v10.4.20 (2026-11-19)
+
+- New: `mmor-run.ps1` — первый шаг к нативному запуску `.mmor` из командной строки. MuMu не даёт для этого ни команды, ни канала: у `MuMuManager.exe` нет ни `script`, ни `play`, а интерфейс рекордера не публикует имена — у меню инстанса 17 пунктов с пустыми `Name`/`AutomationId`, у кнопок рекордера только прямоугольники. Поэтому скрипт работает с тем, что интерфейс действительно отдаёт, и в трёх режимах: `-Probe` печатает окна инстанса и его UIA-элементы (`kToolMenu.kToolMenuBtn`, `kWinMini.kWinMiniBtn`, координаты и размеры) и ничего не нажимает; `-Record` печатает окно и нормализованную точку каждого вашего клика, чтобы один раз снять координаты «Operation Recorder» и «Play»; `-Apply -File farm.mmor` фокусирует окно инстанса, открывает рекордер по этой точке, ждёт появления нового окна, при желании дважды кликает по строке файла и жмёт Play.
+- Безопасность: по умолчанию скрипт только осматривает. `-Apply` требует существующий `.mmor`, ровно один инстанс и заполненный `mmor-run.json`; при неверной точке он падает с `no new window appeared within N s` (или `recording not found` / `No calibration config`), а не кликает наугад. Факт воспроизведения по списку окон не проверяется — это прямо сказано в выводе, поэтому «playback started» скрипт никогда не рапортует.
+- Ограничение: `mmor-run.ps1` входит в ZIP релиза, но не в автообновляемый набор `[U]` — файл нужно взять из архива, пока точки не откалиброваны на вашей машине.
+- Tests: набор 326/326, PSScriptAnalyzer по новому скрипту — 0 замечаний, BOM/LF на месте. Живая проверка: probe нашёл 20 элементов у окна инстанса и 40 у шелла, калибровочный слушатель поймал клик и напечатал `normalized: [0.7789, 0.8664]`, `-Apply` с точкой по заголовку честно упёрся в «no new window».
+
+**EN summary (v10.4.20):** `mmor-run.ps1` is the first step toward native `.mmor` playback from a command line. MuMu offers neither a command nor a channel for it: `MuMuManager.exe` has no `script`/`play` verb, and the recorder UI publishes no names - the instance menu has 17 items with empty `Name`/`AutomationId` and the recorder buttons expose only rectangles. The script therefore works with what the UI does expose, in three modes: `-Probe` prints the instance windows and their UI Automation elements (ids, rectangles) and presses nothing; `-Record` prints the window and the normalized point of every click the user makes, so the "Operation Recorder" and "Play" coordinates can be captured once; `-Apply -File farm.mmor` focuses the instance window, opens the recorder at that point, waits for a new window, optionally double-clicks the file row and presses Play. `-Apply` refuses to run without an existing `.mmor`, a single instance and a filled-in `mmor-run.json`, and stops with `no new window appeared within N s` instead of clicking at a guess; playback is never reported as started, only that the clicks were sent.
 
 ## v10.4.19 (2026-11-19)
 

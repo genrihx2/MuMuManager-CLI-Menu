@@ -181,6 +181,14 @@ mumu-menu.cmd
 
 ## Что нового
 
+### v10.4.20 (19.11.2026)
+
+- New: `mmor-run.ps1` — нативный запуск `.mmor` без имитации ввода «вслепую»: интерфейс MuMu не публикует имена пунктов меню и кнопок рекордера (17 пунктов меню с пустыми `Name`/`AutomationId`, у кнопок только прямоугольники), поэтому скрипт работает в трёх режимах. `-Probe` показывает окна инстанса и их UIA-элементы и ничего не нажимает; `-Record` печатает окно и нормализованную точку каждого вашего клика — так один раз снимаются координаты «Operation Recorder» и «Play»; `-Apply -File farm.mmor` фокусирует окно инстанса, открывает рекордер, ждёт новое окно и жмёт Play.
+- Безопасность: по умолчанию — только осмотр; `-Apply` требует существующий `.mmor`, один инстанс и `mmor-run.json`, а при неверной точке завершается `no new window appeared`, не кликая наугад. Скрипт входит в ZIP, но не в автообновляемый набор `[U]`.
+- Tests: набор 326/326, PSScriptAnalyzer по `mmor-run.ps1` — 0 замечаний.
+
+**EN summary (v10.4.20):** `mmor-run.ps1` starts native `.mmor` playback from the command line using the only surface MuMu actually exposes - window geometry and the UI Automation tree of the player window (its menus expose no names). `-Probe` reports windows and elements and presses nothing; `-Record` captures the normalized point of every user click, which is how the recorder and Play coordinates are calibrated once; `-Apply -File farm.mmor` focuses the instance, opens the recorder, waits for the new window, optionally double-clicks the file row and presses Play. `-Apply` refuses to click without an existing recording, one instance and a calibrated config, and never claims that playback started. The script ships in the ZIP but is not part of the `[U]` update set yet.
+
 ### v10.4.19 (19.11.2026)
 
 - Fixed: `[G]` live-логи больше не выходят в меню с пустым экраном. Поток открывался с `-d` (снапшот), поэтому мост, который отвечает на эхо-пробу, но ещё не подключил logcat, закрывался сразу с нулём строк. Live-ветка больше не передаёт `-d`/`-t` и перезапускает пустой поток до трёх раз; вместо общего «no output on either transport» печатаются транспорт, число попыток и подсказка на снапшот `[2]`.
@@ -398,6 +406,7 @@ mumu-menu.cmd
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v10.4.20 | 19.11.2026 | New `mmor-run.ps1`: probe/record/apply driver for native `.mmor` playback — probe lists the instance windows and their UIA elements and presses nothing, record captures the normalized click points for the recorder and Play, apply focuses the instance, opens the recorder and presses Play, refusing to run without a calibrated config; no `[U]` set change yet |
 | v10.4.19 | 19.11.2026 | Fix `[G]`: live logcat no longer dropped back to the menu with a blank screen — the stream is opened without `-d`/`-t` and retried up to three times when the bridge closes with no output; `Get-InstanceIndex` re-asks with the valid range on non-numeric input instead of "not found"; `[L]` arranges running windows into a grid of n per row (2-6, default 3) with a never-enlarge `min(1, …)` scale (10 px margins and gaps), then raises them once, `[D]` closes every running instance with one `control -v all shutdown` call |
 | v10.4.18 | 12.11.2026 | Fix: `[U]` failures now name the file and the reason (`<file>: <reason>`) instead of journaling `0 ok, N failed ()`, so a rate-limited or blocked run is distinguishable from a hash-gate rejection |
 | v10.4.17 | 11.11.2026 | Fix: [2]/[3]/[4] surfaced the raw "expression after '&' ... was not valid" trap when the MuMuManager.exe path went stale after startup — `Get-InstanceIndex` and `Invoke-Mumu` now validate the path and name the real problem instead |
