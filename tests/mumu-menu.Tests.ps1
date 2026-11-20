@@ -4702,3 +4702,140 @@ Describe 'Window grid [L] and close-all [D]' {
         $body.Contains('Nothing to close.') | Should -BeTrue
     }
 }
+
+Describe 'mmor-run.ps1 calibration template' {
+    # mmor-run.ps1 writes mmor-run.json itself now: -EmitConfig (or a run that
+    # finds no config) fills recorderButton from kToolMenu.kToolMenuBtn and
+    # leaves playButton null until -Record supplies it. These tests cover the
+    # writer offline - no emulator, no window enumeration, no clicks.
+
+    BeforeAll {
+        $script:mmorPath = Join-Path (Join-Path $PSScriptRoot '..') 'mmor-run.ps1'
+        $mmorErrs = $null
+        $script:mmorAst = [System.Management.Automation.Language.Parser]::ParseFile($script:mmorPath, [ref]$null, [ref]$mmorErrs)
+        if ($mmorErrs -and $mmorErrs.Count) { throw "mmor-run.ps1 has syntax errors: $($mmorErrs[0].Message)" }
+
+        foreach ($name in @('Format-MmorNumber', 'Format-MmorPair', 'Read-MmorConfig', 'Write-MmorConfigTemplate')) {
+            $f = $script:mmorAst.FindAll({
+                param($node)
+                $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
+            }, $true) | Select-Object -First 1
+            if (-not $f) { throw "$name function not found in mmor-run.ps1" }
+            . ([scriptblock]::Create($f.Extent.Text))
+        }
+        $script:cfgDir = Join-Path $TestDrive 'mmorcfg'
+        New-Item -ItemType Directory -Path $script:cfgDir -Force | Out-Null
+    }
+
+    It 'formats numbers with a dot even under a comma-decimal culture' {
+        $old = [System.Threading.Thread]::CurrentThread.CurrentCulture
+        try {
+            [System.Threading.Thread]::CurrentThread.CurrentCulture = [System.Globalization.CultureInfo]::GetCultureInfo('de-DE')
+            (Format-MmorNumber 0.9101) | Should -Be '0.9101'
+            (Format-MmorNumber 0.5) | Should -Be '0.5'
+            (Format-MmorNumber 1) | Should -Be '1'
+        } finally {
+            [System.Threading.Thread]::CurrentThread.CurrentCulture = $old
+        }
+    }
+
+    It 'keeps an unknown pair as null instead of 0,0' {
+        (Format-MmorPair $null) | Should -Be 'null'
+        (Format-MmorPair @($null, $null)) | Should -Be 'null'
+        # A single value must not collapse into a one-element JSON array.
+        (Format-MmorPair @(0.5)) | Should -Be 'null'
+    }
+
+    It 'renders a known pair as a JSON array' {
+        (Format-MmorPair @(0.5, 0.8)) | Should -Be '[0.5, 0.8]'
+    }
+
+    It 'writes recorderButton from -Point and leaves playButton null' {
+        $path = Join-Path $script:cfgDir 'fresh.json'
+        Write-MmorConfigTemplate -Path $path -Point @(0.9101, 0.0267) -Base $null | Out-Null
+
+        $json = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+        $json.recorderButton.Count | Should -Be 2
+        $json.recorderButton[0] | Should -Be 0.9101
+        $json.recorderButton[1] | Should -Be 0.0267
+        # Unset on purpose: -Apply must stop rather than press the recorder origin.
+        $json.playButton | Should -BeNullOrEmpty
+        $json.fileRow | Should -BeNullOrEmpty
+        $json.delays.afterOpenMs | Should -Be 2500
+        $json.delays.afterFileMs | Should -Be 800
+        $json.delays.afterPlayMs | Should -Be 500
+    }
+
+    It 'explains in a JSON field what is still missing' {
+        $path = Join-Path $script:cfgDir 'comment.json'
+        Write-MmorConfigTemplate -Path $path -Point @(0.91, 0.03) -Base $null | Out-Null
+
+        $json = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+        # JSON has no comments and PowerShell 5.1 ConvertFrom-Json rejects //,
+        # so the note travels as a field.
+        $json._comment | Should -Match 'playButton'
+        $json._comment | Should -Match '\-Record'
+        $json._comment | Should -Match 'kToolMenu\.kToolMenuBtn'
+    }
+
+    It 'writes UTF-8 without a BOM and a trailing newline' {
+        $path = Join-Path $script:cfgDir 'encoding.json'
+        Write-MmorConfigTemplate -Path $path -Point @(0.91, 0.03) -Base $null | Out-Null
+
+        $bytes = [System.IO.File]::ReadAllBytes($path)
+        ($bytes[0] -eq 0xEF) | Should -BeFalse
+        ([System.Text.Encoding]::UTF8.GetString($bytes[-1..-1])) | Should -Be "`n"
+    }
+
+    It 'keeps pairs that were already captured when it refreshes' {
+        $path = Join-Path $script:cfgDir 'refresh.json'
+        Write-MmorConfigTemplate -Path $path -Point @(0.9101, 0.0267) -Base $null | Out-Null
+
+        $base = [PSCustomObject]@{
+            recorderButton = @(0.1, 0.2)
+            fileRow        = @(0.3, 0.7)
+            playButton     = @(0.5, 0.8)
+            delays         = [PSCustomObject]@{ afterOpenMs = 3000; afterFileMs = 900; afterPlayMs = 600 }
+        }
+        # No window to derive from this time: the captured points must survive.
+        Write-MmorConfigTemplate -Path $path -Point $null -Base $base | Out-Null
+
+        $json = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+        $json.recorderButton[0] | Should -Be 0.1
+        $json.fileRow[1] | Should -Be 0.7
+        $json.playButton[0] | Should -Be 0.5
+        $json.playButton[1] | Should -Be 0.8
+        $json.delays.afterOpenMs | Should -Be 3000
+        $json.delays.afterFileMs | Should -Be 900
+        $json.delays.afterPlayMs | Should -Be 600
+    }
+
+    It 'lets a freshly derived recorderButton win over the stored one' {
+        $path = Join-Path $script:cfgDir 'reprobe.json'
+        $base = [PSCustomObject]@{ recorderButton = @(0.1, 0.2); playButton = @(0.5, 0.8) }
+        Write-MmorConfigTemplate -Path $path -Point @(0.9101, 0.0267) -Base $base | Out-Null
+
+        $json = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+        $json.recorderButton[0] | Should -Be 0.9101
+        # The pair captured by -Record is never recalculated.
+        $json.playButton[0] | Should -Be 0.5
+    }
+
+    It 'leaves recorderButton null when there is no window to derive it from' {
+        $path = Join-Path $script:cfgDir 'nowindow.json'
+        Write-MmorConfigTemplate -Path $path -Point $null -Base $null | Out-Null
+
+        $json = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+        # Never 0,0: that would be a click in the window corner.
+        $json.recorderButton | Should -BeNullOrEmpty
+    }
+
+    It 'round-trips through the reader the script itself uses' {
+        $path = Join-Path $script:cfgDir 'roundtrip.json'
+        Write-MmorConfigTemplate -Path $path -Point @(0.9101, 0.0267) -Base $null | Out-Null
+
+        $cfg = Read-MmorConfig -Path $path
+        $cfg.recorderButton[0] | Should -Be 0.9101
+        $cfg.playButton | Should -BeNullOrEmpty
+    }
+}
