@@ -183,6 +183,15 @@ mumu-menu.cmd
 
 ## Что нового
 
+### v10.4.23 (20.11.2026)
+
+- Docs: в шапке `mmor-run.ps1` теперь прямо сказано, что `-Apply` — это GUI-автоматизация мышью, а не вызов API: режим двигает курсор на окно Operation Recorder и шлёт туда `mouse_event`, поэтому зависит от позиции окна, DPI, фокуса и таймингов. Годится как временный обход, но не как интеграция.
+- Там же зафиксировано, что нативной команды для `.mmor` у MuMu нет: у `MuMuManager.exe` 6.8.9.0 нет ни `mmor`, ни `script`, ни `play` (`control` = launch/shutdown/restart/show_window/hide_window/layout_window/app/tool/shortcut), а воспроизведение живёт только в GUI `MuMuNxMain` — ни pipe, ни endpoint запись не принимает.
+- Поддерживаемые альтернативы без мыши: автозапуск записи при старте инстанса («模拟器启动后自动执行 / Auto-execute upon starting the device» у файла записи + `control -v <n> launch`/`restart`) и ввод через собственный канал MuMu (`control -v <n> tool cmd -c "input tap X Y"`). Первая — нативное воспроизведение, но один скрипт на инстанс и только при старте; вторая — повтор ваших тапов, а не проигрывание `.mmor`.
+- Та же заметка добавлена в пункт «Возможности» выше и в `SKILL.md` (подраздел `### Operation recording (.mmor)`). Кода это не касается: Tests 331/331 Pester, PSScriptAnalyzer — 0 замечаний.
+
+**EN summary (v10.4.23):** docs only. The `mmor-run.ps1` header now says plainly that `-Apply` is GUI automation - it moves the cursor onto the Operation Recorder window and sends mouse events, so window position, DPI, focus and timing all matter - and that MuMu has no native `.mmor` command: `MuMuManager.exe` 6.8.9.0 has no `mmor`/`script`/`play` verb, playback lives only in the `MuMuNxMain` GUI, and nothing accepts a recording. The note points at the two mouse-free options: auto-execute on launch with `control -v <n> launch`/`restart` (native playback, but one script per instance and only at boot) and `control -v <n> tool cmd -c "input tap X Y"` (replays taps, not the recording). It is mirrored in the README feature list and in `SKILL.md`. Tests 331/331, PSScriptAnalyzer 0 findings.
+
 ### v10.4.22 (19.11.2026)
 
 - Fixed: `[L]` брал за «исходный размер» текущий прямоугольник окна, а MuMu сохраняет геометрию инстанса у себя и переоткрывает окно именно с неё. После первого сжатия уменьшенный размер становился новым «исходным», и сетка на каждом прогоне уменьшала окна ещё немного — в итоге одно окно оказывалось крошечным и вернуть его было нечем. Теперь база берётся из `<vms>/<инстанс>/configs/customer_config.json` (`setting.player.window` / `window_landscape` / `window_vertical`, значение `-1` = «авто» пропускается), к сохранённому клиентскому размеру возвращаются рамка и заголовок из живого окна, и перед раскладкой окно восстанавливается до размера, с которым MuMu его открывает. Правила прежние: не увеличивать сверх исходного, уменьшать только то, что не влезает, пропорции сохранять, порядок слева направо и сверху вниз.
@@ -422,6 +431,7 @@ mumu-menu.cmd
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v10.4.23 | 20.11.2026 | Docs only: the `mmor-run.ps1` header (mirrored in the README feature list and `SKILL.md`) now states that `-Apply` is GUI mouse automation — cursor plus `mouse_event` on the recorder window, DPI/focus/timing dependent — and that MuMu exposes no native `.mmor` verb (`MuMuManager.exe` 6.8.9.0: no `mmor`/`script`/`play`), pointing at auto-execute-on-launch + `control launch` and `control tool cmd` as the supported options |
 | v10.4.22 | 19.11.2026 | Fix `[L]`: the grid took the live window rectangle as "original", so every run adopted its own shrunken result and a window could end up tiny; the base is now the size MuMu saves for the instance (`customer_config.json`), the title bar and borders are re-added, and a previously shrunken window is restored before the grid is laid out |
 | v10.4.21 | 19.11.2026 | Fix: `mmor-run.ps1` was missing from the 10.4.20 ZIP — the archive is built from the explicit `release-files.txt` list, not the whole tag, so a new file only ships once it is listed; the file now ships and is part of the `[U]` update set, the repair whitelist and the rollback/file-set checks (10 files) |
 | v10.4.20 | 19.11.2026 | New `mmor-run.ps1`: probe/record/apply driver for native `.mmor` playback — probe lists the instance windows and their UIA elements and presses nothing, record captures the normalized click points for the recorder and Play, apply focuses the instance, opens the recorder and presses Play, refusing to run without a calibrated config; no `[U]` set change yet |

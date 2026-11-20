@@ -12,13 +12,24 @@
 
 | Версия | Дата | Примечание |
 |--------|------|------------|
-| v10.4.22 | 2026-11-19 | Latest |
+| v10.4.23 | 2026-11-20 | Latest |
+| v10.4.22 | 2026-11-19 | — |
 | v10.4.21 | 2026-11-19 | — |
 | v10.4.20 | 2026-11-19 | — |
 | v10.4.19 | 2026-11-19 | — |
 | v10.4.18 | 2026-11-12 | — |
 | v10.4.17 | 2026-11-11 | — |
 | v10.4.16 | 2026-11-06 | — |
+
+## v10.4.23 (2026-11-20)
+
+- Docs: `mmor-run.ps1` теперь прямо говорит в шапке, что `-Apply` — это GUI-автоматизация мышью, а не вызов API: режим двигает курсор на окно Operation Recorder и шлёт туда `mouse_event`, поэтому результат зависит от позиции окна, DPI, фокуса и таймингов. Годится как временный обход, но не как интеграция.
+- Там же зафиксировано, что нативной команды для `.mmor` у MuMu нет: у `MuMuManager.exe` 6.8.9.0 нет вербов `mmor`/`script`/`play` (`control` = `launch shutdown restart show_window hide_window layout_window app tool shortcut`), а воспроизведение живёт только в GUI `MuMuNxMain` (`ScriptManagerPresenterImpl[runScript]`, `OperationRecorderExecute`) — ни pipe, ни endpoint запись не принимает.
+- В заметке перечислены поддерживаемые альтернативы без мыши и без перехвата фокуса: у файла записи включить «模拟器启动后自动执行 / Auto-execute upon starting the device» и вызывать `control -v <n> launch` (или `restart`) — нативное воспроизведение, но один скрипт на инстанс и только при старте; либо `control -v <n> tool cmd -c "input tap X Y"` — ввод через собственный канал MuMu, но это повтор ваших тапов, а не проигрывание `.mmor`.
+- То же самое добавлено в README (пункт в «Возможности») и в `SKILL.md` (подраздел `### Operation recording (.mmor)`), чтобы ограничение было видно до запуска, а не после.
+- Кода это не касается: меняются только комментарии и документация, поведение `-Probe`/`-Record`/`-Apply` прежнее. Tests: 331/331 Pester, PSScriptAnalyzer — 0 замечаний, `mmor-run.ps1` остаётся с UTF-8 BOM и LF.
+
+**EN summary (v10.4.23):** docs only. `mmor-run.ps1` now states in its header that `-Apply` is GUI automation - it moves the cursor onto the Operation Recorder window and sends mouse events there, so window position, DPI, focus and timing all affect the result, which makes it a stopgap rather than an integration. The same note records that MuMu exposes no native `.mmor` command: `MuMuManager.exe` 6.8.9.0 has no `mmor`/`script`/`play` verb, playback lives only in the `MuMuNxMain` GUI, and no pipe or endpoint accepts a recording. It also points at the two mouse-free options - "Auto-execute upon starting the device" plus `control -v <n> launch` (or `restart`), and `control -v <n> tool cmd -c "input tap X Y"` - and the note is mirrored in the README feature list and in `SKILL.md`. No code changes: tests 331/331, PSScriptAnalyzer 0 findings.
 
 ## v10.4.22 (2026-11-19)
 
