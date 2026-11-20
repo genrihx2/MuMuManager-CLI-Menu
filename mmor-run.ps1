@@ -14,6 +14,11 @@
 #     id at all - only a rectangle - so those two clicks come from a
 #     calibration file, captured on this machine with -Record.
 #
+# That file does not have to be built by hand: -EmitConfig writes it, and a
+# run without it writes the template itself. recorderButton is taken from
+# kToolMenu.kToolMenuBtn, so the file starts usable; playButton stays null
+# until -Record supplies it, and -Apply refuses to press an unset point.
+#
 # Nothing is pressed unless -Apply is given, and -Apply refuses to click at a
 # point it has not been given: default mode is -Probe, which reports every
 # window and element it can see and presses nothing.
@@ -41,7 +46,7 @@
 #
 # Usage:
 #   .\mmor-run.ps1 -Instance 0 -Probe
-#   .\mmor-run.ps1 -Instance 0 -Probe -EmitConfig
+#   .\mmor-run.ps1 -Instance 0 -Probe -EmitConfig   # write/refresh mmor-run.json
 #   .\mmor-run.ps1 -Record            # click the recorder entry, then Play
 #   .\mmor-run.ps1 -Instance 0 -File C:\recordings\farm.mmor -Apply
 
@@ -63,7 +68,9 @@ param(
     # Actually send the clicks.
     [switch]$Apply,
 
-    # Print a config template with the current window rectangles.
+    # Write mmor-run.json with recorderButton filled in from the running
+    # instance (kToolMenu.kToolMenuBtn). Points already captured are kept;
+    # playButton stays null until -Record supplies it.
     [switch]$EmitConfig,
 
     # Calibration: print the window and normalized point of every click the
@@ -334,6 +341,97 @@ function Read-MmorConfig {
     return (Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json)
 }
 
+function Get-RecorderButtonPoint {
+    # The recorder entry is the one control involved here that keeps a stable
+    # AutomationId: the title bar exposes kToolMenu.kToolMenuBtn. Normalizing
+    # its centre means a fresh template already has a usable recorderButton,
+    # while the recorder's own buttons (no id, no name) still need -Record.
+    param([object]$Window)
+    if (-not $Window -or $Window.Width -le 0 -or $Window.Height -le 0) { return $null }
+    try {
+        if (-not ('System.Windows.Automation.AutomationElement' -as [type])) {
+            Add-Type -AssemblyName UIAutomationClient -ErrorAction Stop
+        }
+        $root = [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]([long]$Window.Handle))
+        if (-not $root) { return $null }
+        $cond = New-Object System.Windows.Automation.PropertyCondition(
+            [System.Windows.Automation.AutomationElement]::AutomationIdProperty,
+            'kToolMenu.kToolMenuBtn')
+        $btn = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $cond)
+        if (-not $btn) { return $null }
+        $rect = $btn.Current.BoundingRectangle
+        if ($rect.Width -le 0 -or $rect.Height -le 0) { return $null }
+        $nx = [Math]::Round((($rect.X + ($rect.Width / 2)) - $Window.X) / $Window.Width, 4)
+        $ny = [Math]::Round((($rect.Y + ($rect.Height / 2)) - $Window.Y) / $Window.Height, 4)
+        if ($nx -lt 0 -or $nx -gt 1 -or $ny -lt 0 -or $ny -gt 1) { return $null }
+        return @($nx, $ny)
+    } catch {
+        return $null
+    }
+}
+
+function Format-MmorNumber {
+    # A dot as the decimal separator regardless of the Windows locale: the
+    # value goes straight into JSON.
+    param([double]$Value)
+    return $Value.ToString('0.####', [System.Globalization.CultureInfo]::InvariantCulture)
+}
+
+function Format-MmorPair {
+    # An unknown pair stays null: it must never read as 0,0, which -Apply
+    # would happily click.
+    param([object]$Pair)
+    if ($null -eq $Pair) { return 'null' }
+    $arr = @($Pair)
+    if ($arr.Count -ne 2 -or $null -eq $arr[0] -or $null -eq $arr[1]) { return 'null' }
+    return ('[{0}, {1}]' -f (Format-MmorNumber ([double]$arr[0])), (Format-MmorNumber ([double]$arr[1])))
+}
+
+function Write-MmorConfigTemplate {
+    # Template that is safe to run: recorderButton comes from the instance
+    # title bar, playButton stays null so -Apply stops instead of pressing an
+    # uncalibrated point. Existing pairs and delays survive a refresh.
+    param([string]$Path, [object]$Point, [object]$Base)
+
+    $recorder = Format-MmorPair $Point
+    $play = 'null'
+    $row = 'null'
+    $openMs = 2500
+    $fileMs = 800
+    $playMs = 500
+    if ($Base) {
+        if ($recorder -eq 'null') { $recorder = Format-MmorPair $Base.recorderButton }
+        $play = Format-MmorPair $Base.playButton
+        $row = Format-MmorPair $Base.fileRow
+        if ($Base.delays) {
+            if ($Base.delays.afterOpenMs) { $openMs = [int]$Base.delays.afterOpenMs }
+            if ($Base.delays.afterFileMs) { $fileMs = [int]$Base.delays.afterFileMs }
+            if ($Base.delays.afterPlayMs) { $playMs = [int]$Base.delays.afterPlayMs }
+        }
+    }
+
+    if ($recorder -eq 'null') {
+        $note = 'recorderButton is unknown - start the instance and re-run -EmitConfig, or copy the first -Record pair here.'
+    } else {
+        $note = 'recorderButton was derived from the instance title-bar tool menu (kToolMenu.kToolMenuBtn); re-check it with -Record if the clicks land off target.'
+    }
+    $note = $note + ' playButton is null on purpose: run -Record, click the recorder entry and then Play, and put that second pair here - -Apply refuses to press Play without it.'
+
+    $text = @(
+        '{'
+        ('  "_comment": "{0}",' -f $note)
+        ('  "recorderButton": {0},' -f $recorder)
+        ('  "fileRow": {0},' -f $row)
+        ('  "playButton": {0},' -f $play)
+        ('  "delays": {{ "afterOpenMs": {0}, "afterFileMs": {1}, "afterPlayMs": {2} }}' -f $openMs, $fileMs, $playMs)
+        '}'
+    ) -join "`n"
+
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($Path, $text + "`n", $utf8)
+    return $text
+}
+
 function Get-Point {
     # Normalized point -> absolute pixel inside a window rectangle.
     param([object]$Config, [string]$Name, [object]$Window)
@@ -462,22 +560,36 @@ foreach ($t in $targets) {
     }
 }
 
-$cfg = Read-MmorConfig -Path $Config
 $cfgPath = $Config
 if (-not $cfgPath) { $cfgPath = Join-Path $script:ScriptDir 'mmor-run.json' }
+$cfg = Read-MmorConfig -Path $cfgPath
+
+# A missing calibration file is not a dead end any more: the recorder entry has
+# a stable AutomationId, so the template can be written with recorderButton
+# already filled in. Only the recorder's unnamed buttons still need -Record.
+# -EmitConfig does the same on demand and refreshes recorderButton while
+# keeping pairs that were already captured.
+if ($EmitConfig -or -not $cfg) {
+    $recorderPoint = $null
+    foreach ($t in $targets) {
+        if (-not $t.Window) { continue }
+        $recorderPoint = Get-RecorderButtonPoint -Window $t.Window
+        if ($recorderPoint) { break }
+    }
+    Write-Host ''
+    Write-Host ('  Calibration file: {0}' -f $cfgPath) -ForegroundColor Cyan
+    $null = Write-MmorConfigTemplate -Path $cfgPath -Point $recorderPoint -Base $cfg
+    if ($recorderPoint) {
+        Write-Host ('    + recorderButton [{0}, {1}] <- kToolMenu.kToolMenuBtn' -f $recorderPoint[0], $recorderPoint[1]) -ForegroundColor Gray
+    } else {
+        Write-Host '    + recorderButton left null - no running instance window to derive it from' -ForegroundColor Yellow
+    }
+    Write-Host '    playButton: null - run -Record, click the recorder entry, then Play' -ForegroundColor DarkGray
+    $cfg = Read-MmorConfig -Path $cfgPath
+}
 
 Write-Host ''
 Write-Host '  Click plan' -ForegroundColor Cyan
-if ($EmitConfig) {
-    Write-Host '    --- copy into mmor-run.json, then replace the zeros with -Record output ---'
-    Write-Host '    {'
-    Write-Host '      "recorderButton": [0.0, 0.0],'
-    Write-Host '      "fileRow": null,'
-    Write-Host '      "playButton": [0.0, 0.0],'
-    Write-Host '      "delays": { "afterOpenMs": 2500, "afterFileMs": 800, "afterPlayMs": 500 }'
-    Write-Host '    }'
-    Write-Host '    ---'
-}
 if (-not $cfg) {
     Write-Host ('    ! no config at {0}' -f $cfgPath) -ForegroundColor Yellow
     Write-Host '      run -Record, click the recorder entry and Play, then fill in the file' -ForegroundColor DarkGray

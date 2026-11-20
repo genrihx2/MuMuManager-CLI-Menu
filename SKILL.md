@@ -106,6 +106,10 @@ other operation over to `mumu-menu.ps1`, which stays the reference implementatio
   elements and presses nothing, `-Record` captures the normalized click points, `-Apply -File x.mmor`
   drives the Operation Recorder window. **`-Apply` is GUI automation**: it moves the cursor and sends
   mouse events to the recorder, so window position, DPI, focus and timing all affect the result.
+- No `mmor-run.json` yet? The script writes a template instead of stopping: `recorderButton` is derived
+  from the instance title bar's `kToolMenu.kToolMenuBtn` (the one control with a stable AutomationId),
+  `playButton` stays `null` on purpose, and `-EmitConfig` refreshes that file on demand while keeping
+  the pairs already captured. Only the recorder's unnamed buttons still need a `-Record` pass.
 - MuMu exposes no native `.mmor` command: `MuMuManager.exe` 6.8.9.0 has no `mmor`/`script`/`play` verb
   (`control` = launch/shutdown/restart/show_window/hide_window/layout_window/app/tool/shortcut) and
   playback exists only inside the `MuMuNxMain` GUI - no pipe or endpoint accepts a recording.

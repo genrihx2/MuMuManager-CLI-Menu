@@ -183,6 +183,13 @@ mumu-menu.cmd
 
 ## Что нового
 
+### v10.4.25 (20.11.2026)
+
+- New: `mmor-run.ps1` сам создаёт шаблон `mmor-run.json` — при `-EmitConfig` и автоматически, если файла ещё нет; `recorderButton` подставляется из UIA-элемента `kToolMenu.kToolMenuBtn` и нормализуется по окну инстанса, а `playButton` остаётся `null` до прохода `-Record` (пояснение лежит в поле `_comment` внутри файла).
+- Обновление шаблона не затирает уже снятые пары (`playButton`, `fileRow`, `delays`), а `-Apply` с незаполненным `playButton` останавливается, а не жмёт наугад. Детали — в `SKILL.md`, подраздел `### Operation recording (.mmor)`; Tests 331/331 Pester, PSScriptAnalyzer — 0 замечаний.
+
+**EN summary (v10.4.25):** `mmor-run.ps1` writes the `mmor-run.json` template itself - on `-EmitConfig` and automatically when the file is missing. `recorderButton` is derived from the instance title bar's `kToolMenu.kToolMenuBtn` and normalized against the window, while `playButton` stays `null` until a `-Record` pass supplies it (explained in the file's `_comment` field, since JSON has no comments and PowerShell 5.1 rejects them). A refresh keeps the pairs already captured, and `-Apply` stops instead of pressing an unset point. Details in `SKILL.md` under `### Operation recording (.mmor)`. Tests 331/331, PSScriptAnalyzer 0 findings.
+
 ### v10.4.24 (20.11.2026)
 
 - Docs: пункт про `mmor-run.ps1` в «Возможностях» сокращён до двух предложений — `-Apply -File x.mmor` это GUI-автоматизация мышью (курсор + `mouse_event` по окну Operation Recorder, зависит от позиции окна, DPI, фокуса и таймингов), а нативной команды для `.mmor` у MuMu нет: воспроизведение живёт только в GUI.
@@ -438,6 +445,7 @@ mumu-menu.cmd
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v10.4.25 | 20.11.2026 | New: `mmor-run.ps1` writes `mmor-run.json` itself — `-EmitConfig` or a run that finds no config produces a template with `recorderButton` derived from `kToolMenu.kToolMenuBtn` (normalized to the instance window), `playButton` left `null` until `-Record`, an explanatory `_comment` field, and captured pairs preserved on refresh |
 | v10.4.24 | 20.11.2026 | Docs only: the `mmor-run.ps1` bullet in the README feature list is shortened to two sentences — `-Apply` is GUI mouse automation (cursor + `mouse_event` on the recorder window) and MuMu has no native `.mmor` verb, with the mode/verb/alternative details moved to `SKILL.md` |
 | v10.4.23 | 20.11.2026 | Docs only: the `mmor-run.ps1` header (mirrored in the README feature list and `SKILL.md`) now states that `-Apply` is GUI mouse automation — cursor plus `mouse_event` on the recorder window, DPI/focus/timing dependent — and that MuMu exposes no native `.mmor` verb (`MuMuManager.exe` 6.8.9.0: no `mmor`/`script`/`play`), pointing at auto-execute-on-launch + `control launch` and `control tool cmd` as the supported options |
 | v10.4.22 | 19.11.2026 | Fix `[L]`: the grid took the live window rectangle as "original", so every run adopted its own shrunken result and a window could end up tiny; the base is now the size MuMu saves for the instance (`customer_config.json`), the title bar and borders are re-added, and a previously shrunken window is restored before the grid is laid out |

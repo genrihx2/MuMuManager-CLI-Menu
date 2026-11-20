@@ -12,7 +12,8 @@
 
 | Версия | Дата | Примечание |
 |--------|------|------------|
-| v10.4.24 | 2026-11-20 | Latest |
+| v10.4.25 | 2026-11-20 | Latest |
+| v10.4.24 | 2026-11-20 | — |
 | v10.4.23 | 2026-11-20 | — |
 | v10.4.22 | 2026-11-19 | — |
 | v10.4.21 | 2026-11-19 | — |
@@ -21,6 +22,16 @@
 | v10.4.18 | 2026-11-12 | — |
 | v10.4.17 | 2026-11-11 | — |
 | v10.4.16 | 2026-11-06 | — |
+
+## v10.4.25 (2026-11-20)
+
+- New: `mmor-run.ps1` сам создаёт шаблон `mmor-run.json` — больше не нужно собирать его руками по выводу `-Record`. Файл пишется при `-EmitConfig` и автоматически, если его нет (`-Probe` или обычный запуск), после чего сразу печатается «Click plan» уже по нему.
+- `recorderButton` подставляется автоматически: точка берётся из UIA-элемента `kToolMenu.kToolMenuBtn` (единственного со стабильным `AutomationId`) и нормализуется по прямоугольнику окна инстанса. Если запущенного инстанса нет, значение остаётся `null`, а в консоли сказано запустить инстанс и повторить `-EmitConfig` — в «нулевые» координаты скрипт не стреляет.
+- `playButton` остаётся `null` намеренно: кнопки рекордера не публикуют ни имени, ни `AutomationId`, поэтому вторую пару по-прежнему даёт `-Record`. Пояснение лежит в самом файле в поле `_comment` (не в комментариях JSON: `ConvertFrom-Json` в PowerShell 5.1 их не разбирает). `-Apply` в таком состоянии останавливается с `playButton is missing`, а не жмёт в угол окна.
+- Обновление через `-EmitConfig` не затирает уже снятые пары: `playButton`, `fileRow` и `delays` сохраняются, обновляется только вход в рекордер. Об этом же дописан абзац в шапке скрипта и в `SKILL.md` (подраздел `### Operation recording (.mmor)`).
+- Tests: 331/331 Pester, PSScriptAnalyzer по `mmor-run.ps1` — 0 замечаний; разбор скрипта без ошибок в PowerShell 7 и 5.1, `mmor-run.ps1` остаётся с UTF-8 BOM и LF. Живой прогон на остановленном инстансе: шаблон создан, JSON валиден, обновление сохранило уже снятые пары.
+
+**EN summary (v10.4.25):** `mmor-run.ps1` now writes the `mmor-run.json` template itself, so it no longer has to be assembled by hand from `-Record` output. The file is written by `-EmitConfig` and automatically on a run that finds none, and the click plan is then printed from it. `recorderButton` is filled in from the instance title bar's `kToolMenu.kToolMenuBtn` - the one control with a stable AutomationId - normalized against the instance window rectangle; with no running instance it stays `null` and the script says to start one and re-run `-EmitConfig` instead of clicking guessed coordinates. `playButton` stays `null` on purpose, because the recorder's buttons expose neither a name nor an id, so the second pair still comes from `-Record`; the reason sits in the file's `_comment` field (JSON has no comments, and PowerShell 5.1's `ConvertFrom-Json` rejects `//`). A refresh keeps pairs that were already captured - only the recorder entry is recalculated - and `-Apply` refuses to press an unset point. The header and the `SKILL.md` section say the same. Tests 331/331, PSScriptAnalyzer 0 findings, parse clean on PowerShell 7 and 5.1; a run against a stopped instance produced a valid template and preserved the captured pairs.
 
 ## v10.4.24 (2026-11-20)
 
