@@ -183,6 +183,13 @@ mumu-menu.cmd
 
 ## Что нового
 
+### v10.4.24 (20.11.2026)
+
+- Docs: пункт про `mmor-run.ps1` в «Возможностях» сокращён до двух предложений — `-Apply -File x.mmor` это GUI-автоматизация мышью (курсор + `mouse_event` по окну Operation Recorder, зависит от позиции окна, DPI, фокуса и таймингов), а нативной команды для `.mmor` у MuMu нет: воспроизведение живёт только в GUI.
+- Детали (режимы `-Probe`/`-Record`/`-Apply`, отсутствие вербов `mmor`/`script`/`play` в `MuMuManager.exe` 6.8.9.0, альтернативы без мыши) остались в `SKILL.md`, подраздел `### Operation recording (.mmor)`. Кода это не касается: Tests 331/331 Pester, PSScriptAnalyzer — 0 замечаний.
+
+**EN summary (v10.4.24):** docs only. The README feature bullet for `mmor-run.ps1` is now two sentences: `-Apply -File x.mmor` is GUI mouse automation (cursor plus `mouse_event` on the Operation Recorder window, so window position, DPI, focus and timing matter), and MuMu exposes no native `.mmor` verb - playback lives only in the GUI. The details stay in `SKILL.md` under `### Operation recording (.mmor)`, together with both mouse-free workarounds. No code changes: tests 331/331, PSScriptAnalyzer 0 findings.
+
 ### v10.4.23 (20.11.2026)
 
 - Docs: в шапке `mmor-run.ps1` теперь прямо сказано, что `-Apply` — это GUI-автоматизация мышью, а не вызов API: режим двигает курсор на окно Operation Recorder и шлёт туда `mouse_event`, поэтому зависит от позиции окна, DPI, фокуса и таймингов. Годится как временный обход, но не как интеграция.
@@ -431,6 +438,7 @@ mumu-menu.cmd
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v10.4.24 | 20.11.2026 | Docs only: the `mmor-run.ps1` bullet in the README feature list is shortened to two sentences — `-Apply` is GUI mouse automation (cursor + `mouse_event` on the recorder window) and MuMu has no native `.mmor` verb, with the mode/verb/alternative details moved to `SKILL.md` |
 | v10.4.23 | 20.11.2026 | Docs only: the `mmor-run.ps1` header (mirrored in the README feature list and `SKILL.md`) now states that `-Apply` is GUI mouse automation — cursor plus `mouse_event` on the recorder window, DPI/focus/timing dependent — and that MuMu exposes no native `.mmor` verb (`MuMuManager.exe` 6.8.9.0: no `mmor`/`script`/`play`), pointing at auto-execute-on-launch + `control launch` and `control tool cmd` as the supported options |
 | v10.4.22 | 19.11.2026 | Fix `[L]`: the grid took the live window rectangle as "original", so every run adopted its own shrunken result and a window could end up tiny; the base is now the size MuMu saves for the instance (`customer_config.json`), the title bar and borders are re-added, and a previously shrunken window is restored before the grid is laid out |
 | v10.4.21 | 19.11.2026 | Fix: `mmor-run.ps1` was missing from the 10.4.20 ZIP — the archive is built from the explicit `release-files.txt` list, not the whole tag, so a new file only ships once it is listed; the file now ships and is part of the `[U]` update set, the repair whitelist and the rollback/file-set checks (10 files) |

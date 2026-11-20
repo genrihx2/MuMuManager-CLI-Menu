@@ -12,7 +12,8 @@
 
 | Версия | Дата | Примечание |
 |--------|------|------------|
-| v10.4.23 | 2026-11-20 | Latest |
+| v10.4.24 | 2026-11-20 | Latest |
+| v10.4.23 | 2026-11-20 | — |
 | v10.4.22 | 2026-11-19 | — |
 | v10.4.21 | 2026-11-19 | — |
 | v10.4.20 | 2026-11-19 | — |
@@ -20,6 +21,14 @@
 | v10.4.18 | 2026-11-12 | — |
 | v10.4.17 | 2026-11-11 | — |
 | v10.4.16 | 2026-11-06 | — |
+
+## v10.4.24 (2026-11-20)
+
+- Docs: пункт про `mmor-run.ps1` в «Возможностях» README сокращён до двух предложений. В нём осталось главное: `-Apply -File x.mmor` — это GUI-автоматизация мышью (курсор + `mouse_event` по окну Operation Recorder, поэтому зависит от позиции окна, DPI, фокуса и таймингов), и нативной команды для `.mmor` у MuMu нет — воспроизведение живёт только в GUI.
+- Детали ушли в `SKILL.md`, подраздел `### Operation recording (.mmor)`: три режима скрипта, отсутствие вербов `mmor`/`script`/`play` в `MuMuManager.exe` 6.8.9.0 и обе альтернативы без мыши — автозапуск записи при старте инстанса («模拟器启动后自动执行 / Auto-execute upon starting the device» + `control -v <n> launch`/`restart`) и ввод через `control -v <n> tool cmd -c "input tap X Y"`.
+- Поведение не менялось: правка только в документации. Tests: 331/331 Pester, PSScriptAnalyzer — 0 замечаний; версия поднята вместе в `relnotes.md`, `.version`, `$scriptVer` и `package.json`/`package-lock.json`.
+
+**EN summary (v10.4.24):** docs only. The `mmor-run.ps1` bullet in the README feature list is down to two sentences: `-Apply -File x.mmor` is GUI mouse automation (cursor plus `mouse_event` on the Operation Recorder window, so window position, DPI, focus and timing all matter), and MuMu has no native `.mmor` verb - playback lives only in the GUI. The details - the three modes, the missing `mmor`/`script`/`play` verbs in `MuMuManager.exe` 6.8.9.0 and both mouse-free workarounds (auto-execute on launch plus `control launch`/`restart`, and `control tool cmd -c "input tap X Y"`) - now live in `SKILL.md` under `### Operation recording (.mmor)`. No behaviour changes: tests 331/331, PSScriptAnalyzer 0 findings; the version is bumped together in `relnotes.md`, `.version`, `$scriptVer` and `package.json`/`package-lock.json`.
 
 ## v10.4.23 (2026-11-20)
 
