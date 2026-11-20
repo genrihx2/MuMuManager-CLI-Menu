@@ -12,6 +12,7 @@ SHA-256 самого ZIP-архива. Даты — UTC.
 <!-- RELEASES:AUTO:START -->
 | Тег | Дата тега | Опубликован | SHA-256 ZIP |
 |---|---|---|---|
+| v10.4.25 | 2026-11-20 | — | — |
 | [v10.4.24](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/tag/v10.4.24) | 2026-11-20 | 2026-11-20 | `c57f48a06d936dfe5d66eedac7e5586b61305811aaaf5120133355209c3e8c06` |
 | [v10.4.23](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/tag/v10.4.23) | 2026-11-20 | 2026-11-20 | `7fae4fb205d787175b8aab6fac8c53fb6f826b75c94f786b8db0d34a2c285d33` |
 | [v10.4.22](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/tag/v10.4.22) | 2026-11-19 | 2026-11-19 | `f22160eca3faef43cbe787acc07ce70b3ce64832c72897552f1f68cce4baa79f` |
@@ -41,7 +42,7 @@ SHA-256 самого ZIP-архива. Даты — UTC.
 | [v10.3.3](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/tag/v10.3.3) | 2026-10-21 | 2026-10-21 | `971ec0e4ea6a917767bf984b3294b04f2a125399303c9a66e2119f6df94809a8` |
 | [v10.0.0](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/tag/v10.0.0) | 2026-10-15 | 2026-10-15 | `3a1f0fb57c1ddf44abe0cacfcbe15dd26919621d869ebfb7f3e25ec2626d509d` |
 
-Итого: 28 тегов, 27 опубликованных релизов.
+Итого: 29 тегов, 27 опубликованных релизов.
 <!-- RELEASES:AUTO:END -->
 
 ## Особые случаи
