@@ -101,6 +101,19 @@ other operation over to `mumu-menu.ps1`, which stays the reference implementatio
   new original. Windows that already fit are only moved; only what does not fit is shrunk, never enlarged
   beyond the original, and both sides share one factor so the aspect ratio survives. One `control -v all show_window` raise follows the layout - no always-on-top.
 
+### Operation recording (.mmor)
+- `mmor-run.ps1` (companion script, not a menu item): `-Probe` prints the instance windows and their UIA
+  elements and presses nothing, `-Record` captures the normalized click points, `-Apply -File x.mmor`
+  drives the Operation Recorder window. **`-Apply` is GUI automation**: it moves the cursor and sends
+  mouse events to the recorder, so window position, DPI, focus and timing all affect the result.
+- MuMu exposes no native `.mmor` command: `MuMuManager.exe` 6.8.9.0 has no `mmor`/`script`/`play` verb
+  (`control` = launch/shutdown/restart/show_window/hide_window/layout_window/app/tool/shortcut) and
+  playback exists only inside the `MuMuNxMain` GUI - no pipe or endpoint accepts a recording.
+- Supported alternatives, no mouse and no focus stealing: tick "Auto-execute upon starting the device"
+  on the recording once, then `MuMuManager.exe control -v <n> launch` (or `restart`) - native playback,
+  but one script per instance and only at boot; or inject taps through MuMu's own channel with
+  `control -v <n> tool cmd -c "input tap X Y"` (replays taps, not the `.mmor`).
+
 ### Tools / ADB
 - `[S]` Screenshot — `[A]` ADB command — `[AF]` ADB file transfer — `[AS]` ADB screen capture — `[AH]` ADB interactive shell
 - `[O]` Clear app data — `[P]` Force stop app — `[T]` Start app

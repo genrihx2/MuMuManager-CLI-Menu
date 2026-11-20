@@ -18,6 +18,27 @@
 # point it has not been given: default mode is -Probe, which reports every
 # window and element it can see and presses nothing.
 #
+# NOTE - this is GUI automation, not an API call
+# ---------------------------------------------
+# -Apply really does drive the mouse: it moves the cursor onto the recorder
+# UI and sends mouse_event() down/up there. Window position, DPI, focus and
+# timing all affect it, so it is a stopgap - not a supported integration.
+#
+# MuMu exposes no native .mmor command. MuMuManager.exe 6.8.9.0 has no mmor,
+# script or play verb (control = launch/shutdown/restart/show_window/
+# hide_window/layout_window/app/tool/shortcut), and playback lives only in the
+# MuMuNxMain GUI (ScriptManagerPresenterImpl[runScript], OperationRecorder
+# Execute); no pipe or endpoint accepts a recording.
+#
+# Supported alternatives, without touching the mouse or stealing focus:
+#   * Auto-execute on launch - tick 'Auto-execute upon starting the device' on
+#     the recording once, then: MuMuManager.exe control -v <n> launch
+#     (or restart). Playback starts by itself when the instance boots; native,
+#     but one script per instance and only at boot.
+#   * Input injection through MuMu's own channel:
+#     MuMuManager.exe control -v <n> tool cmd -c "input tap 400 300"
+#     Replays taps you supply - not .mmor playback.
+#
 # Usage:
 #   .\mmor-run.ps1 -Instance 0 -Probe
 #   .\mmor-run.ps1 -Instance 0 -Probe -EmitConfig
