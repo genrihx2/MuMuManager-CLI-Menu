@@ -47,7 +47,7 @@ BeforeAll {
                         'Get-AuthenticodeSignerName', 'Get-MuMuInstallDrift', 'Switch-MuMuActiveInstall',
                         'Resolve-MuMuInstall', 'Update-MumuInstallState',
                         'Stop-Logcat', 'Show-MumuOfflineInstallers', 'Resolve-InstallerThumbprint',
-                        'Get-MumuLaunchFailureHint')) {
+                        'Get-MumuLaunchFailureHint', 'Test-MumuRuntimeFailure')) {
         $f = $script:ast.FindAll({
             param($node)
             $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -5100,16 +5100,38 @@ Describe 'Get-MumuLaunchFailureHint (MuMu startup refusal)' {
         # abnormal runtime environment was detected'. The emulator names no
         # cause, so the hint has to carry the checks a user can act on.
         $hints = @(Get-MumuLaunchFailureHint -Text 'Startup failed: An abnormal runtime environment was detected')
-        $hints.Count | Should -Be 3
+        $hints.Count | Should -Be 4
         $joined = $hints -join ' '
         $joined | Should -Match 'runtime environment check failed'
+        # The screen's own Restore button does not fix this (live report); the
+        # hint carries the repair that does: drop the device dirs and recreate.
+        $joined | Should -Match 'Restore on that screen does not fix this'
+        $joined | Should -Match 'nx_device'
+        $joined | Should -Match 'Create Device'
+        $joined | Should -Match 'Android 15'
         $joined | Should -Match 'VT-x'
         $joined | Should -Match 'Hyper-V'
         $joined | Should -Match 'Core Isolation'
     }
 
     It 'matches the sentence in any case and anywhere in the reply' {
-        @(Get-MumuLaunchFailureHint -Text "player exited`r`nSTARTUP FAILED: AN ABNORMAL RUNTIME ENVIRONMENT WAS DETECTED IN 15").Count | Should -Be 3
+        @(Get-MumuLaunchFailureHint -Text "player exited`r`nSTARTUP FAILED: AN ABNORMAL RUNTIME ENVIRONMENT WAS DETECTED IN 15").Count | Should -Be 4
+    }
+
+    It 'matches the Russian dialog the emulator actually shows' {
+        # Live screenshot: 'Ошибка запуска / Обнаружена неисправность среды
+        # выполнения. Рекомендуем немедленно выполнить восстановление.'
+        $text = 'Ошибка запуска. Обнаружена неисправность среды выполнения. Рекомендуем немедленно выполнить восстановление.'
+        @(Get-MumuLaunchFailureHint -Text $text).Count | Should -Be 4
+        (Test-MumuRuntimeFailure -Text $text) | Should -BeTrue
+    }
+
+    It 'recognises a runtime failure in the languages it ships and nothing else' {
+        (Test-MumuRuntimeFailure -Text 'Startup failed: An abnormal runtime environment was detected') | Should -BeTrue
+        (Test-MumuRuntimeFailure -Text '运行环境异常') | Should -BeTrue
+        (Test-MumuRuntimeFailure -Text 'Please disable Hyper-V first') | Should -BeTrue
+        (Test-MumuRuntimeFailure -Text 'launch_player: errcode 0') | Should -BeFalse
+        (Test-MumuRuntimeFailure -Text '') | Should -BeFalse
     }
 
     It 'names Hyper-V when the emulator does' {
@@ -5138,7 +5160,7 @@ Describe 'Get-MumuLaunchFailureHint (MuMu startup refusal)' {
             # The reply is kept, a refused start returns before the 120 s wait,
             # and a boot timeout still explains itself.
             ($text -match '\$launchOut = @\(& \$MumuPath api -v \$index launch_player 2>&1\)') | Should -BeTrue
-            ($text -match 'if \(\$launchText -match ''\(\?i\)abnormal runtime environment''\) \{') | Should -BeTrue
+            ($text -match 'if \(Test-MumuRuntimeFailure -Text \$launchText\) \{') | Should -BeTrue
             ($text -match 'Write-MumuLaunchFailureHint -Text \$launchText') | Should -BeTrue
         }
         $batch = & $source 'Start-InstanceSet'

@@ -5418,20 +5418,31 @@ $line                                        " -NoNewline
     return $false
 }
 
+function Test-MumuRuntimeFailure {
+    # The emulator's own refusal sentence, in the languages this build ships:
+    # 'An abnormal runtime environment was detected' / 'Обнаружена неисправность
+    # среды выполнения' / '运行环境异常'. Kept apart from the hints below: the
+    # screens use it to stop waiting for a boot that cannot happen, while the
+    # hint list is free to grow without changing that decision.
+    param([string]$Text)
+    if (-not $Text) { return $false }
+    return [bool]($Text -match '(?i)abnormal runtime environment|неисправность среды выполнения|运行环境异常|\bHyper-V\b')
+}
+
 function Get-MumuLaunchFailureHint {
-    # MuMu refuses a VM start with its own sentence and nothing else:
-    # 'Startup failed: An abnormal runtime environment was detected'. That is
+    # MuMu refuses a VM start with its own sentence and nothing else. That is
     # its virtualization check failing (VT-x off, or taken by Hyper-V/VBS and
     # Core Isolation), not a broken instance, and the emulator names none of
-    # it - so the menu adds the checks it leaves out. Output it cannot explain
+    # it - so the menu adds what it leaves out. Output it cannot explain
     # yields no hint: guessing a cause is worse than the bare failure.
     param([string]$Text)
     if (-not $Text) { return @() }
-    if ($Text -match '(?i)abnormal runtime environment') {
+    if ($Text -match '(?i)abnormal runtime environment|неисправность среды выполнения|运行环境异常') {
         return @(
             'MuMu refused to start the VM: its runtime environment check failed.'
-            'Check VT-x/AMD-V - Task Manager > Performance > CPU should show Virtualization: Enabled.'
-            'Turn off Hyper-V, Windows Hypervisor Platform and Virtual Machine Platform, and Core Isolation > Memory integrity, then reboot.'
+            'Restore on that screen does not fix this. What does: delete "nx_device\15.0" under the MuMu install (e.g. C:\Program Files\Netease\MuMuPlayer\nx_device\15.0) and the instance folder under "vms" (e.g. MuMuPlayerGlobal-15.0-0), then create the device again (New > Create Device > Android 15).'
+            'If the error returns on the new device: check VT-x/AMD-V - Task Manager > Performance > CPU should show Virtualization: Enabled.'
+            'Then turn off Hyper-V, Windows Hypervisor Platform and Virtual Machine Platform, plus Core Isolation > Memory integrity, and reboot.'
         )
     }
     if ($Text -match '(?i)\bHyper-V\b|virtuali[sz]ation (is )?(off|disabled|not enabled)') {
@@ -5533,7 +5544,7 @@ function Start-Emulator {
     $launchText = $launchOut -join "`n"
     $launchOut | ForEach-Object { Write-Host "    $_" }
 
-    if ($launchText -match '(?i)abnormal runtime environment') {
+    if (Test-MumuRuntimeFailure -Text $launchText) {
         Write-ScreenNote -Text 'The VM did not start - MuMu rejected its runtime environment.' -Tone Red
         Write-MumuLaunchFailureHint -Text $launchText
         Write-Host ''
@@ -5643,7 +5654,7 @@ function Restart-Emulator {
     $launchText = $launchOut -join "`n"
     $launchOut | ForEach-Object { Write-Host "    $_" }
 
-    if ($launchText -match '(?i)abnormal runtime environment') {
+    if (Test-MumuRuntimeFailure -Text $launchText) {
         Write-ScreenNote -Text 'The VM did not start - MuMu rejected its runtime environment.' -Tone Red
         Write-MumuLaunchFailureHint -Text $launchText
         Write-Host ''
