@@ -10593,43 +10593,85 @@ function Show-MumuOfflineInstallers {
         $badges = @()
         # Primary: HTTP response headers. Only the release-page resolver and a couple of
         # CDN paths consistently expose the digest we can print.
-        $head = $null
+        #
+        # This is a raw HEAD through HttpClient for two reasons:
+        #  * Invoke-WebRequest cannot report an unfollowed redirect here. With
+        #    -MaximumRedirection 0, 5.1 throws an InvalidOperationException that carries
+        #    no response at all, and 7 hands back an HttpResponseMessage whose header
+        #    indexer returns nothing - so both hosts lost the Location and [OI] printed
+        #    "no Windows offline installer link".
+        #  * Following the redirect automatically is worse: the HEAD hop to the CDN never
+        #    returns and burns the whole timeout.
+        # A browser User-Agent is mandatory: without it the CDN accepts the connection
+        # and then never answers.
+        $status = $null
+        $location = $null
+        $len = $null
+        $fileName = $null
+        $sha = $null
+        if (-not ('System.Net.Http.HttpClient' -as [type])) { Add-Type -AssemblyName System.Net.Http -ErrorAction Stop }
+        $client = $null
         try {
-            $head = Invoke-WebRequest -Uri $Url -Method Head -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop
-        } catch {
-            Write-Debug "${functionName}: HEAD $Label failed: $($_.Exception.Message)"
-        }
-        if ($head) {
-            # Windows exe: Content-Disposition gives the real filename; Content-Length the size.
-            $cd = @($head.Headers['Content-Disposition']) | Where-Object { $_ } | Select-Object -First 1
-            if ($cd -and $cd -match 'filename\*?=\"?([^\";\r\n]+)\"?') {
-                $badges += "name: $($Matches[1])"
+            $handler = New-Object System.Net.Http.HttpClientHandler
+            $handler.AllowAutoRedirect = $false
+            $client = New-Object System.Net.Http.HttpClient($handler)
+            # 12 s, not 8: the CDN occasionally answers in ~2-3 s on a slow link and
+            # a tighter deadline turned a working lookup into "no link found".
+            $client.Timeout = [TimeSpan]::FromSeconds(12)
+            $request = New-Object System.Net.Http.HttpRequestMessage([System.Net.Http.HttpMethod]::Head, $Url)
+            [void]$request.Headers.TryAddWithoutValidation('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36')
+            $response = $client.SendAsync($request).GetAwaiter().GetResult()
+            $status = [int]$response.StatusCode
+            if ($response.Headers.Location) { $location = [string]$response.Headers.Location }
+            $len = $response.Content.Headers.ContentLength
+            $cd = $response.Content.Headers.ContentDisposition
+            if ($cd) {
+                if ($cd.FileNameStar) { $fileName = $cd.FileNameStar }
+                elseif ($cd.FileName) { $fileName = $cd.FileName }
             }
-            # Content-Length header first: pwsh 7 reports RawContentLength 0 on
-            # HEAD (no body), while 5.1 exposes the header there. The badge carries
-            # only the number - the print sites append the unit.
-            $len = $null
-            $lenRaw = @($head.Headers['Content-Length']) | Where-Object { $_ } | Select-Object -First 1
-            $parsed = 0L
-            if ($lenRaw -and [int64]::TryParse([string]$lenRaw, [ref]$parsed)) { $len = $parsed }
-            elseif ($head.RawContentLength -gt 0) { $len = [int64]$head.RawContentLength }
-            if ($null -ne $len) { $badges += ('size: {0:N0}' -f $len) }
-
-            # SHA-256 digest, when the CDN exposes it.
             foreach ($h in 'X-Content-Sha256', 'Digest', 'x-amz-meta-sha256', 'x-goog-meta-sha256') {
-                if ($head.Headers[$h]) {
-                    $badges += "sha256:$h=$( [string](@($head.Headers[$h]) | Where-Object { $_ } | Select-Object -First 1) )"
-                    break
+                $values = $null
+                if ($response.Headers.TryGetValues($h, [ref]$values) -or $response.Content.Headers.TryGetValues($h, [ref]$values)) {
+                    $first = @($values) | Select-Object -First 1
+                    if ($first) { $sha = "$h=$first"; break }
                 }
             }
-            if ($head.StatusDescription -match '^\s*3\d\d') {
-                $badges += "redirect-to:$($head.Headers.Location)"
-            }
+        } catch {
+            Write-Debug "${functionName}: HEAD $Label failed: $($_.Exception.Message)"
+        } finally {
+            if ($client) { try { $client.Dispose() } catch { Write-Debug "${functionName}: client dispose failed" } }
+        }
+        if ($status -and $status -ge 300 -and $status -lt 400 -and $location) {
+            $badges += "redirect-to:$location"
+        } elseif ($status -and $status -ge 200 -and $status -lt 300) {
+            if ($fileName) { $badges += "name: $($fileName.Trim('\"'))" }
+            # The badge carries only the number - the print sites append the unit.
+            if ($null -ne $len) { $badges += ('size: {0:N0}' -f [int64]$len) }
+            if ($sha) { $badges += "sha256:$sha" }
         }
         if ($badges.Count -eq 0) {
             $badges += 'integrity: headers did not expose a digest/length for this path'
         }
         return $badges
+    }
+
+    function Resolve-DownloadUrl {
+        # Follows a resolver endpoint hop by hop without ever letting .NET follow a
+        # redirect itself (see Resolve-InstallerThumbprint). Returns the final URL,
+        # or $null when the first hop did not answer at all - callers then fall back
+        # to the release page or print the plain endpoint.
+        param(
+            [Parameter(Mandatory)][string]$Url
+        )
+        $current = $Url
+        for ($hop = 0; $hop -lt 4; $hop++) {
+            $badges = @(Resolve-InstallerThumbprint -Url $current -Label "download-hop$hop")
+            if ($badges.Count -eq 1 -and $badges[0] -like 'integrity:*') { return $null }
+            $next = $badges | Where-Object { $_ -match '^redirect-to:' } | Select-Object -First 1
+            if (-not $next) { return $current }
+            $current = ([string]$next) -replace '^redirect-to:', ''
+        }
+        return $current
     }
 
     function Get-ResponseFinalUri {
@@ -10665,9 +10707,13 @@ function Show-MumuOfflineInstallers {
     }
 
     if (-not $html) {
-        Write-ScreenNote -Text "could not reach $page - no offline-installer listing" -Tone Yellow
+        # The page is one source, not the only one: the official download API still
+        # resolves the current Windows and macOS builds, and the APK endpoints are
+        # printed either way. Bailing out here left the whole screen empty on any
+        # network that cannot reach mumuplayer.com.
+        Write-ScreenNote -Text "release page not reachable - listing built from the official download API" -Tone Yellow
+        Write-ScreenNote -Text "open $page in a browser for the page-level listing" -Tone DarkGray
         Write-Host ''
-        return
     }
 
     # ---------- parse the current Windows offline installer ----------
@@ -10686,12 +10732,9 @@ function Show-MumuOfflineInstallers {
     # follows the hop itself, so the installer URI is the FINAL response URI (the
     # Location header is empty after the hop) - a GET here would buffer the whole
     # installer into memory just to print a filename.
-    $resolverUrl = $null
-    try {
-        $resolverResp = Invoke-WebRequest -Uri 'https://api.mumuplayer.com/api/dl/win?channel=gw-overseas12' -Method Head -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop
-        $resolverUrl = Get-ResponseFinalUri $resolverResp
-    } catch {
-        Write-Debug "${functionName}: resolver gw-overseas12 failed (will fall back to HTML): $($_.Exception.Message)"
+    $resolverUrl = Resolve-DownloadUrl -Url 'https://api.mumuplayer.com/api/dl/win?channel=gw-overseas12'
+    if (-not $resolverUrl) {
+        Write-Debug "${functionName}: resolver gw-overseas12 did not answer (will fall back to HTML)"
     }
 
     if ($resolverUrl) {
@@ -10747,12 +10790,9 @@ function Show-MumuOfflineInstallers {
 
     $dmgHref = $null
     $dmgBadges = @()
-    $dmgUrl = $null
-    try {
-        $dmgResp = Invoke-WebRequest -Uri 'https://api.mumuplayer.com/api/dl/mac?channel=default' -Method Head -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop
-        $dmgUrl = Get-ResponseFinalUri $dmgResp
-    } catch {
-        Write-Debug "${functionName}: mac resolver failed (will fall back to HTML): $($_.Exception.Message)"
+    $dmgUrl = Resolve-DownloadUrl -Url 'https://api.mumuplayer.com/api/dl/mac?channel=default'
+    if (-not $dmgUrl) {
+        Write-Debug "${functionName}: mac resolver did not answer (will fall back to HTML)"
     }
 
     if ($dmgUrl) {
@@ -10801,17 +10841,24 @@ function Show-MumuOfflineInstallers {
     # The APK lives at the CDN root-level endpoint a11.gdl.easebar.com (alias of a11.gdl.netease.com).
     # We print both the alias and, when available, the canonical host.
     $apkName = 'MuMuPlayer-arm64-v8a.apk'
-    $apkUrlAlias = 'https://a11.gdl.easebar.com/MuMuPlayer-arm64-v8a.apk'
+    # Both CDN names serve the same root-level package. Which one stalls depends on the
+    # network (the easebar alias is the documented, telemetry-free one), so probe both
+    # and keep whichever answers.
+    $apkHosts = @(
+        'https://a11.gdl.easebar.com/MuMuPlayer-arm64-v8a.apk',
+        'https://a11.gdl.netease.com/MuMuPlayer-arm64-v8a.apk'
+    )
+    $apkUrlAlias = $apkHosts[0]
     $apkUrlCanonical = $null
-    $apkBadges = Resolve-InstallerThumbprint -Url $apkUrlAlias -Label 'android-apk-alias'
-    # Try to discover a canonical host from the redirect chain on the alias.
-    try {
-        $apkHead = Invoke-WebRequest -Uri $apkUrlAlias -Method Head -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop
-        if ($apkHead.Headers['Location'] -and $apkHead.Headers['Location'] -notmatch '^https?://a11\.gdl\.easebar\.com') {
-            $apkUrlCanonical = $apkHead.Headers['Location']
-        }
-    } catch {
-        Write-Debug "${functionName}: APK alias HEAD failed: $($_.Exception.Message)"
+    $apkBadges = @()
+    foreach ($apkHost in $apkHosts) {
+        $probe = @(Resolve-InstallerThumbprint -Url $apkHost -Label 'android-apk')
+        if ($probe.Count -eq 1 -and $probe[0] -like 'integrity:*') { continue }
+        $apkUrlAlias = $apkHost
+        $apkBadges = $probe
+        $apkRedirect = $probe | Where-Object { $_ -match '^redirect-to:' } | Select-Object -First 1
+        if ($apkRedirect) { $apkUrlCanonical = ([string]$apkRedirect) -replace '^redirect-to:', '' }
+        break
     }
 
     Write-MenuGroup -Title 'Android offline package (ARM64, root-level)' -Width $width
@@ -10850,13 +10897,24 @@ function Show-MumuOfflineInstallers {
     Write-KeyValue -Key 'note' -Value 'long-term archive of offline installers; individual builds are version-named (mainland China)' -KeyWidth 12 -Width $width -ValueColor DarkGray
     Write-Host ''
 
+    # Probing the base once keeps three unreachable candidates from costing three
+    # timeouts: on a network that cannot reach the archive host at all, the pattern is
+    # still printed instead of stalling the screen for half a minute.
+    $archiveProbe = @(Resolve-InstallerThumbprint -Url "$archiveBase/" -Label 'archive-base')
+    $archiveReachable = -not ($archiveProbe.Count -eq 1 -and $archiveProbe[0] -like 'integrity:*')
+    if (-not $archiveReachable) {
+        Write-ScreenNote -Text 'archive host not reachable from here - paths below are the documented pattern' -Tone DarkGray
+        Write-Host ''
+    }
+
     foreach ($cand in $archiveCandidates) {
         $url = "$archiveBase/$cand"
+        Write-Host ('  ' + $cand) -ForegroundColor White
+        Write-KeyValue -Key 'URL' -Value $url -KeyWidth 12 -Width $width
+        if (-not $archiveReachable) { Write-Host '' ; continue }
         $b = Resolve-InstallerThumbprint -Url $url -Label "archive:$cand"
         $name = ($b | Where-Object { $_ -match '^name:' }) -replace '^name:\s*',''
         $size = ($b | Where-Object { $_ -match '^size:' }) -replace '^size:\s*',''
-        Write-Host ('  ' + $cand) -ForegroundColor White
-        Write-KeyValue -Key 'URL' -Value $url -KeyWidth 12 -Width $width
         if ($name) { Write-KeyValue -Key 'name' -Value $name -KeyWidth 12 -Width $width }
         if ($size) { Write-KeyValue -Key 'size' -Value "$size bytes" -KeyWidth 12 -Width $width }
         $cs = $b | Where-Object { $_ -match '^sha256:' }

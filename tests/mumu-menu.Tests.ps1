@@ -3986,14 +3986,38 @@ Describe 'Show-MumuOfflineInstallers ([OI])' {
         $text -match 'integrity:\s *headers did not expose' | Should -Be $true
     }
 
+    It 'keeps listing when the release page is unreachable' {
+        # A network that cannot open www.mumuplayer.com used to blank the whole screen:
+        # the function returned right after the page fetch. The resolver endpoints are
+        # an independent source, so the listing must survive a page failure.
+        $f = $script:ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Show-MumuOfflineInstallers' }, $true) | Select-Object -First 1
+        $text = $f.Extent.Text
+        ($text -match 'release page not reachable') | Should -Be $true
+        ($text -match 'no offline-installer listing') | Should -Be $false
+        # The APK must be probed on both CDN names, not just the easebar alias.
+        ($text -match 'a11\.gdl\.easebar\.com/MuMuPlayer-arm64-v8a\.apk') | Should -Be $true
+        ($text -match 'a11\.gdl\.netease\.com/MuMuPlayer-arm64-v8a\.apk') | Should -Be $true
+    }
+
     It 'resolvers are HEAD-only and extraction never uses the 4-operand -replace' {
         $f = $script:ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Show-MumuOfflineInstallers' }, $true) | Select-Object -First 1
         $f | Should -Not -BeNullOrEmpty
         $text = $f.Extent.Text
         # Regression (v10.2.0 smoke): the resolvers used GET and buffered the whole
-        # installer into memory. Discovery must stay HEAD-only.
-        ($text -match 'api\.mumuplayer\.com/api/dl/win.*-Method Head') | Should -Be $true
-        ($text -match 'api\.mumuplayer\.com/api/dl/mac.*-Method Head') | Should -Be $true
+        # installer into memory. Discovery must stay HEAD-only, and the HEAD must not
+        # follow redirects: .NET's automatic redirect on HEAD hangs until the timeout
+        # on the CDN hop, which is what left [OI] empty.
+        ($text -match "Resolve-DownloadUrl -Url 'https://api\.mumuplayer\.com/api/dl/win") | Should -Be $true
+        ($text -match "Resolve-DownloadUrl -Url 'https://api\.mumuplayer\.com/api/dl/mac") | Should -Be $true
+        # v10.4.27: a plain Invoke-WebRequest HEAD lost the Location (5.1 throws without a
+        # response, 7 hides the header), and following the redirect automatically hung on
+        # the CDN hop. The lookup is a raw HttpClient HEAD that never follows redirects.
+        ($text -match 'HttpMethod\]::Head') | Should -Be $true
+        ($text -match 'AllowAutoRedirect = \$false') | Should -Be $true
+        # The CDN answers only when a browser User-Agent is sent.
+        ($text -match "TryAddWithoutValidation\('User-Agent'") | Should -Be $true
+        # The redirect target is followed by the helper, never by the HTTP stack.
+        ($text -match 'function Resolve-DownloadUrl') | Should -Be $true
         # Regression (v10.2.0 smoke): -replace 'x','',0,1 is a 4-operand call that
         # throws at runtime, silently dropping every name/size badge.
         ($text -match "-replace '[^']*',\s*'',\s*0,\s*1") | Should -Be $false
