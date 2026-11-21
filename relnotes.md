@@ -12,7 +12,8 @@
 
 | Версия | Дата | Примечание |
 |--------|------|------------|
-| v10.4.29 | 2026-11-21 | Latest |
+| v10.4.30 | 2026-11-21 | Latest |
+| v10.4.29 | 2026-11-21 | — |
 | v10.4.28 | 2026-11-21 | — |
 | v10.4.27 | 2026-11-21 | — |
 | v10.4.26 | 2026-11-21 | — |
@@ -26,6 +27,14 @@
 | v10.4.18 | 2026-11-12 | — |
 | v10.4.17 | 2026-11-11 | — |
 | v10.4.16 | 2026-11-06 | — |
+
+## v10.4.30 (2026-11-21)
+
+- Fixed: `mumu-menu.cmd` больше не обещает интерфейс, которого нет. Обёртка документировала глаголы `run`/`start`/`wait`/`status`, ключи `--once`/`--index`/`--restore`/`--deep` и переменные `MUUMU_EXE`/`MUUMU_INDEX`/`MUUMU_RESTORE`, а `mumu-menu.ps1` ничего из этого не объявляет — каждая такая команда падала на `ValidateSet` или на привязке параметров. Теперь `.cmd` — тонкий диспетчер на реальные параметры: `launch`/`stop`/`restart`/`logs` → `-Action`, `--instance`/`--lines`/`--timeout`/`--json`/`--force` → `-Instance`/`-Lines`/`-TimeoutSec`/`-Json`/`-Force`. Неизвестный глагол, неизвестная опция и опция без значения отсекаются самим `.cmd` с кодом 2; без аргументов по-прежнему открывается интерактивное меню, `help` (он же `/?`, `/h`, `-h`, `--help`) печатает те же глаголы и опции.
+- Fixed: `[OI]` «Offline installers» падал с `Невозможно вызвать метод для выражения со значением null` на сетях, где страница релиза отдавала относительную ссылку на установщик. `[System.Uri]($page).AbsoluteUri` разбирается как `[System.Uri](($page).AbsoluteUri)`: у строки такого члена нет, приведение возвращает `$null`, и следующий `.TrimEnd()` падает. Обе ветки — `.exe` и `.dmg` — теперь строят адрес через `[System.Uri]::new([System.Uri]$page, $href)`, что заодно правильно разрешает и корневые (`/MoMu/...`), и страничные (`MuMu.dmg`) ссылки. Новый тест держит запрет на старую форму и оба случая разрешения.
+- Tests: **356/356** Pester на pwsh и PowerShell 5.1, PSScriptAnalyzer — 0 замечаний; изменился только `.cmd` и две строки склейки URL в `[OI]`.
+
+**EN summary (v10.4.30):** both fixes are small and local. `mumu-menu.cmd` no longer documents the invented `run`/`start`/`wait`/`status` verbs, the `--once`/`--index`/`--restore`/`--deep` flags or the `MUUMU_*` variables: it dispatches `launch`/`stop`/`restart`/`logs` onto `-Action` and `--instance`/`--lines`/`--timeout`/`--json`/`--force` onto the `-Instance`/`-Lines`/`-TimeoutSec`/`-Json`/`-Force` parameters, rejects an unknown verb, an unknown option or an option without a value with exit code 2, keeps the bare-call interactive menu, and passes the script's own exit code through. In `[OI]`, a relative installer link is resolved with `[System.Uri]::new([System.Uri]$page, $href)` instead of `[System.Uri]($page).AbsoluteUri`, which PowerShell parses as `[System.Uri](($page).AbsoluteUri)`, yields `$null` and makes the following `.TrimEnd()` die with "You cannot call a method on a null-valued expression"; both the `.exe` and the `.dmg` branch are fixed, and a test pins the call shape plus root-relative and page-relative resolution. Tests 356/356 on pwsh and PowerShell 5.1, PSScriptAnalyzer 0 findings.
 
 ## v10.4.29 (2026-11-21)
 
