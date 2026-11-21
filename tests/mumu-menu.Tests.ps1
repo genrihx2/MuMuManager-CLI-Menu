@@ -3999,6 +3999,19 @@ Describe 'Show-MumuOfflineInstallers ([OI])' {
         ($text -match 'a11\.gdl\.netease\.com/MuMuPlayer-arm64-v8a\.apk') | Should -Be $true
     }
 
+    It 'marks the APK as not reachable when neither a length nor a digest came back' {
+        # The bare 'headers did not expose a digest/length' wording reads like a found
+        # file with thin headers. When neither CDN name answers at all, the screen must
+        # say so as plainly as the archive section does. A redirect or a name alone is
+        # still an answer, so the explicit marker is conditional on both being absent.
+        $f = $script:ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Show-MumuOfflineInstallers' }, $true) | Select-Object -First 1
+        $text = $f.Extent.Text
+        ($text -match 'APK not reachable from here') | Should -Be $true
+        ($text -match 'if \(-not \(\$apkSize -or \$apkChecksum\)\)') | Should -Be $true
+        ($text -match 'if \(\$apkNameBadge -or \$apkUrlCanonical\)') | Should -Be $true
+        ($text -match "integrity' -Value 'headers did not expose") | Should -Be $true
+    }
+
     It 'resolvers are HEAD-only and extraction never uses the 4-operand -replace' {
         $f = $script:ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Show-MumuOfflineInstallers' }, $true) | Select-Object -First 1
         $f | Should -Not -BeNullOrEmpty

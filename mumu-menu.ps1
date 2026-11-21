@@ -10871,7 +10871,15 @@ function Show-MumuOfflineInstallers {
     $apkChecksum = $apkBadges | Where-Object { $_ -match '^sha256:' }
     if ($apkChecksum) { Write-KeyValue -Key 'digest' -Value ($apkChecksum -join ' / ') -KeyWidth 12 -Width $width -ValueColor DarkGray }
     if (-not ($apkSize -or $apkChecksum)) {
-        Write-KeyValue -Key 'integrity' -Value 'headers did not expose a digest/length for this path' -KeyWidth 12 -Width $width -ValueColor DarkGray
+        if ($apkNameBadge -or $apkUrlCanonical) {
+            # The host answered, but only with a redirect or a name: the size and
+            # digest for this path are simply not in the headers.
+            Write-KeyValue -Key 'integrity' -Value 'headers did not expose a digest/length for this path' -KeyWidth 12 -Width $width -ValueColor DarkGray
+        } else {
+            # Neither CDN name answered: say so as plainly as the archive section does,
+            # instead of leaving the bare integrity wording to imply the file was found.
+            Write-ScreenNote -Text 'APK not reachable from here - no Content-Length or digest came back from either CDN host' -Tone Yellow
+        }
     }
     Write-Host ''
     Write-KeyValue -Key 'note' -Value 'this is the standalone APK, installable on a normal Android device or inside an emulator. To install it across all running emulator instances from the menu, use [APK] (requires a pinned MuMu instance). To just download it, use the URL above.' -KeyWidth 12 -Width $width -ValueColor DarkGray
