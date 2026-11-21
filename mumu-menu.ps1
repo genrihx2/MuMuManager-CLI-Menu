@@ -10780,7 +10780,12 @@ function Show-MumuOfflineInstallers {
         if ($exeHref) {
             # Make an absolute URL if it is relative to the page.
             if ($exeHref -notmatch '^\s*https?://') {
-                $exeHref = [System.Uri]($page).AbsoluteUri.TrimEnd('/') + '/' + $exeHref.TrimStart('/')
+                # Relative links resolve against the page they came from. The cast
+                # must wrap $page itself: '[System.Uri]($page).AbsoluteUri' parses
+                # as '[System.Uri](($page).AbsoluteUri)', so a plain string yields
+                # $null and the following .TrimEnd() dies with "cannot call a
+                # method on a null-valued expression" on exactly this fallback.
+                $exeHref = ([System.Uri]::new([System.Uri]$page, $exeHref)).AbsoluteUri
             }
             $exeBadges = Resolve-InstallerThumbprint -Url $exeHref -Label 'windows-exe-from-html'
             $exeName = ($exeBadges | Where-Object { $_ -match '^name:' }) -replace '^name:\s*',''
@@ -10829,7 +10834,8 @@ function Show-MumuOfflineInstallers {
             }
         }
         if ($dmgHref -and $dmgHref -notmatch '^\s*https?://') {
-            $dmgHref = [System.Uri]($page).AbsoluteUri.TrimEnd('/') + '/' + $dmgHref.TrimStart('/')
+            # Same cast-precedence trap as the exe branch above.
+            $dmgHref = ([System.Uri]::new([System.Uri]$page, $dmgHref)).AbsoluteUri
         }
         if ($dmgHref) {
             $dmgBadges = Resolve-InstallerThumbprint -Url $dmgHref -Label 'mac-dmg-from-html'

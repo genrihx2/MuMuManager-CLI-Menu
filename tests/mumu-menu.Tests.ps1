@@ -4035,6 +4035,25 @@ Describe 'Show-MumuOfflineInstallers ([OI])' {
         # throws at runtime, silently dropping every name/size badge.
         ($text -match "-replace '[^']*',\s*'',\s*0,\s*1") | Should -Be $false
     }
+
+    It 'resolves relative installer links against the release page instead of casting $null' {
+        # Live report: [OI] died with "You cannot call a method on a null-valued
+        # expression" right after the screen header on networks where the resolver
+        # gave up and the page carried a relative href. '[System.Uri]($page).AbsoluteUri'
+        # parses as '[System.Uri](($page).AbsoluteUri)' - a plain string has no such
+        # member, so the cast produced $null and the chained .TrimEnd() threw.
+        $f = $script:ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Show-MumuOfflineInstallers' }, $true) | Select-Object -First 1
+        $f | Should -Not -BeNullOrEmpty
+        $text = $f.Extent.Text
+        ($text -match '= \[System\.Uri\]\(\$page\)\.') | Should -Be $false
+        ($text -match '\[System\.Uri\]::new\(\[System\.Uri\]\$page, \$exeHref\)') | Should -Be $true
+        ($text -match '\[System\.Uri\]::new\(\[System\.Uri\]\$page, \$dmgHref\)') | Should -Be $true
+        # The replacement keeps the browser's own resolution rules for both a
+        # root-relative and a page-relative href.
+        $page = 'https://www.mumuplayer.com/update/'
+        ([System.Uri]::new([System.Uri]$page, '/MoMu/x.exe')).AbsoluteUri | Should -Be 'https://www.mumuplayer.com/MoMu/x.exe'
+        ([System.Uri]::new([System.Uri]$page, 'MuMu.dmg')).AbsoluteUri | Should -Be 'https://www.mumuplayer.com/update/MuMu.dmg'
+    }
 }
 
 
