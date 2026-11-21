@@ -183,6 +183,12 @@ mumu-menu.cmd
 
 ## Что нового
 
+### v10.4.26 (21.11.2026)
+
+- Tests: новый `Describe` в `tests/mumu-menu.Tests.ps1` покрывает генератор `mmor-run.json` из v10.4.25 — `recorderButton` из `kToolMenu.kToolMenuBtn`, пустые `playButton`/`fileRow`, дефолтные `delays`, точку как десятичный разделитель даже в `de-DE`, отсутствующую пару как `null`, UTF-8 без BOM, сохранение уже снятых пар при обновлении и round-trip через `Read-MmorConfig`. Функции берутся из `mmor-run.ps1` через AST, поэтому набор идёт без эмулятора и без кликов. Tests 341/341 Pester на pwsh и 5.1, deployed-layout 337/337, PSScriptAnalyzer — 0 замечаний.
+
+**EN summary (v10.4.26):** tests only. A new `Describe` pins the `mmor-run.json` writer: `recorderButton` derived from the tool menu, `playButton`/`fileRow` empty until `-Record`, default delays, dot decimals under a comma-decimal culture, a missing pair as `null` instead of `0,0`, UTF-8 without a BOM, captured pairs kept on refresh and a round-trip through the reader the script itself uses. Functions are AST-extracted from `mmor-run.ps1`, so the suite stays offline. Tests 341/341 on pwsh and PowerShell 5.1, 337/337 in the deployed-layout fixture, PSScriptAnalyzer 0 findings.
+
 ### v10.4.25 (20.11.2026)
 
 - New: `mmor-run.ps1` сам создаёт шаблон `mmor-run.json` — при `-EmitConfig` и автоматически, если файла ещё нет; `recorderButton` подставляется из UIA-элемента `kToolMenu.kToolMenuBtn` и нормализуется по окну инстанса, а `playButton` остаётся `null` до прохода `-Record` (пояснение лежит в поле `_comment` внутри файла).
@@ -445,6 +451,7 @@ mumu-menu.cmd
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v10.4.26 | 21.11.2026 | Tests only: a new `Describe` pins the `mmor-run.json` writer — `recorderButton` from `kToolMenu.kToolMenuBtn`, `playButton`/`fileRow` empty, default `delays`, dot decimals under `de-DE`, missing pair as `null`, UTF-8 without BOM, captured pairs kept on refresh, round-trip through `Read-MmorConfig`; functions are AST-extracted, so the suite runs with no emulator |
 | v10.4.25 | 20.11.2026 | New: `mmor-run.ps1` writes `mmor-run.json` itself — `-EmitConfig` or a run that finds no config produces a template with `recorderButton` derived from `kToolMenu.kToolMenuBtn` (normalized to the instance window), `playButton` left `null` until `-Record`, an explanatory `_comment` field, and captured pairs preserved on refresh |
 | v10.4.24 | 20.11.2026 | Docs only: the `mmor-run.ps1` bullet in the README feature list is shortened to two sentences — `-Apply` is GUI mouse automation (cursor + `mouse_event` on the recorder window) and MuMu has no native `.mmor` verb, with the mode/verb/alternative details moved to `SKILL.md` |
 | v10.4.23 | 20.11.2026 | Docs only: the `mmor-run.ps1` header (mirrored in the README feature list and `SKILL.md`) now states that `-Apply` is GUI mouse automation — cursor plus `mouse_event` on the recorder window, DPI/focus/timing dependent — and that MuMu exposes no native `.mmor` verb (`MuMuManager.exe` 6.8.9.0: no `mmor`/`script`/`play`), pointing at auto-execute-on-launch + `control launch` and `control tool cmd` as the supported options |

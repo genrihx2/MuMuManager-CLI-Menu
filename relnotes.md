@@ -12,7 +12,8 @@
 
 | Версия | Дата | Примечание |
 |--------|------|------------|
-| v10.4.25 | 2026-11-20 | Latest |
+| v10.4.26 | 2026-11-21 | Latest |
+| v10.4.25 | 2026-11-20 | — |
 | v10.4.24 | 2026-11-20 | — |
 | v10.4.23 | 2026-11-20 | — |
 | v10.4.22 | 2026-11-19 | — |
@@ -22,6 +23,15 @@
 | v10.4.18 | 2026-11-12 | — |
 | v10.4.17 | 2026-11-11 | — |
 | v10.4.16 | 2026-11-06 | — |
+
+## v10.4.26 (2026-11-21)
+
+- Tests: в `tests/mumu-menu.Tests.ps1` добавлен `Describe 'mmor-run.ps1 calibration template'` — десять тестов на генератор `mmor-run.json`, который появился в v10.4.25 и до сих пор проверялся только руками. Функции (`Format-MmorNumber`, `Format-MmorPair`, `Read-MmorConfig`, `Write-MmorConfigTemplate`) берутся из настоящего `mmor-run.ps1` через AST, как и остальной набор, поэтому проверки идут офлайн: без эмулятора, без перечисления окон и без кликов.
+- Покрыто поведение шаблона: `recorderButton` подставляется из `kToolMenu.kToolMenuBtn`, а `playButton` и `fileRow` остаются пустыми, `delays` — 2500/800/500; поле `_comment` действительно называет `playButton` и `-Record`; файл пишется UTF-8 **без BOM** с переводом строки в конце.
+- Покрыто и то, что легко сломать при следующей правке: числа форматируются через точку даже в культуре с десятичной запятой (`de-DE`), отсутствующая или одноэлементная пара рендерится как `null`, а не `0,0`; без окна и без базы `recorderButton` тоже `null`; обновление шаблона сохраняет уже снятые `playButton`, `fileRow` и `delays`; свежевыведенный `recorderButton` перекрывает сохранённый; записанное читается обратно через `Read-MmorConfig`.
+- Tests: **341/341** Pester на pwsh и PowerShell 5.1, PSScriptAnalyzer — 0 замечаний по файлу тестов; deployed-layout фикстура (`tests/test-deployed-layout.ps1`) — **337/337** на обоих движках, 4 теста с тегом `RepoFiles` в ней не запускаются по замыслу, пропусков (`Skipped`) нет. Кода и поведения в этом выпуске не менялось.
+
+**EN summary (v10.4.26):** tests only. A new `Describe` in `tests/mumu-menu.Tests.ps1` pins the `mmor-run.json` writer added in v10.4.25, which until now was checked by hand only: `recorderButton` comes from `kToolMenu.kToolMenuBtn`, `playButton` and `fileRow` stay empty, `delays` default to 2500/800/500, the `_comment` field really names `playButton` and `-Record`, and the file is written as UTF-8 without a BOM with a trailing newline. It also pins what is easy to break next: numbers keep a dot even under a comma-decimal culture (`de-DE`), a missing or single-element pair renders as `null` rather than `0,0`, a missing window leaves `recorderButton` `null`, a refresh keeps the captured `playButton`/`fileRow`/`delays`, a freshly derived `recorderButton` wins over the stored one, and the result round-trips through `Read-MmorConfig`. The functions are AST-extracted from the real script, so the suite stays offline - no emulator, no window enumeration, no clicks. Tests 341/341 on pwsh and PowerShell 5.1, PSScriptAnalyzer 0 findings, and 337/337 in the deployed-layout fixture on both engines (4 `RepoFiles`-tagged tests are not run there by design; nothing is skipped). No code or behaviour changes.
 
 ## v10.4.25 (2026-11-20)
 
