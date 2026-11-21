@@ -5418,6 +5418,37 @@ $line                                        " -NoNewline
     return $false
 }
 
+function Get-MumuLaunchFailureHint {
+    # MuMu refuses a VM start with its own sentence and nothing else:
+    # 'Startup failed: An abnormal runtime environment was detected'. That is
+    # its virtualization check failing (VT-x off, or taken by Hyper-V/VBS and
+    # Core Isolation), not a broken instance, and the emulator names none of
+    # it - so the menu adds the checks it leaves out. Output it cannot explain
+    # yields no hint: guessing a cause is worse than the bare failure.
+    param([string]$Text)
+    if (-not $Text) { return @() }
+    if ($Text -match '(?i)abnormal runtime environment') {
+        return @(
+            'MuMu refused to start the VM: its runtime environment check failed.'
+            'Check VT-x/AMD-V - Task Manager > Performance > CPU should show Virtualization: Enabled.'
+            'Turn off Hyper-V, Windows Hypervisor Platform and Virtual Machine Platform, and Core Isolation > Memory integrity, then reboot.'
+        )
+    }
+    if ($Text -match '(?i)\bHyper-V\b|virtuali[sz]ation (is )?(off|disabled|not enabled)') {
+        return @('MuMu named a virtualization conflict - turn off Hyper-V/VBS and Core Isolation > Memory integrity, then reboot.')
+    }
+    return @()
+}
+
+function Write-MumuLaunchFailureHint {
+    # Action-screen wrapper: hints take the yellow '!' marker, so they read as
+    # advice rather than as another failure line.
+    param([string]$Text)
+    foreach ($line in @(Get-MumuLaunchFailureHint -Text $Text)) {
+        Write-ScreenNote -Text $line -Tone Yellow
+    }
+}
+
 function Show-InstanceInfo {
     # Was a raw JSON dump; now the same data as an aligned table, with every
     # field the manager reports - curated ones first, the rest sorted below.
@@ -5496,12 +5527,24 @@ function Start-Emulator {
     # --- launch ---
     Write-ScreenStatus -State 'STOPPED ○' -Tone DarkGray -Detail 'launching...'
     Write-Host ''
-    & $MumuPath api -v $index launch_player 2>&1 | ForEach-Object { Write-Host "    $_" }
+    # Keep the reply: MuMu states a refused start there, and that sentence is
+    # the only clue for the hint below (the info query just says stopped).
+    $launchOut = @(& $MumuPath api -v $index launch_player 2>&1)
+    $launchText = $launchOut -join "`n"
+    $launchOut | ForEach-Object { Write-Host "    $_" }
+
+    if ($launchText -match '(?i)abnormal runtime environment') {
+        Write-ScreenNote -Text 'The VM did not start - MuMu rejected its runtime environment.' -Tone Red
+        Write-MumuLaunchFailureHint -Text $launchText
+        Write-Host ''
+        return
+    }
 
     Write-ScreenStep -Text 'Waiting for Android boot (up to 120 s)...'
     $ok = Wait-Boot -Index $index
     if (-not $ok) {
         Write-ScreenNote -Text 'Boot did not complete - check [1] instance info.' -Tone Red
+        Write-MumuLaunchFailureHint -Text $launchText
         Write-Host ''
         return
     }
@@ -5596,12 +5639,22 @@ function Restart-Emulator {
     Start-Sleep -Seconds 5
 
     Write-ScreenStep -Text 'Launching...'
-    & $MumuPath api -v $index launch_player 2>&1 | ForEach-Object { Write-Host "    $_" }
+    $launchOut = @(& $MumuPath api -v $index launch_player 2>&1)
+    $launchText = $launchOut -join "`n"
+    $launchOut | ForEach-Object { Write-Host "    $_" }
+
+    if ($launchText -match '(?i)abnormal runtime environment') {
+        Write-ScreenNote -Text 'The VM did not start - MuMu rejected its runtime environment.' -Tone Red
+        Write-MumuLaunchFailureHint -Text $launchText
+        Write-Host ''
+        return
+    }
 
     Write-ScreenStep -Text 'Waiting for Android boot (up to 120 s)...'
     $ok = Wait-Boot -Index $index
     if (-not $ok) {
         Write-ScreenNote -Text 'Boot did not complete - check [1] instance info.' -Tone Red
+        Write-MumuLaunchFailureHint -Text $launchText
         Write-Host ''
         return
     }
@@ -13584,7 +13637,14 @@ function Start-InstanceSet {
     # Wait-Boot draws a progress bar and stops at the first timeout; a batch
     # run needs one quiet poll over the whole set.
     param([string[]]$Indices, [int]$TimeoutSec = 120, [int]$IntervalSec = 3)
-    foreach ($idx in $Indices) { & $MumuPath control -v $idx launch 2>&1 | Out-Null }
+    # Keep the launch replies for Invoke-BatchAction: a refused start says so
+    # there, while the poll below only ever sees "still not booted".
+    $launchText = ''
+    foreach ($idx in $Indices) {
+        $out = @(& $MumuPath control -v $idx launch 2>&1)
+        $launchText += (($out -join "`n") + "`n")
+    }
+    $script:LastLaunchText = $launchText
     $pending = New-Object System.Collections.Generic.List[string]
     foreach ($i in $Indices) { $pending.Add($i) }
     $elapsed = 0
@@ -13720,6 +13780,11 @@ function Invoke-BatchAction {
             }
         }
         Write-Host ("{0}: {1} ok, {2} failed" -f $Action, ($results.Count - $failed.Count), $failed.Count)
+        if ($failed.Count -gt 0 -and ($Action -eq 'launch' -or $Action -eq 'restart')) {
+            foreach ($line in @(Get-MumuLaunchFailureHint -Text $script:LastLaunchText)) {
+                Write-Host ("  ! {0}" -f $line) -ForegroundColor Yellow
+            }
+        }
     }
     # The code travels through a script variable, not the pipeline: -Json
     # writes an object to the success stream, and a returned number would be

@@ -46,7 +46,8 @@ BeforeAll {
                         'Get-MuMuOrphanInstanceDirs',
                         'Get-AuthenticodeSignerName', 'Get-MuMuInstallDrift', 'Switch-MuMuActiveInstall',
                         'Resolve-MuMuInstall', 'Update-MumuInstallState',
-                        'Stop-Logcat', 'Show-MumuOfflineInstallers', 'Resolve-InstallerThumbprint')) {
+                        'Stop-Logcat', 'Show-MumuOfflineInstallers', 'Resolve-InstallerThumbprint',
+                        'Get-MumuLaunchFailureHint')) {
         $f = $script:ast.FindAll({
             param($node)
             $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -5089,5 +5090,60 @@ Describe 'mmor-run.ps1 (native .mmor driver)' {
         $write = $script:mmorText.IndexOf('Write-MmorConfigTemplate -Path')
         $guard | Should -BeGreaterThan 0
         $write | Should -BeGreaterThan $guard
+    }
+}
+
+Describe 'Get-MumuLaunchFailureHint (MuMu startup refusal)' {
+
+    It 'explains the runtime-environment refusal instead of only echoing it' {
+        # Live report: a launch ended with MuMu's own 'Startup failed: An
+        # abnormal runtime environment was detected'. The emulator names no
+        # cause, so the hint has to carry the checks a user can act on.
+        $hints = @(Get-MumuLaunchFailureHint -Text 'Startup failed: An abnormal runtime environment was detected')
+        $hints.Count | Should -Be 3
+        $joined = $hints -join ' '
+        $joined | Should -Match 'runtime environment check failed'
+        $joined | Should -Match 'VT-x'
+        $joined | Should -Match 'Hyper-V'
+        $joined | Should -Match 'Core Isolation'
+    }
+
+    It 'matches the sentence in any case and anywhere in the reply' {
+        @(Get-MumuLaunchFailureHint -Text "player exited`r`nSTARTUP FAILED: AN ABNORMAL RUNTIME ENVIRONMENT WAS DETECTED IN 15").Count | Should -Be 3
+    }
+
+    It 'names Hyper-V when the emulator does' {
+        $hints = @(Get-MumuLaunchFailureHint -Text 'Please disable Hyper-V and retry')
+        $hints.Count | Should -Be 1
+        $hints[0] | Should -Match 'Hyper-V'
+    }
+
+    It 'stays silent on output it cannot explain' {
+        # A guessed cause would be worse than the bare failure line.
+        @(Get-MumuLaunchFailureHint -Text 'launch_player: errcode 0').Count | Should -Be 0
+        @(Get-MumuLaunchFailureHint -Text '').Count | Should -Be 0
+        @(Get-MumuLaunchFailureHint -Text $null).Count | Should -Be 0
+    }
+
+    It 'is wired into both interactive launches and the batch launch path' {
+        $source = {
+            param($name)
+            ($script:ast.FindAll({
+                param($node)
+                $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
+            }, $true) | Select-Object -First 1).Extent.Text
+        }
+        foreach ($name in @('Start-Emulator', 'Restart-Emulator')) {
+            $text = & $source $name
+            # The reply is kept, a refused start returns before the 120 s wait,
+            # and a boot timeout still explains itself.
+            ($text -match '\$launchOut = @\(& \$MumuPath api -v \$index launch_player 2>&1\)') | Should -BeTrue
+            ($text -match 'if \(\$launchText -match ''\(\?i\)abnormal runtime environment''\) \{') | Should -BeTrue
+            ($text -match 'Write-MumuLaunchFailureHint -Text \$launchText') | Should -BeTrue
+        }
+        $batch = & $source 'Start-InstanceSet'
+        ($batch -match '\$script:LastLaunchText = \$launchText') | Should -BeTrue
+        $invoke = & $source 'Invoke-BatchAction'
+        ($invoke -match 'Get-MumuLaunchFailureHint -Text \$script:LastLaunchText') | Should -BeTrue
     }
 }
