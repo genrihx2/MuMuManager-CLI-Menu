@@ -183,6 +183,17 @@ mumu-menu.cmd
 
 ## Что нового
 
+### v10.4.27 (21.11.2026)
+
+- Fixed: `[OI]` «Offline installers (all versions, read-only)» снова показывает список на сетях, где не открывается `www.mumuplayer.com`. Экран был пустым по двум причинам: функция возвращалась сразу после неудачной загрузки страницы релиза, а HEAD через `Invoke-WebRequest` не отдаёт `Location` при `-MaximumRedirection 0` (5.1 бросает `InvalidOperationException` вообще без `Response`, 7 отдаёт `HttpResponseMessage` с пустым `Headers['Location']`), тогда как автопереход по 302 на CDN виснет до таймаута.
+- Резолверы переписаны на сырой `HttpClient`: `AllowAutoRedirect = $false`, браузерный `User-Agent` (без него CDN принимает соединение и не отвечает), таймаут поднят с 8 до 12 с, `Location` разбирается вручную и передаётся в запрос за именем и размером файла.
+- Страница релиза стала необязательным источником: если она недоступна, печатается предупреждение со ссылкой, а список из API-резолверов остаётся.
+- APK проверяется на обоих CDN-хостах (`a11.gdl.easebar.com`, `a11.gdl.netease.com`), у архива — один HEAD на базовый хост и затем документированный шаблон путей вместо трёх таймаутов.
+- Функция остаётся read-only: только HEAD-запросы и вывод, без загрузок и записи.
+- Tests: 342/342 Pester на pwsh и PowerShell 5.1, PSScriptAnalyzer — 0 замечаний; добавлен тест `keeps listing when the release page is unreachable`. Живой прогон на этой сети перечисляет Windows `MuMu_6.0.2_1329zT3C.exe` (6 102 432 Б) и macOS `MuMuPlayer_1.9.15_default_1329Ay2C.dmg` (761 308 578 Б) и честно помечает недоступные APK и `down.mumuplayer.com`.
+
+**EN summary (v10.4.27):** `[OI]` («Offline installers (all versions, read-only)») listed nothing on networks that cannot open `www.mumuplayer.com`. The release page used to be mandatory, so its failure ended the function, and the Windows link was lost anyway because `Invoke-WebRequest` cannot report an unfollowed redirect: PowerShell 5.1 throws without any response, 7 returns a response whose `Location` header reads empty, while following the 302 to the CDN hangs until the timeout. The resolvers now issue a raw `HttpClient` HEAD with `AllowAutoRedirect` off and a browser `User-Agent` (the CDN accepts the connection but never answers without one), a 12 s deadline instead of 8, and follow `Location` by hand. The release page is an optional source now: an unreachable page prints a warning with a link and the resolver listing survives. The APK is probed on both CDN hostnames and the archive costs one HEAD on the base host followed by the documented path template instead of three timeouts. Discovery stays read-only - HEAD requests and printing only. Tests 342/342 on pwsh and PowerShell 5.1, PSScriptAnalyzer 0 findings, plus a new `keeps listing when the release page is unreachable` test; a live run lists the Windows exe and the macOS dmg and marks the unreachable APK and `down.mumuplayer.com` as such.
+
 ### v10.4.26 (21.11.2026)
 
 - Tests: новый `Describe` в `tests/mumu-menu.Tests.ps1` покрывает генератор `mmor-run.json` из v10.4.25 — `recorderButton` из `kToolMenu.kToolMenuBtn`, пустые `playButton`/`fileRow`, дефолтные `delays`, точку как десятичный разделитель даже в `de-DE`, отсутствующую пару как `null`, UTF-8 без BOM, сохранение уже снятых пар при обновлении и round-trip через `Read-MmorConfig`. Функции берутся из `mmor-run.ps1` через AST, поэтому набор идёт без эмулятора и без кликов. Tests 341/341 Pester на pwsh и 5.1, deployed-layout 337/337, PSScriptAnalyzer — 0 замечаний.
@@ -451,6 +462,7 @@ mumu-menu.cmd
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v10.4.27 | 21.11.2026 | Fix `[OI]`: the listing is empty on networks that cannot open `www.mumuplayer.com` — the release page is optional now, and the resolvers use a raw `HttpClient` HEAD with `AllowAutoRedirect = $false`, a browser `User-Agent` and a 12 s timeout because `Invoke-WebRequest` cannot report an unfollowed redirect and automatic redirects hang on the CDN hop; the APK is probed on both CDN hosts and the archive template follows a single HEAD |
 | v10.4.26 | 21.11.2026 | Tests only: a new `Describe` pins the `mmor-run.json` writer — `recorderButton` from `kToolMenu.kToolMenuBtn`, `playButton`/`fileRow` empty, default `delays`, dot decimals under `de-DE`, missing pair as `null`, UTF-8 without BOM, captured pairs kept on refresh, round-trip through `Read-MmorConfig`; functions are AST-extracted, so the suite runs with no emulator |
 | v10.4.25 | 20.11.2026 | New: `mmor-run.ps1` writes `mmor-run.json` itself — `-EmitConfig` or a run that finds no config produces a template with `recorderButton` derived from `kToolMenu.kToolMenuBtn` (normalized to the instance window), `playButton` left `null` until `-Record`, an explanatory `_comment` field, and captured pairs preserved on refresh |
 | v10.4.24 | 20.11.2026 | Docs only: the `mmor-run.ps1` bullet in the README feature list is shortened to two sentences — `-Apply` is GUI mouse automation (cursor + `mouse_event` on the recorder window) and MuMu has no native `.mmor` verb, with the mode/verb/alternative details moved to `SKILL.md` |

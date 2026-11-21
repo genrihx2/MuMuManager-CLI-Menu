@@ -12,7 +12,8 @@
 
 | Версия | Дата | Примечание |
 |--------|------|------------|
-| v10.4.26 | 2026-11-21 | Latest |
+| v10.4.27 | 2026-11-21 | Latest |
+| v10.4.26 | 2026-11-21 | — |
 | v10.4.25 | 2026-11-20 | — |
 | v10.4.24 | 2026-11-20 | — |
 | v10.4.23 | 2026-11-20 | — |
@@ -23,6 +24,17 @@
 | v10.4.18 | 2026-11-12 | — |
 | v10.4.17 | 2026-11-11 | — |
 | v10.4.16 | 2026-11-06 | — |
+
+## v10.4.27 (2026-11-21)
+
+- Fixed: `[OI]` «Offline installers (all versions, read-only)» снова показывает список на сетях, где не открывается `www.mumuplayer.com`. Раньше экран был пустым: страница релиза была обязательной, и функция возвращалась сразу после её неудачной загрузки; ссылка на Windows терялась и по второй причине — HEAD через `Invoke-WebRequest` не отдаёт `Location` при `-MaximumRedirection 0` (5.1 бросает `InvalidOperationException` вообще без `Response`, 7 отдаёт `HttpResponseMessage` с пустым `Headers['Location']`), а автопереход по 302 на CDN виснет до таймаута.
+- Резолверы переписаны на сырой `HttpClient`: `AllowAutoRedirect = $false`, браузерный `User-Agent` (без него CDN принимает соединение и не отвечает), таймаут поднят с 8 до 12 с. `Location` разбирается вручную и передаётся в запрос за именем файла (из `Content-Disposition`) и размером, поэтому бейджи `name:`/`size:` снова появляются, а не только голая ссылка.
+- Страница релиза стала необязательным источником: при недоступности печатается предупреждение со ссылкой на `www.mumuplayer.com/update/`, а список из API-резолверов остаётся на экране. Ранний `return` убран.
+- APK проверяется на обоих CDN-хостах (`a11.gdl.easebar.com` и `a11.gdl.netease.com`): раньше проверялся только один, и на сети, где он не отвечает, пункт выглядел отсутствующим. У архива — один HEAD на базовый хост, затем документированный шаблон путей, то есть без трёх последовательных таймаутов.
+- Функция остаётся read-only: только HEAD-запросы и вывод, без загрузки и записи файлов; тесты по-прежнему требуют отсутствия `Invoke-RestMethod`, `MumuManager` и `adb` в теле функции.
+- Tests: **342/342** Pester на pwsh и PowerShell 5.1, PSScriptAnalyzer — 0 замечаний, разбор скрипта без ошибок в обоих движках, `mumu-menu.ps1` и набор тестов остаются с UTF-8 BOM и LF. Добавлен тест `keeps listing when the release page is unreachable`; два существующих обновлены под контракт HEAD (`HttpMethod]::Head`, `AllowAutoRedirect = $false`, `TryAddWithoutValidation('User-Agent'`, оба APK-хоста). Живой прогон на этой сети: Windows `MuMu_6.0.2_1329zT3C.exe` (6 102 432 Б) и macOS `MuMuPlayer_1.9.15_default_1329Ay2C.dmg` (761 308 578 Б) перечисляются, APK и `down.mumuplayer.com` недоступны и честно помечены.
+
+**EN summary (v10.4.27):** `[OI]` («Offline installers (all versions, read-only)») listed nothing on networks that cannot open `www.mumuplayer.com`. The release page was mandatory, so its failure ended the function before the resolvers ran; the Windows link was lost anyway, because `Invoke-WebRequest` cannot report an unfollowed redirect - PowerShell 5.1 throws with no response at all, 7 returns an `HttpResponseMessage` whose `Location` header reads empty - and following the 302 to the CDN automatically hangs until the timeout. The resolvers now build a raw `HttpClient` HEAD with `AllowAutoRedirect = $false` and a browser `User-Agent` (without it the CDN accepts the connection and never answers), raise the deadline from 8 s to 12 s, and follow `Location` by hand for the `Content-Disposition` name and the length, so the `name:`/`size:` badges are back instead of a bare link. The release page is optional now: an unreachable page prints a warning with a link and the resolver listing stays. The APK is probed on both CDN hostnames instead of one, and the archive costs a single HEAD on the base host followed by the documented path template rather than three timeouts. Discovery remains read-only - HEAD requests and printing only, and the tests still forbid `Invoke-RestMethod`, `MumuManager` and `adb` in the function body. Tests 342/342 on pwsh and PowerShell 5.1, PSScriptAnalyzer 0 findings, parse clean on both engines; a new `keeps listing when the release page is unreachable` test came with two updated ones, and a live run lists the Windows exe (6,102,432 bytes) and the macOS dmg (761,308,578 bytes) while marking the unreachable APK and `down.mumuplayer.com` as such.
 
 ## v10.4.26 (2026-11-21)
 
