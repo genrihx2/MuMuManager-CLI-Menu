@@ -49,7 +49,7 @@ param(
 # Version header. Kept up here on purpose: tests/test-changelog-sync.ps1
 # scans the first 320 lines of this file for $scriptVer, so moving it below
 # that window makes the release gate report "scriptVer = NOT FOUND".
-$scriptVer = '10.4.28'
+$scriptVer = '10.4.29'
 
 function Repair-DesktopModulePath {
     # Fixes PowerShell/PowerShell#18530: when Windows PowerShell 5.1 (Desktop)
@@ -127,10 +127,28 @@ if ($PSVersionTable.PSEdition -eq 'Desktop') {
 #          uploads use curl.exe multipart, the MIME literal is gone.
 #
 # Rule: Suspicious Process Discovery With Get-Process (frack113)
-# Trigger: Get-Process -Name 'MuMu*' status check
+# Trigger: Get-Process -Name 'MuMu*' status check, plus Get-Process -Id
+#          when [WN] reads one updater's EXE path
 # Context: Name-filtered, read-only check whether MuMu emulator
-#          processes are running - the core purpose of the tool. No
-#          enumeration of arbitrary system processes, no injection.
+#          processes are running - the core purpose of the tool - and a
+#          single -Id lookup for a PID that table already produced. No
+#          enumeration of arbitrary system processes, no -IncludeUserName,
+#          no command lines, no injection.
+#
+# Rule: Dynamic CSharp Compile Artefact (frack113)
+# Trigger: Add-Type -TypeDefinition emits a .cmdline/scratch pair in
+#          %TEMP% (5.1 shells out to the .NET Framework csc.exe)
+# Context: Two small in-memory helper classes, declared as C# source in
+#          this file and compiled once per session:
+#            MuMuMenuCtrlCGuard - a CancelKeyPress delegate that swallows
+#              Ctrl+C so it never kills the menu / live logcat stream;
+#            MuMuWindowGrid  - user32 EnumWindows/GetWindowRect/SetWindowPos
+#              P/Invokes for the [L] window layout.
+#          Nothing is downloaded, nothing is loaded from a path, and no
+#          assembly is dropped next to the script: the compiler's scratch
+#          files live in %TEMP% and the type exists only in this process.
+#          That is also the source of the %TEMP% .dll/.cmdline a scanner
+#          reports as "dropped" - it is csc's own artefact, not a payload.
 #
 # Rule: Windows_API_Function (InQuest YARA)
 # Trigger: Generic string match on Windows API function names in any

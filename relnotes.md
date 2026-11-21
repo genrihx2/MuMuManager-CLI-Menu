@@ -12,7 +12,8 @@
 
 | Версия | Дата | Примечание |
 |--------|------|------------|
-| v10.4.28 | 2026-11-21 | Latest |
+| v10.4.29 | 2026-11-21 | Latest |
+| v10.4.28 | 2026-11-21 | — |
 | v10.4.27 | 2026-11-21 | — |
 | v10.4.26 | 2026-11-21 | — |
 | v10.4.25 | 2026-11-20 | — |
@@ -25,6 +26,19 @@
 | v10.4.18 | 2026-11-12 | — |
 | v10.4.17 | 2026-11-11 | — |
 | v10.4.16 | 2026-11-06 | — |
+
+## v10.4.29 (2026-11-21)
+
+- Docs+hardening: шапки вспомогательных скриптов приведены к тому, что код реально делает, и там, где скрипт пишет на диск, появился режим без записи:
+  - `Watch-MumuConnections.ps1` — «Read-only for the network stack» и `-NoLog`; единственная запись идёт через `Add-WatchLine`, при `-NoLog` не создаётся даже сам файл лога.
+  - `Diag-MumuNx.ps1` — убрано обещание «WHOIS-lite» (код делает только reverse-DNS PTR); сказано, что отчёт пишется в `%PUBLIC%` и его может прочитать любой локальный пользователь; добавлен `-NoFile`: вывод только в консоль.
+  - `Test-MumuTunnelAB.ps1` — заявка «READ-ONLY» сужена до сетевого стека и перечислены реальные файлы (`snapshot-*.json`, `diff-<A>-vs-<B>.txt` в `%TEMP%\mumu-ab`); добавлен `-NoSave`: снимок и отчёт остаются в памяти, каталог не создаётся.
+  - `mmor-run.ps1` — шапка объясняет, что C#-хелпер компилируется `Add-Type` (csc.exe на 5.1, в памяти на 7) и не скачивается как DLL, а единственная запись — файл калибровки `mmor-run.json`; добавлен `-NoWrite`.
+  - `bootstrap-update.ps1` — загрузка по `https://` запинена на HTTPS (`--proto '=https' --proto-redir '=https'`), `file://`-фикстуры не затронуты; в шапке сказано, что переподпись использует существующий сертификат и никогда не пишет в хранилища Root/CA/AuthRoot.
+- `mumu-menu.ps1`: в блок SIGMA RULE EXCLUSIONS добавлено правило `Dynamic CSharp Compile Artefact` — описаны оба класса из `Add-Type` (`MuMuMenuCtrlCGuard` для Ctrl+C, `MuMuWindowGrid` для сетки окон `[L]`) и то, что `%TEMP%`-артефакты создаёт сам компилятор. Правило `Suspicious Process Discovery With Get-Process` уточнено: кроме `-Name 'MuMu*'` есть один `-Id`-запрос за путём EXE апдейтера, без перечисления чужих процессов.
+- Tests: **355/355** Pester на pwsh и PowerShell 5.1, PSScriptAnalyzer — 0 замечаний, `test-changelog-sync.ps1` и `test-dependency-overrides.ps1` зелёные. Новые тесты держат `-NoLog`/`-NoFile`/`-NoSave`/`-NoWrite` и точность формулировок в шапках.
+
+**EN summary (v10.4.29):** the helper-script headers now say what the code actually does, and every script that writes to disk gained a no-write mode. `Watch-MumuConnections.ps1` scopes its read-only claim to the network stack and adds `-NoLog` (the only write is `Add-WatchLine`; with `-NoLog` even the log file is not created). `Diag-MumuNx.ps1` drops the unearned "WHOIS-lite" claim for the reverse-DNS (PTR) lookup it really performs, says the `%PUBLIC%` report is readable by every local user, and adds `-NoFile`. `Test-MumuTunnelAB.ps1` narrows its read-only claim to the network stack, lists the snapshot and diff files it writes under `%TEMP%\mumu-ab`, and adds `-NoSave`, which keeps the snapshot and report in memory. `mmor-run.ps1` explains that its C# helper is compiled by `Add-Type` (csc.exe on 5.1, in memory on 7) rather than downloaded as a DLL, names `mmor-run.json` as its only write, and adds `-NoWrite`. `bootstrap-update.ps1` pins `https://` downloads to HTTPS (`--proto '=https' --proto-redir '=https'`, leaving `file://` fixtures alone) and states that re-signing reuses the existing certificate and never writes to the Root/CA/AuthRoot stores. In `mumu-menu.ps1` the SIGMA RULE EXCLUSIONS block gains the `Dynamic CSharp Compile Artefact` rule, describing both `Add-Type` classes and the compiler's own `%TEMP%` scratch files, and its `Get-Process` note now also covers the single `-Id` lookup for an updater's EXE path. Tests 355/355 on pwsh and PowerShell 5.1, PSScriptAnalyzer 0 findings, changelog-sync and dependency-overrides green.
 
 ## v10.4.28 (2026-11-21)
 
