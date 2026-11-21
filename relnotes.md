@@ -12,7 +12,8 @@
 
 | Версия | Дата | Примечание |
 |--------|------|------------|
-| v10.4.27 | 2026-11-21 | Latest |
+| v10.4.28 | 2026-11-21 | Latest |
+| v10.4.27 | 2026-11-21 | — |
 | v10.4.26 | 2026-11-21 | — |
 | v10.4.25 | 2026-11-20 | — |
 | v10.4.24 | 2026-11-20 | — |
@@ -24,6 +25,15 @@
 | v10.4.18 | 2026-11-12 | — |
 | v10.4.17 | 2026-11-11 | — |
 | v10.4.16 | 2026-11-06 | — |
+
+## v10.4.28 (2026-11-21)
+
+- Fixed: `[OI]` «Offline installers (all versions, read-only)» больше не выдаёт недоступный Android-пакет за найденный файл. Когда ни один из CDN-хостов (`a11.gdl.easebar.com`, `a11.gdl.netease.com`) не вернул ни `Content-Length`, ни дайджеста, печаталась только строка `integrity ... headers did not expose a digest/length for this path`, которую легко прочитать как «файл найден, просто заголовки скупые». Теперь в этом случае выводится явная пометка `APK not reachable from here - no Content-Length or digest came back from either CDN host` — так же честно, как у архива Windows-установщиков (`down.mumuplayer.com`).
+- Прежняя формулировка `integrity` сохранена для случая, когда хост всё же ответил, но только редиректом (`canonical`) или именем файла: путь существует, а длины и хеша в заголовках просто нет — объявлять его недоступным было бы неправдой.
+- Функция по-прежнему read-only: HEAD-запросы и вывод, без загрузок и записи файлов.
+- Tests: **343/343** Pester на pwsh и PowerShell 5.1, PSScriptAnalyzer — 0 замечаний, `test-changelog-sync.ps1` и `test-dependency-overrides.ps1` зелёные, разбор скрипта без ошибок в обоих движках. Добавлен тест `marks the APK as not reachable when neither a length nor a digest came back`: он держит обе ветки — явный маркер недоступности и сохранённую строку `integrity`.
+
+**EN summary (v10.4.28):** `[OI]` no longer presents an unreachable Android package as a found file. When neither CDN host (`a11.gdl.easebar.com`, `a11.gdl.netease.com`) returned a `Content-Length` or a digest, the screen printed only the `integrity ... headers did not expose a digest/length for this path` line, which reads like a file with thin headers. That case now prints `APK not reachable from here - no Content-Length or digest came back from either CDN host`, as plainly as the Windows signing archive already does. The `integrity` wording stays for a host that did answer, but only with a redirect (`canonical`) or a filename: the path exists, the length and hash are just not in the headers. Discovery remains read-only - HEAD requests and printing only. Tests 343/343 on pwsh and PowerShell 5.1, PSScriptAnalyzer 0 findings, changelog-sync and dependency-overrides green, parse clean on both engines; the new test pins both branches.
 
 ## v10.4.27 (2026-11-21)
 

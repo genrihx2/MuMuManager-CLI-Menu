@@ -183,6 +183,14 @@ mumu-menu.cmd
 
 ## Что нового
 
+### v10.4.28 (21.11.2026)
+
+- Fixed: `[OI]` «Offline installers (all versions, read-only)» больше не выдаёт недоступный Android-пакет за найденный файл. Если ни один CDN-хост (`a11.gdl.easebar.com`, `a11.gdl.netease.com`) не вернул ни `Content-Length`, ни дайджеста, печатается только `integrity ... did not expose a digest/length` — это читается как «файл есть, просто заголовки скупые». Теперь такой случай помечен явно: `APK not reachable from here - no Content-Length or digest came back from either CDN host`, как у архива Windows-установщиков.
+- Строка `integrity` осталась для хоста, который всё же ответил, но только редиректом (`canonical`) или именем файла: путь найден, а длины и хеша в заголовках нет.
+- Tests: **343/343** Pester на pwsh и PowerShell 5.1, PSScriptAnalyzer — 0 замечаний; новый тест `marks the APK as not reachable when neither a length nor a digest came back` держит обе ветки.
+
+**EN summary (v10.4.28):** `[OI]` no longer presents an unreachable Android package as a found file. When neither CDN host returned a `Content-Length` or a digest, the screen printed only the `integrity ... did not expose a digest/length` line, which reads like a file with thin headers. That case now says `APK not reachable from here - no Content-Length or digest came back from either CDN host`, as plainly as the Windows signing archive does. The `integrity` wording stays for a host that answered with only a redirect (`canonical`) or a filename: the path exists, the length and hash are just not in the headers. Discovery stays read-only. Tests 343/343 on pwsh and PowerShell 5.1, PSScriptAnalyzer 0 findings, plus the new test pinning both branches.
+
 ### v10.4.27 (21.11.2026)
 
 - Fixed: `[OI]` «Offline installers (all versions, read-only)» снова показывает список на сетях, где не открывается `www.mumuplayer.com`. Экран был пустым по двум причинам: функция возвращалась сразу после неудачной загрузки страницы релиза, а HEAD через `Invoke-WebRequest` не отдаёт `Location` при `-MaximumRedirection 0` (5.1 бросает `InvalidOperationException` вообще без `Response`, 7 отдаёт `HttpResponseMessage` с пустым `Headers['Location']`), тогда как автопереход по 302 на CDN виснет до таймаута.
@@ -462,6 +470,7 @@ mumu-menu.cmd
 
 | Версия | Дата | Изменения |
 |--------|------|-----------|
+| v10.4.28 | 21.11.2026 | Fix `[OI]`: the Android package no longer looks found when neither CDN host answered — a missing `Content-Length`/digest with no redirect or name now prints `APK not reachable from here`, while the `integrity` line stays for a host that answered with only a `canonical` redirect or a filename |
 | v10.4.27 | 21.11.2026 | Fix `[OI]`: the listing is empty on networks that cannot open `www.mumuplayer.com` — the release page is optional now, and the resolvers use a raw `HttpClient` HEAD with `AllowAutoRedirect = $false`, a browser `User-Agent` and a 12 s timeout because `Invoke-WebRequest` cannot report an unfollowed redirect and automatic redirects hang on the CDN hop; the APK is probed on both CDN hosts and the archive template follows a single HEAD |
 | v10.4.26 | 21.11.2026 | Tests only: a new `Describe` pins the `mmor-run.json` writer — `recorderButton` from `kToolMenu.kToolMenuBtn`, `playButton`/`fileRow` empty, default `delays`, dot decimals under `de-DE`, missing pair as `null`, UTF-8 without BOM, captured pairs kept on refresh, round-trip through `Read-MmorConfig`; functions are AST-extracted, so the suite runs with no emulator |
 | v10.4.25 | 20.11.2026 | New: `mmor-run.ps1` writes `mmor-run.json` itself — `-EmitConfig` or a run that finds no config produces a template with `recorderButton` derived from `kToolMenu.kToolMenuBtn` (normalized to the instance window), `playButton` left `null` until `-Record`, an explanatory `_comment` field, and captured pairs preserved on refresh |
