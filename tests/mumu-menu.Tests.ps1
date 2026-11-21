@@ -4876,3 +4876,199 @@ Describe 'mmor-run.ps1 calibration template' {
         $cfg.playButton | Should -BeNullOrEmpty
     }
 }
+
+Describe 'Watch-MumuConnections.ps1 (network watcher)' {
+
+    BeforeAll {
+        $script:watcherPath = Join-Path $PSScriptRoot '..\Watch-MumuConnections.ps1'
+        $script:watcherText = [System.IO.File]::ReadAllText($script:watcherPath)
+
+        # The real cmdlets read this machine's live TCP table and can take tens of
+        # seconds; these tests need one row whose owner matches the watched pattern.
+        function Get-NetTCPConnection {
+            [CmdletBinding()]
+            param()
+            [pscustomobject]@{
+                State         = 'Established'
+                LocalAddress  = '127.0.0.1'
+                LocalPort     = 5000
+                RemoteAddress = '127.0.0.1'
+                RemotePort    = 6000
+                OwningProcess = 4242
+            }
+        }
+        # A Get-Process function stub would override a PowerShell built-in, which
+        # the analyzer forbids; Mock replaces it for this block only and still
+        # exposes the bound -Id as $Id inside the body.
+        Mock Get-Process { [pscustomobject]@{ Id = $Id; ProcessName = 'MuMuPlayer' } }
+    }
+
+    It 'parses without errors and names the one thing it writes' {
+        # A VirusTotal AI review read the old "Read-only" line as misleading: the
+        # script does append a log. The header now says read-only for the network
+        # stack and names the log file, so the claim matches what the code does.
+        $errors = $null
+        $tokens = $null
+        [void][System.Management.Automation.Language.Parser]::ParseFile($script:watcherPath, [ref]$tokens, [ref]$errors)
+        @($errors).Count | Should -Be 0
+        ($script:watcherText -match 'Read-only for the network stack') | Should -BeTrue
+        ($script:watcherText -match '%TEMP%\\mumu-connections\.log') | Should -BeTrue
+        # The start line must scope the read-only claim to the network stack, not to
+        # the disk; it names VPN explicitly. The check anchors on ASCII words on
+        # purpose: Cyrillic literals in a test file survive the console code page
+        # badly, and that mismatch is exactly what a wrong assertion would hide.
+        ($script:watcherText -match "(?m)^Write-Host '.*VPN/") | Should -BeTrue -Because 'the start line must scope the read-only claim to the network stack'
+    }
+
+    It 'routes every write through one guarded helper, so -NoLog cannot be bypassed' {
+        ($script:watcherText -match '\[switch\]\$NoLog') | Should -BeTrue
+        # Exactly one Add-Content CALL (comments may mention it): the one inside
+        # Add-WatchLine behind $NoLog, so no path can write while -NoLog is set.
+        ([regex]::Matches($script:watcherText, '(?m)^\s*Add-Content\b')).Count | Should -Be 1
+        ($script:watcherText -match 'function Add-WatchLine') | Should -BeTrue
+        ($script:watcherText -match 'if \(\$NoLog\) \{ return \}') | Should -BeTrue
+    }
+
+    It 'still appends the start line, the new connection and the stop line by default' {
+        $log = Join-Path $TestDrive 'watcher.log'
+        & $script:watcherPath -MaxTicks 1 -IntervalSec 0 -LogExisting -LogPath $log 6>$null | Out-Null
+
+        $text = Get-Content -LiteralPath $log -Raw
+        $text | Should -Match '# watch start'
+        $text | Should -Match 'MuMuPlayer \(pid 4242\)'
+        $text | Should -Match '127\.0\.0\.1:5000 -> 127\.0\.0\.1:6000'
+        $text | Should -Match '# watch stop'
+    }
+
+    It 'leaves no file behind with -NoLog' {
+        $dir = Join-Path $TestDrive 'nolog'
+        $null = New-Item -ItemType Directory -Path $dir -Force
+        $log = Join-Path $dir 'watcher.log'
+        & $script:watcherPath -MaxTicks 1 -IntervalSec 0 -NoLog -LogPath $log 6>$null | Out-Null
+
+        (Test-Path -LiteralPath $log) | Should -BeFalse -Because '-NoLog must not create the log even when -LogPath is supplied'
+        @(Get-ChildItem -LiteralPath $dir).Count | Should -Be 0
+    }
+}
+
+Describe 'Diag-MumuNx.ps1 (diagnostic snapshot)' {
+
+    BeforeAll {
+        $script:diagPath = Join-Path $PSScriptRoot '..\Diag-MumuNx.ps1'
+        $script:diagText = [System.IO.File]::ReadAllText($script:diagPath)
+    }
+
+    It 'parses without errors on this engine' {
+        $errors = $null
+        $tokens = $null
+        [void][System.Management.Automation.Language.Parser]::ParseFile($script:diagPath, [ref]$tokens, [ref]$errors)
+        @($errors).Count | Should -Be 0
+    }
+
+    It 'states what it writes instead of claiming an unimplemented WHOIS lookup' {
+        # The header promised "WHOIS-lite owner info", but the code only ever did a
+        # PTR lookup; a VirusTotal AI review repeated the claim as a capability.
+        # The header now matches the code and names the %PUBLIC% report as the
+        # only write, since that file is readable by every local user.
+        ($script:diagText -match 'WHOIS-lite') | Should -BeFalse
+        ($script:diagText -match 'no WHOIS service') | Should -BeTrue
+        ($script:diagText -match 'Resolve-DnsName') | Should -BeTrue
+        ($script:diagText -match 'reverse-DNS \(PTR\)') | Should -BeTrue
+        ($script:diagText -match '%PUBLIC%\\MuMuNx-<timestamp>\.txt') | Should -BeTrue
+        ($script:diagText -match 'every\s+local user can read') | Should -BeTrue
+    }
+
+    It 'offers -NoFile and keeps its single write inside the other branch' {
+        ($script:diagText -match '\[switch\]\$NoFile') | Should -BeTrue
+        # One Set-Content call, and it has to come after the $NoFile branch, so a
+        # console-only run cannot create the report through a second write path.
+        # The write is piped into Set-Content, so it is not at the start of a line.
+        ([regex]::Matches($script:diagText, 'Set-Content')).Count | Should -Be 1
+        $branch = $script:diagText.IndexOf('if ($NoFile) {')
+        $write = $script:diagText.IndexOf('Set-Content')
+        $branch | Should -BeGreaterThan 0
+        $write | Should -BeGreaterThan $branch
+    }
+}
+
+Describe 'Test-MumuTunnelAB.ps1 (A/B snapshot diagnostic)' {
+
+    BeforeAll {
+        $script:abPath = Join-Path $PSScriptRoot '..\Test-MumuTunnelAB.ps1'
+        $script:abText = [System.IO.File]::ReadAllText($script:abPath)
+    }
+
+    It 'parses without errors and scopes the read-only claim to the network' {
+        # "READ-ONLY" alone read as "touches nothing", while the script stores a
+        # JSON snapshot and a TXT diff per run. The header now scopes the claim
+        # to the network stack and names those files.
+        $errors = $null
+        $tokens = $null
+        [void][System.Management.Automation.Language.Parser]::ParseFile($script:abPath, [ref]$tokens, [ref]$errors)
+        @($errors).Count | Should -Be 0
+        ($script:abText -match 'READ-ONLY for the network stack') | Should -BeTrue
+        ($script:abText -match 'WRITE FILES') | Should -BeTrue
+        ($script:abText -match 'snapshot-<label>\.json') | Should -BeTrue
+        ($script:abText -match '%TEMP%\\mumu-ab') | Should -BeTrue
+        ($script:abText -match 'diff-<A>-vs-<B>\.txt') | Should -BeTrue
+    }
+
+    It 'offers -NoSave and keeps both writes inside its guards' {
+        ($script:abText -match '\[switch\]\$NoSave') | Should -BeTrue
+        # One directory creation and two writes (snapshot JSON, diff TXT); each
+        # sits behind its own -NoSave guard, so there is no unguarded path.
+        ([regex]::Matches($script:abText, '\bNew-Item\b')).Count | Should -Be 1
+        ([regex]::Matches($script:abText, '\bSet-Content\b')).Count | Should -Be 2
+        $guard = $script:abText.IndexOf('if (-not $NoSave) {')
+        $firstWrite = $script:abText.IndexOf('Set-Content')
+        $guard | Should -BeGreaterThan 0
+        $firstWrite | Should -BeGreaterThan $guard
+        ($script:abText.IndexOf('New-Item')) | Should -BeGreaterThan $guard
+        # The diff guard is the last one and must precede the diff write.
+        $lastGuard = $script:abText.LastIndexOf('if (-not $NoSave) {')
+        $lastWrite = $script:abText.LastIndexOf('Set-Content')
+        $lastGuard | Should -BeGreaterThan $guard
+        $lastWrite | Should -BeGreaterThan $lastGuard
+    }
+
+    It 'captures in memory with -NoSave and creates no directory' {
+        $dir = Join-Path $TestDrive 'nosave'
+        $out = & $script:abPath -Capture -Label A -NoOwnerLookup -NoSave -SnapDir $dir 6>&1
+        (Test-Path -LiteralPath $dir) | Should -BeFalse -Because '-NoSave must not create the snapshot directory'
+        ($out -join "`n") | Should -Match 'snapshot \[A\]'
+    }
+}
+
+Describe 'mmor-run.ps1 (native .mmor driver)' {
+
+    BeforeAll {
+        $script:mmorPath = Join-Path $PSScriptRoot '..\mmor-run.ps1'
+        $script:mmorText = [System.IO.File]::ReadAllText($script:mmorPath)
+    }
+
+    It 'parses without errors and explains the C# compile instead of a dropped DLL' {
+        # A VirusTotal review flagged csc.exe and a random DLL in %TEMP%; the only
+        # C# here is the Add-Type source for the simple user32 calls. The header
+        # now says so, so the compile no longer reads as a payload.
+        $errors = $null
+        $tokens = $null
+        [void][System.Management.Automation.Language.Parser]::ParseFile($script:mmorPath, [ref]$tokens, [ref]$errors)
+        @($errors).Count | Should -Be 0
+        ($script:mmorText -match 'compiled here, not downloaded') | Should -BeTrue
+        ($script:mmorText -match 'csc\.exe') | Should -BeTrue
+        ($script:mmorText -match '%TEMP%') | Should -BeTrue
+        ($script:mmorText -match 'no DLL is fetched from the network') | Should -BeTrue
+        ([regex]::Matches($script:mmorText, 'Add-Type -TypeDefinition')).Count | Should -Be 1
+    }
+
+    It 'names the calibration file as its only write and offers -NoWrite' {
+        ($script:mmorText -match '\[switch\]\$NoWrite') | Should -BeTrue
+        # One file write, and it happens only through Write-MmorConfigTemplate,
+        # which the -NoWrite branch skips entirely.
+        ([regex]::Matches($script:mmorText, 'WriteAllText')).Count | Should -Be 1
+        $guard = $script:mmorText.IndexOf('if ($NoWrite -and')
+        $write = $script:mmorText.IndexOf('Write-MmorConfigTemplate -Path')
+        $guard | Should -BeGreaterThan 0
+        $write | Should -BeGreaterThan $guard
+    }
+}

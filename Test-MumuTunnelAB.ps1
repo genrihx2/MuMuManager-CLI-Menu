@@ -5,9 +5,20 @@
     to see exactly what changes when the VPN/accelerator tunnel is toggled.
 
 .DESCRIPTION
-    READ-ONLY. The script NEVER enables/disables adapters, NEVER edits routes,
-    proxies or VPN settings. You toggle the tunnel manually between snapshots;
-    the script only records and compares.
+    READ-ONLY for the network stack. The script NEVER enables/disables
+    adapters, NEVER edits routes, proxies, VPN settings or the registry. You
+    toggle the tunnel manually between snapshots; the script only records and
+    compares.
+
+    It does WRITE FILES - nothing else:
+      - every -Capture / -Watch run stores one snapshot per label as
+        snapshot-<label>.json in the snapshot directory
+        (default: %TEMP%\mumu-ab, override with -SnapDir);
+      - -Compare / -Watch store the diff report as diff-<A>-vs-<B>.txt there.
+    Those JSON and TXT files are the only writes. -NoSave keeps the run in
+    memory: nothing is written, the snapshot directory is not even created,
+    and the report is printed instead of saved. -Clean is an explicit delete
+    and therefore ignores -NoSave.
 
     One snapshot captures:
       - TCP connections of MuMu processes (MuMu*) with resolved owner names
@@ -63,6 +74,10 @@
 .PARAMETER Clean
     Delete all stored snapshots.
 
+.PARAMETER NoSave
+    Do not write anything: no snapshot JSON, no diff TXT, and the snapshot
+    directory is not created. The snapshot and the report are printed only.
+
 .PARAMETER SnapDir
     Directory for snapshots. Default: %TEMP%\mumu-ab
 
@@ -87,7 +102,10 @@ param(
     [switch]$Clean,
     [switch]$NoOwnerLookup,
     [string]$SnapDir = (Join-Path -Path $env:TEMP -ChildPath 'mumu-ab'),
-    [int]$IntervalSec = 2
+    [int]$IntervalSec = 2,
+
+    # Keep the run in memory: no snapshot JSON, no diff TXT, no directory.
+    [switch]$NoSave
 )
 
 Set-StrictMode -Version Latest
@@ -274,8 +292,10 @@ function New-Snapshot {
         TunnelWarning = $(if ($NoOwner) { '' } else { $owner.Warning })
     }
 
-    if (-not (Test-Path $SnapDir)) { $null = New-Item -ItemType Directory -Path $SnapDir -Force }
-    $snap | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Get-SnapshotPath $Name) -Encoding UTF8
+    if (-not $NoSave) {
+        if (-not (Test-Path $SnapDir)) { $null = New-Item -ItemType Directory -Path $SnapDir -Force }
+        $snap | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Get-SnapshotPath $Name) -Encoding UTF8
+    }
     return $snap
 }
 
@@ -374,10 +394,16 @@ function Write-SavedReport {
     param($A, $B, [string]$Suffix)
     $report = Write-Diff -A $A -B $B
     $reportPath = Join-Path -Path $SnapDir -ChildPath ('diff-{0}.txt' -f $Suffix)
-    $report | Set-Content -LiteralPath $reportPath -Encoding UTF8
+    if (-not $NoSave) {
+        $report | Set-Content -LiteralPath $reportPath -Encoding UTF8
+    }
     $report | ForEach-Object { Write-Host $_ }
     Write-Host ''
-    Write-Host ('Отчёт сохранён: ' + $reportPath)
+    if ($NoSave) {
+        Write-Host ('Отчёт не сохранён (-NoSave): ' + $reportPath)
+    } else {
+        Write-Host ('Отчёт сохранён: ' + $reportPath)
+    }
 }
 
 if ($Clean) {
@@ -451,4 +477,4 @@ if ($Capture) {
     return
 }
 
-Write-Host 'Укажите режим: -Capture -Label A [-NoOwnerLookup] | -List | -Compare A,B | -Watch | -Clean'
+Write-Host 'Укажите режим: -Capture -Label A [-NoOwnerLookup] [-NoSave] | -List | -Compare A,B [-NoSave] | -Watch | -Clean'

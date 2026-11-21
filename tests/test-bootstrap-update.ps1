@@ -771,6 +771,22 @@ try {
     Assert-True -Name 'no bare \$token = $null in code (shadowing regression)' -Condition (((($bRaw -split "\r?\n") | Where-Object { $_ -notmatch '^\s*#' -and $_ -notmatch '^\$token\s*=\s*\$null\s*$' }) -join "`n") -notmatch '(?<!script:)\$token\s*=\s*\$null') -Detail 'a function-local assignment still shadows the script variable (comments and top-level init excluded)'
     Assert-True -Name 'fallback explains how to restore the token' -Condition ($bRaw -match 're-save via mumu-menu \[K\] \(DPAPI\) or use -NoAuth') -Detail 'restore hint missing'
 
+    # ── T16: HTTPS-only downloads + no certificate store writes ──────
+    Write-Host 'T16: downloads are HTTPS-pinned and no certificate is created or imported' -ForegroundColor Cyan
+    # A Sigma review read an updater that writes files with curl and re-signs a
+    # script as a downloader plus a certificate-store change. The download pin
+    # is real hardening (a redirect cannot downgrade to http); the certificate
+    # claim is false and is now guarded here: only an existing CurrentUser\My
+    # certificate may be read.
+    $dlStart = $bRaw.IndexOf('function Download-File')
+    $rawStart = $bRaw.IndexOf('function Invoke-CurlGetRaw')
+    $dlText = if ($dlStart -ge 0 -and $rawStart -gt $dlStart) { $bRaw.Substring($dlStart, $rawStart - $dlStart) } else { '' }
+    $rawText = if ($rawStart -ge 0) { $bRaw.Substring($rawStart, [Math]::Min(2000, $bRaw.Length - $rawStart)) } else { '' }
+    Assert-True -Name 'Download-File pins curl to https for https URLs' -Condition (($dlText.Contains("'--proto'")) -and ($dlText.Contains("'=https'")) -and ($dlText.Contains("'--proto-redir'")) -and ($dlText.Contains('if ($Url -match ''^https://'')'))) -Detail 'protocol pin missing in Download-File'
+    Assert-True -Name 'the raw fetch pins the protocol too (it writes a temp file)' -Condition (($rawText.Contains("'--proto'")) -and ($rawText.Contains("'--proto-redir'"))) -Detail 'protocol pin missing in Invoke-CurlGetRaw'
+    Assert-True -Name 'no certificate is created or imported, no Root/CA write' -Condition (-not ($bRaw -match 'Import-Certificate|New-SelfSignedCertificate|Cert:\\\\(LocalMachine|CurrentUser)\\\\(Root|CA|AuthRoot)')) -Detail 'the script writes a certificate store it should only read'
+    Assert-True -Name 'the header states that re-signing reuses an existing certificate' -Condition (($bRaw -match 'never creates or imports') -and ($bRaw -match 'Root/CA/AuthRoot')) -Detail 'certificate behaviour is undocumented'
+
 
     $passCount = 0
     if ($script:failures -eq 0) { $passCount = 1 }

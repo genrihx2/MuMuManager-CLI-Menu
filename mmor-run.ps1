@@ -23,6 +23,24 @@
 # point it has not been given: default mode is -Probe, which reports every
 # window and element it can see and presses nothing.
 #
+# What this script writes to disk
+# -------------------------------
+# Exactly one file: the calibration file (mmor-run.json next to this script,
+# or -Config). It is written when -EmitConfig is given and when no config
+# exists yet; -Record, -Probe and -Apply otherwise write nothing. -NoWrite
+# keeps even that file off the disk: the probe still reports windows,
+# elements and the click plan it can resolve, and simply says the config was
+# not written. -Apply never writes in any mode.
+#
+# NOTE - the C# helper is compiled here, not downloaded
+# -----------------------------------------------------
+# Initialize-MmorApi passes a private C# source string to Add-Type, which
+# compiles it in-process: Windows PowerShell 5.1 shells out to the csc.exe
+# that ships with .NET Framework, PowerShell 7 compiles in memory. The
+# compiler leaves its scratch files in %TEMP% and the assembly is loaded into
+# this process only - no DLL is fetched from the network or loaded from a
+# path, and nothing is dropped next to this script.
+#
 # NOTE - this is GUI automation, not an API call
 # ---------------------------------------------
 # -Apply really does drive the mouse: it moves the cursor onto the recorder
@@ -47,6 +65,7 @@
 # Usage:
 #   .\mmor-run.ps1 -Instance 0 -Probe
 #   .\mmor-run.ps1 -Instance 0 -Probe -EmitConfig   # write/refresh mmor-run.json
+#   .\mmor-run.ps1 -Instance 0 -Probe -NoWrite      # ... without writing it
 #   .\mmor-run.ps1 -Record            # click the recorder entry, then Play
 #   .\mmor-run.ps1 -Instance 0 -File C:\recordings\farm.mmor -Apply
 
@@ -84,7 +103,12 @@ param(
     [int]$WaitSeconds = 20,
 
     # Optional explicit path to MuMuManager.exe.
-    [string]$MumuManager
+    [string]$MumuManager,
+
+    # Never write anything: a missing calibration file stays missing and
+    # -EmitConfig is ignored. Probing, -Record and -Apply are unaffected
+    # otherwise (-Apply only reads the config).
+    [switch]$NoWrite
 )
 
 $ErrorActionPreference = 'Stop'
@@ -568,8 +592,17 @@ $cfg = Read-MmorConfig -Path $cfgPath
 # a stable AutomationId, so the template can be written with recorderButton
 # already filled in. Only the recorder's unnamed buttons still need -Record.
 # -EmitConfig does the same on demand and refreshes recorderButton while
-# keeping pairs that were already captured.
-if ($EmitConfig -or -not $cfg) {
+# keeping pairs that were already captured. -NoWrite reports the file it would
+# have written and leaves it alone.
+if ($NoWrite -and ($EmitConfig -or -not $cfg)) {
+    Write-Host ''
+    Write-Host ('  Calibration file: {0} (not written: -NoWrite)' -f $cfgPath) -ForegroundColor Cyan
+    if ($cfg) {
+        Write-Host '    using the existing file as-is' -ForegroundColor Gray
+    } else {
+        Write-Host '    no file there - -Apply needs one; re-run -Probe without -NoWrite to write the template' -ForegroundColor Yellow
+    }
+} elseif ($EmitConfig -or -not $cfg) {
     $recorderPoint = $null
     foreach ($t in $targets) {
         if (-not $t.Window) { continue }

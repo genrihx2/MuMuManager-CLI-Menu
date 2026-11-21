@@ -6,11 +6,13 @@
 .DESCRIPTION
     Polls the OS TCP table every N seconds (default 5) and appends to a log file
     ONLY newly appeared connections of processes matching the name pattern
-    (default 'MuMu*'). Read-only: the script never modifies VPN, proxy or any
-    other network settings. The log stays clean: one line per connection
-    episode (who -> where, when), no repeated lines for long-lived connections.
-    If the same 5-tuple reappears later (a reconnect), it is logged again with
-    the new timestamp. Ctrl+C stops the watcher gracefully.
+    (default 'MuMu*'). Read-only for the network stack: it never modifies VPN,
+    proxy, adapter or firewall settings. The only thing it writes is a local
+    text log (-LogPath, default %TEMP%\mumu-connections.log), one line per
+    connection episode (who -> where, when), with no repeated lines for
+    long-lived connections; -NoLog skips that file entirely. If the same
+    5-tuple reappears later (a reconnect), it is logged again with the new
+    timestamp. Ctrl+C stops the watcher gracefully.
 
 .PARAMETER IntervalSec
     Poll interval in seconds. Default: 5.
@@ -34,12 +36,19 @@
     poll only seeds the dedup set, so the log contains just genuinely new
     connections observed after the start.
 
+.PARAMETER NoLog
+    Console only: print new connections but never write the log file. The log
+    path is not created and -LogPath is ignored, so the run leaves nothing on
+    disk.
+
 .EXAMPLE
     .\Watch-MumuConnections.ps1
 .EXAMPLE
     .\Watch-MumuConnections.ps1 -IntervalSec 2 -MaxTicks 2      # smoke test
 .EXAMPLE
     .\Watch-MumuConnections.ps1 -States Established,Listen -LogExisting
+.EXAMPLE
+    .\Watch-MumuConnections.ps1 -NoLog -MaxTicks 2      # console only, nothing on disk
 #>
 [CmdletBinding()]
 param(
@@ -48,7 +57,8 @@ param(
     [string]$ProcessPattern = 'MuMu*',
     [string[]]$States = @('Established'),
     [int]$MaxTicks = 0,
-    [switch]$LogExisting
+    [switch]$LogExisting,
+    [switch]$NoLog
 )
 
 Set-StrictMode -Version Latest
@@ -57,13 +67,22 @@ function Get-Timestamp {
     return (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
 }
 
-Add-Content -LiteralPath $LogPath -Encoding UTF8 -Value (
+function Add-WatchLine {
+    # The single write path. -NoLog is honoured here and nowhere else, so a
+    # console-only run cannot leak a log file through a second Add-Content.
+    param([string]$Line)
+    if ($NoLog) { return }
+    Add-Content -LiteralPath $LogPath -Encoding UTF8 -Value $Line
+}
+
+Add-WatchLine -Line (
     "# watch start {0} | pattern '{1}' | states: {2}" -f (Get-Timestamp), $ProcessPattern, ($States -join ',')
 )
 
-Write-Host ("Монитор MuMu-подключений (только чтение, VPN не трогаем).")
-Write-Host ("  Интервал опроса : {0} с" -f $IntervalSec)
-Write-Host ("  Лог             : {0}" -f $LogPath)
+$logDisplay = if ($NoLog) { 'не пишется (-NoLog)' } else { $LogPath }
+Write-Host 'Монитор MuMu-подключений: сеть только читается, VPN/прокси/адаптеры не меняются.'
+Write-Host ('  Интервал опроса : {0} с' -f $IntervalSec)
+Write-Host ('  Лог             : {0}' -f $logDisplay)
 Write-Host ("  Остановка       : Ctrl+C")
 Write-Host ""
 
@@ -106,7 +125,7 @@ try {
         }
 
         foreach ($line in $newLines) {
-            Add-Content -LiteralPath $LogPath -Encoding UTF8 -Value $line
+            Add-WatchLine -Line $line
             Write-Host ("  + " + $line) -ForegroundColor Green
         }
 
@@ -123,6 +142,10 @@ try {
     }
 }
 finally {
-    Add-Content -LiteralPath $LogPath -Encoding UTF8 -Value ("# watch stop {0}" -f (Get-Timestamp))
-    Write-Host ("Остановлено. Лог: {0}" -f $LogPath)
+    Add-WatchLine -Line ("# watch stop {0}" -f (Get-Timestamp))
+    if ($NoLog) {
+        Write-Host 'Остановлено. Лог не писался (-NoLog).'
+    } else {
+        Write-Host ("Остановлено. Лог: {0}" -f $LogPath)
+    }
 }

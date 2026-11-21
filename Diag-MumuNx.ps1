@@ -5,10 +5,16 @@
     services, listening endpoints, TCP/UDP connections and related MuMu processes.
 
 .DESCRIPTION
-    Purely passive: no VPN, route, proxy or firewall changes. Resolves remote
-    IPs against the Windows DNS cache (name resolution only) and enriches
-    with WHOIS-lite owner info for non-RFC1918 addresses (online queries).
-    Output: %PUBLIC%\MuMuNx-<timestamp>.txt
+    Purely passive: no VPN, route, proxy or firewall changes, and no writes
+    outside the one report file. Remote IPs are named from the Windows DNS
+    cache and, for non-RFC1918 addresses, from a reverse-DNS (PTR) lookup made
+    by the local resolver - there is no WHOIS service and no request to any
+    project server. Output: %PUBLIC%\MuMuNx-<timestamp>.txt, a text file every
+    local user can read; -NoFile prints the snapshot without writing it.
+
+.PARAMETER NoFile
+    Print the snapshot to the console and write no file at all, so nothing
+    lands in %PUBLIC% or anywhere else on disk.
 
 .NOTES
     Must run elevated (the service runs as SYSTEM; per-PID connection mapping
@@ -25,7 +31,8 @@
 [CmdletBinding()]
 param(
     [string]$OutDir = $env:PUBLIC,
-    [string]$ServiceName = 'MuMuNxService'
+    [string]$ServiceName = 'MuMuNxService',
+    [switch]$NoFile
 )
 
 Set-StrictMode -Version Latest
@@ -186,6 +193,13 @@ if ($rules.Count) {
 Add-Log ''
 Add-Log ('snapshot finished {0}' -f (Get-Timestamp))
 
-$outFile = Join-Path -Path $OutDir -ChildPath ('MuMuNx-{0}.txt' -f (Get-Date).ToString('yyyyMMdd-HHmmss'))
-$logLines -join "`r`n" | Set-Content -LiteralPath $outFile -Encoding UTF8
-Write-Host ('Готово. Лог: ' + $outFile)
+if ($NoFile) {
+    # Console-only mode: the same report, nothing on disk. This is also the way
+    # to run on a shared machine where a file in %PUBLIC% is not wanted.
+    Write-Host ($logLines -join "`r`n")
+    Write-Host 'Готово. Лог не писался (-NoFile).'
+} else {
+    $outFile = Join-Path -Path $OutDir -ChildPath ('MuMuNx-{0}.txt' -f (Get-Date).ToString('yyyyMMdd-HHmmss'))
+    $logLines -join "`r`n" | Set-Content -LiteralPath $outFile -Encoding UTF8
+    Write-Host ('Готово. Лог: ' + $outFile)
+}

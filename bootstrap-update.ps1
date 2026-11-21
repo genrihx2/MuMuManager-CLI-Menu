@@ -29,6 +29,20 @@
 # (PowerShell has parsed the file by then), keeping a safety .old copy only
 # until the apply succeeds. If the file is busy, the menu applies the
 # pending .new at startup.
+#
+# What this script touches on disk (it is an updater, so it looks like one):
+#   * downloads the release file set into -TargetDir, staging each file as
+#     .tmp/.new before it replaces anything;
+#   * appends one event to update-journal.log and keeps a dated backup folder;
+#   * re-signs mumu-menu.ps1 with a CodeSigning certificate that ALREADY
+#     exists in Cert:\CurrentUser\My. It never creates or imports a
+#     certificate and never writes to the Root/CA/AuthRoot stores - the
+#     signature is the only thing that changes.
+# Every downloaded file is hashed and compared with the tag content before it
+# is applied (-NoVerify is the only way past that, -WhatIf writes nothing).
+# Downloads are HTTPS-only: --proto pins the first request and --proto-redir
+# every redirect -L may follow, so a release file cannot be downgraded to
+# plain http.
 
 param(
     [string]$TargetDir = $PSScriptRoot,
@@ -615,7 +629,13 @@ function Download-File {
     param([string]$Url, [string]$Dest)
     for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
         $tmpFile = $Dest + '.tmp'
-        $dlArgs = @('-sS', '--fail') + $script:CurlRetryArgs + @('--connect-timeout', '30', '--max-time', '120', '-L', '-H', 'Accept: application/vnd.github.v3.raw', '-o', $tmpFile)
+        # HTTPS only: --proto pins the first request, --proto-redir every hop
+        # curl follows with -L, so a redirect cannot downgrade a release file
+        # to plain http. Non-https URLs (the file:// fixtures used by
+        # tests/test-bootstrap-update.ps1) get no flags, so the hardening
+        # leaves the offline harness untouched.
+        $protoArgs = if ($Url -match '^https://') { @('--proto', '=https', '--proto-redir', '=https') } else { @() }
+        $dlArgs = @('-sS', '--fail') + $protoArgs + $script:CurlRetryArgs + @('--connect-timeout', '30', '--max-time', '120', '-L', '-H', 'Accept: application/vnd.github.v3.raw', '-o', $tmpFile)
         if ($token) { $dlArgs += @('-H', "Authorization: token $token") }
         $dlArgs += $Url
         & curl.exe @dlArgs | Out-Null
@@ -626,7 +646,7 @@ function Download-File {
             # decides whether the token is the problem; the CDN mirror below
             # stays as the transport-level fallback.
             if ($token) {
-                $noAuthDl = @('-sS', '--fail') + $script:CurlRetryArgs + @('--connect-timeout', '30', '--max-time', '120', '-L', '-H', 'Accept: application/vnd.github.v3.raw', '-o', $tmpFile, $Url)
+                $noAuthDl = @('-sS', '--fail') + $protoArgs + $script:CurlRetryArgs + @('--connect-timeout', '30', '--max-time', '120', '-L', '-H', 'Accept: application/vnd.github.v3.raw', '-o', $tmpFile, $Url)
                 & curl.exe @noAuthDl | Out-Null
                 $haveBody = ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $tmpFile) -and (Get-Item -LiteralPath $tmpFile).Length -gt 0)
                 if ($haveBody) {
@@ -648,7 +668,7 @@ function Download-File {
             if ($Url -match '^https://api\.github\.com/repos/([^/]+)/contents/(.+)\?ref=([^&]+)$') {
                 $cdnUrl = "https://cdn.jsdelivr.net/gh/$($Matches[1])@$($Matches[3])/$($Matches[2])"
                 Write-Host "  api.github.com failed - retrying via cdn.jsdelivr.net mirror..." -ForegroundColor DarkGray
-                $cdnArgs = @('-sS', '--fail') + $script:CurlRetryArgs + @('--connect-timeout', '30', '--max-time', '120', '-H', 'Accept: application/vnd.github.v3.raw', '-o', $tmpFile, $cdnUrl)
+                $cdnArgs = @('-sS', '--fail', '--proto', '=https', '--proto-redir', '=https') + $script:CurlRetryArgs + @('--connect-timeout', '30', '--max-time', '120', '-H', 'Accept: application/vnd.github.v3.raw', '-o', $tmpFile, $cdnUrl)
                 & curl.exe @cdnArgs | Out-Null
                 $haveBody = ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $tmpFile) -and (Get-Item -LiteralPath $tmpFile).Length -gt 0)
             }
@@ -732,7 +752,9 @@ function Invoke-CurlGetRaw {
     param([string]$Url)
     $tmpFile = Join-Path $env:TEMP ('gh_raw_' + [Guid]::NewGuid().ToString('N') + '.bin')
     try {
-        $curlArgs = @('-sS', '--fail') + $script:CurlRetryArgs + @('--connect-timeout', '30', '--max-time', '60', '-H', 'Accept: application/vnd.github.raw', '-o', $tmpFile)
+        # Same HTTPS pin as Download-File: this call also writes a file.
+        $protoArgs = if ($Url -match '^https://') { @('--proto', '=https', '--proto-redir', '=https') } else { @() }
+        $curlArgs = @('-sS', '--fail') + $protoArgs + $script:CurlRetryArgs + @('--connect-timeout', '30', '--max-time', '60', '-H', 'Accept: application/vnd.github.raw', '-o', $tmpFile)
         if ($token) { $curlArgs += @('-H', "Authorization: token $token") }
         $curlArgs += $Url
         & curl.exe @curlArgs
