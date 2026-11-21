@@ -4890,9 +4890,9 @@ Describe 'Watch-MumuConnections.ps1 (network watcher)' {
             param()
             [pscustomobject]@{
                 State         = 'Established'
-                LocalAddress  = '127.0.0.1'
+                LocalAddress  = '127.0.0.1'   # DevSkim: ignore DS162092 - a loopback value in a stubbed TCP row, not a debug endpoint
                 LocalPort     = 5000
-                RemoteAddress = '127.0.0.1'
+                RemoteAddress = '127.0.0.1'   # DevSkim: ignore DS162092 - a loopback value in a stubbed TCP row, not a debug endpoint
                 RemotePort    = 6000
                 OwningProcess = 4242
             }
