@@ -12,7 +12,8 @@
 
 | Версия | Дата | Примечание |
 |--------|------|------------|
-| v10.4.33 | 2026-11-22 | Latest |
+| v10.4.34 | 2026-11-22 | Latest |
+| v10.4.33 | 2026-11-22 | — |
 | v10.4.32 | 2026-11-22 | — |
 | v10.4.31 | 2026-11-22 | — |
 | v10.4.30 | 2026-11-21 | — |
@@ -30,6 +31,16 @@
 | v10.4.18 | 2026-11-12 | — |
 | v10.4.17 | 2026-11-11 | — |
 | v10.4.16 | 2026-11-06 | — |
+
+## v10.4.34 (2026-11-22)
+
+- New: раздел «Диск» на экране «Настройки устройства» — как в MuMu, две карточки. «Очистка диска» открывает папку инстанса и пишет строку в журнал окна, «Дисковое пространство» показывает занятое место из `MuMuManager info -v <i>` (`disk_size_bytes`) и свободное место на диске, где лежит `vms`; оба числа реальные, раздел читает их одним вызовом на секцию.
+- Fixed: «Папка инстанса не найдена: менеджер не назвал путь» на инстансах без ключа `device_thumbnail`. Раньше путь строился только из миниатюры, и инстанс без неё оставался без папки; теперь путь ищется ещё и по правилу MuMu — каталог в `<установка>\vms` с окончанием `-<индекс>`. Проверено на инстансах 0 и 2: папка найдена, `Test-Path` истинный.
+- Note: кнопки «Расширить» в окне нет. У `MuMuManager` нет ни ключа ёмкости, ни команды расширения: `setting -v <i> -aw` отдаёт 44 записываемых ключа без единого про диск, `control` умеет только launch/shutdown/restart/окна/приложения, а 126 ГБ, которые MuMu показывает, — размер гостевой ФС внутри `data.vdi`. Окно не рисует то, чего менеджер не умеет.
+- File: `mumu-ui.ps1` — UTF-8 с BOM и LF; новый стиль `RowBtn` в ресурсах окна настроек.
+- Tests: **381/381** Pester на pwsh, `test-changelog-sync.ps1` и `test-orphan-files.ps1` зелёные.
+
+**EN summary (v10.4.34):** the device settings window gains a «Диск» page shaped like MuMu's own: «Очистка диска» opens the instance folder and journals the path, «Дисковое пространство» shows the used bytes from `info -v <i>` (`disk_size_bytes`) plus the free space on the drive that holds `vms`, both read in a single manager call per section. The «Папка инстанса не найдена» status is fixed: the folder used to be derived only from `device_thumbnail`, a key some instances do not have at all, so the lookup now also accepts the MuMu naming rule - a directory under `<install>\vms` ending in `-<index>`; verified on instances 0 and 2. No «Расширить» button ships, because `MuMuManager` exposes neither a disk-capacity key (44 writable keys, none about the disk) nor a resize command, and the 126 GB MuMu prints is the guest filesystem size inside `data.vdi` - the window does not draw what the manager cannot do. Tests 381/381 on pwsh, changelog-sync and orphan-files green.
 
 ## v10.4.33 (2026-11-22)
 
