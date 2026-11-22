@@ -608,10 +608,25 @@ Describe 'Update-FromGitHub: tag pinning for downloads and fingerprints (stale-C
         }, $true) | Select-Object -First 1
         $t = $f.Extent.Text
         $t | Should -Match '\$missingReleaseFiles = @\(\$files \| Where-Object'
-        $t | Should -Match 'if \(\$localTag -eq \$tag -and \$missingReleaseFiles\.Count -gt 0\)'
+        $t | Should -Match '\$repairing = \(\$localTag -eq \$tag -and \$missingReleaseFiles\.Count -gt 0\)'
         $t | Should -Match 'Repairing: downloading the release file set'
         # The repair must download the very same list the gate scanned.
         $t | Should -Match 'Get-ExpectedFileHashes -Tag \$tag -Names \$files'
+        # The marker heal runs only outside a repair: it compares content and
+        # returns 'Up to date', which on an incomplete install swallowed the
+        # repair entirely (live: 'Repairing...' then 'Up to date (v10.4.31)'
+        # with mumu-f11-probe.ps1 still absent).
+        $t | Should -Match 'if \(-not \$repairing\) \{ try \{'
+        # The verdict comes from the disk, not from the download loop.
+        $t | Should -Match '\$stillMissing = @\(\$files \| Where-Object'
+        $t | Should -Match 'Repair failed - \{0\} file\(s\) are still missing'
+        $t | Should -Match 'Repaired \{0\} file\(s\), up to date'
+        # A repair that did not land must exit non-zero instead of claiming
+        # success, and it must not advance .version.
+        ($t -match '(?s)if \(\$stillMissing\.Count -gt 0\) \{.{0,600}?exit 1') | Should -BeTrue
+        $stillAt = $t.IndexOf('if ($stillMissing.Count -gt 0) {')
+        $markerAt = $t.IndexOf('[System.IO.File]::WriteAllText($VersionFile, $tag, (New-Object System.Text.UTF8Encoding($false)))', $t.IndexOf('$stillMissing = @($files'))
+        ($stillAt -gt 0 -and $markerAt -gt $stillAt) | Should -BeTrue
     }
 
     It 'Get-ExpectedFileHashes fetches through FetchRef and falls back to the tag' {
@@ -5111,6 +5126,9 @@ Describe 'Get-MumuLaunchFailureHint (MuMu startup refusal)' {
         # hint carries the repair that does: drop the device dirs and recreate.
         $joined | Should -Match 'Restore on that screen does not fix this'
         $joined | Should -Match 'nx_device'
+        # The old recipe told users to delete nx_device\15.0, which removes the
+        # shared Android engine (errcode 60014 on the next create).
+        $joined | Should -Match 'Do NOT delete'
         $joined | Should -Match 'Create Device'
         $joined | Should -Match 'Android 15'
         $joined | Should -Match 'VT-x'
@@ -5216,6 +5234,21 @@ Describe 'Get-MumuDeviceRepairPlan (repair recipe for [RF])' {
         @($plan.InstanceDirs).Count | Should -Be 0
     }
 
+    It 'repairs a ghost entry the manager still lists with no vms folder' {
+        # Live: 'test' kept its entry after its vms folder was deleted, spun
+        # forever in MuMu, and [RF] refused because no folder was left.
+        $ghost = Join-Path $TestDrive ('ghost-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path (Join-Path $ghost 'nx_device\15.0\shell') -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $ghost 'vms\MuMuPlayerGlobal-15.0-1') -Force | Out-Null
+        $plan = Get-MumuDeviceRepairPlan -Index '2' -InstallRoot $ghost -AndroidVersion '15.0' -KnownIndexes @('1', '2')
+        $plan.Ok | Should -BeTrue
+        $plan.HasData | Should -BeFalse
+        @($plan.InstanceDirs).Count | Should -Be 0
+        $plan.CreateVer | Should -Be '15'
+        # Same tree, but the manager does not list the index: still a refusal.
+        (Get-MumuDeviceRepairPlan -Index '2' -InstallRoot $ghost -AndroidVersion '15.0' -KnownIndexes @('1')).Ok | Should -BeFalse
+    }
+
     It 'refuses honestly when no instance folder exists for the index' {
         $plan = Get-MumuDeviceRepairPlan -Index '7' -InstallRoot $script:repairRoot -AndroidVersion '15.0'
         $plan.Ok | Should -BeFalse
@@ -5244,12 +5277,25 @@ Describe 'Get-MumuRepairFailureHint (repair diagnostics)' {
         $other = @(Get-MumuRepairFailureHint -Step 'delete' -Text 'Cannot remove item: The directory is not empty.')
         ($other -join ' ') | Should -Match 'Check the path above'
         ($other -join ' ') | Should -Not -Match 'still holds these files'
+        # The hint no longer claims anything about what was deleted: it cannot
+        # know, and it used to say so even when nothing had been touched.
+        ($locked -join ' ') | Should -Not -Match 'deleted folders are gone'
+        ($other -join ' ') | Should -Not -Match 'incomplete until create'
     }
 
     It 'reuses the launch hints when create still hits the runtime refusal' {
         $hints = @(Get-MumuRepairFailureHint -Step 'create' -Text 'Startup failed: An abnormal runtime environment was detected')
         $hints.Count | Should -Be 4
         ($hints -join ' ') | Should -Match 'VT-x'
+    }
+
+    It 'explains a missing Android engine instead of blaming virtualization' {
+        # Live: after the engine folder was gone, create answered
+        # {"2":{"errcode": 60014,"errmsg": "android engine not installed"}}.
+        $hints = @(Get-MumuRepairFailureHint -Step 'create' -Text '{"2":{"errcode": 60014,"errmsg": "android engine not installed"}}')
+        ($hints -join ' ') | Should -Match 'engine is not installed'
+        ($hints -join ' ') | Should -Match 'Reinstall MuMu'
+        ($hints -join ' ') | Should -Not -Match 'VT-x'
     }
 
     It 'does not invent a cause for quiet create output' {
@@ -5293,10 +5339,93 @@ Describe 'Repair device screen [RF]' {
         $body.Contains('No new instance appeared') | Should -BeTrue
     }
 
+    It 'reports which paths were deleted and which are still there when a delete fails' {
+        ($script:repairFnAt -ge 0 -and $script:repairNextAt -gt $script:repairFnAt) | Should -BeTrue
+        $body = $script:repairRaw.Substring($script:repairFnAt, $script:repairNextAt - $script:repairFnAt)
+        # Live bug: the very first folder failed and the screen still said 'the
+        # deleted folders are gone', which is a scary lie on an untouched device.
+        $script:repairRaw.Contains('the deleted folders are gone') | Should -BeFalse
+        $body.Contains('$deletedDirs += $dir') | Should -BeTrue
+        $body.Contains('$remaining = @($targets | Where-Object { Test-Path -LiteralPath $_ })') | Should -BeTrue
+        $body.Contains('Still there: ') | Should -BeTrue
+        $body.Contains('Nothing was deleted - the device is exactly as it was.') | Should -BeTrue
+        $body.Contains('folder(s) are gone - the device is incomplete until create succeeds.') | Should -BeTrue
+        # The honest line replaces the blanket claim and still leads to the
+        # actionable hints instead of returning silently.
+        $nothingAt = $body.IndexOf('Nothing was deleted - the device is exactly as it was.')
+        $hintAt = $body.IndexOf("Get-MumuRepairFailureHint -Step 'delete' -Text `$deleteError")
+        ($nothingAt -gt 0 -and $hintAt -gt $nothingAt) | Should -BeTrue
+    }
+
+    It 'removes the device with MuMuManager delete, not by hand-deleting folders' {
+        $body = $script:repairRaw.Substring($script:repairFnAt, $script:repairNextAt - $script:repairFnAt)
+        # Hand-deleting the folders is what left a ghost entry behind: the
+        # manager kept listing it and MuMu drew an endless spinner.
+        $body.Contains('& $MumuPath delete -v $index') | Should -BeTrue
+        $body.Contains('$stillListed = @($post.PSObject.Properties.Name) -contains [string]$index') | Should -BeTrue
+        $delAt = $body.IndexOf('& $MumuPath delete -v $index')
+        $createAt = $body.IndexOf('create -ver $plan.CreateVer')
+        $rmAt = $body.IndexOf('Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction Stop')
+        # delete first, folder removal only as the fallback, create last.
+        ($delAt -gt 0 -and $delAt -lt $rmAt -and $delAt -lt $createAt) | Should -BeTrue
+        # The ghost case is handled, not refused.
+        $body.Contains('-KnownIndexes $knownIndexes') | Should -BeTrue
+        # A slow or failed info scan must not turn a picked instance into a
+        # refusal: the index came from the manager's own list.
+        $body.Contains('if ($knownIndexes -notcontains [string]$index) { $knownIndexes += [string]$index }') | Should -BeTrue
+        $body.Contains("Its vms folder is already gone - the stale entry is removed and the device rebuilt.") | Should -BeTrue
+    }
+
+    It 'deletes only the instance folders and never the shared Android engine' {
+        $body = $script:repairRaw.Substring($script:repairFnAt, $script:repairNextAt - $script:repairFnAt)
+        # Live: nx_device\15.0 is the Android runtime shared by every instance;
+        # deleting it made 'MuMuManager create' answer errcode 60014 and left
+        # the machine unable to create anything until MuMu was reinstalled.
+        $body.Contains('$targets = @($plan.InstanceDirs | Where-Object { $_ })') | Should -BeTrue
+        $body.Contains('@(@($plan.DeviceDir) + @($plan.InstanceDirs))') | Should -BeFalse
+        $body.Contains('foreach ($dir in @($plan.InstanceDirs))') | Should -BeTrue
+        $body.Contains('Close-MumuProcesses -Root $plan.InstallRoot') | Should -BeTrue
+        # The plan screen must not list the engine under 'Will be deleted'.
+        $listAt = $body.IndexOf("Write-MenuGroup -Title 'Will be deleted'")
+        $engineDelta = $body.IndexOf('@(@($plan.DeviceDir) + @($plan.InstanceDirs))')
+        ($listAt -gt 0 -and $engineDelta -eq -1) | Should -BeTrue
+    }
+
+    It 'keeps the fallback minimal: one retry after closing MuMu by path' {
+        ($script:repairFnAt -ge 0 -and $script:repairNextAt -gt $script:repairFnAt) | Should -BeTrue
+        $body = $script:repairRaw.Substring($script:repairFnAt, $script:repairNextAt - $script:repairFnAt)
+        # Live failure: the vms folder could not be deleted because MuMu held
+        # log.MuMuPlayerGlobal-0.txt open inside nx_device. The fallback now
+        # closes that and retries exactly once instead of looping in rounds.
+        $body.Contains('Close-MumuProcesses -Root $plan.InstallRoot -ScopePaths $targets') | Should -BeTrue
+        $script:repairRaw.Contains('function Close-MumuProcesses {') | Should -BeTrue
+        $script:repairRaw.Contains('$exe.StartsWith($Root, [System.StringComparison]::OrdinalIgnoreCase)') | Should -BeTrue
+        # No process is called 'MuMuPlayer': the runtime is MuMuNxDevice.exe and
+        # adb.exe under nx_device\<ver> and the manager is MuMuNxMain.exe, so
+        # Stop-Process -Name 'MuMuPlayer' was a no-op.
+        $body.Contains("Stop-Process -Name 'MuMuPlayer'") | Should -BeFalse
+        # The round machinery is gone with the folder-only path.
+        $body.Contains('$closeRound') | Should -BeFalse
+        $body.Contains('$mumuRoot') | Should -BeFalse
+        $body.Contains('if ($attempt -eq 1)') | Should -BeFalse
+        # One retry means exactly two Remove-Item calls in the fallback.
+        ([regex]::Matches($body, [regex]::Escape('Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction Stop')).Count) | Should -Be 2
+        # The close must stay behind the other-instance check: taking a working
+        # emulator down to repair a different one is not acceptable.
+        $guardAt = $body.IndexOf('$otherRunning = $false')
+        $guardEnd = $body.IndexOf('if (-not $otherRunning) {')
+        $closeAt = $body.IndexOf('Close-MumuProcesses -Root $plan.InstallRoot -ScopePaths $targets')
+        ($guardAt -gt 0 -and $guardEnd -gt $guardAt -and $closeAt -gt $guardEnd) | Should -BeTrue
+        $body.Contains('$prop.Value.is_process_started -eq $true') | Should -BeTrue
+        # The delete still runs once per planned path and still reports failure.
+        $body.Contains('Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction Stop') | Should -BeTrue
+        $body.Contains("Get-MumuRepairFailureHint -Step 'delete' -Text `$deleteError") | Should -BeTrue
+    }
+
     It 'is wired into the menu and the dispatcher' {
         $script:repairRaw.Contains("'[RF] Repair device") | Should -BeTrue
         ($script:repairRaw -match "(?m)^\s*'rf' \{ Repair-MumuDevice \}") | Should -BeTrue
         # The launch hint points at the menu item instead of only the manual recipe.
-        $script:repairRaw.Contains('[RF] does exactly this for the selected instance.') | Should -BeTrue
+        $script:repairRaw.Contains('[RF] deletes only its folder under "vms"') | Should -BeTrue
     }
 }

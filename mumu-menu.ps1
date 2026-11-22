@@ -2563,7 +2563,10 @@ function Update-FromGitHub {
         # missing declared file is treated as drift and repaired by this run.
         # Unchanged files are still skipped by the per-file hash gate.
         $missingReleaseFiles = @($files | Where-Object { -not (Test-Path -LiteralPath (Join-Path $ScriptDir $_) -PathType Leaf) })
-        if ($localTag -eq $tag -and $missingReleaseFiles.Count -gt 0) {
+        # Remembered for the end of the run: a repair has to prove the files are
+        # on disk, because both the marker and the download loop lied once.
+        $repairing = ($localTag -eq $tag -and $missingReleaseFiles.Count -gt 0)
+        if ($repairing) {
             if (-not $Passive) {
                 Write-Host ("  Version marker says {0}, but {1} file(s) are missing: {2}" -f $tag, $missingReleaseFiles.Count, ($missingReleaseFiles -join ', ')) -ForegroundColor Yellow
                 Write-Host '  Repairing: downloading the release file set (hash-verified).' -ForegroundColor Yellow
@@ -2601,7 +2604,13 @@ function Update-FromGitHub {
         $localText = ''
         try { $localText = [System.IO.File]::ReadAllText((Join-Path $ScriptDir 'mumu-menu.ps1')) } catch { Write-Debug "Local menu read failed: $($_.Exception.Message)" }
         $healed = $false
-        try {
+        # Never heal (or return 'Up to date') while repairing: on an install
+        # that is missing a file, the local menu hashes equal to the tag's, so
+        # this block used to write the marker and return right after
+        # 'Repairing: downloading the release file set' - seen live as
+        # 'Repairing...' followed by 'Up to date (v10.4.31)' with
+        # mumu-f11-probe.ps1 still absent and nothing downloaded.
+        if (-not $repairing) { try {
             $healSha = Resolve-GitRefSha -RepoPart $GitHubRepo -Ref $tag 15
             $healRef = if ($healSha -and $healSha -match '^[0-9a-fA-F]{40}$') { $healSha } else { $tag }
             $healText = Invoke-GitHubGet "https://api.github.com/repos/$GitHubRepo/contents/$SkillPath/mumu-menu.ps1`?ref=$healRef" 30
@@ -2624,7 +2633,7 @@ function Update-FromGitHub {
             }
         } catch {
             Write-Debug "version-fix heal fetch failed: $($_.Exception.Message)"
-        }
+        } }
         if ($healed) { return }
 
         Write-Host "  Update available!" -ForegroundColor $(if ($Passive) { 'DarkGray' } else { 'Yellow' })
@@ -3126,10 +3135,29 @@ function Update-FromGitHub {
             Write-Host "Update finished with $failed failed file(s). Restore from backup if needed." -ForegroundColor Red
             foreach ($line in $failedFiles) { Write-Host "  $line" -ForegroundColor DarkGray }
         } else {
+            # A repair is judged by the disk, not by the loop: a file can be
+            # skipped silently (no expected hash, an API answer that parsed as
+            # content) while $failed stays at 0, and the run then said
+            # 'Up to date' over an install that was still incomplete.
+            $stillMissing = @()
+            if ($repairing) {
+                $stillMissing = @($files | Where-Object { -not (Test-Path -LiteralPath (Join-Path $ScriptDir $_) -PathType Leaf) })
+            }
+            if ($stillMissing.Count -gt 0) {
+                Write-UpdateJournal -EventType 'update-fail' -From $localTag -To $tag -Detail ("repair incomplete: {0} still missing ({1})" -f $stillMissing.Count, ($stillMissing -join ', '))
+                Write-Host ''
+                Write-Host ("Repair failed - {0} file(s) are still missing: {1}" -f $stillMissing.Count, ($stillMissing -join ', ')) -ForegroundColor Red
+                Write-Host '  The version marker was NOT advanced. Check the network and the [K] token, or reinstall from the release ZIP.' -ForegroundColor Yellow
+                exit 1
+            }
             Write-UpdateJournal -EventType 'update-ok' -From $localTag -To $tag -Detail ($fileResults -join ', ')
             [System.IO.File]::WriteAllText($VersionFile, $tag, (New-Object System.Text.UTF8Encoding($false)))
             Write-Host ''
-            Write-Host 'Update complete!' -ForegroundColor Green
+            if ($repairing) {
+                Write-Host ("Repaired {0} file(s), up to date ({1})" -f $okFiles, $tag) -ForegroundColor Green
+            } else {
+                Write-Host 'Update complete!' -ForegroundColor Green
+            }
         }
         Start-Sleep -Seconds 2
         # A clean update relaunches the menu on the new files instead of making
@@ -5441,7 +5469,7 @@ function Get-MumuLaunchFailureHint {
     if ($Text -match '(?i)abnormal runtime environment|неисправность среды выполнения|运行环境异常') {
         return @(
             'MuMu refused to start the VM: its runtime environment check failed.'
-            'Restore on that screen does not fix this. What does: delete "nx_device\15.0" under the MuMu install (e.g. C:\Program Files\Netease\MuMuPlayer\nx_device\15.0) and the instance folder under "vms" (e.g. MuMuPlayerGlobal-15.0-0), then create the device again (New > Create Device > Android 15). [RF] does exactly this for the selected instance.'
+            'Restore on that screen does not fix this. What does: rebuild the instance - [RF] deletes only its folder under "vms" (e.g. MuMuPlayerGlobal-15.0-0) and recreates it; by hand that is New > Create Device > Android 15. Do NOT delete "nx_device\<version>" (e.g. nx_device\15.0): that is the Android engine shared by every instance, and removing it makes MuMu answer "android engine not installed" (errcode 60014) until it is reinstalled.'
             'If the error returns on the new device: check VT-x/AMD-V - Task Manager > Performance > CPU should show Virtualization: Enabled.'
             'Then turn off Hyper-V, Windows Hypervisor Platform and Virtual Machine Platform, plus Core Isolation > Memory integrity, and reboot.'
         )
@@ -5700,11 +5728,15 @@ function Get-MumuDeviceRepairPlan {
         [string]$InstallRoot = '',
         [string]$VmsRoot = '',
         [string]$AndroidVersion = '',
-        [string]$ManagerPath = ''
+        [string]$ManagerPath = '',
+        # Indexes the manager currently lists. A listed index with no vms folder
+        # is a ghost entry, and it is repairable - see below.
+        [string[]]$KnownIndexes = @()
     )
     $result = [pscustomobject]@{
         Ok             = $false
         Reason         = ''
+        HasData        = $false
         Index          = $Index
         InstallRoot    = ''
         VmsRoot        = ''
@@ -5779,9 +5811,16 @@ function Get-MumuDeviceRepairPlan {
     }
     $instanceDirs = @(Get-MuMuInstanceDir -Index $Index -VmsRoot $VmsRoot -AndroidVersion $result.AndroidVersion -NoVersionQuery)
     $result.InstanceDirs = $instanceDirs
+    $result.HasData = ($instanceDirs.Count -gt 0)
     if ($instanceDirs.Count -eq 0) {
-        $result.Reason = "No vms folder for instance $Index under $VmsRoot - the manager may not list it."
-        return $result
+        # A device the manager still lists while its vms folder is gone is a
+        # ghost, not a healthy install: 'delete -v <index>' unregisters it and
+        # create rebuilds it. Refusing here left such a device unrecoverable
+        # from the menu (seen live: 'test' spun forever with no data folder).
+        if ($KnownIndexes -notcontains [string]$Index) {
+            $result.Reason = "No vms folder for instance $Index under $VmsRoot - the manager may not list it."
+            return $result
+        }
     }
 
     $result.Ok = $true
@@ -5807,7 +5846,11 @@ function Get-MumuRepairFailureHint {
             )
         }
         'delete' {
-            $hints = @('The device is incomplete until create succeeds - the deleted folders are gone.')
+            # No 'the folders are gone' line here: this hint is built before the
+            # caller knows what actually happened on disk, and it used to claim
+            # the folders were deleted even when the very first one failed.
+            # The caller reports which paths are gone; this only explains why.
+            $hints = @()
             if ($t -match '(?i)being used by another process|access is denied|отказано в доступе|используется другим процессом') {
                 $hints += 'A MuMu process still holds these files - quit MuMu (tray icon > Quit) and run [RF] again.'
             } else {
@@ -5816,6 +5859,16 @@ function Get-MumuRepairFailureHint {
             return $hints
         }
         'create' {
+            # errcode 60014 'android engine not installed' means the runtime for
+            # that Android version has no nx_device\<ver> folder at all - advice
+            # about VT-x would send the user after the wrong cause.
+            if ($t -match '(?i)60014|android engine not installed') {
+                return @(
+                    'MuMu reports that the Android engine is not installed - its nx_device\<version> folder is missing.'
+                    'Reinstall MuMu (run its installer and let it repair the install) to get the engine back, then create the device again.'
+                    '[5] Create new emulator can build a device now for any version whose engine is still installed under nx_device.'
+                )
+            }
             $launchHints = @(Get-MumuLaunchFailureHint -Text $t)
             if ($launchHints.Count -gt 0) { return $launchHints }
             return @(
@@ -5825,6 +5878,39 @@ function Get-MumuRepairFailureHint {
         }
         default { return @() }
     }
+}
+
+# Stops MuMu's own processes so a repair can delete a folder they hold open.
+# MuMu ships no process called 'MuMuPlayer': the device runtime is
+# MuMuNxDevice.exe and adb.exe living INSIDE nx_device\15.0, plus the manager
+# process (MuMuNxMain.exe) that writes the graphics logs. Matching on the
+# executable's own path is the only reliable way to find them.
+# $ScopePaths limits the sweep to processes running from those folders; an
+# empty list means every process under $Root. Returns the 'Name (PID)' list.
+function Close-MumuProcesses {
+    param(
+        [Parameter(Mandatory = $true)] [string]$Root,
+        [string[]]$ScopePaths = @()
+    )
+    $stopped = @()
+    if (-not $Root) { return $stopped }
+    foreach ($p in @(Get-Process -ErrorAction SilentlyContinue)) {
+        if (-not $p -or $p.Id -eq $PID) { continue }
+        $exe = ''
+        try { $exe = [string]$p.Path } catch { $exe = '' }
+        if (-not $exe) { continue }
+        if (-not $exe.StartsWith($Root, [System.StringComparison]::OrdinalIgnoreCase)) { continue }
+        if ($ScopePaths.Count -gt 0) {
+            $inScope = $false
+            foreach ($sp in $ScopePaths) {
+                if ($sp -and $exe.StartsWith($sp, [System.StringComparison]::OrdinalIgnoreCase)) { $inScope = $true; break }
+            }
+            if (-not $inScope) { continue }
+        }
+        $stopped += ("{0} ({1})" -f $p.ProcessName, $p.Id)
+        Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+    }
+    return $stopped
 }
 
 function Repair-MumuDevice {
@@ -5842,7 +5928,16 @@ function Repair-MumuDevice {
     $index = Get-InstanceIndex 'Select instance to repair'
     if (-not $index) { return }
 
-    $plan = Get-MumuDeviceRepairPlan -Index $index -ManagerPath $manager
+    $knownIndexes = @()
+    try {
+        $allPre = & $MumuPath info -v all 2>$null | ConvertFrom-Json
+        if ($allPre) { $knownIndexes = @($allPre.PSObject.Properties.Name) }
+    } catch { Write-Debug "repair index scan failed: $($_.Exception.Message)" }
+    # The index was just picked from the manager's own instance list, so it
+    # exists even if the scan above timed out (seen live: a slow manager reply
+    # made [RF] refuse a device that was right there in the list).
+    if ($knownIndexes -notcontains [string]$index) { $knownIndexes += [string]$index }
+    $plan = Get-MumuDeviceRepairPlan -Index $index -ManagerPath $manager -KnownIndexes $knownIndexes
     $body = Write-ScreenFrame -Title 'Repair device:' -Context "instance $index"
     if (-not $plan.Ok) {
         Write-ScreenNote -Text $plan.Reason -Tone Red
@@ -5859,11 +5954,19 @@ function Repair-MumuDevice {
 
     Write-ScreenNote -Text "Rebuilds the VM of '$name' the way that fixes MuMu's runtime-environment refusal." -Tone Yellow
     Write-MenuGroup -Title 'Will be deleted' -Width $body
-    foreach ($dir in @(@($plan.DeviceDir) + @($plan.InstanceDirs))) {
+    if (-not $plan.HasData) {
+        Write-ScreenNote -Text 'Its vms folder is already gone - the stale entry is removed and the device rebuilt.' -Tone DarkGray
+    }
+    foreach ($dir in @($plan.InstanceDirs)) {
         if (-not $dir) { continue }
         Write-Host '  ✗ ' -ForegroundColor Red -NoNewline
         Write-Host ("{0}  ({1} MB)" -f $dir, (Get-PathSizeMb -Path $dir)) -ForegroundColor Gray
     }
+    # The engine folder is NOT device data: nx_device\<ver> is the Android
+    # runtime shared by every instance of that version. Deleting it made
+    # 'MuMuManager create' answer errcode 60014 'android engine not installed'
+    # and left the machine unable to create any device until MuMu was
+    # reinstalled (seen live on 15.0, 3.0 GB).
     Write-Host ''
     Write-ScreenNote -Text ("Then a new Android {0} device is created with MuMuManager create." -f $plan.CreateVer) -Tone DarkGray
     Write-ScreenNote -Text 'Restore on the MuMu error screen does not fix this (checked), so the device data is deleted.' -Tone Yellow
@@ -5896,21 +5999,84 @@ function Repair-MumuDevice {
         return
     }
 
-    # --- stage 2: delete exactly what the plan listed ---
-    Write-ScreenStep -Text 'Deleting the device folders...'
+    # --- stage 2: remove the device through the manager ---
+    # 'MuMuManager delete' is the only removal that also unregisters the device.
+    # Deleting folders by hand left a ghost the manager kept listing and MuMu
+    # rendered as an endless spinner (seen live: 'test' stayed in the device
+    # list while vms\MuMuPlayerGlobal-15.0-2 no longer existed).
+    Write-ScreenStep -Text 'Deleting the device...'
     $deleteError = ''
-    foreach ($dir in @(@($plan.DeviceDir) + @($plan.InstanceDirs))) {
-        if (-not $dir) { continue }
-        try {
-            Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction Stop
-            Write-ScreenNote -Text "Deleted $dir" -Tone Green
-        } catch {
-            $deleteError = $_.Exception.Message
-            Write-ScreenNote -Text ("Could not delete {0}: {1}" -f $dir, $deleteError) -Tone Red
-            break
+    $deletedDirs = @()
+    $deleteOut = @(& $MumuPath delete -v $index 2>&1)
+    $deleteText = ($deleteOut -join ' ').Trim()
+    if ($deleteText) { Write-Host "    $deleteText" -ForegroundColor DarkGray }
+    Start-Sleep -Seconds 2
+    $stillListed = $false
+    try {
+        $post = & $MumuPath info -v all 2>$null | ConvertFrom-Json
+        if ($post) { $stillListed = @($post.PSObject.Properties.Name) -contains [string]$index }
+    } catch { Write-Debug "post-delete info read failed: $($_.Exception.Message)" }
+    if (-not $stillListed) {
+        Write-ScreenNote -Text "MuMu removed instance $index." -Tone Green
+    }
+    # Fallback, for a manager without 'delete': remove the vms folder by hand.
+    # Deliberately small - one pass, one retry after closing what holds the
+    # folder, then report. Only folders under vms go: nx_device\<ver> is the
+    # Android runtime shared by every instance of that version.
+    $targets = @()
+    if ($stillListed) {
+        Write-ScreenStep -Text 'Removing the device folders instead...'
+        $targets = @($plan.InstanceDirs | Where-Object { $_ })
+        if ($targets.Count -eq 0) {
+            $deleteError = "MuMuManager delete did not remove instance $index and there is no vms folder left to delete."
+        }
+        foreach ($dir in $targets) {
+            try {
+                Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction Stop
+                Write-ScreenNote -Text "Deleted $dir" -Tone Green
+                $deletedDirs += $dir
+            } catch {
+                # A running MuMu keeps log files open inside the tree, so close
+                # what it launched from these folders and retry once. Nothing
+                # is closed while another device runs.
+                $otherRunning = $false
+                try {
+                    $allInst = & $MumuPath info -v all 2>$null | ConvertFrom-Json
+                    foreach ($prop in $allInst.PSObject.Properties) {
+                        if ($prop.Name -eq [string]$index) { continue }
+                        if ($prop.Value.is_process_started -eq $true -or $prop.Value.is_android_started -eq $true) { $otherRunning = $true }
+                    }
+                } catch { Write-Debug "repair instance scan failed: $($_.Exception.Message)" }
+                $closed = @()
+                if (-not $otherRunning) { $closed = @(Close-MumuProcesses -Root $plan.InstallRoot -ScopePaths $targets) }
+                if ($closed.Count -gt 0) {
+                    Write-ScreenNote -Text ("MuMu held the folder open - closed: {0}" -f ($closed -join ', ')) -Tone Yellow
+                    Start-Sleep -Seconds 3
+                }
+                try {
+                    Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction Stop
+                    Write-ScreenNote -Text "Deleted $dir" -Tone Green
+                    $deletedDirs += $dir
+                } catch {
+                    $deleteError = $_.Exception.Message
+                    Write-ScreenNote -Text ("Could not delete {0}: {1}" -f $dir, $deleteError) -Tone Red
+                    break
+                }
+            }
         }
     }
     if ($deleteError) {
+        # Report the disk as it is, not as the plan hoped: a failure on the
+        # first folder used to claim the folders had been deleted, which scared
+        # the user about data that was never touched.
+        $remaining = @($targets | Where-Object { Test-Path -LiteralPath $_ })
+        Write-Host ''
+        foreach ($dir in $remaining) { Write-ScreenNote -Text "Still there: $dir" -Tone Yellow }
+        if ($deletedDirs.Count -eq 0) {
+            Write-ScreenNote -Text 'Nothing was deleted - the device is exactly as it was.' -Tone Yellow
+        } else {
+            Write-ScreenNote -Text ("{0} of {1} folder(s) are gone - the device is incomplete until create succeeds." -f $deletedDirs.Count, $targets.Count) -Tone Red
+        }
         foreach ($hint in @(Get-MumuRepairFailureHint -Step 'delete' -Text $deleteError)) { Write-ScreenNote -Text $hint -Tone Yellow }
         Write-Host ''
         return
