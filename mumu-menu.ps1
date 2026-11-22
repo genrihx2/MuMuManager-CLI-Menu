@@ -5869,9 +5869,12 @@ function Repair-MumuDevice {
     Write-ScreenNote -Text 'Restore on the MuMu error screen does not fix this (checked), so the device data is deleted.' -Tone Yellow
     Write-Host ''
 
-    $confirm = Read-Host 'Type YES to repair'
-    if ($confirm -cne 'YES') {
-        Write-ScreenNote -Text 'Cancelled - nothing was deleted.' -Tone Yellow
+    # Case-insensitive on purpose: the gate exists to force a deliberate
+    # confirmation, not to punish someone who typed 'yes' (observed live: a
+    # lowercase 'yes' silently cancelled a repair the user had asked for).
+    $confirm = (Read-Host 'Type YES (any case) to repair').Trim()
+    if ($confirm -ne 'YES') {
+        Write-ScreenNote -Text ("Cancelled (got '{0}', expected YES) - nothing was deleted." -f $confirm) -Tone Yellow
         Write-Host ''
         return
     }

@@ -5271,10 +5271,16 @@ Describe 'Repair device screen [RF]' {
         ($script:repairFnAt -ge 0 -and $script:repairNextAt -gt $script:repairFnAt) | Should -BeTrue
         $body = $script:repairRaw.Substring($script:repairFnAt, $script:repairNextAt - $script:repairFnAt)
         $body.Contains('Repair device:') | Should -BeTrue
-        $body.Contains('Type YES to repair') | Should -BeTrue
-        $body.Contains("-cne 'YES'") | Should -BeTrue
+        $body.Contains('Type YES (any case) to repair') | Should -BeTrue
+        # Case-insensitive and trimmed: 'yes'/' Yes ' must confirm, so the
+        # operator is not silently cancelled by a capitalisation slip.
+        $body.Contains("-ne 'YES'") | Should -BeTrue
+        $body.Contains("-cne 'YES'") | Should -BeFalse
+        $body.Contains("(Read-Host 'Type YES (any case) to repair').Trim()") | Should -BeTrue
+        # A rejected answer is echoed back, so the slip is visible in the log.
+        $body.Contains("Cancelled (got '") | Should -BeTrue
         # The gate comes before the first delete, and the delete uses the plan.
-        $yesAt = $body.IndexOf('Type YES to repair')
+        $yesAt = $body.IndexOf('Type YES (any case) to repair')
         $rmAt = $body.IndexOf('Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction Stop')
         ($yesAt -gt 0 -and $rmAt -gt $yesAt) | Should -BeTrue
         $body.Contains('Get-MumuDeviceRepairPlan -Index $index -ManagerPath $manager') | Should -BeTrue
