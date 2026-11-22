@@ -357,6 +357,7 @@ try {
         'Test-MumuTunnelAB.ps1'     = "# ab`n"
         'Diag-MumuNx.ps1'           = "# diag`n"
         'mmor-run.ps1'         = "# mmor`n"
+        'mumu-f11-probe.ps1'   = "# f11`n"
         '.version'             = 'v9.9.9'
     }
     function Invoke-GitHubGet {
@@ -384,6 +385,7 @@ try {
     [System.IO.File]::WriteAllText((Join-Path $vDir 'Test-MumuTunnelAB.ps1'), "# ab`n", $utf8NoBom)
     [System.IO.File]::WriteAllText((Join-Path $vDir 'Diag-MumuNx.ps1'), "# diag`n", $utf8NoBom)
     [System.IO.File]::WriteAllText((Join-Path $vDir 'mmor-run.ps1'), "# mmor`n", $utf8NoBom)
+    [System.IO.File]::WriteAllText((Join-Path $vDir 'mumu-f11-probe.ps1'), "# f11`n", $utf8NoBom)
     Set-Content -LiteralPath (Join-Path $vDir '.version') -Value 'v9.9.9' -NoNewline -Encoding UTF8
     # bootstrap-update.ps1 deliberately absent (MISSING case)
     $ScriptDir = $vDir
@@ -455,6 +457,7 @@ try {
     [System.IO.File]::WriteAllText((Join-Path $vDir2 'Test-MumuTunnelAB.ps1'), "# ab`n", $utf8NoBom)
     [System.IO.File]::WriteAllText((Join-Path $vDir2 'Diag-MumuNx.ps1'), "# diag`n", $utf8NoBom)
     [System.IO.File]::WriteAllText((Join-Path $vDir2 'mmor-run.ps1'), "# mmor`n", $utf8NoBom)
+    [System.IO.File]::WriteAllText((Join-Path $vDir2 'mumu-f11-probe.ps1'), "# f11`n", $utf8NoBom)
     $ScriptDir = $vDir2
     $rlReport = Test-InstallationIntegrity -Tag 'vTest'
     Assert-True -Name 'rate-limit body reported as DOWNLOAD-FAIL, not drift' -Condition (@($rlReport | Where-Object { $_ -like 'DOWNLOAD-FAIL|mumu-menu.ps1|API error*' }).Count -eq 1) -Detail ($rlReport -join ' // ')
@@ -493,6 +496,7 @@ try {
                 'Test-MumuTunnelAB.ps1' = "# ab`n"
                 'Diag-MumuNx.ps1'      = "# diag`n"
                 'mmor-run.ps1'         = "# mmor`n"
+                'mumu-f11-probe.ps1'   = "# f11`n"
                 '.version'             = 'v1.19.6'
             }
             foreach ($name in $fileBodies.Keys) {
@@ -519,7 +523,7 @@ try {
     $r1 = Test-ReleaseZip -ZipPath $zipOk -ExpectedTag 'v1.19.6'
     Assert-True -Name 'correct ZIP passes all checks' -Condition ($r1.Ok) -Detail ($r1.Checks -join ' // ')
     Assert-True -Name 'sidecar sha256 matched exactly' -Condition ($r1.ZipHash -eq $r1.SidecarHash) -Detail ($r1.Checks -join ' // ')
-    Assert-True -Name 'file set check present and OK' -Condition (@($r1.Checks) -contains 'file set: OK (10 files)') -Detail ($r1.Checks -join ' // ')
+    Assert-True -Name 'file set check present and OK' -Condition (@($r1.Checks) -contains 'file set: OK (11 files)') -Detail ($r1.Checks -join ' // ')
     Assert-True -Name 'scriptVer read from archive matches tag' -Condition ($r1.ZipVersion -eq '1.19.6') -Detail ($r1.Checks -join ' // ')
 
     # Case 2: tampered archive (byte flip after sidecar) -> sha256 must fail
