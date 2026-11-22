@@ -12,7 +12,8 @@
 
 | Версия | Дата | Примечание |
 |--------|------|------------|
-| v10.4.31 | 2026-11-22 | Latest |
+| v10.4.32 | 2026-11-22 | Latest |
+| v10.4.31 | 2026-11-22 | — |
 | v10.4.30 | 2026-11-21 | — |
 | v10.4.29 | 2026-11-21 | — |
 | v10.4.28 | 2026-11-21 | — |
@@ -28,6 +29,19 @@
 | v10.4.18 | 2026-11-12 | — |
 | v10.4.17 | 2026-11-11 | — |
 | v10.4.16 | 2026-11-06 | — |
+
+## v10.4.32 (2026-11-22)
+
+- Fixed: `[U]` больше не рапортует «Up to date» вместо починки. После `Repairing: downloading the release file set` блок лечения маркера больше не срабатывает: локальный `mumu-menu.ps1` совпадал по хэшу с тегом, печаталось `Up to date (v10.4.31)` и функция выходила до цикла скачивания — отсутствующий файл (живой случай: `mumu-f11-probe.ps1`) не появлялся никогда.
+- Fixed: набор файлов после докачки перепроверяется по диску, а не по счётчику цикла. Если файл так и не лёг — `Repair failed - N file(s) are still missing: ...`, запись `update-fail` в журнал, `.version` не двигается, код возврата 1. При успехе печатается `Repaired N file(s), up to date (vX.Y.Z)`.
+- Fixed: `[RF]` удаляет устройство через `MuMuManager delete -v <index>` и проверяет по `info -v all`, что индекс исчез. Ручное удаление каталогов оставляло «призрак»: менеджер продолжал перечислять устройство, а MuMu рисовал бесконечный спиннер.
+- Fixed: `[RF]` больше не удаляет `nx_device\<version>`. Это общий Android-рантайм для всех инстансов версии, и его удаление давало `errcode 60014 "android engine not installed"` — создать устройство было нельзя до переустановки MuMu.
+- Fixed: призрак (индекс в списке менеджера, папки `vms` нет) чинится, а не отвергается; выбранный индекс считается существующим, даже если опрос `info -v all` не ответил.
+- Fixed: подтверждение `[RF]` принимает `YES` в любом регистре с `Trim()`; приглашение — `Type YES (any case) to repair`, а при отказе печатается введённое значение, так что осечка видна сразу.
+- Fixed: неудачное удаление называет пути, которые реально удалены, и те, что остались (`Nothing was deleted - the device is exactly as it was`), вместо прежнего `the deleted folders are gone` на нетронутом устройстве. Резерв удаления папок — один проход с одним повтором после закрытия процессов MuMu, запущенных из этих папок; движок не трогается.
+- Tests: **381/381** Pester на pwsh и PowerShell 5.1, `test-changelog-sync.ps1` и `test-orphan-files.ps1` зелёные; живой прогон `[RF]` на MuMu 6.8.9.0 пересоздал инстанс 2 с `errcode 0`.
+
+**EN summary (v10.4.32):** both screens now tell the truth about what happened. `[U]` no longer answers `Up to date` instead of repairing: the marker-heal block, which matched the local menu to the tag by hash and returned before the download loop, is skipped during a repair, and the file set is re-read from disk afterwards - a path that is still missing prints `Repair failed - N file(s) are still missing`, journals `update-fail`, keeps `.version` untouched and exits 1, while a clean repair reports how many files it fetched. `[RF]` removes the device with `MuMuManager delete -v` and confirms through `info -v all` that the index is gone, because deleting the folders by hand left a ghost the manager kept listing and MuMu drew as an endless spinner; it no longer deletes `nx_device\<version>`, which is the Android runtime shared by every instance of that version and whose removal made `create` answer errcode 60014 `android engine not installed`; a ghost (listed index, no vms folder) is repaired instead of refused and the picked index counts as listed even when the info scan times out; a failed delete names the paths that are gone and the ones still there instead of claiming the folders were deleted; and the confirmation takes `YES` in any case, echoes what was typed on refusal, and the folder fallback is one pass with one retry after closing the MuMu processes that hold them. Tests 381/381 on pwsh and PowerShell 5.1, changelog-sync and orphan-files green, and a live `[RF]` run on MuMu 6.8.9.0 recreated instance 2 with errcode 0.
 
 ## v10.4.31 (2026-11-22)
 
