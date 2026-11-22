@@ -591,6 +591,7 @@ mumu-menu.cmd
   [4] Restart emulator
   [RF] Repair device (delete VM data + recreate)
   [5] Create new emulator (Android 12/15)
+  [UI] MuMu Manager window (WPF)
   [C] Clone emulator
   [X] Delete emulator
   [N] Rename emulator
