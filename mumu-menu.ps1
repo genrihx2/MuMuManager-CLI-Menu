@@ -49,7 +49,7 @@ param(
 # Version header. Kept up here on purpose: tests/test-changelog-sync.ps1
 # scans the first 320 lines of this file for $scriptVer, so moving it below
 # that window makes the release gate report "scriptVer = NOT FOUND".
-$scriptVer = '10.4.32'
+$scriptVer = '10.4.33'
 
 function Repair-DesktopModulePath {
     # Fixes PowerShell/PowerShell#18530: when Windows PowerShell 5.1 (Desktop)
@@ -1729,7 +1729,7 @@ function Test-InstallationIntegrity {
             }
         }
 
-        $files = @('mumu-menu.ps1', 'mumu-menu.cjs', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1', 'mmor-run.ps1', 'mumu-f11-probe.ps1')
+        $files = @('mumu-menu.ps1', 'mumu-menu.cjs', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1', 'mmor-run.ps1', 'mumu-f11-probe.ps1', 'mumu-ui.ps1')
         $verFile = Join-Path $ScriptDir '.version'
         $localTag = ''
         if (Test-Path -LiteralPath $verFile) {
@@ -1864,7 +1864,7 @@ function Test-ReleaseZip {
         [Parameter(Mandatory = $true)] [string]$ExpectedTag,
         [string]$SidecarPath = "$ZipPath.sha256"
     )
-    $expectedFiles = @('mumu-menu.ps1', 'mumu-menu.cjs', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', '.version', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1', 'mmor-run.ps1', 'mumu-f11-probe.ps1')
+    $expectedFiles = @('mumu-menu.ps1', 'mumu-menu.cjs', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', '.version', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1', 'mmor-run.ps1', 'mumu-f11-probe.ps1', 'mumu-ui.ps1')
     $checks = @()
     $ok = $true
     $zipVer = ''
@@ -2169,7 +2169,7 @@ function Show-UpdatePlan {
         [AllowEmptyString()] [string]$LocalTag
     )
 
-    $files = @('mumu-menu.ps1', 'mumu-menu.cjs', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1', 'mmor-run.ps1', 'mumu-f11-probe.ps1')
+    $files = @('mumu-menu.ps1', 'mumu-menu.cjs', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1', 'mmor-run.ps1', 'mumu-f11-probe.ps1', 'mumu-ui.ps1')
     $present = 0
     $updateSize = 0
     foreach ($f in $files) {
@@ -2482,7 +2482,7 @@ function Update-FromGitHub {
     # joined in v10.3.0), so [U] can
     # deliver files introduced after v1.22.45 (diagnostics trio) to existing
     # installs. .version is written by the updater itself after a verified run.
-    $files = @('mumu-menu.ps1', 'mumu-menu.cjs', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1', 'mmor-run.ps1', 'mumu-f11-probe.ps1')
+    $files = @('mumu-menu.ps1', 'mumu-menu.cjs', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1', 'mmor-run.ps1', 'mumu-f11-probe.ps1', 'mumu-ui.ps1')
 
     # Updates are sourced ONLY from tagged GitHub Releases, never from the
     # mutable main branch. Get-RemoteFile closes over the resolved tag.
@@ -3154,7 +3154,12 @@ function Update-FromGitHub {
             [System.IO.File]::WriteAllText($VersionFile, $tag, (New-Object System.Text.UTF8Encoding($false)))
             Write-Host ''
             if ($repairing) {
-                Write-Host ("Repaired {0} file(s), up to date ({1})" -f $okFiles, $tag) -ForegroundColor Green
+                # Count what was actually restored, not what the loop fetched:
+                # one gap still pulls the whole set, so 'Repaired 10 file(s)'
+                # over a single missing file read like fiction (seen live: one
+                # gap in mumu-f11-probe.ps1 reported ten repaired files).
+                $restored = @($missingReleaseFiles | Where-Object { Test-Path -LiteralPath (Join-Path $ScriptDir $_) -PathType Leaf })
+                Write-Host ("Repaired {0} missing file(s), {1} downloaded, up to date ({2})" -f $restored.Count, $okFiles, $tag) -ForegroundColor Green
             } else {
                 Write-Host 'Update complete!' -ForegroundColor Green
             }
@@ -4431,7 +4436,7 @@ function Build-RollbackPlan {
     param(
         [Parameter(Mandatory = $true)] [string]$BackupDir,
         [Parameter(Mandatory = $true)] [string]$InstallDir,
-        [string[]]$FileSet = @('mumu-menu.ps1', 'mumu-menu.cjs', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1', 'mmor-run.ps1', 'mumu-f11-probe.ps1')
+        [string[]]$FileSet = @('mumu-menu.ps1', 'mumu-menu.cjs', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1', 'mmor-run.ps1', 'mumu-f11-probe.ps1', 'mumu-ui.ps1')
     )
     $r = @{ Ok = $false; Reason = ''; Files = @(); MarkerTo = ''; MarkerWrite = $false }
     if (-not ($BackupDir -and (Test-Path -LiteralPath $BackupDir -PathType Container))) { $r.Reason = "backup folder not found: $BackupDir"; return $r }
@@ -4458,7 +4463,7 @@ function Invoke-Rollback {
         [Parameter(Mandatory = $true)] [string]$BackupDir,
         [Parameter(Mandatory = $true)] [string]$InstallDir,
         [string]$VersionFile = '',
-        [string[]]$FileSet = @('mumu-menu.ps1', 'mumu-menu.cjs', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1', 'mmor-run.ps1', 'mumu-f11-probe.ps1')
+        [string[]]$FileSet = @('mumu-menu.ps1', 'mumu-menu.cjs', 'SKILL.md', 'README.md', 'bootstrap-update.ps1', 'Watch-MumuConnections.ps1', 'Test-MumuTunnelAB.ps1', 'Diag-MumuNx.ps1', 'mmor-run.ps1', 'mumu-f11-probe.ps1', 'mumu-ui.ps1')
     )
     if (-not $VersionFile) { $VersionFile = Join-Path $InstallDir '.version' }
     $markerBefore = ''
@@ -5197,6 +5202,7 @@ function Show-Menu {
                 '[4] Restart emulator'
                 '[RF] Repair device (delete VM data + recreate)'
                 '[5] Create new emulator (Android 12/15)'
+                '[UI] MuMu Manager window (WPF)'
                 '[C] Clone emulator'
                 '[X] Delete emulator'
                 '[N] Rename emulator'
@@ -5911,6 +5917,24 @@ function Close-MumuProcesses {
         Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
     }
     return $stopped
+}
+
+# Opens the native window (mumu-ui.ps1) that ships next to this script. WPF
+# needs an STA host, so it goes to its own process instead of being dot-sourced
+# into this one; the menu keeps running in the console.
+function Show-MumuUi {
+    $uiPath = Join-Path $ScriptDir 'mumu-ui.ps1'
+    if (-not (Test-Path -LiteralPath $uiPath -PathType Leaf)) {
+        Write-Host "  mumu-ui.ps1 not found next to this script ($ScriptDir)." -ForegroundColor Red
+        return
+    }
+    $exe = if (Get-Command pwsh.exe -ErrorAction SilentlyContinue) { 'pwsh.exe' } else { 'powershell.exe' }
+    try {
+        Start-Process -FilePath $exe -ArgumentList @('-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-File', $uiPath) | Out-Null
+        Write-Host '  MuMu Manager window opened.' -ForegroundColor Green
+    } catch {
+        Write-Host "  Could not open the window: $($_.Exception.Message)" -ForegroundColor Red
+    }
 }
 
 function Repair-MumuDevice {
@@ -14265,6 +14289,7 @@ do {
         '3' { Stop-Emulator }
         '4' { Restart-Emulator }
         'rf' { Repair-MumuDevice }
+        'ui' { Show-MumuUi }
         '5' { New-Emulator }
         'c' { Copy-Emulator }
         'x' { Remove-Emulator }
