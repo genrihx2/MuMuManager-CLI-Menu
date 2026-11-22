@@ -47,7 +47,8 @@ BeforeAll {
                         'Get-AuthenticodeSignerName', 'Get-MuMuInstallDrift', 'Switch-MuMuActiveInstall',
                         'Resolve-MuMuInstall', 'Update-MumuInstallState',
                         'Stop-Logcat', 'Show-MumuOfflineInstallers', 'Resolve-InstallerThumbprint',
-                        'Get-MumuLaunchFailureHint', 'Test-MumuRuntimeFailure')) {
+                        'Get-MumuLaunchFailureHint', 'Test-MumuRuntimeFailure',
+                        'Get-MumuDeviceRepairPlan', 'Get-MumuRepairFailureHint', 'Get-PathSizeMb')) {
         $f = $script:ast.FindAll({
             param($node)
             $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -5167,5 +5168,126 @@ Describe 'Get-MumuLaunchFailureHint (MuMu startup refusal)' {
         ($batch -match '\$script:LastLaunchText = \$launchText') | Should -BeTrue
         $invoke = & $source 'Invoke-BatchAction'
         ($invoke -match 'Get-MumuLaunchFailureHint -Text \$script:LastLaunchText') | Should -BeTrue
+    }
+}
+
+Describe 'Get-MumuDeviceRepairPlan (repair recipe for [RF])' {
+
+    BeforeEach {
+        $script:repairRoot = Join-Path $TestDrive ('repair-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path (Join-Path $script:repairRoot 'nx_device\15.0\shell') -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $script:repairRoot 'vms\MuMuPlayerGlobal-15.0-0') -Force | Out-Null
+    }
+
+    It 'names the device engine folder and the instance folder for the index' {
+        $plan = Get-MumuDeviceRepairPlan -Index '0' -InstallRoot $script:repairRoot -AndroidVersion '15.0'
+        $plan.Ok | Should -BeTrue
+        $plan.DeviceVersion | Should -Be '15.0'
+        $plan.DeviceDir | Should -Be (Join-Path $script:repairRoot 'nx_device\15.0')
+        @($plan.InstanceDirs).Count | Should -Be 1
+        @($plan.InstanceDirs)[0] | Should -Match 'MuMuPlayerGlobal-15\.0-0$'
+        # create takes the major version, which is what the manager expects.
+        $plan.CreateVer | Should -Be '15'
+    }
+
+    It 'prefers the nx_device folder of the version the instance runs' {
+        New-Item -ItemType Directory -Path (Join-Path $script:repairRoot 'nx_device\12.0\shell') -Force | Out-Null
+        $plan = Get-MumuDeviceRepairPlan -Index '0' -InstallRoot $script:repairRoot -AndroidVersion '12.0'
+        $plan.DeviceDir | Should -Be (Join-Path $script:repairRoot 'nx_device\12.0')
+        $plan.CreateVer | Should -Be '12'
+    }
+
+    It 'falls back to the newest nx_device folder when the version is unknown' {
+        New-Item -ItemType Directory -Path (Join-Path $script:repairRoot 'nx_device\12.0\shell') -Force | Out-Null
+        $plan = Get-MumuDeviceRepairPlan -Index '0' -InstallRoot $script:repairRoot -AndroidVersion ''
+        $plan.Ok | Should -BeTrue
+        $plan.DeviceVersion | Should -Be '15.0'
+    }
+
+    It 'refuses honestly when the device engine folder is missing' {
+        $bare = Join-Path $TestDrive ('bare-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path (Join-Path $bare 'vms\MuMuPlayerGlobal-15.0-0') -Force | Out-Null
+        $plan = Get-MumuDeviceRepairPlan -Index '0' -InstallRoot $bare -AndroidVersion '15.0'
+        $plan.Ok | Should -BeFalse
+        $plan.Reason | Should -Match 'nx_device'
+        @($plan.InstanceDirs).Count | Should -Be 0
+    }
+
+    It 'refuses honestly when no instance folder exists for the index' {
+        $plan = Get-MumuDeviceRepairPlan -Index '7' -InstallRoot $script:repairRoot -AndroidVersion '15.0'
+        $plan.Ok | Should -BeFalse
+        $plan.Reason | Should -Match 'vms'
+        $plan.DeviceDir | Should -Not -BeNullOrEmpty
+    }
+
+    It 'refuses honestly when the install root is missing' {
+        $plan = Get-MumuDeviceRepairPlan -Index '0' -InstallRoot (Join-Path $TestDrive 'no-such-install') -AndroidVersion '15.0'
+        $plan.Ok | Should -BeFalse
+        $plan.Reason | Should -Match 'install folder'
+    }
+}
+
+Describe 'Get-MumuRepairFailureHint (repair diagnostics)' {
+
+    It 'stops the recipe when the instance is still running' {
+        $hints = @(Get-MumuRepairFailureHint -Step 'stop')
+        ($hints -join ' ') | Should -Match 'nothing was deleted'
+        ($hints -join ' ') | Should -Match 'Quit MuMu'
+    }
+
+    It 'blames a lock only when the delete error says so' {
+        $locked = @(Get-MumuRepairFailureHint -Step 'delete' -Text 'Cannot remove item: The process cannot access the file because it is being used by another process.')
+        ($locked -join ' ') | Should -Match 'still holds these files'
+        $other = @(Get-MumuRepairFailureHint -Step 'delete' -Text 'Cannot remove item: The directory is not empty.')
+        ($other -join ' ') | Should -Match 'Check the path above'
+        ($other -join ' ') | Should -Not -Match 'still holds these files'
+    }
+
+    It 'reuses the launch hints when create still hits the runtime refusal' {
+        $hints = @(Get-MumuRepairFailureHint -Step 'create' -Text 'Startup failed: An abnormal runtime environment was detected')
+        $hints.Count | Should -Be 4
+        ($hints -join ' ') | Should -Match 'VT-x'
+    }
+
+    It 'does not invent a cause for quiet create output' {
+        $hints = @(Get-MumuRepairFailureHint -Step 'create' -Text 'errcode 0')
+        ($hints -join ' ') | Should -Match 'did not say why'
+        @(Get-MumuRepairFailureHint -Step 'nonsense' -Text 'x').Count | Should -Be 0
+    }
+}
+
+Describe 'Repair device screen [RF]' {
+
+    BeforeAll {
+        $script:repairRaw = Get-Content -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'mumu-menu.ps1') -Raw -Encoding UTF8
+        $script:repairFnAt = $script:repairRaw.IndexOf('function Repair-MumuDevice {')
+        $script:repairNextAt = $script:repairRaw.IndexOf('function New-Emulator {')
+    }
+
+    It 'asks for YES before deleting, then shuts down, deletes the planned paths and recreates' {
+        ($script:repairFnAt -ge 0 -and $script:repairNextAt -gt $script:repairFnAt) | Should -BeTrue
+        $body = $script:repairRaw.Substring($script:repairFnAt, $script:repairNextAt - $script:repairFnAt)
+        $body.Contains('Repair device:') | Should -BeTrue
+        $body.Contains('Type YES to repair') | Should -BeTrue
+        $body.Contains("-cne 'YES'") | Should -BeTrue
+        # The gate comes before the first delete, and the delete uses the plan.
+        $yesAt = $body.IndexOf('Type YES to repair')
+        $rmAt = $body.IndexOf('Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction Stop')
+        ($yesAt -gt 0 -and $rmAt -gt $yesAt) | Should -BeTrue
+        $body.Contains('Get-MumuDeviceRepairPlan -Index $index -ManagerPath $manager') | Should -BeTrue
+        $body.Contains('control -v $index shutdown') | Should -BeTrue
+        $body.Contains('create -ver $plan.CreateVer') | Should -BeTrue
+        # Every stage reports its failure instead of a blind success.
+        $body.Contains("Get-MumuRepairFailureHint -Step 'stop'") | Should -BeTrue
+        $body.Contains("Get-MumuRepairFailureHint -Step 'delete' -Text `$deleteError") | Should -BeTrue
+        $body.Contains("Get-MumuRepairFailureHint -Step 'create' -Text `$createText") | Should -BeTrue
+        $body.Contains('No new instance appeared') | Should -BeTrue
+    }
+
+    It 'is wired into the menu and the dispatcher' {
+        $script:repairRaw.Contains("'[RF] Repair device") | Should -BeTrue
+        ($script:repairRaw -match "(?m)^\s*'rf' \{ Repair-MumuDevice \}") | Should -BeTrue
+        # The launch hint points at the menu item instead of only the manual recipe.
+        $script:repairRaw.Contains('[RF] does exactly this for the selected instance.') | Should -BeTrue
     }
 }

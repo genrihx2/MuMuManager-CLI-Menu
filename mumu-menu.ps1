@@ -49,7 +49,7 @@ param(
 # Version header. Kept up here on purpose: tests/test-changelog-sync.ps1
 # scans the first 320 lines of this file for $scriptVer, so moving it below
 # that window makes the release gate report "scriptVer = NOT FOUND".
-$scriptVer = '10.4.30'
+$scriptVer = '10.4.31'
 
 function Repair-DesktopModulePath {
     # Fixes PowerShell/PowerShell#18530: when Windows PowerShell 5.1 (Desktop)
@@ -5167,6 +5167,7 @@ function Show-Menu {
                 '[2] Launch emulator'
                 '[3] Shutdown emulator'
                 '[4] Restart emulator'
+                '[RF] Repair device (delete VM data + recreate)'
                 '[5] Create new emulator (Android 12/15)'
                 '[C] Clone emulator'
                 '[X] Delete emulator'
@@ -5440,7 +5441,7 @@ function Get-MumuLaunchFailureHint {
     if ($Text -match '(?i)abnormal runtime environment|неисправность среды выполнения|运行环境异常') {
         return @(
             'MuMu refused to start the VM: its runtime environment check failed.'
-            'Restore on that screen does not fix this. What does: delete "nx_device\15.0" under the MuMu install (e.g. C:\Program Files\Netease\MuMuPlayer\nx_device\15.0) and the instance folder under "vms" (e.g. MuMuPlayerGlobal-15.0-0), then create the device again (New > Create Device > Android 15).'
+            'Restore on that screen does not fix this. What does: delete "nx_device\15.0" under the MuMu install (e.g. C:\Program Files\Netease\MuMuPlayer\nx_device\15.0) and the instance folder under "vms" (e.g. MuMuPlayerGlobal-15.0-0), then create the device again (New > Create Device > Android 15). [RF] does exactly this for the selected instance.'
             'If the error returns on the new device: check VT-x/AMD-V - Task Manager > Performance > CPU should show Virtualization: Enabled.'
             'Then turn off Hyper-V, Windows Hypervisor Platform and Virtual Machine Platform, plus Core Isolation > Memory integrity, and reboot.'
         )
@@ -5673,6 +5674,274 @@ function Restart-Emulator {
     Apply-SavedSim -Index $index
     Write-Host ''
     Write-ScreenNote -Text 'Next: [6] apps, [7] settings, [S] screenshot, [RT] root.' -Tone DarkGray
+}
+
+function Get-PathSizeMb {
+    # Folder size in MB for the repair confirmation, so 'delete this' comes
+    # with a number instead of a bare path. Best-effort: an unreadable or
+    # missing folder reports 0 rather than failing the screen.
+    param([string]$Path)
+    if (-not $Path -or -not (Test-Path -LiteralPath $Path -PathType Container)) { return 0 }
+    $sum = (Get-ChildItem -LiteralPath $Path -Recurse -File -Force -ErrorAction SilentlyContinue |
+        Measure-Object -Property Length -Sum).Sum
+    if (-not $sum) { return 0 }
+    return [Math]::Round(($sum / 1MB), 1)
+}
+
+function Get-MumuDeviceRepairPlan {
+    # Everything [RF] is about to touch, resolved and listed BEFORE anything
+    # is deleted: the 15.x device engine folder (nx_device\<version>) and the
+    # instance folder(s) under vms for one index. Read-only - no process is
+    # started and nothing is written - so the tests can pin the recipe against
+    # a fixture tree. -InstallRoot / -VmsRoot / -AndroidVersion are the seams
+    # that skip the lookups.
+    param(
+        [string]$Index = '',
+        [string]$InstallRoot = '',
+        [string]$VmsRoot = '',
+        [string]$AndroidVersion = '',
+        [string]$ManagerPath = ''
+    )
+    $result = [pscustomobject]@{
+        Ok             = $false
+        Reason         = ''
+        Index          = $Index
+        InstallRoot    = ''
+        VmsRoot        = ''
+        DeviceVersion  = ''
+        DeviceDir      = ''
+        InstanceDirs   = @()
+        AndroidVersion = ''
+        CreateVer      = 'auto'
+    }
+
+    if (-not $InstallRoot) {
+        $manager = if ($ManagerPath) { $ManagerPath } else { Get-MuMuActiveManagerPath }
+        if ($manager) {
+            $mgrDir = Split-Path -Parent $manager
+            # The manager lives in nx_main (6.x) or shell (legacy); both sit
+            # directly under the install root, nx_device next to them.
+            if ((Split-Path -Leaf $mgrDir) -in @('nx_main', 'shell')) {
+                $InstallRoot = Split-Path -Parent $mgrDir
+            } else {
+                $InstallRoot = $mgrDir
+            }
+        }
+    }
+    if (-not $InstallRoot -or -not (Test-Path -LiteralPath $InstallRoot -PathType Container)) {
+        $result.Reason = 'MuMu install folder not found - pick the install with [IN] first.'
+        return $result
+    }
+    $result.InstallRoot = $InstallRoot
+
+    if (-not $VmsRoot) { $VmsRoot = Join-Path $InstallRoot 'vms' }
+    $result.VmsRoot = $VmsRoot
+
+    $devRoot = Join-Path $InstallRoot 'nx_device'
+    if (-not (Test-Path -LiteralPath $devRoot -PathType Container)) {
+        $result.Reason = "No device engine folder at $devRoot - this repair is for the 15.x layout."
+        return $result
+    }
+
+    # Which engine folder? The one matching the version the manager runs for
+    # this index wins; otherwise the newest name (the manager's own pick).
+    if (-not $AndroidVersion -and $Index) {
+        $AndroidVersion = Get-MuMuInstanceAndroidVersion -Index $Index -ManagerPath $ManagerPath
+    }
+    $deviceDir = ''
+    $deviceVer = ''
+    if ($AndroidVersion) {
+        $cand = Join-Path $devRoot $AndroidVersion
+        if (Test-Path -LiteralPath $cand -PathType Container) { $deviceDir = $cand; $deviceVer = $AndroidVersion }
+    }
+    if (-not $deviceDir) {
+        $newest = @(Get-ChildItem -LiteralPath $devRoot -Directory -ErrorAction SilentlyContinue |
+                Sort-Object Name -Descending)[0]
+        if ($newest) { $deviceDir = $newest.FullName; $deviceVer = $newest.Name }
+    }
+    if (-not $deviceDir) {
+        $result.Reason = "No version folder under $devRoot - nothing to rebuild."
+        return $result
+    }
+    $result.DeviceDir = $deviceDir
+    $result.DeviceVersion = $deviceVer
+    $result.AndroidVersion = if ($AndroidVersion) { $AndroidVersion } else { $deviceVer }
+    $verMatch = [regex]::Match($deviceVer, '^(\d+)')
+    $result.CreateVer = if ($verMatch.Success) { $verMatch.Groups[1].Value } else { 'auto' }
+
+    if (-not $Index) {
+        $result.Reason = 'No instance selected.'
+        return $result
+    }
+    if (-not ($VmsRoot -and (Test-Path -LiteralPath $VmsRoot -PathType Container))) {
+        $result.Reason = "No vms folder at $VmsRoot - nothing to delete there."
+        return $result
+    }
+    $instanceDirs = @(Get-MuMuInstanceDir -Index $Index -VmsRoot $VmsRoot -AndroidVersion $result.AndroidVersion -NoVersionQuery)
+    $result.InstanceDirs = $instanceDirs
+    if ($instanceDirs.Count -eq 0) {
+        $result.Reason = "No vms folder for instance $Index under $VmsRoot - the manager may not list it."
+        return $result
+    }
+
+    $result.Ok = $true
+    return $result
+}
+
+function Get-MumuRepairFailureHint {
+    # What the repair can still do after a failed step. -Step names the stage
+    # that failed (stop/delete/create), so the advice matches the failure
+    # instead of a generic 'try again'. Nothing is guessed: a delete failure
+    # only blames a lock when the error says so, and create reuses the same
+    # runtime-environment explanation the launch screens print.
+    param(
+        [string]$Step = '',
+        [string]$Text = ''
+    )
+    $t = [string]$Text
+    switch ($Step) {
+        'stop' {
+            return @(
+                'The instance still reports running, so nothing was deleted.'
+                'Quit MuMu completely (tray icon > Quit), then run [RF] again.'
+            )
+        }
+        'delete' {
+            $hints = @('The device is incomplete until create succeeds - the deleted folders are gone.')
+            if ($t -match '(?i)being used by another process|access is denied|отказано в доступе|используется другим процессом') {
+                $hints += 'A MuMu process still holds these files - quit MuMu (tray icon > Quit) and run [RF] again.'
+            } else {
+                $hints += 'Check the path above and that MuMu is closed, then try again.'
+            }
+            return $hints
+        }
+        'create' {
+            $launchHints = @(Get-MumuLaunchFailureHint -Text $t)
+            if ($launchHints.Count -gt 0) { return $launchHints }
+            return @(
+                'MuMu create did not say why - read its output above.'
+                'If the new device still refuses to start: check VT-x/AMD-V (Task Manager > Performance > CPU) and turn off Hyper-V/VBS plus Core Isolation > Memory integrity, then reboot.'
+            )
+        }
+        default { return @() }
+    }
+}
+
+function Repair-MumuDevice {
+    # [RF]: the repair that actually cleared MuMu's 'abnormal runtime
+    # environment' refusal (its Restore button did not): close the emulator,
+    # delete the device engine folder and the instance folder under vms, then
+    # create the device again. Deletes only what Get-MumuDeviceRepairPlan
+    # listed, only after an explicit YES, and reports which stage failed.
+    $manager = Get-MuMuActiveManagerPath
+    if (-not ($manager -and (Test-Path -LiteralPath $manager -PathType Leaf))) {
+        Write-Host 'MuMuManager.exe not found - pick a valid install with [IN].' -ForegroundColor Red
+        return
+    }
+
+    $index = Get-InstanceIndex 'Select instance to repair'
+    if (-not $index) { return }
+
+    $plan = Get-MumuDeviceRepairPlan -Index $index -ManagerPath $manager
+    $body = Write-ScreenFrame -Title 'Repair device:' -Context "instance $index"
+    if (-not $plan.Ok) {
+        Write-ScreenNote -Text $plan.Reason -Tone Red
+        Write-Host ''
+        return
+    }
+
+    $name = "Instance $index"
+    try {
+        $info = & $MumuPath info -v $index 2>$null | ConvertFrom-Json
+        if ($info.$index) { $info = $info.$index }
+        if ($info.name) { $name = [string]$info.name }
+    } catch { Write-Debug "repair info read failed: $($_.Exception.Message)" }
+
+    Write-ScreenNote -Text "Rebuilds the VM of '$name' the way that fixes MuMu's runtime-environment refusal." -Tone Yellow
+    Write-MenuGroup -Title 'Will be deleted' -Width $body
+    foreach ($dir in @(@($plan.DeviceDir) + @($plan.InstanceDirs))) {
+        if (-not $dir) { continue }
+        Write-Host '  ✗ ' -ForegroundColor Red -NoNewline
+        Write-Host ("{0}  ({1} MB)" -f $dir, (Get-PathSizeMb -Path $dir)) -ForegroundColor Gray
+    }
+    Write-Host ''
+    Write-ScreenNote -Text ("Then a new Android {0} device is created with MuMuManager create." -f $plan.CreateVer) -Tone DarkGray
+    Write-ScreenNote -Text 'Restore on the MuMu error screen does not fix this (checked), so the device data is deleted.' -Tone Yellow
+    Write-Host ''
+
+    $confirm = Read-Host 'Type YES to repair'
+    if ($confirm -cne 'YES') {
+        Write-ScreenNote -Text 'Cancelled - nothing was deleted.' -Tone Yellow
+        Write-Host ''
+        return
+    }
+
+    # --- stage 1: close the emulator, verify it is really down ---
+    Write-ScreenStep -Text 'Closing the emulator...'
+    & $MumuPath control -v $index shutdown 2>&1 | Out-Null
+    Start-Sleep -Seconds 3
+    $running = $false
+    try {
+        $after = & $MumuPath info -v $index 2>$null | ConvertFrom-Json
+        if ($after.$index) { $after = $after.$index }
+        if ($after.is_android_started -eq $true -or $after.is_process_started -eq $true) { $running = $true }
+    } catch { Write-Debug "post-shutdown info read failed: $($_.Exception.Message)" }
+    if ($running) {
+        Write-ScreenNote -Text 'The instance is still running - nothing was deleted.' -Tone Red
+        foreach ($hint in @(Get-MumuRepairFailureHint -Step 'stop')) { Write-ScreenNote -Text $hint -Tone Yellow }
+        Write-Host ''
+        return
+    }
+
+    # --- stage 2: delete exactly what the plan listed ---
+    Write-ScreenStep -Text 'Deleting the device folders...'
+    $deleteError = ''
+    foreach ($dir in @(@($plan.DeviceDir) + @($plan.InstanceDirs))) {
+        if (-not $dir) { continue }
+        try {
+            Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction Stop
+            Write-ScreenNote -Text "Deleted $dir" -Tone Green
+        } catch {
+            $deleteError = $_.Exception.Message
+            Write-ScreenNote -Text ("Could not delete {0}: {1}" -f $dir, $deleteError) -Tone Red
+            break
+        }
+    }
+    if ($deleteError) {
+        foreach ($hint in @(Get-MumuRepairFailureHint -Step 'delete' -Text $deleteError)) { Write-ScreenNote -Text $hint -Tone Yellow }
+        Write-Host ''
+        return
+    }
+
+    # --- stage 3: create the device again, verified by the instance diff ---
+    $before = @()
+    try {
+        $pre = & $MumuPath info -v all 2>$null | ConvertFrom-Json
+        $before = @($pre.PSObject.Properties.Name)
+    } catch { Write-Debug "pre-create info read failed: $($_.Exception.Message)" }
+
+    Write-ScreenStep -Text ("Creating a new Android {0} device..." -f $plan.CreateVer)
+    $createOut = @(& $MumuPath create -ver $plan.CreateVer 2>&1)
+    $createText = $createOut -join "`n"
+    $createOut | ForEach-Object { Write-Host "    $_" }
+
+    $newIndexes = @()
+    try {
+        $post = & $MumuPath info -v all 2>$null | ConvertFrom-Json
+        $afterKeys = @($post.PSObject.Properties.Name)
+        $newIndexes = @($afterKeys | Where-Object { $before -notcontains $_ })
+    } catch { Write-Debug "post-create info read failed: $($_.Exception.Message)" }
+
+    Write-Host ''
+    if ($newIndexes.Count -gt 0) {
+        Write-ScreenNote -Text ("Device recreated as instance {0}." -f ($newIndexes -join ', ')) -Tone Green
+        Write-ScreenNote -Text 'Next: [2] Launch it and check that Android boots.' -Tone DarkGray
+        Write-Host ''
+        return
+    }
+    Write-ScreenNote -Text 'No new instance appeared - the device was not recreated.' -Tone Red
+    foreach ($hint in @(Get-MumuRepairFailureHint -Step 'create' -Text $createText)) { Write-ScreenNote -Text $hint -Tone Yellow }
+    Write-Host ''
 }
 
 function New-Emulator {
@@ -13826,6 +14095,7 @@ do {
         '2' { Start-Emulator }
         '3' { Stop-Emulator }
         '4' { Restart-Emulator }
+        'rf' { Repair-MumuDevice }
         '5' { New-Emulator }
         'c' { Copy-Emulator }
         'x' { Remove-Emulator }

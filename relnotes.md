@@ -12,7 +12,8 @@
 
 | Версия | Дата | Примечание |
 |--------|------|------------|
-| v10.4.30 | 2026-11-21 | Latest |
+| v10.4.31 | 2026-11-22 | Latest |
+| v10.4.30 | 2026-11-21 | — |
 | v10.4.29 | 2026-11-21 | — |
 | v10.4.28 | 2026-11-21 | — |
 | v10.4.27 | 2026-11-21 | — |
@@ -27,6 +28,15 @@
 | v10.4.18 | 2026-11-12 | — |
 | v10.4.17 | 2026-11-11 | — |
 | v10.4.16 | 2026-11-06 | — |
+
+## v10.4.31 (2026-11-22)
+
+- New: пункт `[RF]` «Repair device» — восстановление устройства, когда MuMu отказывается запускаться с `Startup failed: An abnormal runtime environment was detected` (и русской формой «Обнаружена неисправность среды выполнения»). Перед изменениями печатает план: `nx_device\15.0` в папке установки и каталог выбранного инстанса в `vms`, с размерами через `Get-PathSizeMb`, — и только после подтверждения останавливает MuMu и удаляет их, затем пересоздаёт устройство Android 15. Если удалить не удалось, `Get-MumuRepairFailureHint` называет причину (MuMu не закрыт, файл держит процесс) вместо общей ошибки.
+- New: `mumu-f11-probe.ps1` — отдельный пробник F11, по умолчанию ничего не разрушающий. Стадии `Prepare` / `Wait` / `Report` / `Cleanup`: свободный индекс начиная с 2, проверка движка 12.0 по каталогу инстанса и `nx_device\*` в конфигах, хэш-снимок инстансов 15.0 до и после с diff, baseline `shell.log` по числу строк и выписка только новых строк по паттернам, `graphics_log` по времени после старта теста, режим монитора через `EnumDisplaySettings` до F11 / после F11 / после Esc и вердикт `EXCLUSIVE` / `BORDERLESS` / `INCONCLUSIVE` в `REPORT.md`. Индексы из `-ProtectedIndexes` (по умолчанию 0 и 1) не затрагиваются, `create` и `delete` — только с `-AllowCreate` / `-AllowDelete`, F11 нажимает пользователь. Строки `lib*.dll` движка 12.0 выгружаются для уточнения паттернов.
+- File: `mumu-f11-probe.ps1` записан как UTF-8 с BOM и LF; разбор `Parser::ParseFile` чист на PowerShell 5.1 и 7 (0 ошибок), скрипт добавлен в `release-files.txt`.
+- Tests: **375/375** Pester на pwsh и PowerShell 5.1, PSScriptAnalyzer — 0 замечаний, `test-changelog-sync.ps1` и `test-orphan-files.ps1` зелёные.
+
+**EN summary (v10.4.31):** two additions, no behaviour change to the menu paths themselves. `[RF]` gains a working repair for MuMu's `Startup failed: An abnormal runtime environment was detected` (the Russian dialog says «Обнаружена неисправность среды выполнения»): it lists what it is about to touch (`nx_device\15.0` under the install and the selected instance folder under `vms`, with sizes from `Get-PathSizeMb`), asks for confirmation, stops MuMu, deletes those two paths and recreates the Android 15 device, and on failure `Get-MumuRepairFailureHint` names the real cause (MuMu still open, a process holding the files) instead of a generic error. `mumu-f11-probe.ps1` is a separate, non-destructive-by-default F11 probe built as four stages - `Prepare` / `Wait` / `Report` / `Cleanup`: it picks a free index from 2, verifies the instance really runs the 12.0 engine (instance folder name and `nx_device\*` paths in its configs), snapshots the 15.0 instances' config hashes before and after with a diff, records a `shell.log` line baseline and extracts only the new lines matching the fullscreen patterns, filters `graphics_log` by time since the test started, samples the monitor mode with `EnumDisplaySettings` before F11, after F11 and after Esc, and writes a `EXCLUSIVE` / `BORDERLESS` / `INCONCLUSIVE` verdict to `REPORT.md`; indexes in `-ProtectedIndexes` (0 and 1 by default) are never touched, `create`/`delete` need `-AllowCreate`/`-AllowDelete`, and the user presses F11 themselves. The script ships in the ZIP, is stored as UTF-8 with a BOM and LF, and parses clean on PowerShell 5.1 and 7. Tests 375/375 on pwsh and PowerShell 5.1, PSScriptAnalyzer 0 findings, changelog-sync and orphan-files green.
 
 ## v10.4.30 (2026-11-21)
 
