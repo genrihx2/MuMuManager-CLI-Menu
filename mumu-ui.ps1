@@ -709,6 +709,13 @@ function Set-SettingsStatus {
     $script:SettingsStatusText.Foreground = (Get-Brush $Color)
 }
 
+# GetNewClosure() gives a handler a fresh scope, and inside it $script: points
+# at that scope rather than at the file, so a guard written as
+# `if (-not $script:SettingsReady) { return }` was always true and every
+# dropdown pick was dropped before it reached the manager. The function below
+# reads the flag in a normal scope, which is why the rows can test it.
+function Test-SettingsReady { return [bool]$script:SettingsReady }
+
 # Row factories: each call has its own scope, so the click handlers keep the
 # key they were built for instead of the last one the loop touched.
 function New-SettingSwitch {
@@ -740,9 +747,15 @@ function New-SettingChoice {
     $c.ItemTemplate = [Windows.Markup.XamlReader]::Parse('<DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"><TextBlock Text="{Binding Label}" Foreground="#E3E6EE" TextTrimming="CharacterEllipsis"/></DataTemplate>')
     $c.SelectedValuePath = 'Value'
     $c.SelectedValue = $Value
+    # Read the picked item, not SelectedValue: inside SelectionChanged the
+    # SelectedValue property still holds the previous value (it is recomputed
+    # after the event), so the write either never happened or repeated the old
+    # value. SelectedItem is already the new row by then.
     $c.Add_SelectionChanged({
-            if (-not $script:SettingsReady) { return }
-            $v = [string]$c.SelectedValue
+            if (-not (Test-SettingsReady)) { return }
+            $item = $c.SelectedItem
+            if (-not $item) { return }
+            $v = [string]$item.Value
             if (-not $v -or $v -eq $Value) { return }
             Save-SettingValue -Key $Key -Value $v
         }.GetNewClosure())
@@ -769,8 +782,10 @@ function New-SettingPreset {
     $c.SelectedValuePath = 'Value'
     $c.SelectedValue = $selected
     $c.Add_SelectionChanged({
-            if (-not $script:SettingsReady) { return }
-            $pick = $c.SelectedValue
+            if (-not (Test-SettingsReady)) { return }
+            $item = $c.SelectedItem
+            if (-not $item) { return }
+            $pick = [string]$item.Value
             if (-not $pick) { return }
             $opt = $Options | Where-Object { $_.v -eq $pick } | Select-Object -First 1
             if (-not $opt) { return }
@@ -794,6 +809,104 @@ function New-SettingText {
             if ($e.Key -eq [System.Windows.Input.Key]::Enter) { $tb.MoveFocus([System.Windows.Input.FocusNavigationDirection]::Next) }
         }.GetNewClosure())
     return $tb
+}
+
+# Disk rows show the numbers the manager really reports. `info -v <i>` has
+# disk_size_bytes, which is the size MuMu draws for the device; the free space
+# comes from the drive that holds the vms folder. A recursive sum over a vms
+# folder that is tens of gigabytes would freeze the window for seconds, and
+# MuMuManager has no "clean disk" or "expand disk" command, so the cleanup row
+# offers the one honest action there is - opening the instance folder.
+function Format-Size {
+    param([double]$Bytes)
+    if ($Bytes -le 0) { return '—' }
+    if ($Bytes -ge 1GB) { return ('{0:N1} ГБ' -f ($Bytes / 1GB)) }
+    return ('{0:N0} МБ' -f ($Bytes / 1MB))
+}
+
+# Not every instance has device_thumbnail: an instance created later can be
+# missing the key entirely, and the old code then gave up on the path. The
+# folder is still there under vms with MuMu's own naming rule, so when the
+# thumbnail is absent the directory is found by its trailing -<index>.
+function Get-InstanceFolder {
+    param([string]$Index, [string]$Thumb)
+    if ($Thumb) {
+        try {
+            $file = $Thumb -replace '\\{2,}', '\'
+            $dir = Split-Path -Parent (Split-Path -Parent $file)
+            if ($dir -and (Test-Path -LiteralPath $dir)) { return $dir }
+        } catch { Write-Debug "thumbnail path failed: $($_.Exception.Message)" }
+    }
+    $vms = ''
+    if ($script:Mgr) { $vms = Join-Path (Split-Path -Parent (Split-Path -Parent $script:Mgr)) 'vms' }
+    if ($vms -and (Test-Path -LiteralPath $vms)) {
+        try {
+            $hit = Get-ChildItem -LiteralPath $vms -Directory -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -match ('-' + [regex]::Escape($Index) + '$') } | Select-Object -First 1
+            if ($hit) { return $hit.FullName }
+        } catch { Write-Debug "vms scan failed: $($_.Exception.Message)" }
+    }
+    return ''
+}
+
+function Get-DeviceDisk {
+    param([string]$Index, [string]$Thumb)
+    $used = 0.0
+    if ($script:Mgr) {
+        try {
+            $raw = (& $script:Mgr info -v $Index 2>$null | Out-String)
+            if ($raw -match '"disk_size_bytes"\s*:\s*(\d+)') { $used = [double]$Matches[1] }
+        } catch { Write-Debug "disk size failed: $($_.Exception.Message)" }
+    }
+    $path = Get-InstanceFolder -Index $Index -Thumb $Thumb
+    $free = 0.0
+    $drive = ''
+    $root = if ($path) { $path } elseif ($script:Mgr) { Split-Path -Parent $script:Mgr } else { '' }
+    if ($root) {
+        try {
+            $di = [System.IO.DriveInfo]::new([System.IO.Path]::GetPathRoot($root))
+            $free = $di.AvailableFreeSpace
+            $drive = $di.Name.TrimEnd('\')
+        } catch { Write-Debug "free space failed: $($_.Exception.Message)" }
+    }
+    return [pscustomobject]@{ Used = $used; Free = $free; Drive = $drive; Path = $path }
+}
+
+function New-SettingDisk {
+    param([string]$Key, [string]$Label, $Win, $Disk)
+    if ($Key -eq 'disk_cleanup') {
+        $b = New-Object System.Windows.Controls.Button
+        $b.Content = $(if ($Label) { $Label } else { 'Открыть папку' })
+        $b.Style = $Win.Resources['RowBtn']
+        $b.Cursor = [System.Windows.Input.Cursors]::Hand
+        $b.Add_Click({
+                if ($Disk.Path -and (Test-Path -LiteralPath $Disk.Path)) {
+                    Start-Process explorer.exe -ArgumentList ('"{0}"' -f $Disk.Path)
+                    Write-Log ("disk {0}: open {1}" -f $script:SettingsIndex, $Disk.Path)
+                    Set-SettingsStatus ("Открыта папка: {0}" -f $Disk.Path) '#5BE39B'
+                } else {
+                    Set-SettingsStatus 'Папка инстанса не найдена: менеджер не назвал путь' '#FF8A8A'
+                }
+            }.GetNewClosure())
+        return $b
+    }
+    $sp = New-Object System.Windows.Controls.StackPanel
+    $sp.HorizontalAlignment = 'Right'
+    $used = New-Object System.Windows.Controls.TextBlock
+    $used.Text = ("{0} занято" -f (Format-Size $Disk.Used))
+    $used.FontSize = 14
+    $used.FontWeight = 'SemiBold'
+    $used.Foreground = (Get-Brush '#9CC8FF')
+    $used.HorizontalAlignment = 'Right'
+    $free = New-Object System.Windows.Controls.TextBlock
+    $free.Text = $(if ($Disk.Free -gt 0) { 'свободно {0} на {1}' -f (Format-Size $Disk.Free), $Disk.Drive } else { 'свободное место не прочитано' })
+    $free.FontSize = 11
+    $free.Foreground = (Get-Brush '#787C8E')
+    $free.HorizontalAlignment = 'Right'
+    $free.Margin = '0,3,0,0'
+    [void]$sp.Children.Add($used)
+    [void]$sp.Children.Add($free)
+    return $sp
 }
 
 function Get-SettingSchema {
@@ -854,6 +967,14 @@ function Get-SettingSchema {
             ) }
         @{ Title = 'Звук'; Icon = [char]0xE767; Rows = @(
                 @{ K = 'system_volume_close'; T = 'Глушить при закрытии'; D = 'Выключать звук, когда окно устройства закрыто'; Type = 'bool' }
+            ) }
+        @{ Title = 'Диск'; Icon = [char]0xEDA2; Rows = @(
+                # Same two cards MuMu's own "Диск" page shows. The cleanup and
+                # "expand" buttons there have no manager command behind them,
+                # so this page reports real numbers and opens the folder
+                # instead of pretending to clean or resize anything.
+                @{ K = 'disk_cleanup'; T = 'Очистка диска'; D = 'Команды очистки нет — открывается папка инстанса'; Type = 'disk'; Label = 'Открыть папку' }
+                @{ K = 'disk_space'; T = 'Дисковое пространство'; D = 'Занято инстансом и свободно на диске MuMu'; Type = 'disk' }
             ) }
         @{ Title = 'Сеть'; Icon = [char]0xE968; Rows = @(
                 @{ K = 'net_bridge.enabled'; T = 'Мостовое соединение'; D = 'Сетевой мост вместо NAT'; Type = 'bool' }
@@ -1014,6 +1135,27 @@ function Show-SettingsWindow {
       <Setter Property="VerticalContentAlignment" Value="Center"/>
     </Style>
 
+    <Style x:Key="RowBtn" TargetType="Button">
+      <Setter Property="Foreground" Value="#C9CAD3"/>
+      <Setter Property="Background" Value="#1C1D26"/>
+      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="Padding" Value="14,8"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="bd" CornerRadius="9" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="bd" Property="Background" Value="#242633"/></Trigger>
+              <Trigger Property="IsPressed" Value="True"><Setter TargetName="bd" Property="Opacity" Value="0.7"/></Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
     <Style TargetType="ListBoxItem">
       <Setter Property="Foreground" Value="#B9BDCB"/>
       <Setter Property="Cursor" Value="Hand"/>
@@ -1084,6 +1226,11 @@ function Show-SettingsWindow {
         $panel.Children.Clear()
         $script:SettingsReady = $false
         $mapNow = Get-SettingsMap -Index $script:SettingsIndex
+        # One info call for the whole section instead of one per disk row.
+        $disk = $null
+        if (@($section.Rows | Where-Object { $_.Type -eq 'disk' }).Count -gt 0) {
+            $disk = Get-DeviceDisk -Index $script:SettingsIndex -Thumb ([string]$mapNow['device_thumbnail'])
+        }
         foreach ($row in $section.Rows) {
             $value = [string]$mapNow[$row.K]
             $card = [Windows.Markup.XamlReader]::Parse($script:RowXaml)
@@ -1094,6 +1241,7 @@ function Show-SettingsWindow {
                 'bool' { New-SettingSwitch -Key $row.K -Value $value -Win $win }
                 'choice' { New-SettingChoice -Key $row.K -Value $value -Options $row.Options -Win $win }
                 'preset' { New-SettingPreset -Options $row.Options -Win $win -Current $mapNow }
+                'disk' { New-SettingDisk -Key $row.K -Label $row.Label -Win $win -Disk $disk }
                 default { New-SettingText -Key $row.K -Value $value -Win $win }
             }
             $card.FindName('Slot').Content = $control
