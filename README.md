@@ -59,10 +59,13 @@
 Через Git:
 
 ```powershell
+cd C:\test                                    # любая папка: git clone создаст в ней подпапку
 git clone https://github.com/genrihx2/MuMuManager-CLI-Menu.git
-cd MuMuManager-CLI-Menu
+cd .\MuMuManager-CLI-Menu                     # скрипт лежит здесь, а не в C:\test
 .\mumu-menu.ps1
 ```
+
+`git clone` без второго аргумента создаёт папку с именем репозитория, поэтому в папке, куда вы клонировали, скрипта нет: `cd C:\test` и затем `.\mumu-menu.ps1` дадут «не является внутренней или внешней командой». Либо перейдите в созданную подпапку (как выше), либо задайте имя сразу: `git clone https://github.com/genrihx2/MuMuManager-CLI-Menu.git C:\test\MuMuMenu`, затем `cd C:\test\MuMuMenu`.
 
 Два движка, один репозиторий. PowerShell-меню (`mumu-menu.ps1`) остаётся эталонным и работает ровно как раньше; JavaScript-движок (`mumu-menu.cjs`) добавляет нативную альтернативу для тех, у кого есть Node.js 18+ — ноль зависимостей, `npm install` не нужен, запуск из любой папки:
 

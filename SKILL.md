@@ -58,8 +58,8 @@ PSScriptAnalyzerSettings.psd1
 irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-menu.ps1 -OutFile $env:TEMP\mumu-menu.ps1; & $env:TEMP\mumu-menu.ps1
 
 # Or git clone:
-git clone https://github.com/genrihx2/MuMuManager-CLI-Menu.git
-cd MuMuManager-CLI-Menu
+git clone https://github.com/genrihx2/MuMuManager-CLI-Menu.git   # creates .\MuMuManager-CLI-Menu
+cd .\MuMuManager-CLI-Menu        # mumu-menu.ps1 is here, not in the parent folder
 .\mumu-menu.ps1                 # if the execution policy blocks this, double-click mumu-menu.cmd
 
 # Or bootstrap into an existing folder (also the recovery path):
