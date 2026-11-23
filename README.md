@@ -88,6 +88,27 @@ irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-me
 
 Или скачайте ZIP с Releases и запустите `mumu-menu.ps1`.
 
+(Нет прав администратора или антивирус блокирует установку MuMu? Запустите PowerShell от имени администратора и добавьте папку MuMu (`C:\Program Files\Netease\MuMuPlayer`) вместе с папкой меню в исключения: Windows Security → Virus & threat protection → Manage settings → Exclusions → Add folder; файл из карантина сначала восстановите в Protection history. Без прав администратора разверните меню в папке пользователя, например `%USERPROFILE%\MuMuManager` — она пишется без UAC, а подтверждение понадобится только при установке движка эмулятора.)
+
+## Чистая переустановка MuMu (по шагам)
+
+Если MuMu не стартует («Startup failed», «abnormal runtime environment»), помогает полный сброс окружения. Шаги 5–6 **удаляют данные инстансов** — нужные VM сохраните заранее.
+
+1. Скачайте и установите Git для Windows: https://git-scm.com/install/windows
+2. Создайте папку в корне диска — `C:\test`.
+3. Скачайте ZIP со страницы Releases (актуальная сборка на 23.11.2026 — `MuMuManager-CLI-Menu-v10.4.36.zip`), распакуйте и положите в `C:\test`.
+4. Откройте PowerShell **от имени администратора** и выполните:
+
+```powershell
+git clone https://github.com/genrihx2/MuMuManager-CLI-Menu.git
+cd MuMuManager-CLI-Menu
+.\mumu-menu.ps1
+```
+
+5. В меню выберите `[RF]` (Repair device — delete VM data + recreate), ответьте `yes` на запрос и `0` для инстанса.
+6. Удалите содержимое `C:\Program Files\Netease\MuMuPlayer\nx_device`, затем папки `MuMuPlayerGlobal-15.0-0` и `MuMuPlayerGlobal-15.0-1` в `C:\Program Files\Netease\MuMuPlayer\vms`.
+7. Запустите MuMu, создайте новый инстанс и дождитесь окончания загрузки и установки. (Нет прав администратора или антивирус блокирует установку — см. сноску в разделе «Установка»: запуск от администратора, исключения в Windows Security и работа из папки пользователя без UAC.)
+
 ## Использование
 
 Запуск меню:
