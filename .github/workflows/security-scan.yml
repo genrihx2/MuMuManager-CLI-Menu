@@ -37,14 +37,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - name: Run PSScriptAnalyzer
+      - name: Run PSScriptAnalyzer and write SARIF
+        # The composite action (microsoft/psscriptanalyzer-action) pipes
+        # Invoke-ScriptAnalyzer straight into ConvertToSARIF, and on the runner
+        # that converter started throwing "Object reference not set to an
+        # instance of an object": no results.sarif was written at all, so this
+        # workflow failed with "the scan did not run" while the alerts it had
+        # published earlier stayed open. The repo now writes its own SARIF from
+        # the same diagnostics, one file at a time, so a failure names the file.
         id: scan
-        uses: microsoft/psscriptanalyzer-action@6b2948b1944407914a58661c49941824d149734f  # v1.1
-        with:
-          path: .\
-          recurse: true
-          output: results.sarif
-          settings: PSScriptAnalyzerSettings.psd1
+        shell: pwsh
+        run: |
+          ./.github/scripts/psa-sarif.ps1 -OutFile results.sarif
 
       - name: Upload SARIF results
         if: always() && hashFiles('results.sarif') != ''

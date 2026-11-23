@@ -4493,8 +4493,15 @@ Describe 'PSScriptAnalyzer settings (PowerShell 5.1 compatibility gate)' {
         ($cfg.ExcludeRules -contains 'PSAvoidUsingWriteHost') | Should -BeTrue
 
         # The scan job must point at THIS settings file, or the gate is inert.
+        # It runs the repo's own SARIF writer instead of the composite action,
+        # whose Invoke-ScriptAnalyzer | ConvertTo-SARIF pipeline died with a
+        # NullReferenceException and published no SARIF at all, so the settings
+        # file is wired in that script rather than in a `settings:` input.
         $wf = Get-Content -Raw -LiteralPath (Join-Path $root '.github/workflows/security-scan.yml')
-        ($wf -match 'settings:\s*PSScriptAnalyzerSettings\.psd1') | Should -BeTrue
+        ($wf -match 'psa-sarif\.ps1') | Should -BeTrue
+        $scanner = Get-Content -Raw -LiteralPath (Join-Path $root '.github/scripts/psa-sarif.ps1')
+        ($scanner -match 'PSScriptAnalyzerSettings\.psd1') | Should -BeTrue
+        ($scanner -match 'Invoke-ScriptAnalyzer[^\n]*-Settings') | Should -BeTrue
     }
 }
 
