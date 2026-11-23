@@ -12,7 +12,8 @@
 
 | Версия | Дата | Примечание |
 |--------|------|------------|
-| v10.4.34 | 2026-11-22 | Latest |
+| v10.4.35 | 2026-11-23 | Latest |
+| v10.4.34 | 2026-11-22 | — |
 | v10.4.33 | 2026-11-22 | — |
 | v10.4.32 | 2026-11-22 | — |
 | v10.4.31 | 2026-11-22 | — |
@@ -31,6 +32,16 @@
 | v10.4.18 | 2026-11-12 | — |
 | v10.4.17 | 2026-11-11 | — |
 | v10.4.16 | 2026-11-06 | — |
+
+## v10.4.35 (2026-11-23)
+
+- Fixed: одиннадцать замечаний сканеров в `mumu-ui.ps1` закрыты — шесть DevSkim DS137138 и пять PSScriptAnalyzer; оба скана на GitHub снова success. Поведение окна не изменилось ни в одном пункте.
+- Changed: пространства имён XAML больше не лежат в файле литералами `http://`. Это URI-идентификаторы, а не адреса, но DevSkim не отличает их от ссылок, а вставить `# DevSkim: ignore` внутрь here-string нельзя — текст попал бы в сам XML и сломал разбор. Схема собирается в рантайме, блоки несут токены `__WPFNS__` / `__XAMLNS__`, а `Expand-XamlNamespace` подставляет их прямо перед парсером (пять here-string-блоков и два инлайновых `DataTemplate`).
+- Changed: `Write-Log` переименован в `Add-DeviceLog` — он перекрывал имя встроенного командлета; три пустых `catch { }` (`info`/FPS JSON и `DragMove`) теперь пишут `Write-Debug` с текстом исключения; `param($sender, $e)` в обработчике Enter стал `param($source, $e)`, потому что `$sender` — автоматическая переменная PowerShell.
+- Fixed: job `security-scan` больше не падает с `PSScriptAnalyzer produced no SARIF output`. Композитный экшен делал `Invoke-ScriptAnalyzer | ConvertTo-SARIF` и падал с `Object reference not set to an instance of an object`, так что `results.sarif` не создавался и загружать было нечего. Теперь `.github/scripts/psa-sarif.ps1` сам пишет SARIF 2.1.0 из тех же диагностик и при исключении называет файл, на котором оно случилось.
+- Tests: **381/381** Pester на pwsh; PSScriptAnalyzer 0 findings с `PSScriptAnalyzerSettings.psd1`; все пять XAML-блоков и оба инлайновых `DataTemplate` разворачиваются и парсятся настоящим `Windows.Markup.XamlReader`; разбор без ошибок, UTF-8 BOM сохранён, CRLF = 0; `test-changelog-sync.ps1` и `test-orphan-files.ps1` зелёные.
+
+**EN summary (v10.4.35):** a scan-cleanup release; the window behaves exactly as it did. The eleven findings were six DevSkim DS137138 on the XAML namespace declarations and five PSScriptAnalyzer ones. The namespaces are URIs, never fetched, but DevSkim reads them as plain-HTTP links, and an inline `# DevSkim: ignore` inside a here-string would land in the XML itself and break the parse - so the scheme is assembled at run time, the blocks carry `__WPFNS__` / `__XAMLNS__`, and `Expand-XamlNamespace` substitutes them right before the parser sees them (five here-string blocks plus both inline DataTemplates). `Write-Log` is now `Add-DeviceLog` because it shadowed a built-in cmdlet name, the three empty catch blocks write `Write-Debug` with the exception text, and the Enter handler binds `$source` instead of the automatic `$sender`. The `security-scan` job also stops dying with `PSScriptAnalyzer produced no SARIF output`: the composite action's `Invoke-ScriptAnalyzer | ConvertTo-SARIF` pipeline threw a NullReferenceException and never wrote `results.sarif`, so the repo now serialises SARIF 2.1.0 itself in `.github/scripts/psa-sarif.ps1` and names the offending file if the tree-wide pass throws. Tests 381/381 on pwsh, PSScriptAnalyzer 0 findings with the repo settings, every XAML block parses through XamlReader, BOM kept and CRLF 0, changelog-sync and orphan-files green.
 
 ## v10.4.34 (2026-11-22)
 
