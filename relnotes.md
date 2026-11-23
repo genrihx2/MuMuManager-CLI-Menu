@@ -12,7 +12,8 @@
 
 | Версия | Дата | Примечание |
 |--------|------|------------|
-| v10.4.35 | 2026-11-23 | Latest |
+| v10.4.36 | 2026-11-23 | Latest |
+| v10.4.35 | 2026-11-23 | — |
 | v10.4.34 | 2026-11-22 | — |
 | v10.4.33 | 2026-11-22 | — |
 | v10.4.32 | 2026-11-22 | — |
@@ -32,6 +33,13 @@
 | v10.4.18 | 2026-11-12 | — |
 | v10.4.17 | 2026-11-11 | — |
 | v10.4.16 | 2026-11-06 | — |
+
+## v10.4.36 (2026-11-23)
+
+- Fixed: согласие «yes» больше не отменяет опцию. Гейты `Confirm-AdbConsent` (`[A]`, `[AF]`, `[AS]`, `[AH]`) и `Confirm-SpoofConsent` (`[DM]`, `[SIM]`, `[SIM+]`, `[AI]`, `[DI]`) просили ввести ровно `OK` и сравнивали ответ литералом (`-eq 'OK'`), поэтому естественное `yes` считалось отказом: опция закрывалась с «Cancelled (consent not given)». Теперь общий `Test-ConsentAnswer` принимает `OK`, `yes` и `y` в любом регистре и с пробелами по краям, а подсказка говорит «Type OK or yes to continue (anything else cancels)». Любой другой ответ по-прежнему отменяет действие, и согласие всё так же даётся один раз за сессию.
+- Tests: **381/381** Pester на pwsh; PSScriptAnalyzer 0 findings с `PSScriptAnalyzerSettings.psd1`; разбор без ошибок, UTF-8 BOM сохранён, CRLF = 0.
+
+**EN summary (v10.4.36):** answering `yes` no longer cancels the option. The `Confirm-AdbConsent` gate (`[A]`, `[AF]`, `[AS]`, `[AH]`) and `Confirm-SpoofConsent` (`[DM]`, `[SIM]`, `[SIM+]`, `[AI]`, `[DI]`) demanded a literal `OK` and compared with `-eq 'OK'`, so the natural `yes` counted as a refusal and printed `Cancelled (consent not given)`. A shared `Test-ConsentAnswer` now accepts `OK`, `yes` or `y` in any case and with surrounding whitespace, the prompt reads `Type OK or yes to continue (anything else cancels)`, any other answer still cancels, and consent is still remembered for the session. Tests 381/381 on pwsh, PSScriptAnalyzer 0 findings with the repo settings, parse clean, BOM kept, CRLF 0.
 
 ## v10.4.35 (2026-11-23)
 
