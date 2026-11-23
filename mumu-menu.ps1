@@ -12346,6 +12346,14 @@ function ADB-InteractiveShell {
     Write-Host ''
 }
 
+# Shared reader for the consent prompts: the answer is acknowledged with OK,
+# yes or y in any case. The gate used to compare against a literal 'OK', so a
+# natural 'yes' silently cancelled the option instead of accepting it.
+function Test-ConsentAnswer {
+    param([string]$Answer)
+    return (@('ok', 'yes', 'y') -contains ($Answer.Trim().ToLowerInvariant()))
+}
+
 # Consent gate for identifier/model spoofing options: shown once per
 # session, requires explicit acknowledgement. Documents intended use
 # (privacy/testing on the user's own instances) and rejects otherwise.
@@ -12359,8 +12367,8 @@ function Confirm-SpoofConsent {
     Write-Host '  privacy protection and application testing only.' -ForegroundColor White
     Write-Host '  Do not use them to impersonate devices you do not own or' -ForegroundColor White
     Write-Host '  for any unlawful purpose.' -ForegroundColor White
-    $ans = Read-Host '  Type OK to continue (anything else cancels)'
-    if ($ans -eq 'OK') {
+    $ans = Read-Host '  Type OK or yes to continue (anything else cancels)'
+    if (Test-ConsentAnswer $ans) {
         $script:SpoofConsentAccepted = $true
         return $true
     }
@@ -12379,8 +12387,8 @@ function Confirm-AdbConsent {
     Write-Host '  Commands are executed inside YOUR OWN local emulator VM' -ForegroundColor White
     Write-Host '  (isolated Android device). They cannot affect the host OS.' -ForegroundColor White
     Write-Host '  Destructive shell commands may erase data inside that VM.' -ForegroundColor White
-    $ans = Read-Host '  Type OK to continue (anything else cancels)'
-    if ($ans -eq 'OK') {
+    $ans = Read-Host '  Type OK or yes to continue (anything else cancels)'
+    if (Test-ConsentAnswer $ans) {
         $script:AdbConsentAccepted = $true
         return $true
     }
