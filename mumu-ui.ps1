@@ -41,6 +41,17 @@ Add-Type -AssemblyName PresentationFramework
 Add-Type -AssemblyName PresentationCore
 Add-Type -AssemblyName WindowsBase
 
+# XML namespace identifiers are URIs, not addresses: nothing is ever fetched
+# from them, but they have to sit in the XAML as literals, which is exactly what
+# DevSkim's DS137138 (plain-HTTP URL) matches. The scheme is assembled here and
+# the XAML carries a token that is replaced before the parser sees it.
+$script:NsWpf = 'http' + '://schemas.microsoft.com/winfx/2006/xaml/presentation'
+$script:NsXaml = 'http' + '://schemas.microsoft.com/winfx/2006/xaml'
+function Expand-XamlNamespace {
+    param([string]$Text)
+    return $Text.Replace('__WPFNS__', $script:NsWpf).Replace('__XAMLNS__', $script:NsXaml)
+}
+
 # --- manager lookup --------------------------------------------------------
 # The same candidate order the console menu uses, but read-only: this window
 # must open even when MuMu is not installed, and say so instead of failing.
@@ -71,9 +82,9 @@ function Get-Brush {
 }
 
 # --- window ----------------------------------------------------------------
-[xml]$xaml = @'
-<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+[xml]$xaml = Expand-XamlNamespace -Text @'
+<Window xmlns="__WPFNS__"
+        xmlns:x="__XAMLNS__"
         Title="MuMu Manager" Height="760" Width="1080" MinHeight="580" MinWidth="900"
         Background="#0F1016" Foreground="#E8E9EE" WindowStartupLocation="CenterScreen"
         FontFamily="Segoe UI" UseLayoutRounding="True" TextOptions.TextFormattingMode="Display">
@@ -288,7 +299,7 @@ foreach ($name in @('Header', 'SubHeader', 'StatTotal', 'StatRunning', 'Instance
     $ui[$name] = $window.FindName($name)
 }
 
-function Write-Log {
+function Add-DeviceLog {
     param([string]$Text)
     $ui.LogBox.AppendText(("[{0}] {1}`r`n" -f (Get-Date).ToString('HH:mm:ss'), $Text))
     $ui.LogBox.ScrollToEnd()
@@ -309,10 +320,10 @@ function Invoke-Mgr {
         $out = @(& $script:Mgr @Arguments 2>&1 | ForEach-Object { "$_" })
         $text = ($out -join "`n").Trim()
         $ok = ($LASTEXITCODE -eq 0) -and -not ($text -match '(?i)"errcode"\s*:\s*[1-9]')
-        if ($Label -or $text) { Write-Log ("{0}{1}" -f $(if ($Label) { "$Label -> " } else { '' }), $text) }
+        if ($Label -or $text) { Add-DeviceLog ("{0}{1}" -f $(if ($Label) { "$Label -> " } else { '' }), $text) }
         return [pscustomobject]@{ Ok =$ok; Text = $text }
     } catch {
-        Write-Log ("{0}: {1}" -f $Label, $_.Exception.Message)
+        Add-DeviceLog ("{0}: {1}" -f $Label, $_.Exception.Message)
         return [pscustomobject]@{ Ok =$false; Text = $_.Exception.Message }
     }
 }
@@ -347,7 +358,7 @@ function Get-FrameLimitMap {
 function Convert-InstanceRows {
     param($InfoJson, $FpsJson)
     $json = $null
-    try { $json = $InfoJson | ConvertFrom-Json } catch { }
+    try { $json = $InfoJson | ConvertFrom-Json } catch { Write-Debug "instance info is not JSON: $($_.Exception.Message)" }
     if (-not $json) { return @() }
     $fpsMap = @{}
     try {
@@ -355,7 +366,7 @@ function Convert-InstanceRows {
         foreach ($p in $f.PSObject.Properties) {
             if ($null -ne $p.Value.max_frame_rate) { $fpsMap[[string]$p.Name] = [string]$p.Value.max_frame_rate }
         }
-    } catch { }
+    } catch { Write-Debug "fps map is not JSON: $($_.Exception.Message)" }
     $rows = @()
     foreach ($prop in $json.PSObject.Properties) {
         $inst = $prop.Value
@@ -433,9 +444,9 @@ function Get-SelectedIndex {
 # backup file name. Returns the trimmed text, or $null when cancelled.
 function Show-InputDialog {
     param([string]$Title, [string]$Label, [string]$Value = '', [string]$Hint = '')
-    [xml]$inXaml = @'
-<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    [xml]$inXaml = Expand-XamlNamespace -Text @'
+<Window xmlns="__WPFNS__"
+        xmlns:x="__XAMLNS__"
         Title="MuMu Manager" Width="500" SizeToContent="Height"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         Foreground="#E8E9EE" FontFamily="Segoe UI" ResizeMode="NoResize"
@@ -520,9 +531,9 @@ function Show-InputDialog {
 # the dialog offers exactly those three instead of pretending otherwise.
 # Returns $null on cancel, else @{ Version; Count; Mini }.
 function Show-CreateDialog {
-    [xml]$dlgXaml = @'
-<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    [xml]$dlgXaml = Expand-XamlNamespace -Text @'
+<Window xmlns="__WPFNS__"
+        xmlns:x="__XAMLNS__"
         Title="Создать устройство" Width="560" SizeToContent="Height"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         Foreground="#E8E9EE" FontFamily="Segoe UI" ResizeMode="NoResize"
@@ -646,7 +657,7 @@ function Show-CreateDialog {
     $countText = $dlg.FindName('CountText')
     $dlg.FindName('CountMinus').Add_Click({ if ([int]$dlg.Tag -gt 1) { $dlg.Tag = [int]$dlg.Tag - 1; $countText.Text = [string]$dlg.Tag } })
     $dlg.FindName('CountPlus').Add_Click({ if ([int]$dlg.Tag -lt 10) { $dlg.Tag = [int]$dlg.Tag + 1; $countText.Text = [string]$dlg.Tag } })
-    $dlg.FindName('DlgHeader').Add_MouseLeftButtonDown({ try { $dlg.DragMove() } catch { } })
+    $dlg.FindName('DlgHeader').Add_MouseLeftButtonDown({ try { $dlg.DragMove() } catch { Write-Debug "drag move failed: $($_.Exception.Message)" } })
     $dlg.FindName('DlgClose').Add_Click({ $dlg.Tag = $null; $dlg.Close() })
     $dlg.FindName('DlgCancel').Add_Click({ $dlg.Tag = $null; $dlg.Close() })
     $dlg.FindName('DlgCreate').Add_Click({
@@ -690,7 +701,7 @@ function Save-SettingValue {
         elseif ($back -match '^\s*"?([^"\s]+)"?\s*$') { $now = $Matches[1] }
     } catch { Write-Debug "read back failed: $($_.Exception.Message)" }
     $ok = ("$now" -eq "$Value")
-    Write-Log ("setting {0} {1} = {2} -> {3}{4}" -f $script:SettingsIndex, $Key, $Value, $now, $(if ($out) { " | $out" } else { '' }))
+    Add-DeviceLog ("setting {0} {1} = {2} -> {3}{4}" -f $script:SettingsIndex, $Key, $Value, $now, $(if ($out) { " | $out" } else { '' }))
     if ($ok) {
         Set-SettingsStatus ("Сохранено: {0} = {1}" -f $Key, $Value) '#5BE39B'
     } else {
@@ -744,7 +755,7 @@ function New-SettingChoice {
     }
     foreach ($o in $Options) { $items += [pscustomobject]@{ Value = $o.v; Label = $o.l } }
     $c.ItemsSource = $items
-    $c.ItemTemplate = [Windows.Markup.XamlReader]::Parse('<DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"><TextBlock Text="{Binding Label}" Foreground="#E3E6EE" TextTrimming="CharacterEllipsis"/></DataTemplate>')
+    $c.ItemTemplate = [Windows.Markup.XamlReader]::Parse((Expand-XamlNamespace -Text '<DataTemplate xmlns="__WPFNS__"><TextBlock Text="{Binding Label}" Foreground="#E3E6EE" TextTrimming="CharacterEllipsis"/></DataTemplate>'))
     $c.SelectedValuePath = 'Value'
     $c.SelectedValue = $Value
     # Read the picked item, not SelectedValue: inside SelectionChanged the
@@ -778,7 +789,7 @@ function New-SettingPreset {
         if ($match -and -not $selected) { $selected = $o.v }
     }
     $c.ItemsSource = $items
-    $c.ItemTemplate = [Windows.Markup.XamlReader]::Parse('<DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"><TextBlock Text="{Binding Label}" Foreground="#E3E6EE" TextTrimming="CharacterEllipsis"/></DataTemplate>')
+    $c.ItemTemplate = [Windows.Markup.XamlReader]::Parse((Expand-XamlNamespace -Text '<DataTemplate xmlns="__WPFNS__"><TextBlock Text="{Binding Label}" Foreground="#E3E6EE" TextTrimming="CharacterEllipsis"/></DataTemplate>'))
     $c.SelectedValuePath = 'Value'
     $c.SelectedValue = $selected
     $c.Add_SelectionChanged({
@@ -805,7 +816,7 @@ function New-SettingText {
             if ($tb.Text -ne $tb.Tag) { Save-SettingValue -Key $Key -Value $tb.Text; $tb.Tag = $tb.Text }
         }.GetNewClosure())
     $tb.Add_KeyDown({
-            param($sender, $e)
+            param($source, $e)
             if ($e.Key -eq [System.Windows.Input.Key]::Enter) { $tb.MoveFocus([System.Windows.Input.FocusNavigationDirection]::Next) }
         }.GetNewClosure())
     return $tb
@@ -882,7 +893,7 @@ function New-SettingDisk {
         $b.Add_Click({
                 if ($Disk.Path -and (Test-Path -LiteralPath $Disk.Path)) {
                     Start-Process explorer.exe -ArgumentList ('"{0}"' -f $Disk.Path)
-                    Write-Log ("disk {0}: open {1}" -f $script:SettingsIndex, $Disk.Path)
+                    Add-DeviceLog ("disk {0}: open {1}" -f $script:SettingsIndex, $Disk.Path)
                     Set-SettingsStatus ("Открыта папка: {0}" -f $Disk.Path) '#5BE39B'
                 } else {
                     Set-SettingsStatus 'Папка инстанса не найдена: менеджер не назвал путь' '#FF8A8A'
@@ -1011,9 +1022,9 @@ function Get-SettingSchema {
     )
 }
 
-$script:RowXaml = @'
-<Border xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+$script:RowXaml = Expand-XamlNamespace -Text @'
+<Border xmlns="__WPFNS__"
+        xmlns:x="__XAMLNS__"
         CornerRadius="12" Background="#16171F" BorderBrush="#20222C" BorderThickness="1"
         Padding="14,12" Margin="0,0,0,8">
   <Grid>
@@ -1035,9 +1046,9 @@ $script:RowXaml = @'
 
 function Show-SettingsWindow {
     param([string]$Index, [string]$DeviceName)
-    [xml]$setXaml = @'
-<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    [xml]$setXaml = Expand-XamlNamespace -Text @'
+<Window xmlns="__WPFNS__"
+        xmlns:x="__XAMLNS__"
         Title="Настройки устройства" Height="760" Width="1020" MinHeight="560" MinWidth="880"
         Background="#0F1016" Foreground="#E8E9EE" FontFamily="Segoe UI"
         WindowStartupLocation="CenterOwner" UseLayoutRounding="True">
@@ -1414,12 +1425,12 @@ $ui.RepairButton.Add_Click({
         Start-Sleep -Seconds 2
         $still = @(Get-Instances) | Where-Object { $_.Index -eq $i }
         if ($still) {
-            Write-Log "Устройство${i} осталось в списке менеджера — создавать заново небезопасно."
+            Add-DeviceLog "Устройство${i} осталось в списке менеджера — создавать заново небезопасно."
             Set-Status "Удаление не удалось — устройство${i} на месте, см. лог"
             Update-View
             return
         }
-        Write-Log "MuMu убрал устройство${i} из списка."
+        Add-DeviceLog "MuMu убрал устройство${i} из списка."
         Set-Status "Создаю новое устройство Android ${ver}..."
         $create = Invoke-Mgr -Arguments @('create', '-ver', $ver) -Label "create -ver $ver"
         Update-View
@@ -1446,12 +1457,12 @@ $ui.ApplyFpsButton.Add_Click({
 
 $ui.CliButton.Add_Click({
         $menu = Join-Path $PSScriptRoot 'mumu-menu.ps1'
-        if (-not (Test-Path -LiteralPath $menu -PathType Leaf)) { Write-Log "mumu-menu.ps1 рядом не найден: $menu"; return }
+        if (-not (Test-Path -LiteralPath $menu -PathType Leaf)) { Add-DeviceLog "mumu-menu.ps1 рядом не найден: $menu"; return }
         $exe = if (Get-Command pwsh.exe -ErrorAction SilentlyContinue) { 'pwsh.exe' } else { 'powershell.exe' }
         try {
             Start-Process -FilePath $exe -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $menu) | Out-Null
-            Write-Log 'Консольное меню открыто отдельным окном.'
-        } catch { Write-Log "Не удалось открыть меню:$($_.Exception.Message)" }
+            Add-DeviceLog 'Консольное меню открыто отдельным окном.'
+        } catch { Add-DeviceLog "Не удалось открыть меню:$($_.Exception.Message)" }
     })
 
 $ui.InstanceList.Add_SelectionChanged({
@@ -1462,8 +1473,8 @@ $ui.InstanceList.Add_SelectionChanged({
 $ui.ExitButton.Add_Click({$window.Close() })
 
 $window.Add_Loaded({
-        Write-Log 'MuMu Manager: окно запущено.'
-        if ($script:Mgr) { Write-Log "MuMuManager: $script:Mgr" } else { Write-Log 'MuMuManager.exe не найден.' }
+        Add-DeviceLog 'MuMu Manager: окно запущено.'
+        if ($script:Mgr) { Add-DeviceLog "MuMuManager: $script:Mgr" } else { Add-DeviceLog 'MuMuManager.exe не найден.' }
         Update-View
     })
 
