@@ -92,20 +92,19 @@ irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-me
 
 ## Чистая переустановка MuMu (по шагам)
 
-Если MuMu не стартует («Startup failed», «abnormal runtime environment»), помогает полный сброс окружения. Шаги 5–6 **удаляют данные инстансов** — установленные приложения и настройки. Нужные VM скопируйте заранее на другой диск (например, папку `C:\Program Files\Netease\MuMuPlayer\vms\MuMuPlayerGlobal-15.0-0`): это единственный способ откатиться.
+Если MuMu не стартует («Startup failed», «abnormal runtime environment»), помогает полный сброс устройства. Шаги 4–5 **удаляют данные инстансов** — установленные приложения и настройки. Нужные VM скопируйте заранее на другой диск (например, папку `C:\Program Files\Netease\MuMuPlayer\vms\MuMuPlayerGlobal-15.0-0`): это единственный способ откатиться.
 
-1. Скачайте и установите Git для Windows: https://git-scm.com/install/windows
-2. Создайте папку в корне диска — `C:\test` — и работайте в ней: и клон, и распакованный ZIP кладутся сюда, без прав администратора.
-3. Возьмите меню **одним** из двух способов (ZIP и `git clone` вместе не нужны):
+1. Создайте папку в корне диска — `C:\test` — и работайте в ней: и клон, и распакованный ZIP кладутся сюда, без прав администратора.
+2. Возьмите меню **одним** из двух способов (ZIP и `git clone` вместе не нужны):
 
    ```powershell
    cd C:\test
    git clone https://github.com/genrihx2/MuMuManager-CLI-Menu.git   # появится C:\test\MuMuManager-CLI-Menu
    ```
 
-   либо скачайте `MuMuManager-CLI-Menu-v10.4.36.zip` со страницы Releases (https://github.com/genrihx2/MuMuManager-CLI-Menu/releases) и распакуйте содержимое архива прямо в `C:\test`.
+   либо скачайте `MuMuManager-CLI-Menu-v10.4.36.zip` со страницы Releases (https://github.com/genrihx2/MuMuManager-CLI-Menu/releases) и распакуйте содержимое архива прямо в `C:\test`. Git нужен только для клона: если его нет — установите с https://git-scm.com/install/windows; для ZIP он не требуется.
 
-4. Откройте PowerShell **от имени администратора** и перейдите в папку с меню: администраторский PowerShell стартует в `C:\Windows\System32`, поэтому `cd` обязателен — иначе `.\mumu-menu.ps1` даст «не является внутренней или внешней командой».
+3. Откройте PowerShell **от имени администратора** и перейдите в папку с меню: администраторский PowerShell стартует в `C:\Windows\System32`, поэтому `cd` обязателен — иначе `.\mumu-menu.ps1` даст «не является внутренней или внешней командой».
 
    ```powershell
    cd C:\test\MuMuManager-CLI-Menu     # для ZIP: та папка, куда вы распаковали архив
@@ -114,11 +113,12 @@ irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-me
 
    Если PowerShell отказывается запускать скрипт (`PSSecurityException`, «выполнение сценариев отключено в этой системе»), используйте `.\mumu-menu.cmd` — он поднимает `-ExecutionPolicy Bypass` только для своего процесса. В ZIP этого файла нет: там `Unblock-File .\mumu-menu.ps1` или `powershell -ExecutionPolicy Bypass -File .\mumu-menu.ps1`.
 
-5. В меню выберите `[RF]` (Repair device — delete VM data + recreate): ответьте `yes` на подтверждение и укажите `0` — номер инстанса, нумерация начинается с нуля. Если после `[RF]` инстанс всё равно не поднимается, повторите сброс вручную по шагу 6.
-6. Сначала закройте MuMu и все его процессы — с залоченными файлами удаление не пройдёт: завершите `MuMuNxMain`, `MuMuNxService` и `MuMuPlayerRemoteService` (или `MuMuManager.exe control -v 0 shutdown`, затем `taskkill /IM MuMuNxMain.exe /F`). После этого:
-   - удалите **всё содержимое** `C:\Program Files\Netease\MuMuPlayer\nx_device` — это движок; при следующем запуске MuMu скачает его заново (несколько минут, нужен интернет), так что заранее этот шаг не отменяйте;
-   - удалите папки `MuMuPlayerGlobal-15.0-0` и `MuMuPlayerGlobal-15.0-1` в `C:\Program Files\Netease\MuMuPlayer\vms` — удаляйте те, что реально есть: число в имени — это индекс инстанса, и после сброса индексы могут отличаться.
-7. Запустите MuMu, создайте новый инстанс и дождитесь окончания загрузки и установки.
+4. В меню выберите `[RF]` (Repair device (delete VM data + recreate)). Сначала он покажет список `Available instances` и спросит `Select instance to repair (0/1, q=cancel)` — номер инстанса, нумерация с нуля (Enter берёт первый в списке, `q` отменяет), — и только потом попросит подтверждение `Type YES (any case) to repair` (годится и `yes`). Дальше `[RF]` закрывает инстанс, снимает его через `MuMuManager.exe delete -v <N>` и создаёт новый инстанс того же Android. Движок `nx_device` он **не трогает** — это общий Android-рантайм, и его удаление ломает `create` (см. шаг 5). Если после `[RF]` устройство не поднялось — шаг 5.
+5. Ручной сброс, если `[RF]` не помог:
+   - закройте MuMu и все его процессы — с залоченными файлами ничего не удалится: `MuMuManager.exe control -v <N> shutdown`, затем `taskkill /IM MuMuNxMain.exe /F`; проверьте, что не осталось `MuMuNxService` и `MuMuPlayerRemoteService`;
+   - снимите инстанс через менеджер: `MuMuManager.exe delete -v <N>`. Папку `MuMuPlayerGlobal-15.0-<N>` в `C:\Program Files\Netease\MuMuPlayer\vms` руками не удаляйте: менеджер продолжит показывать инстанс, а MuMu будет висеть на бесконечной загрузке — удаление через `delete` снимает и запись в списке устройств;
+   - если дело в самом движке, удалите его папку `C:\Program Files\Netease\MuMuPlayer\nx_device\<версия>` (например `15.0`) — **это не данные инстанса**: рантайм общий для всех инстансов этой версии, и MuMu скачивает его заново при следующем запуске (нужен интернет, несколько минут). Пока движок не докачался, `MuMuManager create` отвечает `errcode 60014 android engine not installed`, поэтому новый инстанс создавайте из окна MuMu после того, как движок встал.
+6. Запустите MuMu и создайте новый инстанс — либо проверьте созданный `[RF]` через `[2] Launch emulator` — и дождитесь окончания загрузки и установки.
 
 Нет прав администратора или антивирус блокирует программу (как это было у автора)? См. сноску в разделе «Установка»: запуск от администратора, исключения в Windows Security и папка пользователя, куда меню пишется без UAC.
 
