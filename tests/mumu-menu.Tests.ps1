@@ -5539,8 +5539,20 @@ Describe 'RELEASES.md auto-sync (update-releases.ps1) rewrites only the RELEASES
             # -ExecutionPolicy is Windows-only; keep it off on the Linux CI leg.
             if ($env:OS -eq 'Windows_NT') { $argv += @('-ExecutionPolicy', 'Bypass') }
             $argv += @('-File', $script:syncScript, '-Path', $DocPath, '-ReleasesJson', $script:fixture)
-            $out = (& $script:engineExe @argv 2>&1 | Out-String)
-            [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $out }
+            # A refused sync reports on stderr. tests/run-pester.ps1 sets
+            # $ErrorActionPreference = 'Stop' for the whole run, and under Stop
+            # '2>&1' turns a native child's stderr into a terminating
+            # NativeCommandError - the test then dies on the exception instead of
+            # reading the exit code it asserts on. Localize 'Continue' here.
+            $savedPreference = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            try {
+                $out = (& $script:engineExe @argv 2>&1 | Out-String)
+                $exitCode = $LASTEXITCODE
+            } finally {
+                $ErrorActionPreference = $savedPreference
+            }
+            [pscustomobject]@{ ExitCode = $exitCode; Output = $out }
         }
     }
 
