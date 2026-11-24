@@ -5539,20 +5539,26 @@ Describe 'RELEASES.md auto-sync (update-releases.ps1) rewrites only the RELEASES
             # -ExecutionPolicy is Windows-only; keep it off on the Linux CI leg.
             if ($env:OS -eq 'Windows_NT') { $argv += @('-ExecutionPolicy', 'Bypass') }
             $argv += @('-File', $script:syncScript, '-Path', $DocPath, '-ReleasesJson', $script:fixture)
-            # A refused sync reports on stderr. tests/run-pester.ps1 sets
-            # $ErrorActionPreference = 'Stop' for the whole run, and under Stop
-            # '2>&1' turns a native child's stderr into a terminating
-            # NativeCommandError - the test then dies on the exception instead of
-            # reading the exit code it asserts on. Localize 'Continue' here.
-            $savedPreference = $ErrorActionPreference
-            $ErrorActionPreference = 'Continue'
-            try {
-                $out = (& $script:engineExe @argv 2>&1 | Out-String)
-                $exitCode = $LASTEXITCODE
-            } finally {
-                $ErrorActionPreference = $savedPreference
+            # A refused sync reports on stderr. '& $exe 2>&1' cannot be used
+            # here: tests/run-pester.ps1 sets $ErrorActionPreference = 'Stop'
+            # for the whole run (Pester 5 sets Stop inside every It as well), and
+            # under Stop a native child's stderr becomes a terminating
+            # NativeCommandError - the fail-closed tests then died on that
+            # exception instead of reading the exit code they assert on.
+            # Redirected files keep both streams as text on any engine.
+            $tag = [guid]::NewGuid().ToString('N')
+            $outFile = Join-Path (Split-Path -Parent $script:docPath) "sync-$tag.out.txt"
+            $errFile = Join-Path (Split-Path -Parent $script:docPath) "sync-$tag.err.txt"
+            $quoted = ($argv | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } }) -join ' '
+            $proc = Start-Process -FilePath $script:engineExe -ArgumentList $quoted -NoNewWindow -Wait -PassThru `
+                -RedirectStandardOutput $outFile -RedirectStandardError $errFile
+            $out = ''
+            foreach ($file in @($outFile, $errFile)) {
+                if (Test-Path -LiteralPath $file -PathType Leaf) {
+                    $out += [System.IO.File]::ReadAllText($file)
+                }
             }
-            [pscustomobject]@{ ExitCode = $exitCode; Output = $out }
+            [pscustomobject]@{ ExitCode = $proc.ExitCode; Output = $out }
         }
     }
 
@@ -5599,8 +5605,8 @@ Describe 'RELEASES.md auto-sync (update-releases.ps1) rewrites only the RELEASES
         $before = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($script:docPath))
 
         $result = Invoke-ReleasesSync -DocPath $script:docPath
-        $result.ExitCode | Should -Not -Be 0 -Because 'an absent marker pair must abort the sync'
-        $result.Output | Should -Match 'RELEASES:AUTO'
+        $result.ExitCode | Should -Not -Be 0 -Because "an absent marker pair must abort the sync (exit: $($result.ExitCode); output: $($result.Output))"
+        $result.Output | Should -Match 'RELEASES:AUTO' -Because "the refusal must name the markers (exit: $($result.ExitCode); output: $($result.Output))"
         [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($script:docPath)) | Should -Be $before
     }
 
@@ -5611,8 +5617,8 @@ Describe 'RELEASES.md auto-sync (update-releases.ps1) rewrites only the RELEASES
         $before = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($script:docPath))
 
         $result = Invoke-ReleasesSync -DocPath $script:docPath
-        $result.ExitCode | Should -Not -Be 0 -Because 'two marker pairs are ambiguous'
-        $result.Output | Should -Match 'found 2'
+        $result.ExitCode | Should -Not -Be 0 -Because "two marker pairs are ambiguous (exit: $($result.ExitCode); output: $($result.Output))"
+        $result.Output | Should -Match 'found 2' -Because "the refusal must say how many blocks it saw (exit: $($result.ExitCode); output: $($result.Output))"
         [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($script:docPath)) | Should -Be $before
     }
 }
