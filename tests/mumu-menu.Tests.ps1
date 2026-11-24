@@ -5443,3 +5443,162 @@ Describe 'Repair device screen [RF]' {
         $script:repairRaw.Contains('[RF] deletes only its folder under "vms"') | Should -BeTrue
     }
 }
+Describe 'RELEASES.md auto-sync (update-releases.ps1) rewrites only the RELEASES:AUTO block' -Tag 'RepoFiles' {
+
+    # The docs-index job (release.yml) runs update-releases.ps1 against the real
+    # RELEASES.md. Hand-written prose lives outside the RELEASES:AUTO markers and
+    # must survive every run byte for byte; only the generated table may change,
+    # and a missing or duplicated marker pair must abort without writing anything.
+    # Offline and deterministic: a throwaway git repo supplies fixed tag dates
+    # and the -ReleasesJson fixture supplies the releases payload, so no API is
+    # touched and the expected table is a hard-coded literal.
+
+    BeforeAll {
+        $script:syncRepo = Join-Path $TestDrive 'releases-fixture'
+        New-Item -ItemType Directory -Path $script:syncRepo -Force | Out-Null
+        $script:syncScript = Join-Path $script:syncRepo 'update-releases.ps1'
+        Copy-Item -LiteralPath (Join-Path (Join-Path $PSScriptRoot '..') 'update-releases.ps1') -Destination $script:syncScript
+
+        # Fixed commit dates => %(creatordate) of the lightweight tags is fixed,
+        # so the "Дата тега" column cannot drift with the wall clock.
+        $savedAuthorDate = $env:GIT_AUTHOR_DATE
+        $savedCommitDate = $env:GIT_COMMITTER_DATE
+        try {
+            $ident = @('-c', 'user.name=releases-fixture', '-c', 'user.email=fixture@example.com',
+                       '-c', 'commit.gpgsign=false', '-C', $script:syncRepo)
+            & git -C $script:syncRepo init -q 2>&1 | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'git init failed for the RELEASES.md fixture repo' }
+
+            $env:GIT_AUTHOR_DATE = '2026-01-02T00:00:00+0000'
+            $env:GIT_COMMITTER_DATE = '2026-01-02T00:00:00+0000'
+            & git @ident commit -q --allow-empty -m 'first' 2>&1 | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'git commit (1) failed for the RELEASES.md fixture repo' }
+            & git @ident tag 'v1.1.0'
+
+            $env:GIT_AUTHOR_DATE = '2026-02-03T00:00:00+0000'
+            $env:GIT_COMMITTER_DATE = '2026-02-03T00:00:00+0000'
+            & git @ident commit -q --allow-empty -m 'second' 2>&1 | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'git commit (2) failed for the RELEASES.md fixture repo' }
+            & git @ident tag 'v1.2.3'
+        }
+        finally {
+            $env:GIT_AUTHOR_DATE = $savedAuthorDate
+            $env:GIT_COMMITTER_DATE = $savedCommitDate
+        }
+        @(& git -C $script:syncRepo tag --list) | Should -Be @('v1.1.0', 'v1.2.3')
+
+        # Releases payload: v1.2.3 published with a ZIP digest, v1.1.0 absent
+        # (the script must render the em-dash row instead of guessing).
+        $script:sha = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+        $script:fixture = Join-Path $TestDrive 'releases-fixture.json'
+        $json = @(
+            @{ tag_name = 'v1.2.3'; draft = $false; published_at = '2026-02-05T12:00:00Z'
+               assets = @(@{ name = 'MuMuManager-CLI-Menu-v1.2.3.zip'; digest = "sha256:$($script:sha)" }) }
+        ) | ConvertTo-Json -Depth 6
+        $script:utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+        [System.IO.File]::WriteAllText($script:fixture, $json, $script:utf8NoBom)
+
+        $script:startMarker = '<!-- RELEASES:AUTO:START -->'
+        $script:endMarker = '<!-- RELEASES:AUTO:END -->'
+        $script:proseBefore = @(
+            '# Релизы (индекс)'
+            ''
+            'Индекс всех тегов репозитория и опубликованных релизов: один тег — одна строка.'
+            'Ручная проза выше маркеров: не перезаписывать.'
+            ''
+        ) -join "`n"
+        $script:proseAfter = "`n`n## Особые случаи`n`n- Ручной пункт: скрипт к нему не прикасается.`n`nХвост файла.`n"
+        $script:corruptBlock = @(
+            '| Тег | Дата тега | Опубликован | SHA-256 ZIP |'
+            '|---|---|---|---|'
+            '| МУСОР | 1999-01-01 | — | — |'
+            ''
+            'Итого: 999 тегов, 999 опубликованных релизов.'
+        ) -join "`n"
+        $script:expectedBlock = @(
+            '<!-- RELEASES:AUTO:START -->'
+            '| Тег | Дата тега | Опубликован | SHA-256 ZIP |'
+            '|---|---|---|---|'
+            "| [v1.2.3](https://github.com/genrihx2/MuMuManager-CLI-Menu/releases/tag/v1.2.3) | 2026-02-03 | 2026-02-05 | ``$($script:sha)`` |"
+            '| v1.1.0 | 2026-01-02 | — | — |'
+            ''
+            'Итого: 2 тегов, 1 опубликованных релизов.'
+            '<!-- RELEASES:AUTO:END -->'
+        ) -join "`n"
+
+        $script:docPath = Join-Path $TestDrive 'RELEASES.md'
+
+        # The script calls 'exit 0' after a successful rewrite, which would kill
+        # the Pester runspace; run it in a child engine instead.
+        $script:engineExe = (Get-Process -Id $PID).Path
+        function Invoke-ReleasesSync {
+            param([Parameter(Mandatory)][string]$DocPath)
+            $argv = @('-NoProfile')
+            # -ExecutionPolicy is Windows-only; keep it off on the Linux CI leg.
+            if ($env:OS -eq 'Windows_NT') { $argv += @('-ExecutionPolicy', 'Bypass') }
+            $argv += @('-File', $script:syncScript, '-Path', $DocPath, '-ReleasesJson', $script:fixture)
+            $out = (& $script:engineExe @argv 2>&1 | Out-String)
+            [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $out }
+        }
+    }
+
+    It 'restores a corrupted table while keeping the prose outside the markers byte-identical' {
+        $doc = $script:proseBefore + $script:startMarker + "`n" + $script:corruptBlock + "`n" + $script:endMarker + $script:proseAfter
+        [System.IO.File]::WriteAllText($script:docPath, $doc, $script:utf8NoBom)
+
+        $result = Invoke-ReleasesSync -DocPath $script:docPath
+        $result.ExitCode | Should -Be 0 -Because "the sync should succeed offline; output: $($result.Output)"
+        $result.Output | Should -Match 'RELEASES\.md updated'
+
+        $after = [System.IO.File]::ReadAllText($script:docPath)
+
+        # The garbage seeded inside the markers is gone and the block is exactly
+        # what the fixture implies (tags, dates, digest, summary).
+        $after.Contains('МУСОР') | Should -BeFalse
+        $after.Contains('Итого: 999 тегов') | Should -BeFalse
+        $after | Should -Be ($script:proseBefore + $script:expectedBlock + $script:proseAfter)
+        $after.Substring(0, $script:proseBefore.Length) | Should -BeExactly $script:proseBefore
+        $after.Substring($after.Length - $script:proseAfter.Length) | Should -BeExactly $script:proseAfter
+        $after.Substring($script:proseBefore.Length, $script:expectedBlock.Length) | Should -BeExactly $script:expectedBlock
+
+        # Encoding contract: UTF-8 without BOM, LF endings (the runner is LF).
+        $bytes = [System.IO.File]::ReadAllBytes($script:docPath)
+        ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) | Should -BeFalse -Because 'the writer must not add a BOM'
+        ([System.Text.Encoding]::UTF8.GetString($bytes)).Contains("`r") | Should -BeFalse -Because 'LF endings must be preserved'
+    }
+
+    It 'is idempotent: a second run over the regenerated block changes nothing' {
+        $doc = $script:proseBefore + $script:startMarker + "`n" + $script:corruptBlock + "`n" + $script:endMarker + $script:proseAfter
+        [System.IO.File]::WriteAllText($script:docPath, $doc, $script:utf8NoBom)
+        $null = Invoke-ReleasesSync -DocPath $script:docPath
+        $first = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($script:docPath))
+
+        $result = Invoke-ReleasesSync -DocPath $script:docPath
+        $result.ExitCode | Should -Be 0
+        $result.Output | Should -Match 'already up to date'
+        [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($script:docPath)) | Should -Be $first
+    }
+
+    It 'fails closed and leaves the file untouched when the markers are missing' {
+        $doc = $script:proseBefore + $script:corruptBlock + "`n" + $script:proseAfter
+        [System.IO.File]::WriteAllText($script:docPath, $doc, $script:utf8NoBom)
+        $before = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($script:docPath))
+
+        $result = Invoke-ReleasesSync -DocPath $script:docPath
+        $result.ExitCode | Should -Not -Be 0 -Because 'an absent marker pair must abort the sync'
+        $result.Output | Should -Match 'RELEASES:AUTO'
+        [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($script:docPath)) | Should -Be $before
+    }
+
+    It 'fails closed when the marker pair appears twice' {
+        $doc = $script:proseBefore + $script:startMarker + "`n" + $script:corruptBlock + "`n" + $script:endMarker +
+               "`n" + $script:startMarker + "`n" + $script:corruptBlock + "`n" + $script:endMarker + $script:proseAfter
+        [System.IO.File]::WriteAllText($script:docPath, $doc, $script:utf8NoBom)
+        $before = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($script:docPath))
+
+        $result = Invoke-ReleasesSync -DocPath $script:docPath
+        $result.ExitCode | Should -Not -Be 0 -Because 'two marker pairs are ambiguous'
+        $result.Output | Should -Match 'found 2'
+        [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($script:docPath)) | Should -Be $before
+    }
+}

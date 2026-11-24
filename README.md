@@ -92,22 +92,35 @@ irm https://raw.githubusercontent.com/genrihx2/MuMuManager-CLI-Menu/main/mumu-me
 
 ## Чистая переустановка MuMu (по шагам)
 
-Если MuMu не стартует («Startup failed», «abnormal runtime environment»), помогает полный сброс окружения. Шаги 5–6 **удаляют данные инстансов** — нужные VM сохраните заранее.
+Если MuMu не стартует («Startup failed», «abnormal runtime environment»), помогает полный сброс окружения. Шаги 5–6 **удаляют данные инстансов** — установленные приложения и настройки. Нужные VM скопируйте заранее на другой диск (например, папку `C:\Program Files\Netease\MuMuPlayer\vms\MuMuPlayerGlobal-15.0-0`): это единственный способ откатиться.
 
 1. Скачайте и установите Git для Windows: https://git-scm.com/install/windows
-2. Создайте папку в корне диска — `C:\test`.
-3. Скачайте ZIP со страницы Releases (актуальная сборка на 23.11.2026 — `MuMuManager-CLI-Menu-v10.4.36.zip`), распакуйте и положите в `C:\test`.
-4. Откройте PowerShell **от имени администратора** и выполните:
+2. Создайте папку в корне диска — `C:\test` — и работайте в ней: и клон, и распакованный ZIP кладутся сюда, без прав администратора.
+3. Возьмите меню **одним** из двух способов (ZIP и `git clone` вместе не нужны):
 
-```powershell
-git clone https://github.com/genrihx2/MuMuManager-CLI-Menu.git
-cd MuMuManager-CLI-Menu
-.\mumu-menu.ps1
-```
+   ```powershell
+   cd C:\test
+   git clone https://github.com/genrihx2/MuMuManager-CLI-Menu.git   # появится C:\test\MuMuManager-CLI-Menu
+   ```
 
-5. В меню выберите `[RF]` (Repair device — delete VM data + recreate), ответьте `yes` на запрос и `0` для инстанса.
-6. Удалите содержимое `C:\Program Files\Netease\MuMuPlayer\nx_device`, затем папки `MuMuPlayerGlobal-15.0-0` и `MuMuPlayerGlobal-15.0-1` в `C:\Program Files\Netease\MuMuPlayer\vms`.
-7. Запустите MuMu, создайте новый инстанс и дождитесь окончания загрузки и установки. (Нет прав администратора или антивирус блокирует установку — см. сноску в разделе «Установка»: запуск от администратора, исключения в Windows Security и работа из папки пользователя без UAC.)
+   либо скачайте `MuMuManager-CLI-Menu-v10.4.36.zip` со страницы Releases (https://github.com/genrihx2/MuMuManager-CLI-Menu/releases) и распакуйте содержимое архива прямо в `C:\test`.
+
+4. Откройте PowerShell **от имени администратора** и перейдите в папку с меню: администраторский PowerShell стартует в `C:\Windows\System32`, поэтому `cd` обязателен — иначе `.\mumu-menu.ps1` даст «не является внутренней или внешней командой».
+
+   ```powershell
+   cd C:\test\MuMuManager-CLI-Menu     # для ZIP: та папка, куда вы распаковали архив
+   .\mumu-menu.ps1
+   ```
+
+   Если PowerShell отказывается запускать скрипт (`PSSecurityException`, «выполнение сценариев отключено в этой системе»), используйте `.\mumu-menu.cmd` — он поднимает `-ExecutionPolicy Bypass` только для своего процесса. В ZIP этого файла нет: там `Unblock-File .\mumu-menu.ps1` или `powershell -ExecutionPolicy Bypass -File .\mumu-menu.ps1`.
+
+5. В меню выберите `[RF]` (Repair device — delete VM data + recreate): ответьте `yes` на подтверждение и укажите `0` — номер инстанса, нумерация начинается с нуля. Если после `[RF]` инстанс всё равно не поднимается, повторите сброс вручную по шагу 6.
+6. Сначала закройте MuMu и все его процессы — с залоченными файлами удаление не пройдёт: завершите `MuMuNxMain`, `MuMuNxService` и `MuMuPlayerRemoteService` (или `MuMuManager.exe control -v 0 shutdown`, затем `taskkill /IM MuMuNxMain.exe /F`). После этого:
+   - удалите **всё содержимое** `C:\Program Files\Netease\MuMuPlayer\nx_device` — это движок; при следующем запуске MuMu скачает его заново (несколько минут, нужен интернет), так что заранее этот шаг не отменяйте;
+   - удалите папки `MuMuPlayerGlobal-15.0-0` и `MuMuPlayerGlobal-15.0-1` в `C:\Program Files\Netease\MuMuPlayer\vms` — удаляйте те, что реально есть: число в имени — это индекс инстанса, и после сброса индексы могут отличаться.
+7. Запустите MuMu, создайте новый инстанс и дождитесь окончания загрузки и установки.
+
+Нет прав администратора или антивирус блокирует программу (как это было у автора)? См. сноску в разделе «Установка»: запуск от администратора, исключения в Windows Security и папка пользователя, куда меню пишется без UAC.
 
 ## Использование
 
