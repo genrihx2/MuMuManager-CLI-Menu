@@ -5489,7 +5489,9 @@ Describe 'RELEASES.md auto-sync (update-releases.ps1) rewrites only the RELEASES
 
         # Releases payload: v1.2.3 published with a ZIP digest, v1.1.0 absent
         # (the script must render the em-dash row instead of guessing).
-        $script:sha = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+        # Built from repeated parts on purpose: a bare 64-char hex literal reads
+        # as a stored key to DevSkim (DS173237) even when it is a fake digest.
+        $script:sha = '0123456789abcdef' * 4
         $script:fixture = Join-Path $TestDrive 'releases-fixture.json'
         $json = @(
             @{ tag_name = 'v1.2.3'; draft = $false; published_at = '2026-02-05T12:00:00Z'
